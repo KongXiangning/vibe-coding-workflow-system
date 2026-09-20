@@ -7,10 +7,13 @@
  */
 
 import { readProjectDocuments, type ProjectDocument } from './project-documents';
+import { describeEvidenceObjects, ingestEvidenceText } from './evidence-lineage';
+import { withGovernanceWriteLock } from './runtime-io';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  taskSourceRevisionMatches,
   MAX_REPAIR_ROUNDS,
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
   VNextRuntimeError,
@@ -21,15 +24,19 @@ import {
   createEvidenceChallengeProposal,
   createReviewResultProposal,
   currentDefinitionExecutionLog,
+  currentExecutionDynamicExpansions,
   cumulativeReviewExecution,
+  dynamicReviewRequiredForCurrentExecution,
   validateTestAssessment,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
+  resolveTestStrategyExecutionContext,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
   type CanonicalCurrentTask,
   type ClaimEvidenceRecord,
+  type MutationAuthorityExpansion,
   type PendingReviewResult,
   type ReviewBlocker,
   type ReviewFindingCandidate,
@@ -44,10 +51,18 @@ import {
   mutationScopePatternMatchesPath,
   parseMutationScope,
 } from './mutation-scope';
+import {
+  MutationAuthorityError,
+  evaluateMutationAuthority,
+  readProjectMutationAuthority,
+} from './mutation-authority';
 import { resolveTaskStep } from './task-steps';
 import { contextInput, contextPath, decodeText, sha256, textDiff, textPage } from './file-context';
+import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
+import { TaskStore } from './task-store';
+import { decodeLegacyReviewPreimage, readReviewPreimageBlob, ReviewPreimageStoreError } from './review-preimage-store';
 
-export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'] as const;
+export const REVIEW_CHANGE_ADAPTER_COMMANDS = ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'ingest-evidence', 'route-input'] as const;
 export type ReviewChangeAdapterCommand = (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number];
 
 type JsonRecord = Record<string, unknown>;
@@ -76,12 +91,16 @@ export type ReviewContextResult = {
     change_set_id: string;
     review_target_revision: string;
     evidence_refs: string[];
-    execution_result: StepExecutionResult | null;
+    evidence_ref_count: number;
+    evidence_refs_truncated: boolean;
+    execution_result: Record<string, unknown> | null;
+    event_reference: { kind: 'event'; event_path: string } | null;
   };
   current_step: {
     id: string;
     description: string;
     purpose: string;
+    planned_mutation_targets: string[];
     mutation_scope: string[];
     validation: string[];
   };
@@ -94,10 +113,26 @@ export type ReviewContextResult = {
     conditional: string[];
     forbidden: string[];
   };
+  mutation_authority: {
+    version: 2;
+    domains: string[];
+    exact_exceptions: string[];
+    forbidden: string[];
+  } | null;
+  planned_mutation_targets: string[];
+  expanded_mutation_targets: MutationAuthorityExpansion[];
+  dynamic_review_required: boolean;
   persistent_tests: string[] | null;
-  claim_evidence: ClaimEvidenceRecord[];
+  persistent_tests_count: number;
+  persistent_tests_truncated: boolean;
+  claim_evidence: Array<Record<string, unknown>>;
+  claim_evidence_count: number;
+  claim_evidence_truncated: boolean;
+  claim_evidence_read_reference: { command: 'task-read'; kind: 'claim-evidence'; required: true };
   text_diff: ReturnType<typeof reviewFilePage> | null;
   unexpanded_paths: string[];
+  unexpanded_path_count: number;
+  unexpanded_paths_truncated: boolean;
   admitted_findings: Array<{
     fingerprint: string;
     file: string;
@@ -106,6 +141,11 @@ export type ReviewContextResult = {
     repair_attempts: number;
     max_repair_attempts: number;
   }>;
+  admitted_finding_count: number;
+  admitted_findings_truncated: boolean;
+  complete_for_operation: boolean;
+  required_unexpanded: string[];
+  context_projection: TaskContextReference;
   receipt: ReviewContextReceipt;
 };
 
@@ -201,6 +241,36 @@ export function recordEvidenceChallenge(root: string, input: unknown, options: R
   return applyVNextRuntimeProposal(root, proposal, options);
 }
 
+export function ingestEvidence(root: string, input: unknown, options: RuntimeApplyOptions = {}) {
+  return withGovernanceWriteLock(root, () => {
+    const source = record(input, 'ingest-evidence input');
+    exactKeys(source, ['source_revision', 'source_locator', 'body'], 'ingest-evidence input');
+    const current = readCanonicalCurrentTask(root);
+    if (source.source_revision !== current.sourceTuple.revision) fail('EVIDENCE_SOURCE_STALE', 'Evidence ingestion must bind the exact current task revision.');
+    return { status: 'success', evidence_assurance: 'caller-reported', ...ingestEvidenceText(root, current.filePath, {
+      source_revision: current.sourceTuple.revision, task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id,
+      source_locator: text(source.source_locator, 'source_locator', 2048), body: text(source.body, 'body', 1048576),
+    }, options.dryRun === true) };
+  });
+}
+
+export function routeTaskInput(root: string, input: unknown) {
+  const source = record(input, 'route-input');
+  exactKeys(source, ['source_revision', 'input_ref', 'input_sha256', 'relation', 'operation', 'reason'], 'route-input');
+  const current = readCanonicalCurrentTask(root);
+  if (source.source_revision !== current.sourceTuple.revision) fail('INPUT_SOURCE_STALE', 'Input routing must bind the current task.');
+  const ref = repoPath(source.input_ref, 'input_ref');
+  if (describeEvidenceObjects(root, [ref])[0]?.sha256 !== source.input_sha256) fail('INPUT_EVIDENCE_STALE', 'Input material changed.');
+  if (!['unrelated', 'current-task'].includes(String(source.relation)) || !['review-conclusion', 'recover-execution', 'change-goal', 'change-acceptance', 'expand-authority', 'other'].includes(String(source.operation))) fail('INPUT_ROUTE_INVALID', 'Unknown relation or requested operation.');
+  const reason = text(source.reason, 'reason');
+  const authorityChange = ['change-goal', 'change-acceptance', 'expand-authority'].includes(String(source.operation));
+  const route = source.relation === 'unrelated' ? 'capture-work-item' : authorityChange || source.operation === 'other' ? 'user' : source.operation === 'review-conclusion' ? 'review-change' : 'debug-task';
+  return { status: authorityChange ? 'user-decision-required' : 'routed', kind: 'task-input-routing/v1', source_tuple: current.sourceTuple,
+    input_ref: ref, input_sha256: source.input_sha256, relation: source.relation, operation: source.operation, reason,
+    next_route: route, evidence_assurance: 'caller-reported', permission_change: 'none',
+    receipt_digest: digest({ source_tuple: current.sourceTuple, input: source, route }) };
+}
+
 export function dismissEvidenceChallenge(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input, 'dismiss-evidence-challenge input');
   exactKeys(source, ['challenge_id', 'evidence_ref', 'evidence_sha256', 'reason'], 'dismiss-evidence-challenge input');
@@ -263,35 +333,159 @@ function assertReviewableTask(current: CanonicalCurrentTask): void {
   if (current.runtimeState.resume_requires_review) fail('RESUME_REVIEW_REQUIRED', 'review-change is blocked by the current resume-review gate.');
 }
 
-function copyExecutionResult(value: StepExecutionResult | undefined): StepExecutionResult | null {
-  if (!value) return null;
+const MAX_CONTEXT_ENTRIES = 64;
+
+function boundedList(values: readonly string[], limit = MAX_CONTEXT_ENTRIES): { values: string[]; total: number; truncated: boolean } {
+  return { values: values.slice(0, limit), total: values.length, truncated: values.length > limit };
+}
+
+function boundedValues<T>(values: readonly T[], limit = MAX_CONTEXT_ENTRIES): { values: T[]; total: number; truncated: boolean } {
+  return { values: values.slice(0, limit), total: values.length, truncated: values.length > limit };
+}
+
+function containsTruncation(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsTruncation);
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value as Record<string, unknown>).some(([key, item]) =>
+    (key.endsWith('_truncated') && item === true) || containsTruncation(item),
+  );
+}
+
+function reviewTargetSummary(value: { kind: string; revision: string; entries: Array<{ path: string; state: string; sha256: string | null }> }): Record<string, unknown> {
+  const entries = value.entries.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({ ...item }));
   return {
+    kind: value.kind,
+    revision: value.revision,
+    entries,
+    entry_count: value.entries.length,
+    entries_truncated: value.entries.length > MAX_CONTEXT_ENTRIES,
+  };
+}
+
+function evidenceReportSummary(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const report = value as Record<string, unknown>;
+  return {
+    result_id: report.result_id ?? null,
+    status: report.status ?? null,
+    evidence_plan_revision: report.evidence_plan_revision ?? null,
+    subject_revision: report.subject_revision ?? null,
+    actual_method: report.actual_method ?? null,
+    assurance: report.assurance ?? null,
+  };
+}
+
+function evidenceRefSummary(values: readonly string[]): Record<string, unknown> {
+  const refs = boundedList(values);
+  return { evidence_refs: refs.values, evidence_ref_count: refs.total, evidence_refs_truncated: refs.truncated };
+}
+
+function observedWritesSummary(values: readonly string[]): Record<string, unknown> {
+  const writes = boundedList(values);
+  return {
+    observed_repo_writes: writes.values,
+    observed_repo_write_count: writes.total,
+    observed_repo_writes_truncated: writes.truncated,
+  };
+}
+
+function claimEvidenceSummary(value: ClaimEvidenceRecord): Record<string, unknown> {
+  const slots = boundedValues(value.slots).values.map(slot => ({
+    slot_id: slot.slot_id,
+    minimum_type: slot.minimum_type,
+    disposition: slot.disposition,
+    user_decision: slot.user_decision ? { ...slot.user_decision } : null,
+    obligation_resolution: slot.user_decision?.kind === 'waiver' ? 'explicit-risk-decision-not-PASS' : 'evidence-required',
+    applicability: slot.applicability ?? null,
+    due_step_id: slot.due_step_id ?? null,
+    before_step_id: slot.before_step_id ?? null,
+    check_id: slot.check?.check_id ?? null,
+    frozen_invocation: slot.check?.entry ?? null,
+    validation_items: [...(slot.check?.validation_items ?? [])],
+    boundary: slot.check?.boundary ?? null,
+    required_observation: slot.check?.expected_observation ?? null,
+    required_boundaries: slot.check?.required_boundaries ?? [],
+    execution_selection: slot.check?.selection ? { ...slot.check.selection } : null,
+    result_id: slot.report?.result_id ?? null,
+    report: evidenceReportSummary(slot.report),
+    ...evidenceRefSummary(slot.evidence_refs),
+  }));
+  return {
+    claim_id: value.claim_id,
+    claim_kind: value.claim_kind,
+    requirement: value.requirement,
+    source_ref: value.source_ref,
+    slots,
+    slot_count: value.slots.length,
+    slots_truncated: value.slots.length > MAX_CONTEXT_ENTRIES,
+  };
+}
+
+function eventReference(root: string, current: CanonicalCurrentTask, idempotencyKey: string): { kind: 'event'; event_path: string } | null {
+  const store = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
+  if (!store.manifest) return null;
+  const match = store.lookupIdempotency(idempotencyKey);
+  return match ? { kind: 'event', event_path: match.event_path } : null;
+}
+
+function copyExecutionResult(value: StepExecutionResult | undefined): Record<string, unknown> | null {
+  if (!value) return null;
+  const actualPaths = boundedList(value.actual_changed_paths);
+  const commandResults = value.command_results.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({
+    command: item.command,
+    status: item.status,
+    ...(item.waiver_decision_id ? { waiver_decision_id: item.waiver_decision_id } : {}),
+    ...observedWritesSummary(item.observed_repo_writes),
+    ...evidenceRefSummary(item.evidence_refs),
+    ...(item.expected_failure === undefined ? {} : { expected_failure: { ...item.expected_failure } }),
+  }));
+  const validationResults = value.validation_results.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({
+    validation: item.validation,
+    status: item.status,
+    ...(item.waiver_decision_id ? { waiver_decision_id: item.waiver_decision_id } : {}),
+    ...evidenceRefSummary(item.evidence_refs),
+    ...(item.expected_failure === undefined ? {} : { expected_failure: { ...item.expected_failure } }),
+  }));
+  const acceptanceEvidence = value.acceptance_evidence.slice(0, MAX_CONTEXT_ENTRIES).map(item => {
+    if ('acceptance' in item) return { acceptance: item.acceptance, ...evidenceRefSummary(item.evidence_refs) };
+    return {
+      claim_id: item.claim_id,
+      slot_id: item.slot_id,
+      check_id: item.check_id,
+      minimum_type: item.minimum_type,
+      disposition: item.disposition,
+      ...evidenceRefSummary(item.evidence_refs),
+      report: evidenceReportSummary(item.report),
+    };
+  });
+  return {
+    ...(value.execution_id === undefined ? {} : { execution_id: value.execution_id }),
+    ...(value.attempt_id === undefined ? {} : { attempt_id: value.attempt_id }),
+    ...(value.blocker_kind === undefined ? {} : { blocker_kind: value.blocker_kind }),
     outcome: value.outcome,
     change_set_id: value.change_set_id,
-    review_base: {
-      kind: value.review_base.kind,
-      revision: value.review_base.revision,
-      entries: value.review_base.entries.map(item => ({ ...item })),
-    },
-    review_target: {
-      kind: value.review_target.kind,
-      revision: value.review_target.revision,
-      entries: value.review_target.entries.map(item => ({ ...item })),
-    },
+    review_base: reviewTargetSummary(value.review_base),
+    review_target: reviewTargetSummary(value.review_target),
     change_delta: {
       kind: value.change_delta.kind,
       base_revision: value.change_delta.base_revision,
       target_revision: value.change_delta.target_revision,
-      entries: value.change_delta.entries.map(item => ({ ...item })),
+      entries: value.change_delta.entries.slice(0, MAX_CONTEXT_ENTRIES).map(item => ({ ...item })),
+      entry_count: value.change_delta.entries.length,
+      entries_truncated: value.change_delta.entries.length > MAX_CONTEXT_ENTRIES,
     },
-    actual_changed_paths: [...value.actual_changed_paths],
-    command_results: value.command_results.map(item => ({
-      ...item,
-      observed_repo_writes: [...item.observed_repo_writes],
-      evidence_refs: [...item.evidence_refs],
-    })),
-    validation_results: value.validation_results.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] })),
-    acceptance_evidence: value.acceptance_evidence.map(item => ({ ...item, evidence_refs: [...item.evidence_refs] })),
+    actual_changed_paths: actualPaths.values,
+    actual_changed_path_count: actualPaths.total,
+    actual_changed_paths_truncated: actualPaths.truncated,
+    command_results: commandResults,
+    command_result_count: value.command_results.length,
+    command_results_truncated: value.command_results.length > MAX_CONTEXT_ENTRIES,
+    validation_results: validationResults,
+    validation_result_count: value.validation_results.length,
+    validation_results_truncated: value.validation_results.length > MAX_CONTEXT_ENTRIES,
+    acceptance_evidence: acceptanceEvidence,
+    acceptance_evidence_count: value.acceptance_evidence.length,
+    acceptance_evidence_truncated: value.acceptance_evidence.length > MAX_CONTEXT_ENTRIES,
     blocker: value.blocker,
   };
 }
@@ -320,6 +514,10 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     ? current.runtimeState.findings.filter(item => item.review_cycle_id === current.runtimeState.review_cycle.id && ['admitted', 'in-progress'].includes(item.status))
     : [];
   const definition = readDraftDefinitionFromBody(current.body);
+  const plannedMutationTargets = stepScope(
+    resolution.current.planned_mutation_targets ?? resolution.current.mutation_scope,
+    `step ${resolution.current.id} planned_mutation_targets`,
+  );
   const receipt: ReviewContextReceipt = {
     kind: 'review-context/v1',
     task_id: current.runtimeState.task_id,
@@ -331,6 +529,24 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
     cycle_phase: phase,
     admitted_fingerprints: admitted.map(item => item.fingerprint),
   };
+  const executionEvidenceRefs = boundedList(execution.evidence_refs);
+  const unexpandedPaths = boundedList(execution.execution_result!.change_delta.entries.slice(1).map(item => item.path));
+  const persistentTests = scope.persistent_tests === null ? null : boundedList(scope.persistent_tests);
+  const expandedMutationTargets = boundedValues(currentExecutionDynamicExpansions(current));
+  const claimEvidence = boundedValues(current.runtimeState.claim_evidence ?? []);
+  const claimSummaries = claimEvidence.values.map(claimEvidenceSummary);
+  const admittedFindings = boundedValues(admitted);
+  const nestedSlotsTruncated = claimEvidence.values.some(item => item.slots.length > MAX_CONTEXT_ENTRIES);
+  const executionResult = copyExecutionResult(execution.execution_result);
+  const executionResultTruncated = containsTruncation(executionResult);
+  const requiredUnexpanded = [
+    ...(unexpandedPaths.truncated ? ['cumulative-review-target'] : []),
+    ...(executionResultTruncated ? ['recorded-execution'] : []),
+    ...(persistentTests?.truncated ? ['persistent-tests'] : []),
+    ...(claimEvidence.truncated || nestedSlotsTruncated ? ['claim-evidence'] : []),
+    ...(admittedFindings.truncated ? ['admitted-findings'] : []),
+    ...(expandedMutationTargets.truncated ? ['dynamic-expansions'] : []),
+  ];
   return {
     status: 'pass',
     operation_kind: 'review-context',
@@ -342,13 +558,17 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       status: execution.status,
       change_set_id: execution.change_set_id!,
       review_target_revision: execution.execution_result!.review_target.revision,
-      evidence_refs: [...execution.evidence_refs],
-      execution_result: copyExecutionResult(execution.execution_result),
+      evidence_refs: executionEvidenceRefs.values,
+      evidence_ref_count: executionEvidenceRefs.total,
+      evidence_refs_truncated: executionEvidenceRefs.truncated,
+      execution_result: executionResult,
+      event_reference: eventReference(root, current, execution.idempotency_key),
     },
     current_step: {
       id: resolution.current.id,
       description: resolution.current.description,
       purpose: resolution.current.purpose,
+      planned_mutation_targets: plannedMutationTargets,
       mutation_scope: stepScope(resolution.current.mutation_scope, `step ${resolution.current.id} mutation_scope`),
       validation: validationList(resolution.current.required_evidence, `step ${resolution.current.id} required_evidence`),
     },
@@ -361,15 +581,28 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       conditional: scope.conditional.map(item => item.pattern),
       forbidden: scope.forbidden.map(item => item.pattern),
     },
+    mutation_authority: current.mutationAuthority === null ? null : {
+      version: 2,
+      domains: [...current.mutationAuthority.domains],
+      exact_exceptions: [...current.mutationAuthority.exact_exceptions],
+      forbidden: [...current.mutationAuthority.forbidden],
+    },
+    planned_mutation_targets: plannedMutationTargets,
+    expanded_mutation_targets: expandedMutationTargets.values,
+    dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
     text_diff: execution.execution_result!.change_delta.entries.length
       ? reviewFilePage(root, current, execution, execution.execution_result!.change_delta.entries[0]!.path, 'diff', {}) : null,
-    unexpanded_paths: execution.execution_result!.change_delta.entries.slice(1).map(item => item.path),
-    persistent_tests: scope.persistent_tests === null ? null : [...scope.persistent_tests],
-    claim_evidence: (current.runtimeState.claim_evidence ?? []).map(item => ({
-      ...item,
-      slots: item.slots.map(slot => ({ ...slot, evidence_refs: [...slot.evidence_refs] })),
-    })),
-    admitted_findings: admitted.map(item => ({
+    unexpanded_paths: unexpandedPaths.values,
+    unexpanded_path_count: unexpandedPaths.total,
+    unexpanded_paths_truncated: unexpandedPaths.truncated,
+    persistent_tests: persistentTests?.values ?? null,
+    persistent_tests_count: persistentTests?.total ?? 0,
+    persistent_tests_truncated: persistentTests?.truncated ?? false,
+    claim_evidence: claimSummaries,
+    claim_evidence_count: claimEvidence.total,
+    claim_evidence_truncated: claimEvidence.truncated || nestedSlotsTruncated,
+    claim_evidence_read_reference: { command: 'task-read', kind: 'claim-evidence', required: true },
+    admitted_findings: admittedFindings.values.map(item => ({
       fingerprint: item.fingerprint,
       file: item.file,
       failure_condition: item.failure_condition,
@@ -377,6 +610,14 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
       repair_attempts: item.repair_attempts,
       max_repair_attempts: item.max_repair_attempts,
     })),
+    admitted_finding_count: admittedFindings.total,
+    admitted_findings_truncated: admittedFindings.truncated,
+    complete_for_operation: requiredUnexpanded.length === 0,
+    required_unexpanded: requiredUnexpanded,
+    // Discovery review also consumes the cumulative review target.  Keep the
+    // entry/mode binding identical for both review phases so callers cannot
+    // accidentally receive a projection that omits the accumulated target.
+    context_projection: taskContextReferenceForCurrent(root, current, 'review-context', 'review'),
     receipt,
   };
 }
@@ -389,7 +630,18 @@ function reviewFilePage(root: string, current: CanonicalCurrentTask, execution: 
   const base = { path: file, view, target_revision: execution.execution_result!.review_target.revision };
   if (!preimage && view !== 'after') return { ...base, content_status: 'baseline-unavailable' as const };
   if (target.state === 'symlink' || preimage?.state === 'symlink') return { ...base, content_status: 'symlink-not-followed' as const };
-  const before = preimage?.state === 'file' ? Buffer.from(preimage.content_base64!, 'base64') : Buffer.alloc(0);
+  let before = Buffer.alloc(0);
+  if (preimage?.state === 'file') {
+    try {
+      const legacy = Object.prototype.hasOwnProperty.call(preimage, 'content_base64')
+        ? decodeLegacyReviewPreimage(preimage)
+        : null;
+      before = legacy?.content ?? readReviewPreimageBlob(root, preimage.sha256!);
+    } catch (error) {
+      if (error instanceof ReviewPreimageStoreError) fail(error.code, error.message);
+      throw error;
+    }
+  }
   const after = target.state === 'file' ? fs.readFileSync(contextPath(root, file).absolute) : Buffer.alloc(0);
   if (target.state === 'file' && sha256(after) !== target.sha256) fail('REVIEW_TARGET_STALE', 'file changed while reading review context.');
   if (preimage?.state === 'file' && sha256(before) !== preimage.sha256) fail('REVIEW_BASE_INVALID', 'first-touch baseline hash mismatch.');
@@ -437,7 +689,7 @@ function normalizeContextReceipt(value: unknown): ReviewContextReceipt {
 
 function assertCurrentContext(root: string, current: CanonicalCurrentTask, receipt: ReviewContextReceipt): StepExecutionLogEntry {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) fail('REVIEW_CONTEXT_STALE', 'review context belongs to a different task document.');
-  if (receipt.source_revision !== current.sourceTuple.revision) fail('REVIEW_CONTEXT_STALE', 'CURRENT_TASK changed after review context was issued.');
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision)) fail('REVIEW_CONTEXT_STALE', 'CURRENT_TASK changed after review context was issued.');
   if (receipt.step_id !== current.runtimeState.active_step_id || receipt.cycle_id !== current.runtimeState.review_cycle.id) fail('REVIEW_CONTEXT_STALE', 'active step or review cycle changed after review context was issued.');
   const latest = latestRecordedExecution(current);
   if (latest.idempotency_key !== receipt.execution_id) fail('REVIEW_CONTEXT_STALE', 'recorded execution changed after review context was issued.');
@@ -471,7 +723,7 @@ function assertRecordedTargetCurrent(root: string, current: CanonicalCurrentTask
   return execution;
 }
 
-function normalizeFinding(value: unknown, index: number, current: CanonicalCurrentTask): ReviewFindingCandidate {
+function normalizeFinding(value: unknown, index: number, current: CanonicalCurrentTask, root: string): ReviewFindingCandidate {
   const source = record(value, `findings[${index}]`);
   exactKeys(source, ['category', 'file', 'failure_condition', 'required_behavior', 'root_cause_status', 'evidence_refs'], `findings[${index}]`);
   if (source.root_cause_status !== 'confirmed' && source.root_cause_status !== 'bounded') fail('REVIEW_ADAPTER_INPUT_INVALID', `findings[${index}].root_cause_status is invalid.`);
@@ -483,12 +735,31 @@ function normalizeFinding(value: unknown, index: number, current: CanonicalCurre
     root_cause_status: source.root_cause_status as ReviewFindingCandidate['root_cause_status'],
     evidence_refs: textList(source.evidence_refs, `findings[${index}].evidence_refs`, false),
   };
-  const scope = parseMutationScope(current.body, current.sourceTuple.revision);
-  const decision = evaluateMutationScope(scope, { changed_paths: [candidate.file] });
   const step = resolveTaskStep(current.body, current.runtimeState.active_step_id).current;
-  const admittedByStep = stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some(pattern => mutationScopePatternMatchesPath(candidate.file, pattern));
-  if (decision.status !== 'pass' || !admittedByStep) {
-    fail('REVIEW_FINDING_SCOPE_BLOCKED', `finding path ${candidate.file} cannot be repaired within the confirmed current-step scope.`);
+  if (current.mutationAuthority) {
+    let project;
+    try { project = readProjectMutationAuthority(root); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+    if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 review requires PROJECT_PROFILE.yaml.mutation_authority.domains.');
+    const authorityDecision = evaluateMutationAuthority({
+      root,
+      project,
+      task: current.mutationAuthority,
+      candidate_paths: [candidate.file],
+      planned_targets: stepScope(step.planned_mutation_targets ?? step.mutation_scope, `step ${step.id} planned_mutation_targets`),
+      assessments: currentExecutionDynamicExpansions(current).map(item => item.assessment),
+      persistent_test_paths: resolveTestStrategyExecutionContext(current).persistent_tests,
+    });
+    if (authorityDecision.status !== 'pass') {
+      fail('REVIEW_FINDING_SCOPE_BLOCKED', `finding path ${candidate.file} cannot be repaired within the v2 task authority: ${authorityDecision.blockers.join(' ')}`);
+    }
+  } else {
+    const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+    const decision = evaluateMutationScope(scope, { changed_paths: [candidate.file] });
+    const admittedByStep = stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some(pattern => mutationScopePatternMatchesPath(candidate.file, pattern));
+    if (decision.status !== 'pass' || !admittedByStep) {
+      fail('REVIEW_FINDING_SCOPE_BLOCKED', `finding path ${candidate.file} cannot be repaired within the confirmed current-step scope.`);
+    }
   }
   return {
     fingerprint: `finding-${digest({
@@ -568,7 +839,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   assertReviewableTask(current);
   const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
   if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must be a bounded array.');
-  const findings = source.findings.map((item, index) => normalizeFinding(item, index, current));
+  const findings = source.findings.map((item, index) => normalizeFinding(item, index, current, root));
   if (new Set(findings.map(item => item.fingerprint)).size !== findings.length) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must not contain duplicates.');
   const unresolved = textList(source.unresolved_fingerprints, 'unresolved_fingerprints', true);
   if (unresolved.some(item => !receipt.admitted_fingerprints.includes(item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'unresolved_fingerprints must be drawn from the Runtime review context.');
@@ -578,7 +849,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   else {
     const raw = record(source.blocker, 'blocker');
     exactKeys(raw, ['code', 'summary', 'next_route'], 'blocker');
-    if (!['review-change', 'debug-task', 'prepare-task:replan', 'user'].includes(String(raw.next_route))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocker.next_route is invalid.');
+    if (!['review-change', 'debug-task', 'prepare-task:replan', 'prepare-task:amend-scope', 'user'].includes(String(raw.next_route))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocker.next_route is invalid.');
     blocker = { code: text(raw.code, 'blocker.code', 128), summary: text(raw.summary, 'blocker.summary'), next_route: raw.next_route as ReviewBlocker['next_route'] };
   }
   if (verdict === 'clean' && (findings.length > 0 || unresolved.length > 0 || blocker !== null)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'clean must not contain findings or a blocker.');
@@ -665,6 +936,8 @@ export async function runReviewChangeAdapterCli(argv: string[] = process.argv.sl
     else if (args.command === 'review-read') result = reviewRead(args.root, input);
     else if (args.command === 'record-review-result') result = recordReviewResult(args.root, input, { dryRun: args.dryRun });
     else if (args.command === 'record-evidence-challenge') result = recordEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
+    else if (args.command === 'ingest-evidence') result = ingestEvidence(args.root, input, { dryRun: args.dryRun });
+    else if (args.command === 'route-input') result = routeTaskInput(args.root, input);
     else result = dismissEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
     console.log(JSON.stringify(result, null, 2));
     return 'status' in result && (result.status === 'blocked' || result.status === 'conflict') ? 2 : 0;

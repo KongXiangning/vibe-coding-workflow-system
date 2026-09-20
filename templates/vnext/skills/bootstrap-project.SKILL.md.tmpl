@@ -20,6 +20,8 @@ entry_contract:
     optional:
       - confirmed design baseline
       - confirmed adoption facts and provenance
+      - inventory-derived authority domain candidates
+      - explicit project-owner authority-domain confirmation
       - inventory source and host selection
       - caller recovery context
   authority_owner: user
@@ -115,7 +117,14 @@ repository, `WORKFLOW_SYSTEM_ROOT`, or source-side `gen`/`pack`/`sync` commands.
 3. Record confirmed facts with their authority and provenance. Keep inferred or
    unknown facts visible as such. Adoption may not turn an unresolved consumer,
    interface, or ownership conflict into a locked Contract or Decision.
-4. Design mode produces design evidence and draft decisions only. Greenfield
+4. Establish mutation authority domains through the project lifecycle: inventory
+   proposes bounded `authority_domain_candidates` with evidence; only an
+   explicit project-owner confirmation may promote selected IDs/roots into
+   `PROJECT_PROFILE.yaml`. A simple project may confirm one broad application
+   domain, but do not silently grant it. Preserve an existing confirmed map and
+   do not rebuild ownership for each task; `prepare-task` selects the canonical
+   map and binds its revision when a v2 task is confirmed.
+5. Design mode produces design evidence and draft decisions only. Greenfield
    mode consumes a confirmed design baseline. Inventory mode records actual
    paths, consumers, evidence, migration risks, and unknowns without changing
    product files. Adopt mode promotes only confirmed facts. Realign mode may
@@ -126,34 +135,34 @@ repository, `WORKFLOW_SYSTEM_ROOT`, or source-side `gen`/`pack`/`sync` commands.
    provenance; they may coexist with a later Bootstrap Receipt, and realign
    must not update or receipt-own them. An active or invalid task state blocks
    realign.
-5. Keep the caller's `changed_paths` as the authoritative proposed diff target.
+6. Keep the caller's `changed_paths` as the authoritative proposed diff target.
    Feed the exact paths through the existing mutation scope evaluator. Read or
    discovery context may be broader; it never grants write authority. Forbidden
    paths always block, and every Conditional path requires exact authorization,
    evidence references, and explicit authority.
-6. Validate the already-installed Distribution through its existing payload,
+7. Validate the already-installed Distribution through its existing payload,
    state, checksum, Skill-layout, immutable Bootstrap support, and project-local
    Runtime read-back. Generate governance assets only through the target-local
    Bootstrap support surface. Do not build or promote Runtime, Protocol, Schema,
    or Agent Skills; do not hand-copy files, invoke the legacy generator, or
    write a generic Markdown editor.
-7. Before promotion, validate the Distribution prerequisite, governance asset
+8. Before promotion, validate the Distribution prerequisite, governance asset
    checksums, host isolation, canonical `CURRENT_TASK.md`, and the selected
    mode's evidence. Promote the governance asset set atomically, read every
    promoted target back, and record only Bootstrap-owned governance assets in
    the completion receipt. The project-local Runtime owns the typed governance
    transaction and atomic file boundary; the target-local support layer owns
    only immutable preparation support.
-8. The bootstrap baseline is a closed, archived administrative baseline. It is
+9. The bootstrap baseline is a closed, archived administrative baseline. It is
    not an active task and it does not authorize `execute-step`. A later task
    preparation must establish its own confirmed identity and owner through the
    existing daily Runtime path.
-9. Replay only when the target identity, mode inputs, receipt, and every
+10. Replay only when the target identity, mode inputs, receipt, and every
    Bootstrap-managed governance checksum match. Distribution software drift is
    owned by the Distribution lifecycle and must not make Bootstrap provenance
    stale; missing, stale, incomplete, conflicting, or interrupted governance
    state still fails closed.
-10. Validation is evidence, not an automatic request for a persistent test.
+ 11. Validation is evidence, not an automatic request for a persistent test.
     Reuse contract, freshness, runtime, read-back, and health checks first. A
     new persistent test needs a separate P-12 admission with owner, claim,
     insufficiency reason, one closed basis, boundary assertion, and failure

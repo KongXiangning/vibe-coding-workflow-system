@@ -1,0 +1,12 @@
+bun test v1.3.10 (30e609e0)
+
+::group::test/vnext-runtime.test.ts:
+(pass) vNext Phase 2 Runtime contract > fixed tgz installed Node CLI supports same-envelope discovery without amendment or retry reset [8318.89ms]
+
+::endgroup::
+
+ 1 pass
+ 196 filtered out
+ 0 fail
+ 27 expect() calls
+Ran 1 test across 1 file. [8.46s]

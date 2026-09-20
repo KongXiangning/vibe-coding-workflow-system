@@ -1,0 +1,10 @@
+runtime-contract=1
+source-contract=0
+generated=0
+freshness=0
+amendment=1
+protections=0
+storage=0
+skills=0
+installed=1
+diff-check=0

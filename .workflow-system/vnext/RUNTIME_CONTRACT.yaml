@@ -11,8 +11,100 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.18.7
+  package_version: 0.20.2
   node_min_version: ">=20.0.0"
+
+task_context:
+  schema_version: 1
+  kind: vnext-task-context-contract
+  commands:
+    - task-context
+    - task-read
+    - task-storage-migration
+    - task-export
+  entry_points:
+    - validate --summary
+    - task-context
+    - task-read
+    - review-context
+    - review-read
+    - preflight-step
+    - evidence-context
+  views:
+    - overview
+    - operation-context
+    - history-on-demand
+  projection:
+    default: task-context
+    required_blocks:
+      - current-definition-or-visible-definition-revision
+      - current-step
+      - mutation-authority
+      - unfinished-obligations
+      - required-dependencies
+      - unknown-dependencies
+      - global-gates
+      - latest-execution
+    review_requires_cumulative_target: true
+    forbidden_expansions:
+      - raw-runtime-state
+      - unbounded-execution-log
+      - unbounded-applied-proposals
+  paging:
+    unit: utf8-bytes
+    default_bytes: 16384
+    min_bytes: 256
+    max_bytes: 65536
+    required_fields:
+      - returned
+      - total_bytes
+      - continuation
+      - complete_for_operation
+    stale_binding:
+      - source_revision
+      - definition_revision
+      - state_revision
+      - exact_reference
+  receipts:
+    context: task-context-receipt/v1
+    read: task-read-receipt/v1
+    proves: version-and-return-range-only
+    not_authority: true
+  read_only: true
+
+task_store:
+  schema_version: 1
+  kind: vnext-task-store-contract
+  # v3 is a lossless active projection of this same aggregate. Existing inline
+  # and compact-v2 tasks remain readable until explicit storage migration.
+  root: <workflow_home>/task-data/<document_id>
+  objects: objects/<sha256>.json
+  events: events/<sequence>-<sha256>.json
+  indexes: rebuildable-and-non-authoritative
+  commit_head: CURRENT_TASK-single-submission-head
+  hot_window: cache-only
+  full_history: persistent-and-queryable
+  dedup_key: schema-object-type-document-id-complete-content
+  event_identity: sequence-time-cause-and-idempotency-preserved
+  migration: preview-confirm-commit-with-source-revision
+  garbage_collection: disabled-in-v1
+  target_owned_data: task-data-is-never-removed-by-distribution-upgrade
+  active_projection:
+    format: compact-v3
+    canonical_roots: CURRENT_TASK-definition-state-and-acknowledged-manifest
+    material: immutable-content-addressed-definition-state-reports
+    history: preserve-exact-preimages-events-and-idempotency
+    legacy: read-without-rewrite-and-explicit-storage-migration
+    admission: no-size-quota-or-business-transition
+    receipt_continuity: committed-storage-only-lineage-and-equal-logical-state
+    wire_compatibility: frozen-v3-model-not-current-serializer-bytes
+  diagnostics:
+    response: validate --summary/storage_metrics
+    kind: task-storage-metrics/v1
+    read_only: true
+    authority: none
+    persistence: none
+    incomplete: null-with-reason-not-a-gate
 
 proposal:
   schema_version: 1
@@ -62,11 +154,19 @@ proposal:
     required:
       - review_cycle_id
       - repair_wave_id
+  process_control:
+    user_evidence: exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated
+    waiver: user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass
+    successor: explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required
+    validation_adjustment: replace-validation; one-read-only-check; preserve-observation-boundary-subjects-validation-ownership-exact-granularity-selector-authority-and-budgets; no-task-redefinition
   task_state:
     actions:
       - retry-step
       - record-step-preflight
+      - extend-preflight
       - step-progress
+      - consume-retained-review
+      - record-user-evidence
       - clear-resume-review-gate
       - create-draft
       - update-draft
@@ -78,6 +178,37 @@ proposal:
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
+      - commit-scope-amendment
+    execution_admission:
+      evaluator: runtime-owned-exact-target-admission/v1
+      question: current-task-step-phase-target-assessment-may-enter-this-execution
+      shared_by:
+        - record-step-preflight
+        - extend-preflight
+        - begin-repair
+        - repair-extension
+        - record-step-result
+        - command-footprint-preflight
+      classifications:
+        - planned-admitted
+        - dynamic-self-admitted
+        - persistent-test-admitted
+        - blocked-authority
+        - blocked-assessment
+        - blocked-test-strategy
+        - blocked-persistent-test
+        - blocked-non-executable-policy
+        - blocked-governance
+      mutation_order:
+        - explicit-forbidden-and-governance
+        - test-strategy-and-non-executable-policy
+        - v1-or-v2-authority
+        - assessment-and-persistent-test-admission
+      error_mapping:
+        blocked_assessment: MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED
+        blocked_escalation: MUTATION_BLAST_RADIUS_ESCALATION_REQUIRED
+        blocked_authority: MUTATION_AUTHORITY_EXPANSION_REQUIRED
+      semantic_boundary: runtime-owns-structural-checks-agent-owns-blast-radius-judgment
     retry_step:
       max_attempts: 3
       environment_report: environment-restored/v1
@@ -99,8 +230,39 @@ proposal:
         - review_receipt
         - claim_evidence
         - execution_result
+    preflight:
+      initial:
+        action: record-step-preflight
+        planned_footprint: normal-admission
+        in_envelope_unplanned: blast-radius-assessment-and-self-admit
+        outside_envelope: MUTATION_AUTHORITY_EXPANSION_REQUIRED
+        first_touch: runtime-captured-before-state
+        evaluator: execution-admission
+        execution_identity: stable-per-execution-with-replacement-receipt
+      extension:
+        action: extend-preflight
+        required:
+          - current_preflight_id
+          - additional_targets
+          - blast_radius_assessments
+          - evidence_refs
+        optional:
+          - mode
+          - execution_id
+          - execution_phase
+          - repair_wave_id
+          - review_id
+        same_attempt: true
+        plan_revision_change: forbidden
+        retry_budget_change: forbidden
+        continuation: forbidden
+        replacement_receipt: required
+        review: risk-selected-cumulative-review-for-self-admitted-expansion
+        repair: same-evaluator-same-wave-no-retry-consumption
+        first_touch: append-only-for-new-targets
     claim_evidence:
       stored_in: canonical CURRENT_TASK.runtime_state
+      report_binding: exact-claim-slot-check-only; command pass never creates or satisfies another slot
       record_fields:
         - claim_id
         - claim_kind
@@ -118,6 +280,7 @@ proposal:
         - check
         - report
         - prerequisite_receipt
+        - user_decision
       complete_dispositions:
         - existing
         - reused
@@ -126,7 +289,40 @@ proposal:
         - missing
         - deferred
         - blocked
-      completion_rule: non-empty acceptance-bearing frozen plan; due slots require bound successful reports and applicable subject revisions; close checks all slots and consumed prerequisites
+      execution_selection:
+        invocation_kinds:
+          - structured
+          - opaque
+        fields:
+          - granularity
+          - selector
+          - selection_reason
+          - breadth_reason
+          - breadth_basis
+          - breadth_source_ref
+          - invocation
+        check_boundaries:
+          - local
+          - business-flow
+          - e2e
+        granularities:
+          - focused
+          - target
+          - broad-regression
+        breadth_bases:
+          - claim-risk-contract
+          - acceptance-boundary
+          - low-cost-evidence-insufficient
+          - project-policy
+          - release-gate
+          - explicit-user
+        freshness: new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible
+        command_binding: structured-argv-selector-or-verbatim-opaque-command-equals-entry-and-exact-due-step-planned-command; opaque-cannot-claim-focused
+        business_flow: per-check-boundary-independent-of-granularity; same-claim-rule-and-flow-slots; no-test-type-hierarchy
+        authority_binding: explicit-user-exact-task-basis; policy-and-release-canonical-repository-source; claim-bases-exact-current-claim-and-its-existing-task-basis-or-repository-source
+        e2e_admission: acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user
+        broad_admission: claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user
+      completion_rule: non-empty acceptance-bearing frozen plan; due slots require bound successful reports or exact applicable user waivers; waivers never imply PASS; close checks all slots and consumed prerequisites
     claim_evidence_migration:
       mode: default
       action: migrate-claim-evidence
@@ -135,7 +331,7 @@ proposal:
         - evidence_refs
       from: active + active legacy-or-empty-plan
       to: active + active
-      mutation: install one non-empty acceptance-bearing frozen claim_evidence plan; do not change task semantics
+      mutation: reconstruct legacy claim/slot/check identities; execution entries must equal existing planned commands at their original due steps; modern selection metadata is not required
       preserves:
         - TASK_ID
         - TASK_SLUG
@@ -227,7 +423,7 @@ proposal:
       target: draft + active
       previous_close_reconciliation:
         archive: required
-        status: required
+        status: non-blocking
         admitted_lesson: required-or-durable-reuse-proof
       step_admission:
         all_steps_metadata_complete: true
@@ -264,17 +460,19 @@ proposal:
       input: stdin-json
       commands:
         - preflight-step
+        - extend-preflight
         - evidence-context
         - retry-step
+        - replace-validation
         - begin-repair
         - record-step-result
         - complete-reviewed-step
       step_source: confirmed-current-task
-      scope_enforcement: task-and-current-step
+      scope_enforcement: task-authority-envelope-with-v1-step-compatibility
       command_plan_source: confirmed-current-step
-      persistent_tests_enforcement: frozen-section-plus-scope-evaluator
+      persistent_tests_enforcement: frozen-section-plus-authority-evaluator-existing-test-distinction
       test_strategy_execution:
-        phase_source: versioned-frozen-test-strategy
+        phase_source: versioned-frozen-test-strategy-and-current-step-evidence-obligation
         legacy_behavior: read-history-block-unversioned-execution
         test_first:
           first_step_phase: test-first
@@ -305,6 +503,7 @@ proposal:
       - admit
       - retry-step
       - record-step-preflight
+      - extend-preflight
       - step-progress
       - record-repair-attempt
       - resolve
@@ -318,7 +517,7 @@ proposal:
         - record-evidence-challenge
         - dismiss-evidence-challenge
       context_source: latest-recorded-execution
-      reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification
+      reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification
       change_set: runtime-owned-stable-id
       review_target: runtime-cumulative-before-after-file-delta
       result_storage: canonical-pending-review-result
@@ -333,12 +532,17 @@ proposal:
       input: stdin-json
       commands:
         - prepare-draft
+        - prepare-successor
+        - record-human-acceptance
+        - record-evidence-waiver
         - confirm-draft
         - clear-resume-review
         - replan
         - prepare-replan
         - confirm-replan
         - discard-replan
+        - prepare-scope-amendment
+        - discard-scope-amendment
         - initialize-preservation
       draft_fields:
         - task_basis
@@ -346,7 +550,9 @@ proposal:
         - acceptance
         - out_of_scope
         - design_decisions
-        - mutation_scope
+        - mutation_authority_version
+        - mutation_authority
+        - planned_mutation_targets
         - test_strategy
         - implementation_steps
         - validation_plan
@@ -363,7 +569,7 @@ proposal:
         fields:
           - command
           - expected_repo_writes
-        evaluator: shared-mutation-scope-evaluator
+        evaluator: shared-mutation-scope-evaluator-and-v2-authority-evaluator
         timing: before-draft-commit
       confirmation_binding: runtime-issued-draft-receipt-plus-authorized-caller
       resume_review_binding: caller-provided-exact-readiness-receipt
@@ -417,13 +623,14 @@ proposal:
             - TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN
             - TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION
       persistent_tests_storage: existing-scope-and-regression-sections
-      persistent_tests_enforcement: frozen-section-plus-scope-evaluator
+      persistent_tests_enforcement: frozen-section-plus-authority-evaluator-existing-test-distinction
       proposal_file_policy: project-external-only
       internal_action_owners:
         migrate-claim-evidence: runtime-compatibility
         mark-replan-blocked: runtime-convergence
         clear-replan-block: runtime-convergence
     bound_actions:
+      - record-user-evidence
       - clear-resume-review-gate
       - create-draft
       - update-draft
@@ -431,6 +638,7 @@ proposal:
       - migrate-claim-evidence
       - mark-replan-blocked
       - clear-replan-block
+      - commit-scope-amendment
     draft_mode: default
     draft_actions:
       - create-draft
@@ -446,15 +654,37 @@ proposal:
       - mark-replan-blocked
       - clear-replan-block
       - commit-replan
+    scope_amendment_mode: amend-scope
+    scope_amendment_actions:
+      - commit-scope-amendment
     direct_replan_result: REPLAN_CONFIRMATION_REQUIRED
     task_history:
       initialization_preimage: exact-current-task-and-linked-task-basis-before-version-marker
       supersede_preimage: exact-current-task-and-linked-task-basis
       confirmed_replan_preimage: exact-current-task-and-linked-task-basis-before-publish
       correction_candidate: independent-revision-bound-candidate-with-full-old-obligations
+      scope_amendment_candidate: independent-versioned-additive-candidate-with-authority-or-typed-persistent-test-admission-runtime-commit-and-preserved-obligations
       evidence_carry_forward: runtime-derived-old-report-and-subject-verified
-      external_evidence: locator-only-not-automatically-reusable
+      external_evidence: references-remain-references-explicit-bounded-content-ingestion
       interrupted_commit: fail-closed-lock-and-hash-recovery
+      recovery_protocol:
+        candidate: correction-replan-candidate/v2
+        confirmation: correction-replan-candidate-receipt/v2
+        modes: [conclusion-correction, execution-recovery]
+        strategies: [forward-fix, artifact-restore, mixed]
+        routing: [unrelated, conclusion-counterevidence, execution-error, authority-change]
+        target_limit: 16
+        recovery_step_limit: 16
+        source: runtime-task-document-source-tuple-basis-and-plan
+        obligations: all-old-claim-slots-and-replaced-step-obligations
+        history: immutable-definitions-executions-and-content-addressed-evidence
+        evidence: evidence-carry-forward/v2-original-anchor-and-current-reception
+        artifact_checkpoint: artifact-checkpoint/v1
+        artifact_completion: artifact-restore-completion/v1-execution-v2-revalidation-and-exact-targets
+        artifact_publication: exact-write-set-journal-rollback-or-fail-closed
+        concurrency: shared-governance-write-lock-and-source-cas
+        authority: caller-reported-no-permission-expansion
+        legacy: readable-explicit-preservation-old-receipts-rejected
   inbox_record:
     mode: default
     action: record
@@ -651,7 +881,7 @@ mutation_scope:
     conventional_paths: runtime-classified
     nonconventional_paths: caller-declared
     legacy_missing_section: compatibility-unenforced
-  changed_goal_scope_acceptance: supersede-or-replan
+  changed_goal_scope_acceptance: bounded-correction-amendment-or-supersede-successor
   check_command: scope-check
   input:
     required:
@@ -681,6 +911,126 @@ mutation_scope:
     observation_limitations:
       - no-os-level-transient-write-history-proof
 
+mutation_authority:
+  version: 2
+  status: bound
+  project_profile: .workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains
+  project_domain_fields:
+    - id
+    - roots
+  task_fields:
+    - mutation_authority_version
+    - domains
+    - exact_exceptions
+    - forbidden
+  root_grammar: bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar
+  path_resolution: path-to-one-domain-or-unclassified
+  ambiguous_domain_behavior: fail-closed
+  unclassified_behavior: write-blocked-unless-exact-exception
+  read_discovery_behavior: allowed-outside-envelope-but-never-write-authority
+  planned_footprint_behavior: guidance-only-and-not-an-independent-authority-boundary
+  in_envelope_expansion: blast-radius-assessment-and-self-admit-or-escalate
+  forbidden_precedence: explicit-forbidden-before-envelope-admission
+  assessment_fields:
+    - target
+    - reason
+    - blast_radius
+    - evidence_refs
+    - disposition
+  dynamic_review: risk-selected-cumulative-review-for-self-admitted-expansion
+  cross_envelope_error: MUTATION_AUTHORITY_EXPANSION_REQUIRED
+  extension_action: execute-step:extend-preflight
+  extension_identity: stable-execution-id-with-current-receipt-token
+  repair_extension: same-execution-admission-evaluator-and-repair-wave
+  test_strategy_dynamic_policy: every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation
+  non_executable_dynamic_policy: not-applicable-remains-closed-under-all-target-discovery
+  planning_time_authority_proof:
+    evaluator: runtime-owned-task-definition-authority-proof
+    declarations:
+      - planned_mutation_targets
+      - command_write_footprints
+      - persistent_test_paths
+    admission: authorized-domain-or-exact-exception
+    timing: before-draft-confirmed-definition-commit
+    unclassified_behavior: blocked
+  command_glob_proof:
+    grammar: exact-path-or-literal-directory-prefix-globstar
+    relation: candidate-pattern-must-be-subset-of-granted-domain-root
+    synthetic_probe: prohibited
+    exact_exception: cannot-authorize-directory-glob
+  domain_map_lifecycle:
+    proposal: bootstrap-inventory-domain-candidate
+    confirmation: explicit-project-owner-decision
+    canonical: .workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains
+    task_selection: select-existing-map-without-rebuild
+  domain_map_revision:
+    binding: v2-confirmed-task-runtime-state-authority_domain_revision
+    mismatch: fail-closed-require-explicit-task-authority-domain-revalidation
+    grant: never-inherit-changed-project-map
+  dynamic_expansion_identity:
+    required:
+      - step_id
+      - plan_revision
+      - change_set_id
+      - execution_id
+      - preflight_id
+      - mode
+      - path
+      - domain
+      - assessment
+      - first_touch_state
+      - admitted_at
+    active_view: current-active-step-plan-revision-execution-only
+    historical_records: readable-for-audit-but-never-a-current-write-grant
+    repeated_path_policy: same-path-requires-new-assessment-for-a-new-execution-identity
+  dynamic_review_consumption:
+    binding: expansion-execution-identity-and-clean-review-id
+    required: current-execution-expansions-only
+    historical_records: retain-consumed-review-association
+  authority_amendment: prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission
+  authority_amendment_execution_gate:
+    blocks: latest-preflighted-attempt-without-recorded-execution-result
+    allows:
+      - ready-attempt
+      - settled-blocked-result
+      - settled-repair-result
+      - pending-review-or-findings-preserved
+    repair_binding: current-execution-preflight-and-matching-execution-result
+  persistent_test_admission:
+    route: prepare-task:amend-scope
+    authority_diff: none-when-target-is-in-envelope
+    ordinary_dynamic_behavior: blocked-before-state-mutation
+    required_fields:
+      - path
+      - proves
+      - owner
+      - owner_source
+      - source_ref
+      - basis
+      - existing_evidence_insufficiency
+      - assertion_boundary
+      - failure_disposition
+    runtime_role: validate-bind-persist-no-defaults
+  existing_test_behavior: existing-in-envelope-test-is-ordinary-expansion-with-review
+  new_persistent_test_behavior: absent-test-requires-p-12-admission
+  legacy_behavior: missing-or-version-1-retains-v1-exact-step-scope-semantics
+
+review_coverage_preimages:
+  canonical_fields:
+    - path
+    - state
+    - sha256
+  inline_content: forbidden-for-new-writes
+  baseline_storage:
+    kind: immutable-content-addressed-raw-blob
+    relative_directory: <workflow_home>/review-preimages
+    filename: <sha256>.blob
+    lookup: sha256
+    write_order: persist-and-verify-blob-before-current-task-state-commit
+    deduplication: identical-sha256-reuses-existing-verified-blob
+  review_read: resolve-by-sha256-read-and-verify; missing-or-corrupt-fails-closed
+  legacy_inline_compatibility: readable-and-migrated-by-decode-verify-persist-strip
+
 canonical_current_task:
   frontmatter:
     schema_version: 1
@@ -688,6 +1038,9 @@ canonical_current_task:
     required:
       - document_id
       - runtime_state
+    optional:
+      - mutation_authority_version
+      - mutation_authority
   runtime_state:
     schema_version: 1
     kind: vnext-current-task-runtime-state
@@ -716,6 +1069,11 @@ canonical_current_task:
       - step_attempts
       - evidence_challenges
       - evidence_carry_forward
+      - artifact_checkpoint_ids
+      - dynamic_review_required
+      - dynamic_expansions
+      - execution_preflight
+      - authority_domain_revision
     review_cycle:
       fields:
         - id
@@ -728,7 +1086,7 @@ canonical_current_task:
       repair_round_max: 3
       same_repair_wave_counts_once: true
       verification_new_finding_wave_max: 1
-  source_of_truth: same-canonical-CURRENT_TASK-document
+  source_of_truth: CURRENT_TASK-head-plus-selected-immutable-roots-one-canonical-aggregate
   legacy_schema_behavior: migration-required
 
 concurrency:

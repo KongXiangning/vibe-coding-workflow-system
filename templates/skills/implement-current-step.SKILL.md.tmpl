@@ -125,6 +125,10 @@ review_finding_intake:
 
 只实现 CURRENT_TASK.md 中当前步骤，禁止顺手扩散。
 
+## Unified task context protocol
+
+实现前先执行 `validate --summary`，再使用只读 `task-context` 获取当前步骤的完整定义、写入边界、commands、required evidence、检查边界、未完成义务、依赖和门禁。会话压缩、换会话或 definition/state revision 变化后重新读取；精确 `task-read` 用于报告、事件和历史结果，并必须跟完 continuation。禁止把完整 RuntimeState、execution log 或 applied proposals 作为默认输入，也禁止用最近 N 条历史替代依赖。preflight 与 review 仍重新校验资格；上下文收据不授予写权限或证明命令执行。
+
 ## Trigger
 
 进入具体编码实现时。

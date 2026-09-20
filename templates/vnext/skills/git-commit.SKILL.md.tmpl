@@ -39,6 +39,15 @@ entry_contract:
 
 Create one local Git commit for the exact change set authorized by the caller. Do not modify file contents or manage workflow state.
 
+## Bounded task context protocol
+
+When called for a task result, inspect a fresh `validate --summary` and the
+read-only `task-context(entry:"git-commit", mode:"default")` before using the
+provided commit scope. Follow required continuation pages and resolve exact
+changed-file or review references with `task-read`/`review-read`. A read receipt
+does not authorize staging, and a compact/store error is a blocker; do not read
+or stage an unbounded CURRENT_TASK history as a workaround.
+
 ## Operating rules
 
 1. Inspect Git status and the staged and unstaged diff. When called after `execute-step`, use its commit scope, including the Runtime-written workflow document. If the intended set is unclear or unrelated changes are already staged, stop and ask the user.

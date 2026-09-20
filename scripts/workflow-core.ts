@@ -475,6 +475,8 @@ export function validateWriteBoundaryConflicts(obj: JsonObject, context: string)
 export function validateProfilePathSemantics(profile: JsonObject, context = WORKFLOW_PROFILE_RELATIVE_PATH): void {
   getWorkflowHome(profile);
 
+  validateMutationAuthorityDomains(profile, context);
+
   validatePathEntries(
     {
       reads: [],
@@ -505,6 +507,76 @@ export function validateProfilePathSemantics(profile: JsonObject, context = WORK
       throw new Error(
         `Invalid repo pattern in ${context}.boundaries.non_executable_change_paths: value must be an array`,
       );
+    }
+  }
+}
+
+/**
+ * Validate the optional v2 project ownership map.  It is intentionally
+ * independent from dependency analysis: the map only answers which single
+ * responsibility domain owns a repository path.
+ */
+export function validateMutationAuthorityDomains(profile: JsonObject, context = WORKFLOW_PROFILE_RELATIVE_PATH): void {
+  if (!hasDottedPath(profile, 'mutation_authority')) return;
+  const rawAuthority = profile.mutation_authority;
+  if (!rawAuthority || typeof rawAuthority !== 'object' || Array.isArray(rawAuthority)) {
+    throw new Error(`Invalid mutation authority in ${context}.mutation_authority: value must be a mapping`);
+  }
+  const authority = rawAuthority as JsonObject;
+  const authorityKeys = Object.keys(authority);
+  if (authorityKeys.length !== 1 || !authorityKeys.includes('domains')) {
+    throw new Error(`Invalid mutation authority in ${context}.mutation_authority: expected only domains`);
+  }
+  if (!Array.isArray(authority.domains) || authority.domains.length === 0 || authority.domains.length > 128) {
+    throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains: value must be a bounded non-empty array`);
+  }
+  const domains: Array<{ id: string; roots: string[] }> = [];
+  for (const [index, rawDomain] of authority.domains.entries()) {
+    if (!rawDomain || typeof rawDomain !== 'object' || Array.isArray(rawDomain)) {
+      throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains[${index}]: value must be a mapping`);
+    }
+    const domain = rawDomain as JsonObject;
+    const keys = Object.keys(domain);
+    if (keys.length !== 2 || !keys.includes('id') || !keys.includes('roots')) {
+      throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains[${index}]: expected id and roots`);
+    }
+    if (typeof domain.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(domain.id.trim())) {
+      throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains[${index}].id`);
+    }
+    if (!Array.isArray(domain.roots) || domain.roots.length === 0 || domain.roots.length > 128) {
+      throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains[${index}].roots: value must be a bounded non-empty array`);
+    }
+    const roots = domain.roots.map((rawRoot, rootIndex) => {
+      if (typeof rawRoot !== 'string') {
+        throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains[${index}].roots[${rootIndex}]`);
+      }
+      const normalized = normalizePathEntry(rawRoot).replace(/\/+$/u, '');
+      const boundedGlob = normalized.endsWith('/**') && !normalized.slice(0, -3).includes('*');
+      if (!normalized || normalized === '.' || normalized.startsWith('/') || /^[A-Za-z]:\//u.test(normalized)
+        || normalized.split('/').some(segment => segment === '.' || segment === '..' || segment.length === 0)
+        || /[\0-\x1F\x7F]/u.test(normalized)
+        || (normalized.includes('*') && !boundedGlob)) {
+        throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains[${index}].roots[${rootIndex}]: root must be an exact path or literal /** prefix`);
+      }
+      return normalized;
+    });
+    if (new Set(roots).size !== roots.length) {
+      throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains[${index}].roots: duplicate roots`);
+    }
+    domains.push({ id: domain.id.trim(), roots });
+  }
+  if (new Set(domains.map(domain => domain.id)).size !== domains.length) {
+    throw new Error(`Invalid mutation authority in ${context}.mutation_authority.domains: ids must be unique`);
+  }
+  for (let leftIndex = 0; leftIndex < domains.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < domains.length; rightIndex += 1) {
+      for (const leftRoot of domains[leftIndex]!.roots) {
+        for (const rightRoot of domains[rightIndex]!.roots) {
+          if (pathEntriesOverlap(leftRoot, rightRoot)) {
+            throw new Error(`Invalid mutation authority in ${context}: domain roots overlap ${domains[leftIndex]!.id}:${leftRoot} <-> ${domains[rightIndex]!.id}:${rightRoot}`);
+          }
+        }
+      }
     }
   }
 }

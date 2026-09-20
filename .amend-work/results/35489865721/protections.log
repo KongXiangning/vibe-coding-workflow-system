@@ -1,0 +1,24 @@
+bun test v1.3.10 (30e609e0)
+
+::group::test/vnext-runtime.test.ts:
+(pass) vNext Phase 2 Runtime contract > process-control review rejects validation selection changes through engineering replacement [1272.99ms]
+(pass) vNext Phase 2 Runtime contract > process-control review waiver cannot claim an independent planned validation [1131.99ms]
+(pass) vNext Phase 2 Runtime contract > process-control review prepareSuccessor retries after real publication interruption [1931.99ms]
+(pass) vNext Phase 2 Runtime contract > process-control equivalent validation replacement retains task intent, prior decisions and retry accounting [1315.07ms]
+(pass) vNext Phase 2 Runtime contract > process-control bundled Node CLI exposes task decisions and bounded validation replacement [1928.01ms]
+(pass) vNext Phase 2 Runtime contract > process-control successor publication retains the predecessor if preparation exits [54.00ms]
+(pass) vNext Phase 2 Runtime contract > process-control successor preserves unfinished history and requires an explicit new draft confirmation [821.99ms]
+(pass) vNext Phase 2 Runtime contract > process-control risk decision skips only its bound verification and preserves real failures through retry [1107.99ms]
+(pass) vNext Phase 2 Runtime contract > process-control user evidence preserves observation, risk and gate semantics [651.00ms]
+(pass) vNext Phase 2 Runtime contract > process-control rejects an incompatible human method and conflicting user source [224.00ms]
+(pass) vNext Phase 2 Runtime contract > S4 retries an environment blocker through fresh preflight and execution without bypassing evidence [28474.17ms]
+(pass) vNext Phase 2 Runtime contract > scope amendment consumes prior authorization across blocked pending review and findings while legacy replan stays closed [1820.01ms]
+(pass) vNext Phase 2 Runtime contract > process-control dynamic review follows assessed risk without erasing the ordinary checkpoint [1716.01ms]
+
+::endgroup::
+
+ 13 pass
+ 184 filtered out
+ 0 fail
+ 534 expect() calls
+Ran 13 tests across 1 file. [42.59s]

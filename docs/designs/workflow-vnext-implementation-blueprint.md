@@ -1,5 +1,10 @@
 # Workflow vNext Implementation Blueprint
 
+## 2026-09-19 E convergence note
+
+This blueprint predates several implemented A–D refinements. The current target architecture and source/runtime contracts control when this file conflicts with them. In particular: low-risk local/private same-envelope discovery no longer creates review merely because it was unplanned; supersede no longer feeds a general same-task replacement; explicit replacement uses a fresh successor identity; and `review-change` has no public `report-only` mode. The detailed reconciliation is recorded in `vnext-design-convergence.md`.
+
+
 - **Status:** `Implementation blueprint`
 - **Date:** `2026-09-02`
 - **Scope:** vNext Distribution 安装项目的 Skill 重写与 Runtime 责任划分
@@ -34,36 +39,37 @@
 
 | vNext entry | 合并哪些旧 Skill / 责任片段 | 必须保留的治理语义 | Internal capabilities | Runtime 写入 |
 |---|---|---|---|---|
-| `prepare-task` | `create-current-task`、`review-current-task`、`lock-scope`、`classify-decisions`、`plan-implementation`、`decompose-task`；`execute-current-task` 的准备/转换边界 | task identity；一个 coherent business goal 与 acceptance claims；足够宽的 read/discovery context；尽可能精确的 `Allowed / Conditional / Forbidden` mutation scope；authority 与 decision 分类；按 claim 规划 minimum-sufficient evidence；persistent test 默认不准入；少量可独立验证 steps；只在 risk/logical boundary 设置 review checkpoint；planning、替代方案、风险/rollback、validation；UI/release 条件；新任务先形成 durable `draft + active`，同草案可 refinement，只有显式 `confirm` 才能进入 `active + active`；不写产品代码、不覆盖 Profile/Contracts | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`decision-authority-gate`；`adaptive-depth-policy`；`evidence-admission-policy`；条件性的 `propagation-evidence-validator`、`design-evidence-gate`、`release-evidence-gate`、`external-documentation-gate`；恢复/重规划时的 `resume-review-gate` | `task-state-transaction`：`create-draft`、`update-draft`、`confirm-draft`、resume gate、replan 等 typed task-state actions |
-| `execute-step` | `implement-current-step`；`continue-current-step` 的有效状态转换；`debug-and-fix-current-task` 的 admitted repair 分支；`execute-current-task` 的执行分支 | 只能执行当前已准备且 admitted 的一个 step；可读取更宽的 context 追踪数据流/root cause，但只能写 admitted mutation scope；使用 claim-bound minimum-sufficient evidence；共享且明确的 diff target；scope default-deny；dangerous operation 授权；design/decision gate；External Documentation Gate；persistent test 不得自行准入；repair 必须是 current-owner、in-scope、mechanical 且已准入；普通 step 不自动触发 full review；修复后必须进入 bounded review convergence，并按证据推进下一 step | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`adaptive-depth-policy`；`dangerous-operation-gate`；`decision-authority-gate`；`diff-target-resolver`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；条件性的 `design-evidence-gate`、`external-documentation-gate` | `task-state-transaction`；admitted repair 时条件性写 `finding-queue-transaction`；不直接写 Contracts/Decisions/LESSONS；ordinary step advancement 的 typed Runtime enforcement 属于本冻结之后的 implementation slice |
-| `review-change` | `review-current-diff`、`review-diff`、`review-implementation`、`verify-contracts` | 只在 required risk/logical checkpoint、final review 或 repair verification 时执行；一个明确 diff target；统一的 scope、goal/acceptance、implementation、contract/propagation、evidence verdict；严格 read-only；`discovery / verification` 是 review cycle phase，不是 public handoff；finding 先 admission 再 repair；`report-only` 是终态；repair verification 必须保留，即使普通 step 跳过 full review | `project-context-resolver`；`read-only-review-guard`；`diff-target-resolver`；`scope-guard`；`source-authority-policy`；`propagation-evidence-validator`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；按触发条件启用 `external-documentation-gate` | **无**。可返回结构化 finding/evidence gap，但不直接写 queue、CURRENT_TASK、代码或 knowledge |
+| `prepare-task` | `create-current-task`、`review-current-task`、`lock-scope`、`classify-decisions`、`plan-implementation`、`decompose-task`；`execute-current-task` 的准备/转换边界 | task identity；一个 coherent business goal 与 acceptance claims；足够宽的 read/discovery context；v1 的 `Allowed / Conditional / Forbidden` scope 或 v2 的 task authority envelope；authority 与 decision 分类；按 claim 规划 minimum-sufficient evidence；persistent test 默认不准入；少量可独立验证 steps；v2 steps 的 planned footprint 只作 guidance；只在 risk/logical boundary 设置 review checkpoint；planning、替代方案、风险/rollback、validation；UI/release 条件；新任务先形成 durable `draft + active`，同草案可 refinement，只有显式 `confirm` 才能进入 `active + active`；不写产品代码、不覆盖 Profile/Contracts | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`decision-authority-gate`；`adaptive-depth-policy`；`evidence-admission-policy`；条件性的 `propagation-evidence-validator`、`design-evidence-gate`、`release-evidence-gate`、`external-documentation-gate`；恢复/重规划时的 `resume-review-gate` | `task-state-transaction`：`create-draft`、`update-draft`、`confirm-draft`、resume gate、replan 等 typed task-state actions |
+| `execute-step` | `implement-current-step`；`continue-current-step` 的有效状态转换；`debug-and-fix-current-task` 的 admitted repair 分支；`execute-current-task` 的执行分支 | 只能执行当前已准备且 admitted 的一个 step；可读取更宽的 context 追踪数据流/root cause，但 v1 只能写 step scope，v2 可在 task authority envelope 内发现并 assessment/self-admit 额外 footprint；使用 claim-bound minimum-sufficient evidence；共享且明确的 diff target；scope default-deny；dangerous operation 授权；design/decision gate；External Documentation Gate；新的 persistent test 仍需 P-12；repair 必须是 current-owner、in-scope、mechanical 且已准入；普通 step 不自动触发 full review；dynamic expansion 由其 blast-radius assessment 选择 review 深度，local/private/no-consumer/no-contract-impact 不新增 checkpoint，elevated/uncertain expansion 保留 cumulative review；修复后必须进入 bounded review convergence，并按证据推进下一 step | `project-context-resolver`；`source-authority-policy`；`task-identity-guard`；`scope-guard`；`adaptive-depth-policy`；`dangerous-operation-gate`；`decision-authority-gate`；`diff-target-resolver`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；`mutation-authority-policy`；条件性的 `design-evidence-gate`、`external-documentation-gate` | `task-state-transaction`；admitted repair 时条件性写 `finding-queue-transaction`；不直接写 Contracts/Decisions/LESSONS；ordinary step advancement 的 typed Runtime enforcement 属于本冻结之后的 implementation slice |
+| `review-change` | `review-current-diff`、`review-diff`、`review-implementation`、`verify-contracts` | 只在 required risk/logical checkpoint、风险选择的 v2 dynamic footprint review、final review 或 repair verification 时执行；一个明确 diff target；统一的 authority/planned-vs-actual、goal/acceptance、implementation、contract/propagation、evidence verdict；对产品/测试/配置/治理源严格 read-only；`discovery / verification` 是 review cycle phase，不是 public handoff；finding 先 admission 再 repair；每次 public 调用本身 terminal，next route 只作建议；repair verification 必须保留，即使普通 step 跳过 full review | `project-context-resolver`；`read-only-review-guard`；`diff-target-resolver`；`scope-guard`；`mutation-authority-policy`；`source-authority-policy`；`propagation-evidence-validator`；`evidence-admission-policy`；`finding-admission`；`review-convergence-policy`；按触发条件启用 `external-documentation-gate` | 通过 `task-state-transaction` 持久化 `record-review-result` / evidence challenge 或 dismissal；Skill 不直接写 CURRENT_TASK、finding queue、产品代码或长期 knowledge |
 | `debug-task` | `investigate-root-cause`；`debug-and-fix-current-task` 的 investigation、root-cause 和 repair-decision 分支 | 区分新 bug、report-only investigation、current-task debugging；先 reproduce 再提出 hypothesis；current-task debugging 或需要写 task-state/resolve 时确认 owner 与 active task，新 bug 的普通 investigate-only 可无 current task；最多有限次不收敛尝试后 stop；外部行为影响正确性时查当前文档；debug 不直接写产品代码；`resolve` 只负责确认修复路线，修复交给 `execute-step:repair` | `project-context-resolver`；`root-cause-loop`；`owner-route-resolver`；`source-authority-policy`；`scope-guard`；`decision-authority-gate`；`evidence-admission-policy`；条件性的 `external-documentation-gate`、`review-convergence-policy` | current task 调试证据/风险/检查点可写 `task-state-transaction`；新 bug 或 report-only 默认无写入；不由该入口直接提交产品修复 |
-| `task-lifecycle` | `pause-current-task`、`interrupt-current-task`、`resume-paused-task`、`resume-interrupted-task`、`supersede-current-task` | workflow status 与 lifecycle state 分离；pause 与 interrupt 不混淆；保存完整 snapshot、checkpoint、dirty attribution、environment、recovery strategy；各 mode 只要求其所选 transition 的必要 evidence；resume 必须指定唯一包并先过 review gate；supersede 只用于 goal/scope/acceptance 已失效且保留原历史；不从“latest package”猜恢复对象 | `project-context-resolver`；`lifecycle-transition-guard`；`task-identity-guard`；`owner-route-resolver`；`resume-review-gate`；`source-authority-policy`；`decision-authority-gate`；`scope-guard` | `lifecycle-transaction`；supersede/replan 的任务事实条件性写 `task-state-transaction`；不承担旧项目 paused/interrupted 热迁移 |
+| `task-lifecycle` | `pause-current-task`、`interrupt-current-task`、`resume-paused-task`、`resume-interrupted-task`、`supersede-current-task` | workflow status 与 lifecycle state 分离；pause 与 interrupt 不混淆；保存完整 snapshot、checkpoint、dirty attribution、environment、recovery strategy；各 mode 只要求其所选 transition 的必要 evidence；resume 必须指定唯一包并先过 review gate；supersede 只用于 goal/scope/acceptance 已失效且保留原历史；不从“latest package”猜恢复对象；supersede 不携带 replacement | `project-context-resolver`；`lifecycle-transition-guard`；`task-identity-guard`；`owner-route-resolver`；`resume-review-gate`；`source-authority-policy`；`decision-authority-gate`；`scope-guard` | `lifecycle-transaction`；bounded correction/amendment/successor 由各自 prepare-task Runtime 路径处理；不承担旧项目 paused/interrupted 热迁移 |
 | `capture-work-item` | `capture-work-item` | 仅记录已证明与当前任务无关的工作；`TASKS/inbox/**` record-only；scope widening、uncertainty、duplicate suspicion fail closed；绝不创建/切换/修改 CURRENT_TASK、lifecycle、identity、catalog | `record-only-intake-guard`；`owner-route-resolver`；`scope-guard`；必要时使用 `project-context-resolver` 确认当前 owner | `inbox-record-transaction`：最多创建一个 inbox record，不触碰 active task |
 | `close-task` | `close-current-task`、`prepare-delivery-summary`、`archive-task` | closure eligibility 先于 archive；successful terminal tuple 为 `closed + archived`；在 archive 前完成 Contract/Decision/Lesson admission，archive 后按 admission 只 reconcile 缺失的长期知识、Lesson 与 STATUS；保留 acceptance、verification、release health、rollback、observation、remaining risks；summary 不能把 blocker 美化成 complete；identity/slug/archive path 稳定；implementation anchors 仅为已观察的导航提示 | `project-context-resolver`；`closure-eligibility-gate`；`task-identity-guard`；`evidence-admission-policy`；条件性的 `release-evidence-gate`；`knowledge-admission-policy` | `archive-transaction`、`contract-candidate-commit`、`decision-record-transaction`、`project-status-transaction`；显式准入的 Lesson 才使用 `lesson-record-transaction` |
 | `bootstrap-project`（admin） | `design-baseline-init`、`greenfield-init`、`legacy-inventory`、`adopt-existing-project`、`realign-workflow-assets` | `design / greenfield / inventory / adopt / realign` 保留不同 precondition、authority、write boundary 和 stop condition；只记录 confirmed facts；保留 inferred/unknown 与 provenance；realign 只处理 workflow-owned assets，保护 target facts、用户文档、native host assets；不创建 feature implementation | `project-context-resolver`；`source-authority-policy`；`design-evidence-gate`；`decision-authority-gate`；`scope-guard`；`propagation-evidence-validator`；`host-isolation-guard`；`generation-atomicity-policy`；必要时 `dangerous-operation-gate` | 按 mode 使用 `contract-candidate-commit`、`decision-record-transaction`、`project-status-transaction`、`paired-host-guidance-transaction`；不创建 active task |
 | `validate-change`（expert/automation） | `run-regression` | QA evidence closed set；复用同一 diff target；unit/integration/browser/visual/release/canary/benchmark 等由 evidence policy 选择；report-only 不触发 sync/debug/repair；失败只路由到 `debug-task` 或用户，不隐式修复 | `validation-layer-gate`；`diff-target-resolver`；`read-only-review-guard`；`evidence-admission-policy`；`owner-route-resolver`；按触发条件启用 `release-evidence-gate`、`external-documentation-gate` | **无**。允许声明的临时 build/cache/test artifacts，但不写 canonical governance state |
+| `git-commit`（expert） | local commit helper | 只对 caller 明确授权的 intended change set 创建一个本地 commit；不编辑文件、不 stage 无关改动、不 amend/reset/branch-switch/push；它不是 workflow progression stage | `dangerous-operation-gate` | **无 Runtime 写入**；只产生 Git commit |
 | `sync-state`（internal） | `sync-current-task`、`sync-status`、`sync-contracts`、`sync-decisions`、`sync-host-guidance`、`sync-review-findings`、`capture-lessons`；以及对应 Runtime transaction surface | 只接受 typed semantic delta；caller 提供 authority、evidence、source tuple、scope 和 idempotency；Contract/Decision/Lesson 使用 knowledge admission；finding 只有 current-owner、in-scope、mechanical 且去重后才能进 queue；append-only/provenance、host pairing、exact source/write allowlist；不是任意 Markdown editor | `knowledge-admission-policy`；`source-authority-policy`；`decision-authority-gate`；`propagation-evidence-validator`；`finding-admission`；`owner-route-resolver`；`host-isolation-guard`；`generation-atomicity-policy`；条件性的 `closure-eligibility-gate` | 按 operation kind 精确调用：`task-state-transaction`、`project-status-transaction`、`contract-candidate-commit`、`decision-record-transaction`、`paired-host-guidance-transaction`、`finding-queue-transaction`、`lesson-record-transaction` |
 
 `execute-current-task` 与 `debug-and-fix-current-task` 都按语义边界拆分到多个新入口；这表示拆责任，不表示保留两个旧 wrapper。其余旧 Skill 由上表唯一归属，旧文件、旧 registry entry 和旧 public route 在 vNext Distribution 安装中均不存在。
 
 ### 2.1 Slice B frozen owner map
 
-`task-lifecycle:supersede` and `prepare-task:replan` are separate transactions under one task identity. `TASK_ID`, `TASK_SLUG`, and document identity remain unchanged. A new identity is allowed only through the ordinary new-task path for a genuinely independent user request.
+`task-lifecycle:supersede` and bounded same-task correction are separate transactions, but supersede is no longer the first half of a general same-task replacement. Restricted correction/recovery preserves `TASK_ID`, `TASK_SLUG`, and document identity. A later explicit replacement request after supersede uses `prepare-successor`, retains the predecessor as superseded, and allocates a fresh task/document identity whose draft still needs normal confirmation.
 
 | Caller | Owns | Does not own |
 |---|---|---|
 | `task-lifecycle:supersede` | invalidation kind (`goal | scope | acceptance`), reason, authority/evidence, partial-diff disposition, removal of old execution authority, typed SupersedeDelta | replacement goal, acceptance, scope, implementation plan, or steps |
-| `prepare-task:replan` | relevant context, new goal/acceptance/scope, affected contracts, decisions/open questions, bounded approach/steps, validation, rollback/recovery, conditional design/release/propagation requirements, typed ReplanDelta | generic Markdown patching, state transition mechanics, history mutation, idempotence, rollback, or read-back |
+| `prepare-task:replan` | revision-bound restricted conclusion-correction / execution-recovery candidate, obligation mapping, bounded replacement steps/check IDs, evidence/restore material, explicit confirmation | changed total authority, generic goal/scope replacement, generic Markdown patching, history erasure, or a fresh successor identity |
 | Runtime | schema/source/identity/transition/authority validation, closed section replacement, atomic commit, idempotence, rollback, read-back | deciding whether invalidation or partial-diff disposition is semantically correct |
 
-The durable statuses are deliberately not public modes. `blocked_by_replan + active` is a non-active owner state for unsafe continuation without sufficient authority/evidence/decision to invalidate; `superseded + active` is a non-active owner state after formal invalidation. Both forbid `execute-step`, pause, and interrupt. The first may clear to `active + active` when authoritative evidence proves the old definition valid, or supersede when invalidation is confirmed. The second can only return to `active + active` through successful `commit-replan`. A blocked replan never rolls back a successful supersede.
+The durable statuses are deliberately not public modes. `blocked_by_replan + active` is a non-active owner state for unsafe continuation without sufficient recovery/invalidation evidence; `superseded + active` is a non-active owner state after formal invalidation. Both forbid ordinary `execute-step`, pause, and interrupt. The first may clear to `active + active` when authoritative evidence proves the old definition valid, use bounded correction/recovery when eligible, or supersede when invalidation is confirmed. A superseded task cannot be generally rewritten back to active: only the explicitly supported acceptance-result correction may reactivate it through a confirmed candidate, while a genuine replacement uses fresh-identity `prepare-successor`.
 
-The Slice B task-state action set is closed to `mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. All three have `caller: prepare-task` and `mode: replan`; Slice B does not make `commit-replan` an arbitrary active-task replanning writer. `supersede` remains `caller: task-lifecycle`, `operation: lifecycle-transaction`.
+The task-state catalog still retains `mark-replan-blocked`, `clear-replan-block`, and an internal `commit-replan` publication action, but direct `commit-replan` is disabled. Supported same-task correction is `prepare-replan` → exact `confirm-replan`; additive authority uses `prepare-task:amend-scope`; `supersede` remains a `task-lifecycle` invalidation action; and fresh replacement is `prepare-successor`, not an old-task `commit-replan`.
 
 ### 2.2 Slice C frozen owner map — ordinary draft and confirmation
 
-The ordinary new-task path is distinct from Slice B same-task replan:
+The ordinary new-task path is distinct from Slice B bounded same-task correction and from fresh successor preparation:
 
 | Caller / action | Owns | Does not own |
 |---|---|---|
@@ -125,7 +131,7 @@ read back canonical Markdown/YAML and return structured result
 
 其中：
 
-- `project-context-resolver` 只读并返回 source locator、authority、relevance、freshness、conflict 和 exclusion trace；不会把旧 schema 转成新 schema。
+- `project-context-resolver` 只读并返回 source locator、authority、relevance、freshness、conflict 和 exclusion trace；只接受受支持的 vNext schema，不把旧 schema 转成新 schema。识别旧项目或提供迁移提示不是其产品目标或验收要求，但实现可为内部安全保留检测。
 - adaptive depth 只决定可选规划与证据的深度，不能跳过 authority、scope、decision、dangerous、evidence 等必需 gate。
 - capability 之间可以共同评估或按需加载，不能再写成 `scope-review → implementation-review → contract-review` 一类 public BPM 链。
 - `review-change`、`validate-change`、`debug-task` 的 report-only 分支都必须有明确 terminal result，不得隐式发起 handoff 或写入状态。
@@ -151,8 +157,8 @@ templates/vnext/skills/execute-step.SKILL.md.tmpl
 
 | Entry | Closed mode set | Input-only cycle phase | Output kind | Direct mutation boundary | Phase 1A Runtime status |
 |---|---|---|---|---|---|
-| `prepare-task` | `default`, `replan` | none | `prepared-task` | `product_files: []`; no direct governance writes | `task-state-transaction` may be referenced as `contract-only / unbound / Phase 2` |
-| `review-change` | `default`, `report-only` | `discovery`, `verification` | `report` | `product_files: []`; `governance_sources: []` | `runtime_operations: []` |
+| `prepare-task` | `default`, `confirm`, `replan`, `amend-scope` | none | `prepared-task` | `product_files: []`; no direct governance writes | typed task-state/evolution operations; `replan` is restricted correction/recovery, `amend-scope` is explicit additive authority, successor is an internal fresh-draft action |
+| `review-change` | `default` | `discovery`, `verification` | `review-result` | `product_files: []`; `governance_sources: []` | records the review result through the existing Runtime transaction; product/governance mutation remains forbidden |
 | `execute-step` | `default`, `repair` | none | `change-result` | product files only inside the admitted scope; no direct governance writes | governance operations remain `contract-only / unbound / Phase 2` |
 
 For `review-change`, both direct mutation lists and `runtime_operations` must be empty. `discovery` and `verification` describe the review cycle input; they are never public modes, executable handoffs, or automatic stage transitions. `execute-step:repair` consumes an admitted finding or confirmed root cause and a bounded repair budget; it does not silently acquire review, debug, or Runtime write authority.
@@ -225,7 +231,7 @@ These tests should use small in-memory mutations or a few temporary contract fil
 
 ### 3.4 Phase 1 follow-up source checkpoint
 
-After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four original daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates and a closed capability union. Phase 2 later added `review-draft` as an eighth daily entry because draft review has a distinct original-request input, prepared-draft target, zero-write boundary, and portable terminal result; it is not an automatic stage after `prepare-task`. Phase 2 binds `task-state-transaction` and `finding-queue-transaction` for `execute-step`, the Slice A lifecycle transaction for `task-lifecycle` pause/interrupt/resume modes and the minimal `prepare-task` resume-review gate clear action, the Slice B supersede/replan actions, the Slice C ordinary draft/create/refinement/confirm actions, close-task archive/status/Lesson plus final Contract/Decision promotion and re-entry transactions, `capture-work-item:record` through `inbox-record-transaction`, and the `bootstrap-project` administrative transaction boundary. The `validate-change` expert source/install surface is implemented as a read-only evidence-policy entry with no Runtime operation. The `sync-state` implementation gap review is resolved as an architecture assessment: its current responsibilities are fulfilled by caller-local orchestration and existing typed Runtime handlers, so no standalone service is required.
+After the Phase 1A three-entry manual review passed, the same independent namespace was extended with the remaining four original daily entries: `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task`. The Phase 1 checkpoint had seven daily templates and a closed capability union. Phase 2 later added `review-draft` as an eighth daily entry because draft review has a distinct original-request input, prepared-draft target, zero-write boundary, and portable terminal result; it is not an automatic stage after `prepare-task`. Phase 2 binds `task-state-transaction` and `finding-queue-transaction` for `execute-step`, the Slice A lifecycle transaction for `task-lifecycle` pause/interrupt/resume modes and the minimal `prepare-task` resume-review gate clear action, the Slice B supersede + bounded correction / later amendment-successor actions, the Slice C ordinary draft/create/refinement/confirm actions, close-task archive/status/Lesson plus final Contract/Decision promotion and re-entry transactions, `capture-work-item:record` through `inbox-record-transaction`, and the `bootstrap-project` administrative transaction boundary. The `validate-change` expert source/install surface is implemented as a read-only evidence-policy entry with no Runtime operation. The `sync-state` implementation gap review is resolved as an architecture assessment: its current responsibilities are fulfilled by caller-local orchestration and existing typed Runtime handlers, so no standalone service is required.
 
 ### 3.5 Phase 2 bound Runtime slice
 
@@ -246,7 +252,7 @@ Runtime for the resume-review gate clear action, Slice C's ordinary
 action; `create-draft` requires prior task archive and complete post-archive reconciliation;
 ordinary drafts enforce strict step admission beginning at the first admitted step;
 `confirm-draft` requires `mode: confirm`, the exact current draft revision, and explicit confirmation authority binding current task identity, document identity, and draft revision. It cannot use those bindings to mutate unrelated task facts. Slice B
-supersede and durable replan, plus the close-task archive/status/Lesson and
+supersede and bounded correction publication, plus the later authority-amendment / fresh-successor paths and the close-task archive/status/Lesson and
 ordinary Contract/Decision promotion handlers, are also implemented in the
 source-repository Runtime. `debug-task`
 and the remaining later operation callers remain proposal-only until their own
@@ -287,13 +293,23 @@ daily-execution slice:
    `acceptance` / `regression` / `critical-invariant` / `critical-risk`. An
    explicit user `test_write_policy: deny` forbids new persistent tests while
    leaving existing validation available.
-2. **Mutation-oriented Scope** — `project-context-resolver` may read broadly
+2. **Mutation Authority v2** — `project-context-resolver` may read broadly
    enough to understand callers, consumers, types, configuration, tests, and
-   root cause. `Allowed / Conditional / Forbidden` remains a write boundary.
-   Ordinary `Allowed` scope is exact-file or file-plus-symbol/responsibility
-   where known; broad globs require an inherently broad transformation.
-   Conditional expansion requires its stated evidence / authority. A changed
-   goal, scope, or acceptance is replan work.
+   root cause, including other responsibility domains. A v2 task explicitly
+   declares `mutation_authority_version: 2` and a positive task authority
+   envelope of project domain IDs, exact cross-domain exceptions, and forbidden
+   targets. Project profile domains use unique IDs and bounded
+   repository-relative exact or literal `/**` roots; ambiguous or unclassified
+   paths fail closed for writes. `Allowed / Conditional / Forbidden` remains
+   the v1 compatibility model, not a second v2 ACL. v2
+   `planned_mutation_targets` are guidance for initial direction and
+   planned-vs-actual review. A same-envelope target outside that footprint
+   requires a blast-radius assessment and `self-admit`/`escalate` disposition;
+   Runtime checks only structural authority, before-state and audit binding.
+   Prefer the smallest correct local change, while an evidence-backed shared
+   change may be self-admitted. Uncertain ownership or contract impact routes
+   to the user. A true cross-domain authority change uses the existing
+   immutable scope-amendment/continuation route.
 3. **Task / Step / Review Checkpoint / Repair** — one coherent business goal
    remains one TASK; it is split into a small number of independently verifiable
    admitted steps. `execute-step` handles only the current step. Minimum evidence
@@ -305,13 +321,137 @@ daily-execution slice:
 
 The canonical task sections remain the only representation: acceptance /
 regression sections carry claims and evidence; scope sections separate read
-context from mutation targets; and implementation steps carry step identity,
-purpose, bounded scope, required evidence, and checkpoint policy. No new public
-Skill, review BPM stage, test registry, test state machine, or ACL subsystem is
-introduced. The current Runtime makes the ordinary draft/confirm boundary
+context from mutation targets; the v2 authority envelope is a task-level hard
+boundary; and implementation steps carry step identity, purpose, planned
+targets, required evidence, and checkpoint policy. No new public Skill, review
+BPM stage, test registry, test state machine, or ACL subsystem is introduced.
+The current Runtime makes the ordinary draft/confirm boundary
 durable through typed `create-draft`, `update-draft`, and `confirm-draft`
 actions; ordinary `STEP-N → STEP-N+1` advancement remains the later execution
 slice described below.
+
+For v2 execution, an in-envelope expansion is assessed before first touch. A
+preflight discovered after an earlier path has changed uses the internal
+`extend-preflight` action: it captures the new before-state, replaces the
+receipt, preserves the same attempt and plan revision, consumes no retry slot,
+and creates no continuation. The expansion sets a cumulative review gate.
+Existing test files inside the envelope follow this rule with explicit oracle
+and reuse assessment; an absent new persistent test still follows P-12
+admission. A clean cumulative review is required before completion. This
+behavior is distinct from `prepare-task:amend-scope`, which is reserved for
+cross-envelope authority changes.
+
+#### Step 1 design closure — unified execution admission
+
+The Runtime exposes one internal exact-target evaluator for every point at
+which a product target could enter an execution attempt: ordinary preflight,
+same-attempt `extend-preflight`, repair preflight, repair extension, command
+write-footprint preflight, and the result-recording re-check. The evaluator
+receives the v1/v2 authority source, current step planned footprint, execution
+phase, persistent-test state, project non-executable boundary, explicit
+Forbidden and governance boundaries, and optional blast-radius assessment. It
+returns a closed classification rather than a generic scope error. Structural
+authority and before-state are Runtime facts; the model's locality/shared/
+consumer/contract judgment is retained as assessment evidence.
+
+The v2 preflight state stores a stable `execution_id`, the current replacement
+receipt token, mode, step, plan, phase, and cumulative candidates. Each dynamic
+record also carries that execution identity. Repair does not create a second
+authority evaluator or a new retry attempt: `begin-repair` registers a repair
+preflight in the same state shape, and repair discovery uses the same
+`extend-preflight` action with the same repair wave. A rejected extension is
+validated before coverage, preimage, expansion, or proposal state is mutated.
+
+The evaluator applies test-strategy and non-executable policy on every target,
+not only on the initial planned set. Runtime derives a test-first Red
+constraint from the current step's frozen, unconsumed before-step
+expected-failure obligation, never from candidate filenames or composition.
+Thus a mixed or replacement preflight cannot add a product target while that
+obligation is pending. Red admits exact frozen Persistent Tests, including
+non-typical paths, but its receipt still requires `implemented`; the
+expected-failure evidence carries reproduction proof. A not-applicable task
+cannot discover executable code merely because its domain is authorized.
+Existing same-envelope test files use ordinary assessed admission; only an
+absent new persistent test needs the existing P-12 admission record.
+
+Dynamic expansion records are execution-scoped rather than task-global grants:
+each new record binds `step_id`, `plan_revision`, `change_set_id`,
+`execution_id`, `preflight_id`, and `mode` in addition to its path, assessment,
+and first-touch state. Admission reads only the records matching the current
+active execution identity; records from an earlier step, plan revision, or
+repair wave remain audit history and do not satisfy a later missing assessment.
+The compatibility `dynamic_review_required` projection is derived from
+unconsumed current-execution expansions, and clean review records the exact
+review id against only those expansions. Cumulative review coverage remains
+task-level and may retain earlier paths, but it is never passed back as the
+current execution authority candidate set.
+
+#### Step 3 design closure — separate authority transition from P-12 admission
+
+The v2 authority-amendment gate is an execution-settlement gate, not a broad
+task-status gate. It rejects only the latest attempt whose preflight was
+recorded and whose matching ordinary or repair execution result is absent.
+`ready` retry attempts, recorded blocked results, recorded repair results, and
+pending review/findings are amendable; the existing candidate/continuation
+preservation contract carries those obligations forward. Repair settlement is
+bound to the active repair preflight's execution identity and its result log.
+
+The committed scope-amendment candidate is immutable. A discard request first
+checks the committed candidate audit and returns
+`SCOPE_AMENDMENT_ALREADY_COMMITTED` without writing a marker. This keeps
+candidate history usable for later preparation and recovery.
+
+Persistent-test creation is a distinct transition. When an absent target is a
+new persistent test inside the current authority envelope, ordinary
+`extend-preflight` returns `PERSISTENT_TEST_UNADMITTED`. The caller then uses
+the existing prepare-task scope-amendment infrastructure with a complete
+typed `persistent_test_admission` record and `authority_diff: none`; no
+component authorization is requested or synthesized. The record includes
+`path`, `proves`, `owner`, `owner_source`, `source_ref`, `basis`,
+`existing_evidence_insufficiency`, `assertion_boundary`, and
+`failure_disposition`. Runtime validates and binds the caller's facts, does
+not invent defaults, commits the amended definition, and the next execution
+uses a fresh preflight. Existing in-envelope tests remain ordinary assessed
+expansions. Focused fixtures E10–E15 cover settlement, immutable candidates,
+typed admission, and the no-default failure path.
+
+#### Step 4 design closure — planning executability and project authority lifecycle
+
+Add one shared Runtime proof at every definition-admission boundary:
+`prepare-draft`, `update-draft`, replan/correction, and `confirm-draft`. It
+evaluates all v2 planned targets, exact command writes, bounded command
+footprints, and persistent-test paths against the canonical project authority
+map. Planned declarations do not need a blast-radius assessment, but every
+path/pattern must be inside an authorized domain or exact exception and outside
+Forbidden, governance, ambiguous, and `unclassified` space. This proof runs
+before a confirmed definition or amendment is written, so an invalid plan does
+not reach `execute-step`.
+
+Replace synthetic command-probe paths with a deterministic subset relation for
+the only supported footprint grammar: an exact repository path or a literal
+`/**` directory-prefix pattern. A candidate directory glob is admitted only
+when its prefix is contained by one granted domain root. An exact exception
+cannot authorize a directory glob, and a wider parent glob cannot be justified
+by a narrower domain. The same structural helper is used for definition and
+command declaration checks; it does not attempt semantic business judgment.
+
+Add the project authority lifecycle to the target-local Bootstrap support and
+source facade. `inventory` proposes bounded `authority_domain_candidates` with
+basis/evidence; `greenfield`, `adopt`, and `realign` accept an explicit
+project-owner confirmation and write the selected domains to
+`.workflow-system/PROJECT_PROFILE.yaml`. Existing confirmed maps are retained;
+the Runtime and task planner never infer ownership or reconstruct a domain map
+per task. The canonical map's revision/digest is stored when a v2 task is
+confirmed. Every later execution compares the bound revision with the profile
+and fails closed on mismatch until explicit task authority-domain
+revalidation. Ordinary correction-replan, P-12 admission, and exact-path
+amendment do not rebind the task to the changed map.
+
+The focused Step 4 acceptance set is E16 (planned target outside the envelope),
+E17 (over-broad command glob), E18 (strict-subset command glob), E19
+(inventory candidate followed by owner confirmation), and E20 (active-task
+domain-map revision mismatch). These tests are a separate subsystem slice and
+do not require the repository-wide workflow suite.
 
 ### 3.7 Trusted Authority Channel architecture freeze
 
@@ -352,8 +492,8 @@ prepare-task
     ↓ one goal + claims + precise scope + admitted steps/evidence/checkpoints
 execute-step STEP-N
     ↓ minimum-sufficient evidence
-    ├─ no required checkpoint → durable advancement → execute-step STEP-N+1
-    └─ required checkpoint / final review → review-change (discovery)
+    ├─ no required checkpoint and no v2 expansion whose assessment requires review → durable advancement → execute-step STEP-N+1
+    └─ required checkpoint / final review / risk-selected elevated-or-uncertain v2 expansion → review-change (discovery)
          ├─ clean → durable advancement → execute-step STEP-N+1
          ├─ admitted mechanical finding → execute-step:repair
          │                                  ↓
@@ -362,7 +502,7 @@ execute-step STEP-N
          │                                  └─ bounded stop / debug / user
          ├─ needs-evidence → provide claim-bound evidence
          ├─ unknown root cause → debug-task
-         └─ user-owned / scope / contract decision → stop and ask or replan
+         └─ user-owned / scope / contract decision → stop and ask, amend authority, prepare successor, or use bounded correction as applicable
 
 task-lifecycle:resume-paused / resume-interrupted
     ↓ lifecycle transaction success + resume_requires_review=true
@@ -400,11 +540,7 @@ Runtime handler 的 source set、write set、precondition、conflict rule 和 po
 
 Runtime kernel 只负责 deterministic validation、conflict、idempotence、atomic commit 和 read-back；语义判断仍由 entry、用户和 capability policy 共同完成。不存在一个可以随意写任意治理文档的 generic editor。
 
-本冻结后的实现必须把 `STEP-N completed`、required evidence、required review
-checkpoint、repair verification 和 `STEP-N+1 ready` 闭合在 typed Runtime state
-transaction 中；Skill 不直接修改 `CURRENT_TASK.md`。这项 ordinary step
-advancement / checkpoint enforcement 是下一 implementation slice 的责任，
-不在本次 docs-only diff 内。
+当前实现已经把 `STEP-N completed`、required evidence、required review checkpoint、repair verification 和 `STEP-N+1 ready` 闭合在 typed Runtime state transaction 中；Skill 不直接修改 `CURRENT_TASK.md`。E 收敛只校准设计描述，不把这一已实现边界重新列为未来 implementation slice。
 
 Close-task 的 transaction 顺序固定为：closure preparation（包含
 Contract/Decision/Lesson `knowledge-admission` decision）→
@@ -419,37 +555,18 @@ archive 成功后任何下游失败均不回滚 terminal archive；`closed + arc
 不存在 close-specific task-state transaction、`closure_id` 或 pending-closure
 recovery mode。
 
-Slice B 的 ReplanDelta 使用浅层 typed shape，不携带 arbitrary Markdown patch：
+当前 task evolution 不再把一份自由 replacement definition 作为 caller 可提交的 ReplanDelta。Runtime 仍保留内部 `commit-replan` publication action 以维持 typed audit/commit 语义，但 direct raw commit 被拒绝。支持的路径是：
 
-```yaml
-semantic_delta:
-  kind: task-state
-  action: commit-replan
-  replacement_definition:
-    background_context: <existing-section-content>
-    acceptance: <existing-section-content>
-    allowed_scope: <existing-section-content>
-    conditional_scope: <existing-section-content>
-    forbidden_scope: <existing-section-content>
-    affected_contracts: <existing-section-content>
-    confirmed_decisions: <existing-section-content>
-    open_questions: <existing-section-content>
-    implementation_plan: <existing-section-content>
-    implementation_steps: <existing-section-content>
-    regression_checks: <existing-section-content>
-    rollback_points: <existing-section-content>
-    design_constraints: <existing-section-content-or-null>
-    post_release_validation: <existing-section-content-or-null>
-    propagation_governance: <existing-section-content-or-null>
-  active_step_id: <replacement-step-id>
-  evidence_refs: []
-```
+- `prepare-replan` 生成 immutable `correction-replan/v2` candidate，绑定 old source/Basis/plan、challenge/recovery targets、完整 obligation map、replacement step/check identities、evidence/restore material；
+- `confirm-replan` 对 exact candidate digest/source/Basis/permission binding 做显式确认后，由 Runtime 内部发布；
+- `prepare-task:amend-scope` 独立处理 additive authority 或 `authority_diff:none` 的 absent persistent-test admission；
+- `task-lifecycle:supersede` 只失效旧 execution authority；显式 replacement 由 `prepare-successor` 创建 fresh draft identity。
 
-Successful `commit-replan` sets `active_step_id` from the replacement and `active_step_status: ready`; moves admitted/in-progress findings to deferred/non-actionable; preserves resolved/rejected/already-deferred findings as history; resets `review_cycle` to the canonical `ReviewCycleState` baseline `review-cycle-0` defined in `.workflow-system/WORKFLOW_PROTOCOL.md`; sets `resume_requires_review: false` and `resume_review_reasons: []`; and preserves `execution_log` plus `applied_proposals`. A subsequent finding admission establishes new review authority.
+这四条路径分别对应 same-plan recovery / bounded conclusion correction / authority amendment / fresh replacement，不再共享一个“whole task replan”含义。历史 `commit-replan` shape 只作为旧审计兼容背景，不是当前 public proposal contract。
 
 ## 6. Migration Pack 与 vNext 的硬边界
 
-Migration Pack 不属于上面的 vNext entry 或 capability graph。它只在旧项目满足 idle precondition 时运行：
+Migration Pack 不属于上面的 vNext entry 或 capability graph，也不是 Runtime 在发现旧项目后给出的 fallback。只有用户或 operator 显式调用该独立工具时，它才检查旧项目是否满足 idle precondition：
 
 ```text
 old project is idle
@@ -491,14 +608,14 @@ old Markdown
 
 Pack 必须保留原始文本和权威事实，不要求 AI 重新理解历史语义；不得猜 Lesson 的 symbol 适用范围、语义重复关系、semantic tags 或 inferred merge/supersede。上述判断留给未来 vNext 的 `project-context-resolver` 和显式的 `knowledge-admission-policy`，而不是迁移时批量重写历史。
 
-`CURRENT_TASK` 不作热迁移输入：0.18.0 允许显式、身份/hash 绑定的旧完成认定，并备份原文；active finding repair 和 interrupted runtime state 仍拒绝。明确声明的 paused 文件原路径原字节保留，不转成 vNext 恢复状态，后续仅在用户单独请求后读取并确认新计划。检测到旧或不支持的 schema 时，vNext 只返回：
+`CURRENT_TASK` 不作热迁移输入：0.18.0 允许显式、身份/hash 绑定的旧完成认定，并备份原文；active finding repair 和 interrupted runtime state 仍拒绝。明确声明的 paused 文件原路径原字节保留，不转成 vNext 恢复状态，后续仅在用户单独请求后读取并确认新计划。正常 vNext Runtime 不以识别旧项目或返回迁移提示为产品目标和验收要求。只有输入已经声明为 vNext、但 schema/kind/version 非法或不受支持时，才沿用现有 schema validation fail closed：
 
 ```text
-migration-required
+existing vNext schema validation failure
 → stop
 ```
 
-vNext Skills 不负责理解旧协议；不存在长期 legacy fallback、长期 version-aware reader 或业务项目双轨安装。
+vNext Skills 不负责理解或兼容旧协议；不存在 legacy fallback、长期 version-aware reader 或业务项目双轨安装。旧项目探测和迁移提示不作为 vNext Runtime 的产品承诺，是否为内部安全保留检测不由本目标架构禁止。显式迁移请求直接进入独立 Migration Pack，而不是依赖 vNext Runtime 的提示。
 
 0.18.0 的正常分发入口为 `migrate --root <target> --decisions-file <json>`，先用
 `--dry-run` 核对写入/删除清单。决定必须包含精确 target identity、旧 CURRENT_TASK
@@ -530,14 +647,15 @@ package.json 只删除已识别的旧 workflow 命令，业务命令/依赖保�
 | Migration Pack | 实现 idle preflight、离线副本转换、stable ID/provenance/path-reference、完整 validation 和 vNext Distribution atomic installation | 不关闭/归档 active task；不恢复 paused/interrupted；不做语义去重或 AI 历史重写 |
 | Phase 2 existing execution/finding slice | vNext `execute-step` state-changing workflow；task-state/finding queue；evidence admission、finding admission、Review Convergence 和 read-back | 不保留 legacy fallback；不把 review/validation 变成修复入口；该 slice 已实现 |
 | Phase 2 Slice A | `task-lifecycle` 的 pause、interrupt、resume-paused、resume-interrupted lifecycle transaction；resume 后经 `prepare-task` readiness/resume review 清除 gate；双文件原子提交、read-back 与 rollback | 不实现通用 lifecycle framework、recovery registry 或 legacy 多阶段事务；该 slice 已实现 |
-| Phase 2 Slice B | same-task supersede / replan：保留 identity，分离 invalidation 与 replacement，closed ReplanDelta，deterministic normalization、rollback、idempotence、read-back | 不创建新 task identity、第二份 CURRENT_TASK 或 arbitrary Markdown editor；该 slice 已实现 |
+| Phase 2 Slice B / later evolution | supersede 只记录 invalidation；same-task 仅保留 revision-bound correction/recovery candidate + explicit confirmation；additive authority 独立 amend-scope；显式 replacement 用 fresh successor identity | 不恢复 generic same-task replacement、raw commit-replan 或 arbitrary Markdown editor；这些后续收敛均已实现 |
 | Phase 2 Slice C | ordinary independent request 的 durable `draft + active`、same-identity refinement、explicit `prepare-task:confirm` / `confirm-draft`、fresh identity allocation、draft non-execution、audit/replay/rollback/read-back | 不创建第二个 draft-authoring/state Skill、registry/catalog/queue、cancel/discard state 或第二份 CURRENT_TASK；该 slice 已实现 |
 | Phase 2 close-task | closure eligibility、archive 前 Contract/Decision/Lesson admission、`archive-transaction`、Contract/Decision/STATUS/Lesson reconciliation，以及可从 archive provenance 重建的 re-entry；`closed + archived` terminal contract | 不引入 pending-closure state、第二次 archive 或 `TASK_SUMMARY` vNext output；design + implementation 已完成 |
 | Core Daily Execution Semantics Stabilization（已实现） | 只实现本次冻结的三项：Evidence-first / Persistent Test Admission、Mutation-oriented Scope、multi-step advancement / risk-based Review Checkpoint / repair verification integration；已通过 daily-loop E2E gate | 不混入现有 Runtime robustness backlog；不新增 Test Skill/registry/state machine、ACL subsystem、review-step/advance-step public surface；不改变 Slice A/B/close-task 语义 |
+| Mutation Authority v2（已实现） | 定义确认前证明 v2 planned targets、command exact/glob footprints 与 persistent-test paths；inventory candidate → project-owner confirmation 建立 canonical domain map；active task 绑定 domain-map revision；same-envelope discovery 按 assessment 自准入，跨 envelope 走 amendment | Runtime 不猜 module ownership；planned targets 不是 hard ACL；不静默升级 v1 task |
 | Independent draft review（已实现） | `prepare-task` 在同一 draft 事务中写入 `CURRENT_TASK` 与 identity-derived `TASK_BASIS-<TASK_ID>.md`，后者只保留原始需求及后续显式用户决定的 verbatim 来源证据；`review-draft` 读取其 path/revision 后对一个 `draft + active` 候选返回 `clean | findings | needs-user` | review 本身不修改 Runtime/CURRENT_TASK，不写 review 结果、finding queue 或 receipt；历史 review 不是需求权威，也不自动调用 `prepare-task` 或确认草案 |
 | bootstrap-project（已实现） | 在上述 daily semantics 完成并通过 E2E gate 后实现正式 admin surface；已完成 source facade、target-local Bootstrap support、Runtime atomic boundary 与 component/disposable-project verification；只消费已安装 Distribution 并以只读方式验证，不重新生成/推广 Runtime、Protocol、Schema 或 Agent Skills | 不把未稳定的 prepare/execute/review 行为提前推广到新项目；不覆盖 `sync-state` internal surface；不把 Distribution software 写入 Bootstrap Receipt |
 | vNext implementation status | Target implementation boundaries resolved；八个 daily entry 已包含独立 `review-draft`；`sync-state` 为已由 caller-local orchestration 与 typed Runtime operations 覆盖的逻辑 internal role，无 standalone implementation required | 不新增独立 `sync-state` Runtime、Skill、facade、transaction 或 durable artifact，除非未来证明存在 genuine shared reconciliation/routing requirement |
-| next phase | system-level E2E validation and real-project dogfood | 不把验证阶段重新包装成 implementation boundary，不扩大 daily intent 或 Runtime surface |
+| next phase | 将 A/B/C/D/E 统一版本安装到真实目标项目，执行代表性业务 task dogfood，并按真实 claim 选择必要的 focused / business-flow / E2E evidence | 不把 dogfood 重新包装成 implementation boundary；不因“最终验收”默认增加 full suite 或 E2E |
 
 后续 Skill 重写的顺序原则是“先公共契约与三条核心路径，再外围入口，再补齐剩余 state-changing Runtime handlers”。它不以增加测试基础设施为交付目标；现有验证只用于检查蓝图实现是否违反已确认边界。
 
@@ -554,15 +672,15 @@ legacy compatibility layer。
 
 本蓝图可作为 Skill 重写入口的前提是：
 
-- 八个 daily entry、`bootstrap-project`、`validate-change` 以及逻辑 internal `sync-state` role 的 exposure 和 owner 清楚；
+- 八个 daily entry、`bootstrap-project`、两个 expert entry（`validate-change` / `git-commit`）以及逻辑 internal `sync-state` role 的 exposure 和 owner 清楚；
 - 37 个旧 Skill 的治理责任片段均已在第 2 节归属，且没有旧 public route 需要在 vNext 中保留；
 - 每个 entry 都能写出 input、authority、mutation boundary、capabilities、Runtime operations、stop conditions 和 output；
 - `project-context-resolver`、`knowledge-admission-policy`、Review Convergence、Evidence Admission 均作为内部 policy 使用，而不是新增 public stage；
 - review/validation 的零写入边界、finding admission、owner/handoff 分离、scope/dangerous gate 和 External Documentation Gate 都保留；
-- Evidence-first、persistent-test 默认不准入、read/discovery 与 mutation scope 分离、精确 write scope、risk-based review checkpoint、repair verification 和 durable step advancement 语义均已冻结；
+- Evidence-first、persistent-test 默认不准入、read/discovery 与 mutation authority 分离、v1 精确 write scope、v2 planned footprint guidance + in-envelope assessment/self-admission、risk-based review checkpoint、risk-selected dynamic expansion review (low-risk private/local discovery adds no checkpoint)、repair verification 和 durable step advancement 语义均已冻结；
 - 每一项治理持久化写入都映射到一个 exact Runtime handler，且没有 generic document editor；
 - 普通任务的 Contract / Decision final knowledge admission 在 `close-task` 中完成；archive 保存 admission provenance，Implementation Anchors 仅作为可选的 observed navigation hints，由未来消费者按当前代码实时验证和扩散；
-- Migration Pack 与 vNext runtime 完全分离，旧 schema 在 vNext 中只能得到 `migration-required → stop`；
+- Migration Pack 与 vNext Runtime 完全分离，只能由用户/operator 显式调用；旧项目识别或迁移提示不是 vNext Runtime 的产品目标或验收要求，只有自声明 vNext 的非法/不受支持 schema 才沿用现有 schema validation fail closed；
 - 源仓库可暂时保留旧实现与实验 vNext 供开发比较，但 target project 的安装结果是 vNext Distribution，治理事实仍须通过独立 `bootstrap-project` Agent Skill 建立；Bootstrap 只建立/协调治理资产，Distribution software 由 Distribution lifecycle 单独拥有。
 - Phase 1A source validator 对三个模板、闭集 mode、零写入 review、引用闭合、内部 capability exposure 和旧 Skill 禁止规则有直接测试；测试不替代人工检查模板是否真正表达单一 intent。
 

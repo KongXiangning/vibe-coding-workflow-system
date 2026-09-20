@@ -67,6 +67,17 @@ target. This expert entry is callable by CI, a harness, or an expert user. It
 returns an ephemeral evidence result for its caller; it does not create a
 durable validation document or become a daily workflow step.
 
+## Bounded task context protocol
+
+When the validation target belongs to a current task, begin with
+`validate --summary`, then use `task-context(entry:"validate-change", mode)`
+and follow its required continuations. Resolve exact result, finding, receipt,
+and history references through `task-read`; use `file-context` for files. Do
+not treat a read receipt as authorization or proof that a check passed. Reuse
+definition text only in the same visible session with the exact
+`definition_revision`; after compression or a revision/store conflict, reread
+or report the evidence gap instead of using an unbounded Markdown fallback.
+
 ## Evidence Admission
 
 1. Resolve the supplied `validation_target` and its boundary. State the claim
@@ -87,6 +98,10 @@ durable validation document or become a daily workflow step.
    never infer a pass from missing evidence.
 4. Run only read-only checks through the caller or harness. Use the shared
    diff-target and project-context resolvers when those inputs are present.
+   For a v2 task, read/discovery may cross authority domains to inspect
+   callers, consumers, contracts, or root cause; validation never grants write
+   authority and must report any target outside the task envelope as an
+   authority decision for a later authorized execution.
    A bounded temporary probe is allowed only when the existing evidence policy
    explicitly permits it, declares its duration/run budget and temporary
    location, and records cleanup/audit. No product or governance file may be

@@ -1,0 +1,2000 @@
+    if (after.sourceTuple.document_id === current.sourceTuple.document_id) {
+      TaskStore.forCurrent(this.root, current as unknown as import('./task-store').TaskStoreCurrent).stageCommit({
+        before: current as unknown as import('./task-store').TaskStoreCurrent,
+        after: after as unknown as import('./task-store').TaskStoreCurrent,
+        after_source_revision: after.sourceTuple.revision,
+        proposal,
+        result: {
+          status: 'success',
+          committed: true,
+          operation_kind: proposal.operation_kind,
+          idempotency_key: proposal.idempotency_key,
+        },
+        write_targets: writeTargets,
+        write_set: pendingWriteSetForOperations(this.root, writeOperations),
+      });
+    }
+    this.lastApplyAfter = after;
+    return after;
+  }
+
+  private commitInboxRecordTransaction(
+    current: CanonicalCurrentTask,
+    proposal: InboxRecordProposal,
+    plan: InboxRecordTransactionPlan,
+    options: RuntimeApplyOptions,
+  ): RuntimeResult {
+    const targetPath = plan.relativePath;
+    const recordRevision = sha256(plan.nextContent);
+    if (plan.existing) {
+      return buildResult('no-op', proposal, current, options, 'matching canonical inbox record already exists; exact replay is a deterministic no-op.', {
+        target_path: targetPath,
+        planned_writes: [],
+        previous_revision: recordRevision,
+        resulting_revision: recordRevision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    }
+    if (options.dryRun) {
+      return buildResult('success', proposal, current, options, 'typed inbox record proposal validated; one canonical inbox write planned (dry-run).', {
+        target_path: targetPath,
+        planned_writes: [targetPath],
+        resulting_revision: recordRevision,
+        state: resultState(current.runtimeState),
+      });
+    }
+    try {
+      this.writeFiles([{ path: plan.filePath, content: plan.nextContent }], false, 'vNext Runtime inbox record transaction committed');
+    } catch (error) {
+      const rollback = rollbackCreatedInboxRecordAndVerify(plan.filePath);
+      return buildResult('blocked', proposal, current, options, `inbox atomic commit failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: targetPath,
+        code: rollback.verified ? 'ATOMIC_COMMIT_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+    try {
+      const readBack = this.readFile(plan.filePath);
+      if (readBack !== plan.nextContent) throw new Error('canonical inbox record read-back did not match the staged record.');
+      assertCanonicalInboxRecordContent(readBack, proposal, targetPath);
+      return buildResult('success', proposal, current, options, 'inbox record transaction committed; canonical record read-back verified.', {
+        target_path: targetPath,
+        planned_writes: [targetPath],
+        committed: true,
+        governed_mutation_count: 1,
+        resulting_revision: recordRevision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    } catch (error) {
+      const rollback = rollbackCreatedInboxRecordAndVerify(plan.filePath);
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `inbox record read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.`
+        : `inbox record read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: targetPath,
+        code: rollback.verified ? 'READ_BACK_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+  }
+
+  private commitArchiveTransaction(
+    current: CanonicalCurrentTask,
+    proposal: ArchiveProposal,
+    plan: ArchiveTransactionPlan | null,
+    options: RuntimeApplyOptions,
+  ): RuntimeResult {
+    if (plan === null) {
+      return buildResult('no-op', proposal, current, options, 'matching closed + archived archive receipt already exists; archive was not repeated.', {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: current.sourceTuple.revision,
+        read_back_verified: true,
+        archive_path: archivePathForTask(this.root, current).relativePath,
+        archive_revision: archiveAudits(current)[0]?.archive_revision,
+        state: resultState(current.runtimeState),
+      } as Partial<RuntimeResult>);
+    }
+    const nextRevision = sha256(plan.nextContent);
+    if (options.dryRun) {
+      return buildResult('success', proposal, current, options, 'typed archive proposal validated; atomic CURRENT_TASK + canonical archive write planned (dry-run).', {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        archive_path: plan.archiveRelativePath,
+        archive_revision: plan.archiveRevision,
+        state: resultState(plan.next),
+      } as Partial<RuntimeResult>);
+    }
+
+    let stagedAfter: CanonicalCurrentTask;
+    try {
+      stagedAfter = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
+        { path: current.filePath, content: plan.nextContent },
+        { path: plan.archiveFilePath, content: plan.nextArchiveContent },
+      ], plan.prepared);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
+      });
+    }
+    try {
+      executeWrites(
+        [
+          { path: current.filePath, content: plan.nextContent },
+          { path: plan.archiveFilePath, content: plan.nextArchiveContent },
+        ],
+        false,
+        'vNext Runtime archive transaction committed',
+      );
+    } catch (error) {
+      const rollback = rollbackArchiveTransactionAndVerify(this.root, current, plan, this.readCurrentTask);
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `archive atomic write failed: ${error instanceof Error ? error.message : String(error)}; exact two-file rollback verified.`
+        : `archive atomic write failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        code: rollback.verified ? 'ATOMIC_COMMIT_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+
+    try {
+      if (stagedAfter.sourceTuple.document_id === current.sourceTuple.document_id) {
+        TaskStore.forCurrent(this.root, current as unknown as import('./task-store').TaskStoreCurrent).markCurrentPublished(nextRevision);
+      }
+      const readBack = stagedAfter.frontmatter.task_store === undefined ? this.readCurrentTask(this.root) : stagedAfter;
+      if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
+        throw new Error('canonical CURRENT_TASK read-back did not match the staged terminal document.');
+      }
+      if (!fs.existsSync(plan.archiveFilePath) || fs.readFileSync(plan.archiveFilePath, 'utf8') !== plan.nextArchiveContent) {
+        throw new Error('canonical task archive read-back did not match the staged archive.');
+      }
+      const receipt = readCanonicalArchive(this.root, readBack, plan.archiveRelativePath);
+      if (receipt.revision !== plan.archiveRevision) throw new Error('canonical task archive revision changed during read-back.');
+      const audits = archiveAudits(readBack);
+      if (audits.length !== 1) throw new Error('terminal CURRENT_TASK read-back does not contain exactly one archive audit.');
+      assertArchiveReceiptMatches(readBack, receipt, audits[0]!);
+      return buildResult('success', proposal, current, options, 'archive transaction committed; CURRENT_TASK and canonical archive read-back verified.', {
+        committed: true,
+        governed_mutation_count: 2,
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        archive_path: plan.archiveRelativePath,
+        archive_revision: plan.archiveRevision,
+        read_back_verified: true,
+        state: resultState(readBack.runtimeState),
+      } as Partial<RuntimeResult>);
+    } catch (error) {
+      const rollback = rollbackArchiveTransactionAndVerify(this.root, current, plan, this.readCurrentTask);
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `archive read-back failed: ${error instanceof Error ? error.message : String(error)}; exact two-file rollback verified.`
+        : `archive read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        code: rollback.verified ? 'READ_BACK_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+  }
+
+  private commitProjectStatusTransaction(
+    current: CanonicalCurrentTask,
+    proposal: ProjectStatusProposal,
+    plan: ProjectStatusTransactionPlan | null,
+    options: RuntimeApplyOptions,
+  ): RuntimeResult {
+    const targetPath = workflowDocPathForRoot(this.root, 'STATUS.md').relativePath;
+    if (plan === null) {
+      return buildResult('no-op', proposal, current, options, 'matching STATUS reconciliation already exists; STATUS was not rewritten.', {
+        target_path: targetPath,
+        planned_writes: [],
+        previous_revision: fileRevisionForPath(workflowDocPathForRoot(this.root, 'STATUS.md').filePath),
+        resulting_revision: fileRevisionForPath(workflowDocPathForRoot(this.root, 'STATUS.md').filePath),
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    }
+    if (options.dryRun) {
+      return buildResult('success', proposal, current, options, 'typed project-status proposal validated; STATUS-only write planned (dry-run).', {
+        target_path: plan.statusRelativePath,
+        previous_revision: sha256(plan.originalStatusContent),
+        resulting_revision: plan.statusRevision,
+        state: resultState(current.runtimeState),
+      });
+    }
+    try {
+      executeWrites([{ path: plan.statusFilePath, content: plan.nextStatusContent }], false, 'vNext Runtime project status transaction committed');
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.statusFilePath, plan.originalStatusContent, 'STATUS');
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `STATUS write failed: ${error instanceof Error ? error.message : String(error)}; STATUS rollback verified (archive remains committed).`
+        : `STATUS write failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: plan.statusRelativePath,
+        code: rollback.verified ? 'ATOMIC_COMMIT_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+    try {
+      const readBack = fs.readFileSync(plan.statusFilePath, 'utf8');
+      if (readBack !== plan.nextStatusContent) throw new Error('STATUS read-back did not match the staged typed reconciliation.');
+      const receipt = matchingStatusReceipt(readBack, plan.statusRelativePath, plan.archive);
+      if (receipt === null || receipt.archivePath !== plan.archive.relativePath || receipt.archiveRevision !== plan.archive.revision || receipt.sourceRevision !== plan.archive.sourceRevision || receipt.deltaDigest !== digest(proposal.semantic_delta)) {
+        throw new Error('STATUS read-back receipt did not match the canonical archive.');
+      }
+      assertStatusProjection(readBack, proposal.semantic_delta, plan.statusRelativePath);
+      return buildResult('success', proposal, current, options, 'project-status transaction committed; STATUS-only read-back verified.', {
+        target_path: plan.statusRelativePath,
+        committed: true,
+        governed_mutation_count: 1,
+        previous_revision: sha256(plan.originalStatusContent),
+        resulting_revision: plan.statusRevision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.statusFilePath, plan.originalStatusContent, 'STATUS');
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `STATUS read-back failed: ${error instanceof Error ? error.message : String(error)}; STATUS rollback verified (archive remains committed).`
+        : `STATUS read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: plan.statusRelativePath,
+        code: rollback.verified ? 'READ_BACK_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+  }
+
+  private commitLessonRecordTransaction(
+    current: CanonicalCurrentTask,
+    proposal: LessonRecordProposal,
+    plan: LessonRecordTransactionPlan | null,
+    options: RuntimeApplyOptions,
+  ): RuntimeResult {
+    const targetPath = workflowDocPathForRoot(this.root, 'LESSONS.md').relativePath;
+    if (plan === null) {
+      return buildResult('no-op', proposal, current, options, 'lesson admission is defer/no-op or all admitted candidates are already durably recorded; LESSONS was not rewritten.', {
+        target_path: targetPath,
+        planned_writes: [],
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    }
+    if (options.dryRun) {
+      return buildResult('success', proposal, current, options, 'typed lesson-record proposal validated; LESSONS-only write planned (dry-run).', {
+        target_path: plan.lessonsRelativePath,
+        previous_revision: sha256(plan.originalLessonsContent),
+        resulting_revision: plan.lessonsRevision,
+        state: resultState(current.runtimeState),
+      });
+    }
+    try {
+      executeWrites([{ path: plan.lessonsFilePath, content: plan.nextLessonsContent }], false, 'vNext Runtime lesson record transaction committed');
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.lessonsFilePath, plan.originalLessonsContent, 'LESSONS');
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `LESSONS write failed: ${error instanceof Error ? error.message : String(error)}; LESSONS rollback verified (archive and STATUS remain committed).`
+        : `LESSONS write failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: plan.lessonsRelativePath,
+        code: rollback.verified ? 'ATOMIC_COMMIT_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+    try {
+      const readBack = fs.readFileSync(plan.lessonsFilePath, 'utf8');
+      if (readBack !== plan.nextLessonsContent) throw new Error('LESSONS read-back did not match the staged typed lesson record.');
+      readDurableLessonRecords(readBack, plan.lessonsRelativePath);
+      return buildResult('success', proposal, current, options, 'lesson-record transaction committed; LESSONS-only read-back verified.', {
+        target_path: plan.lessonsRelativePath,
+        committed: true,
+        governed_mutation_count: 1,
+        previous_revision: sha256(plan.originalLessonsContent),
+        resulting_revision: plan.lessonsRevision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.lessonsFilePath, plan.originalLessonsContent, 'LESSONS');
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `LESSONS read-back failed: ${error instanceof Error ? error.message : String(error)}; LESSONS rollback verified (archive and STATUS remain committed).`
+        : `LESSONS read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: plan.lessonsRelativePath,
+        code: rollback.verified ? 'READ_BACK_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+  }
+
+  private commitKnowledgeRecordTransaction(
+    current: CanonicalCurrentTask,
+    proposal: KnowledgeProposal,
+    plan: KnowledgeRecordTransactionPlan,
+    options: RuntimeApplyOptions,
+  ): RuntimeResult {
+    const targetPath = plan.relativePath;
+    if (plan.existing) {
+      return buildResult('no-op', proposal, current, options, 'matching durable Contract/Decision record already exists; knowledge promotion is a deterministic no-op.', {
+        target_path: targetPath,
+        planned_writes: [],
+        previous_revision: sha256(plan.originalContent),
+        resulting_revision: sha256(plan.originalContent),
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    }
+    if (options.dryRun) {
+      return buildResult('success', proposal, current, options, 'typed knowledge admission validated; one canonical knowledge document write planned (dry-run).', {
+        target_path: targetPath,
+        previous_revision: sha256(plan.originalContent),
+        resulting_revision: sha256(plan.nextContent),
+        state: resultState(current.runtimeState),
+      });
+    }
+    try {
+      this.writeFiles([{ path: plan.filePath, content: plan.nextContent }], false, `vNext Runtime ${proposal.operation_kind} committed`);
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.filePath, plan.originalContent, 'knowledge');
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `knowledge write failed: ${error instanceof Error ? error.message : String(error)}; knowledge rollback verified.`
+        : `knowledge write failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: targetPath,
+        code: rollback.verified ? 'ATOMIC_COMMIT_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+    try {
+      const readBack = this.readFile(plan.filePath);
+      if (readBack !== plan.nextContent) throw new Error('canonical knowledge document read-back did not match the staged record.');
+      const records = readDurableKnowledgeRecords(readBack, targetPath, proposal.semantic_delta.knowledge_kind);
+      if (!records.some(record => JSON.stringify(record) === JSON.stringify(plan.record))) {
+        throw new Error('canonical knowledge read-back did not contain the admitted record.');
+      }
+      return buildResult('success', proposal, current, options, 'knowledge promotion committed; canonical Contract/Decision read-back verified.', {
+        target_path: targetPath,
+        committed: true,
+        governed_mutation_count: 1,
+        previous_revision: sha256(plan.originalContent),
+        resulting_revision: sha256(plan.nextContent),
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    } catch (error) {
+      const rollback = rollbackSingleFileAndVerify(plan.filePath, plan.originalContent, 'knowledge');
+      return buildResult('blocked', proposal, current, options, rollback.verified
+        ? `knowledge read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.`
+        : `knowledge read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`, {
+        target_path: targetPath,
+        code: rollback.verified ? 'READ_BACK_FAILED' : 'ROLLBACK_FAILED',
+      });
+    }
+  }
+
+  private commitLifecycleTransaction(
+    current: CanonicalCurrentTask,
+    proposal: LifecycleProposal,
+    plan: LifecycleTransactionPlan,
+    options: RuntimeApplyOptions,
+  ): RuntimeResult {
+    const nextRevision = sha256(plan.nextContent);
+    if (proposal.mode === 'supersede') {
+      let basis: CanonicalTaskBasis | undefined;
+      let historyPath: string;
+      let historyContent: string;
+      const historyInput = {
+        currentPath: current.filePath,
+        previousContent: current.raw,
+        nextContent: plan.nextContent,
+        documentId: current.sourceTuple.document_id,
+        taskId: current.runtimeState.task_id,
+        evidencePlanRevision: current.runtimeState.evidence_plan_revision,
+        referencedEvidence: [
+          ...current.runtimeState.execution_log.flatMap(item => item.evidence_refs),
+          ...current.runtimeState.findings.flatMap(item => item.evidence_refs),
+          ...(current.runtimeState.claim_evidence ?? []).flatMap(claim => claim.slots.flatMap(slot => slot.evidence_refs)),
+        ],
+      };
+      try {
+        basis = readTaskBasisReferenceFromBody(current.body)
+          ? readCanonicalTaskBasis(this.root, current)
+          : undefined;
+        const location = taskHistoryLocation({ ...historyInput, ...(basis ? { basisPath: basis.filePath, basisContent: basis.content } : {}) });
+        historyPath = path.relative(this.root, location.path).replace(/\\/gu, '/');
+        historyContent = location.content;
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          code: error instanceof VNextRuntimeError ? error.code : 'TASK_HISTORY_INVALID',
+        });
+      }
+      const plannedWrites = [current.relativePath, historyPath];
+      if (options.dryRun) {
+        return buildResult('success', proposal, current, options, 'typed supersede proposal validated; immutable history and canonical CURRENT_TASK writes planned (dry-run).', {
+          planned_writes: plannedWrites,
+          previous_revision: current.sourceTuple.revision,
+          resulting_revision: nextRevision,
+          state: resultState(plan.next),
+        });
+      }
+      let stagedAfter: CanonicalCurrentTask;
+      try {
+        stagedAfter = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
+          { path: current.filePath, content: plan.nextContent },
+          { path: path.join(this.root, ...historyPath.split('/')), content: historyContent },
+        ], plan.prepared);
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
+          code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
+        });
+      }
+      let readBack: CanonicalCurrentTask | undefined;
+      try {
+        commitSupersedeWithHistory({ ...historyInput, ...(basis ? { basisPath: basis.filePath, basisContent: basis.content } : {}) }, content => {
+          const parsed = parseCanonicalCurrentTaskContent(content, current.filePath, current.relativePath);
+          readBack = stagedAfter.frontmatter.task_store === undefined ? parsed : stagedAfter;
+          if (readBack.sourceTuple.revision !== nextRevision
+            || readBack.runtimeState.workflow_status !== 'superseded'
+            || readBack.runtimeState.lifecycle_state !== 'active') {
+            throw new Error('supersede CURRENT_TASK read-back did not preserve the exact superseded + active state.');
+          }
+          });
+        if (stagedAfter.sourceTuple.document_id === current.sourceTuple.document_id) {
+          TaskStore.forCurrent(this.root, current as unknown as import('./task-store').TaskStoreCurrent).markCurrentPublished(nextRevision);
+        }
+      } catch (error) {
+        if (fs.existsSync(current.filePath) && sha256(fs.readFileSync(current.filePath, 'utf8')) === current.sourceTuple.revision) {
+          clearPendingTaskStoreAfterRollback(this.root, current);
+        }
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          planned_writes: plannedWrites,
+          code: 'TASK_EVOLUTION_COMMIT_FAILED',
+        });
+      }
+      return buildResult('success', proposal, current, options, 'typed supersede proposal committed; immutable history and canonical CURRENT_TASK read-back verified.', {
+        planned_writes: plannedWrites,
+        committed: true,
+        governed_mutation_count: 2,
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        read_back_verified: true,
+        state: resultState(readBack!.runtimeState),
+      });
+    }
+    if (!plan.packageFilePath || !plan.packageRelativePath || plan.nextPackageContent === undefined) {
+      return buildResult('blocked', proposal, current, options, 'lifecycle transaction is missing its suspended package plan.', { code: 'RUNTIME_HANDLER_BLOCKED' });
+    }
+    if (options.dryRun) {
+      return buildResult('success', proposal, current, options, 'typed lifecycle proposal validated; atomic CURRENT_TASK + suspended package write planned (dry-run).', {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        state: resultState(plan.next, undefined, plan.packageRelativePath),
+      });
+    }
+
+    let stagedAfter: CanonicalCurrentTask;
+    try {
+      stagedAfter = this.stageCurrentTaskCommit(current, plan.nextContent, plan.next, proposal, proposal.requested_write_targets, [
+        { path: current.filePath, content: plan.nextContent },
+        { path: plan.packageFilePath, content: plan.nextPackageContent },
+      ], plan.prepared);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
+      });
+    }
+
+    try {
+      executeWrites(
+        [
+          { path: current.filePath, content: plan.nextContent },
+          { path: plan.packageFilePath, content: plan.nextPackageContent },
+        ],
+        false,
+        `vNext Runtime ${proposal.mode} lifecycle transaction committed`,
+      );
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: 'ATOMIC_COMMIT_FAILED' });
+    }
+
+    try {
+      if (stagedAfter.sourceTuple.document_id === current.sourceTuple.document_id) {
+        TaskStore.forCurrent(this.root, current as unknown as import('./task-store').TaskStoreCurrent).markCurrentPublished(nextRevision);
+      }
+      const readBack = stagedAfter.frontmatter.task_store === undefined ? this.readCurrentTask(this.root) : stagedAfter;
+      if (readBack.raw !== plan.nextContent || readBack.sourceTuple.revision !== nextRevision) {
+        throw new Error('canonical CURRENT_TASK read-back did not match the staged lifecycle document.');
+      }
+      if (!fs.existsSync(plan.packageFilePath) || fs.readFileSync(plan.packageFilePath, 'utf8') !== plan.nextPackageContent) {
+        throw new Error('suspended package read-back did not match the staged lifecycle artifact.');
+      }
+      const lifecycleDelta = proposal.semantic_delta;
+      const artifactKind = lifecycleDelta.action === 'pause'
+        ? 'paused'
+        : lifecycleDelta.action === 'interrupt'
+          ? 'interrupted'
+          : lifecycleDelta.action === 'resume-paused' || lifecycleDelta.action === 'resume-interrupted'
+            ? lifecycleDelta.artifact_kind
+            : 'paused';
+      const parsedPackage = parseSuspendedPackage(this.root, readBack, plan.packageRelativePath, artifactKind);
+      const expectedStatus = proposal.mode === 'resume-paused' || proposal.mode === 'resume-interrupted' ? 'rehydrated' : 'ready_for_resume';
+      if (parsedPackage.rehydrationStatus !== expectedStatus || parsedPackage.ownershipState !== (expectedStatus === 'rehydrated' ? 'rehydrated' : 'recovery_only')) {
+        throw new Error('suspended package marker read-back did not match the lifecycle transaction.');
+      }
+      return buildResult('success', proposal, current, options, 'typed lifecycle proposal committed; CURRENT_TASK and suspended package read-back verified.', {
+        committed: true,
+        governed_mutation_count: 2,
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        read_back_verified: true,
+        state: resultState(readBack.runtimeState, undefined, plan.packageRelativePath),
+      });
+    } catch (error) {
+      const rollback = rollbackLifecycleTransactionAndVerify(this.root, current, plan, this.readCurrentTask);
+      return buildResult(
+        'blocked',
+        proposal,
+        current,
+        options,
+        rollback.verified
+          ? `Runtime lifecycle read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.`
+          : `Runtime lifecycle read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`,
+        { code: rollback.verified ? 'READ_BACK_FAILED' : 'ROLLBACK_FAILED' },
+      );
+    }
+  }
+
+  apply(rawProposal: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+    return withGovernanceWriteLock(this.root, () => {
+      this.lastApplyCurrent = undefined;
+      this.lastApplyAfter = undefined;
+      this.lastApplyProposal = undefined;
+      const result = this.applyLocked(rawProposal, options);
+      const before = this.lastApplyCurrent;
+      if (!options.dryRun && result.committed && before) {
+        try {
+          const after = this.lastApplyAfter ?? this.readCurrentTask(this.root);
+          const afterStore = TaskStore.forCurrent(this.root, after);
+          // Draft creation allocates a new document identity.  The new
+          // aggregate is initialized from the fully rendered read-back; it
+          // must not be forced through the previous task's document store.
+          const manifest = before.sourceTuple.document_id === after.sourceTuple.document_id
+            ? afterStore.recordCommit({ before, after, proposal: this.lastApplyProposal ?? rawProposal, result })
+            : afterStore.ensureInitialized(after);
+          if (manifest) {
+            const verifiedAfter = this.readCurrentTask(this.root);
+            if (verifiedAfter.raw !== after.raw || verifiedAfter.sourceTuple.revision !== after.sourceTuple.revision) {
+              throw new Error('task-store publication read-back did not match the committed CURRENT_TASK after-image.');
+            }
+            return {
+              ...result,
+              task_store: {
+                manifest_path: `${manifest.storage_root}/manifest.json`,
+                source_revision: manifest.head.source_revision,
+                definition_revision: manifest.head.definition_revision,
+                state_revision: manifest.head.state_revision,
+                event_sequence: manifest.head.event_sequence,
+              },
+            };
+          }
+        } catch (error) {
+          // The canonical write has already passed its own read-back, but the
+          // aggregate is not executable until its task-store publication is
+          // complete. Report the exact partial-commit boundary and block later
+          // business work until the pending journal is recovered.
+          return {
+            ...result,
+            status: 'blocked',
+            code: 'TASK_STORE_COMMIT_FAILED',
+            message: `${result.message} Task-store publication needs reconciliation: ${error instanceof Error ? error.message : String(error)}`,
+            read_back_verified: false,
+          };
+        }
+      }
+      return result;
+    });
+  }
+
+  private applyLocked(rawProposal: unknown, options: RuntimeApplyOptions): RuntimeResult {
+    let proposal: RuntimeProposal;
+    try {
+      proposal = validateRuntimeProposal(rawProposal);
+    } catch (error) {
+      const code = error instanceof VNextRuntimeError ? error.code : 'RUNTIME_SCHEMA_INVALID';
+      const fallbackOperation = isRecord(rawProposal) && typeof rawProposal.operation_kind === 'string' && RUNTIME_OPERATION_KINDS.includes(rawProposal.operation_kind as RuntimeOperationKind)
+        ? rawProposal.operation_kind as RuntimeOperationKind
+        : 'task-state-transaction';
+      const fallbackKey = isRecord(rawProposal) && typeof rawProposal.idempotency_key === 'string' ? rawProposal.idempotency_key : 'invalid-proposal';
+      return {
+        status: 'blocked',
+        operation_kind: fallbackOperation,
+        idempotency_key: fallbackKey,
+        target_path: CURRENT_TASK_RELATIVE_FALLBACK,
+        dry_run: options.dryRun === true,
+        committed: false,
+        message: error instanceof Error ? error.message : String(error),
+        code,
+        planned_writes: [],
+        governed_mutation_count: 0,
+        read_back_verified: false,
+      };
+    }
+    this.lastApplyProposal = proposal;
+
+    let current: CanonicalCurrentTask;
+    if (!options.dryRun) {
+      try {
+        recoverPendingTaskStoreCommit(this.root);
+      } catch (error) {
+        return {
+          status: 'blocked',
+          operation_kind: proposal.operation_kind,
+          idempotency_key: proposal.idempotency_key,
+          target_path: proposal.source_tuple.path,
+          dry_run: false,
+          committed: false,
+          message: error instanceof Error ? error.message : String(error),
+          code: error instanceof VNextRuntimeError || error instanceof TaskStoreError ? error.code : 'TASK_STORE_RECOVERY_REQUIRED',
+          planned_writes: [],
+          governed_mutation_count: 0,
+          read_back_verified: false,
+        };
+      }
+    }
+    try {
+      current = this.readCurrentTask(this.root);
+    } catch (error) {
+      return {
+        status: 'blocked',
+        operation_kind: proposal.operation_kind,
+        idempotency_key: proposal.idempotency_key,
+        target_path: proposal.source_tuple.path,
+        dry_run: options.dryRun === true,
+        committed: false,
+        message: error instanceof Error ? error.message : String(error),
+        code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_SOURCE_INVALID',
+        planned_writes: [],
+        governed_mutation_count: 0,
+        read_back_verified: false,
+      };
+    }
+    this.lastApplyCurrent = current;
+
+    let taskStore: TaskStore;
+    try {
+      taskStore = TaskStore.forCurrent(this.root, current);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_INIT_FAILED',
+      });
+    }
+
+    try {
+      if (proposal.source_tuple.path !== current.relativePath) fail('RUNTIME_PATH_INVALID', 'proposal source path is not the exact canonical CURRENT_TASK path.');
+      if (proposal.operation_kind === 'lifecycle-transaction') {
+        assertRequestedLifecycleTargets(this.root, current, proposal as LifecycleProposal);
+      } else if (proposal.operation_kind === 'inbox-record-transaction') {
+        assertRequestedInboxTargets(this.root, current, proposal as InboxRecordProposal);
+      } else if (proposal.operation_kind === 'archive-transaction' || proposal.operation_kind === 'project-status-transaction' || proposal.operation_kind === 'lesson-record-transaction' || proposal.operation_kind === 'contract-candidate-commit' || proposal.operation_kind === 'decision-record-transaction') {
+        assertRequestedCloseTargets(this.root, current, proposal);
+      } else if (
+        proposal.operation_kind === 'task-state-transaction'
+        && proposal.semantic_delta.kind === 'task-state'
+        && ['create-draft', 'update-draft', 'commit-replan', 'record-user-evidence'].includes(proposal.semantic_delta.action)
+      ) {
+        const taskId = proposal.semantic_delta.action === 'create-draft' || proposal.semantic_delta.action === 'update-draft'
+          ? proposal.semantic_delta.task_id
+          : current.runtimeState.task_id;
+        const expectedBasisPath = taskBasisRelativePath(current.relativePath, taskId);
+        if (
+          proposal.requested_write_targets.length !== (proposal.semantic_delta.action === 'create-draft' && proposal.semantic_delta.predecessor ? 3 : 2)
+          || (proposal.requested_write_targets.length === 3 && proposal.requested_write_targets[2] !== successorSnapshotPath(current.relativePath, current.sourceTuple.document_id, current.sourceTuple.revision))
+          || proposal.requested_write_targets[0] !== current.relativePath
+          || proposal.requested_write_targets[1] !== expectedBasisPath
+        ) {
+          fail('RUNTIME_PATH_INVALID', 'draft proposal must target the exact canonical CURRENT_TASK and identity-derived task basis paths.');
+        }
+      } else if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== current.relativePath) {
+        fail('RUNTIME_PATH_INVALID', 'proposal write target is not the exact canonical CURRENT_TASK path.');
+      }
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_PATH_INVALID' });
+    }
+
+    if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'commit-replan') {
+      return buildResult('blocked', proposal, current, options,
+        'Direct commit-replan is disabled until a revision-bound candidate, complete prior-obligation disposition, and explicit confirmation are available. CURRENT_TASK was not changed.',
+        { code: 'REPLAN_CONFIRMATION_REQUIRED' });
+    }
+
+    if (proposal.operation_kind === 'inbox-record-transaction') {
+      const inboxProposal = proposal as InboxRecordProposal;
+      let inspectedPlan: InboxRecordTransactionPlan;
+      try {
+        // A durable canonical record is the only evidence that can authorize a replay
+        // after CURRENT_TASK has advanced. Inspect it before applying the source gate.
+        ensureAuthorityKinds(inboxProposal, ['evidence-admission']);
+        inspectedPlan = inspectInboxRecordTransaction(this.root, inboxProposal);
+      } catch (error) {
+        const code = error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED';
+        return buildResult(code === 'IDEMPOTENCY_CONFLICT' ? 'conflict' : 'blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: inboxProposal.semantic_delta.target_path,
+          code,
+        });
+      }
+      if (inspectedPlan.existing) {
+        return this.commitInboxRecordTransaction(current, inboxProposal, inspectedPlan, options);
+      }
+      const conflictField = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
+      if (conflictField) {
+        return buildResult('conflict', proposal, current, options, `canonical source tuple is stale at ${conflictField}.`, {
+          target_path: inboxProposal.semantic_delta.target_path,
+          code: 'SOURCE_TUPLE_MISMATCH',
+          previous_revision: current.sourceTuple.revision,
+        });
+      }
+      try {
+        const plan = prepareInboxRecordTransaction(this.root, current, inboxProposal);
+        return this.commitInboxRecordTransaction(current, inboxProposal, plan, options);
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: inboxProposal.semantic_delta.target_path,
+          code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED',
+        });
+      }
+    }
+
+    if (proposal.operation_kind === 'contract-candidate-commit' || proposal.operation_kind === 'decision-record-transaction') {
+      const knowledgeProposal = proposal as KnowledgeProposal;
+      let inspectedPlan: KnowledgeRecordTransactionPlan;
+      try {
+        inspectedPlan = inspectKnowledgeRecordTransaction(this.root, current, knowledgeProposal);
+      } catch (error) {
+        const code = error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED';
+        const conflictCodes = new Set(['IDEMPOTENCY_CONFLICT', 'KNOWLEDGE_IDENTITY_CONFLICT']);
+        return buildResult(conflictCodes.has(code) ? 'conflict' : 'blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: proposal.operation_kind === 'contract-candidate-commit'
+            ? workflowDocPathForRoot(this.root, 'CONTRACTS.md').relativePath
+            : workflowDocPathForRoot(this.root, 'DECISIONS.md').relativePath,
+          code,
+        });
+      }
+      if (inspectedPlan.existing) {
+        return this.commitKnowledgeRecordTransaction(current, knowledgeProposal, inspectedPlan, options);
+      }
+      const conflictField = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
+      if (conflictField) {
+        return buildResult('conflict', proposal, current, options, `canonical source tuple is stale at ${conflictField}.`, {
+          target_path: inspectedPlan.relativePath,
+          code: 'SOURCE_TUPLE_MISMATCH',
+          previous_revision: current.sourceTuple.revision,
+        });
+      }
+      try {
+        const plan = prepareKnowledgeRecordTransaction(this.root, current, knowledgeProposal);
+        return this.commitKnowledgeRecordTransaction(current, knowledgeProposal, plan, options);
+      } catch (error) {
+        const code = error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED';
+        const conflictCodes = new Set(['IDEMPOTENCY_CONFLICT', 'KNOWLEDGE_IDENTITY_CONFLICT']);
+        return buildResult(conflictCodes.has(code) ? 'conflict' : 'blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: proposal.operation_kind === 'contract-candidate-commit'
+            ? workflowDocPathForRoot(this.root, 'CONTRACTS.md').relativePath
+            : workflowDocPathForRoot(this.root, 'DECISIONS.md').relativePath,
+          code,
+        });
+      }
+    }
+
+    if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'record-step-preflight') {
+      const executionMode = proposal.semantic_delta.mode ?? proposal.mode;
+      if (executionMode !== 'repair') {
+        try {
+          assertOrdinaryPreflight(current, this.root);
+        } catch (error) {
+          const code = error instanceof VNextRuntimeError ? error.code : 'PREFLIGHT_BLOCKED';
+          return buildResult(code === 'REVIEW_TARGET_STALE' ? 'conflict' : 'blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code });
+        }
+      }
+    }
+    if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'retry-step') {
+      const delta = proposal.semantic_delta;
+      const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+      const priorRetry = ledger?.attempts.find(a=>a.idempotency_key===proposal.idempotency_key);
+      if (priorRetry) {
+        if (proposal.source_tuple.document_id !== current.sourceTuple.document_id || ledger!.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || priorRetry.request_digest !== retryRequestDigest(current,delta)) return buildResult('conflict',proposal,current,options,'Retry key is already bound to different task/plan/request semantics.',{code:'RETRY_IDEMPOTENCY_CONFLICT'});
+        return buildResult('no-op',proposal,current,options,'This retry was already admitted; no budget or state changed.',{read_back_verified:true,resulting_revision:current.sourceTuple.revision});
+      }
+    }
+    try {
+      // Do not create or reconcile task-data for a proposal rejected by the
+      // path, authority, preflight, or retry gates above. A valid proposal
+      // gets the sidecar before the persistent idempotency lookup so an old
+      // entry can still authorize a replay after the hot window moved on.
+      if (!options.dryRun) taskStore.ensureInitialized(current);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_INIT_FAILED',
+      });
+    }
+    const proposalDigest = digest(proposal);
+    const prior = current.runtimeState.applied_proposals.find(item => item.idempotency_key === proposal.idempotency_key);
+    let persistentPrior: ReturnType<TaskStore['lookupIdempotency']> = null;
+    try {
+      persistentPrior = taskStore.lookupIdempotency(proposal.idempotency_key);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_INDEX_INVALID',
+      });
+    }
+    // Every proposal that reaches this shared admission path has already
+    // passed its specialized target inspection above (inbox/knowledge
+    // transactions return earlier). The sidecar therefore closes the old
+    // bounded-cache hole for every remaining operation kind. Close-task
+    // documents still need a read-only provenance check before a persistent
+    // replay is accepted: their idempotency entry proves that the operation
+    // was committed, not that a later manual edit left the visible target
+    // intact.
+    const persistentReplayEligible = true;
+    if (!prior && persistentPrior && persistentReplayEligible) {
+      if (persistentPrior.proposal_digest !== proposalDigest) {
+        return buildResult('conflict', proposal, current, options, 'persistent idempotency index binds this key to different proposal bytes.', {
+          code: 'IDEMPOTENCY_CONFLICT',
+          previous_revision: current.sourceTuple.revision,
+        });
+      }
+      try {
+        if (proposal.operation_kind === 'archive-transaction') {
+          const plan = prepareArchiveTransaction(this.root, current, proposal as ArchiveProposal, options.now?.() ?? new Date().toISOString());
+          if (plan !== null) {
+            return buildResult('blocked', proposal, current, options, 'persistent archive replay found a visible archive target that is not the committed replay state.', {
+              code: 'LIFECYCLE_REPLAY_INCOMPLETE',
+            });
+          }
+        } else if (proposal.operation_kind === 'project-status-transaction') {
+          const plan = prepareProjectStatusTransaction(this.root, current, proposal as ProjectStatusProposal);
+          if (plan !== null) {
+            return this.commitProjectStatusTransaction(current, proposal as ProjectStatusProposal, plan, options);
+          }
+        } else if (proposal.operation_kind === 'lesson-record-transaction') {
+          const plan = prepareLessonRecordTransaction(this.root, current, proposal as LessonRecordProposal);
+          if (plan !== null) {
+            return buildResult('blocked', proposal, current, options, 'persistent LESSONS replay found visible records that are not the committed lesson admission.', {
+              target_path: workflowDocPathForRoot(this.root, 'LESSONS.md').relativePath,
+              code: 'RUNTIME_REPLAY_INCOMPLETE',
+            });
+          }
+        }
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: proposal.operation_kind === 'project-status-transaction'
+            ? workflowDocPathForRoot(this.root, 'STATUS.md').relativePath
+            : proposal.operation_kind === 'lesson-record-transaction'
+              ? workflowDocPathForRoot(this.root, 'LESSONS.md').relativePath
+              : undefined,
+          code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_REPLAY_INCOMPLETE',
+        });
+      }
+      return buildResult('no-op', proposal, current, options, 'proposal replay was found in the persistent task store; no execution or state change was repeated.', {
+        planned_writes: [],
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: current.sourceTuple.revision,
+        read_back_verified: true,
+      });
+    }
+    if (prior) {
+      if (prior.proposal_digest !== proposalDigest) {
+        return buildResult('conflict', proposal, current, options, 'idempotency key was already used by a different proposal.', { code: 'IDEMPOTENCY_CONFLICT', previous_revision: current.sourceTuple.revision });
+      }
+      if (proposal.operation_kind === 'lifecycle-transaction') {
+        try {
+          assertLifecycleReplayArtifacts(this.root, current, proposal as LifecycleProposal);
+        } catch (error) {
+          return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+            code: error instanceof VNextRuntimeError ? error.code : 'LIFECYCLE_REPLAY_INCOMPLETE',
+          });
+        }
+      } else if (proposal.operation_kind === 'task-state-transaction') {
+        try {
+          assertTaskStateReplay(this.root, current, proposal);
+        } catch (error) {
+          return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+            code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_REPLAY_INCOMPLETE',
+          });
+        }
+      } else if (proposal.operation_kind === 'archive-transaction') {
+        try {
+          assertArchiveReplay(this.root, current, proposal as ArchiveProposal);
+        } catch (error) {
+          return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+            code: error instanceof VNextRuntimeError ? error.code : 'LIFECYCLE_REPLAY_INCOMPLETE',
+          });
+        }
+      } else if (proposal.operation_kind === 'project-status-transaction') {
+        try {
+          const plan = prepareProjectStatusTransaction(this.root, current, proposal as ProjectStatusProposal);
+          return this.commitProjectStatusTransaction(current, proposal as ProjectStatusProposal, plan, options);
+        } catch (error) {
+          return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+            target_path: workflowDocPathForRoot(this.root, 'STATUS.md').relativePath,
+            code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_REPLAY_INCOMPLETE',
+          });
+        }
+      }
+      return buildResult('no-op', proposal, current, options, 'proposal replay is an idempotent no-op.', {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: current.sourceTuple.revision,
+        read_back_verified: true,
+        state: resultState(current.runtimeState),
+      });
+    }
+    const conflictField = compareSourceTuple(proposal.source_tuple, current.sourceTuple);
+    if (conflictField) {
+      return buildResult('conflict', proposal, current, options, `canonical source tuple is stale at ${conflictField}.`, { code: 'SOURCE_TUPLE_MISMATCH', previous_revision: current.sourceTuple.revision });
+    }
+
+    const now = options.now?.() ?? new Date().toISOString();
+    if (Number.isNaN(Date.parse(now))) {
+      return buildResult('blocked', proposal, current, options, 'Runtime clock returned an invalid timestamp.', { code: 'RUNTIME_CLOCK_INVALID' });
+    }
+    if (proposal.operation_kind === 'lifecycle-transaction') {
+      try {
+        const plan = prepareLifecycleTransaction(this.root, current, proposal as LifecycleProposal, now);
+        return this.commitLifecycleTransaction(current, proposal as LifecycleProposal, plan, options);
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED' });
+      }
+    }
+    if (proposal.operation_kind === 'archive-transaction') {
+      try {
+        const plan = prepareArchiveTransaction(this.root, current, proposal as ArchiveProposal, now);
+        return this.commitArchiveTransaction(current, proposal as ArchiveProposal, plan, options);
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED' });
+      }
+    }
+    if (proposal.operation_kind === 'project-status-transaction') {
+      try {
+        const plan = prepareProjectStatusTransaction(this.root, current, proposal as ProjectStatusProposal);
+        return this.commitProjectStatusTransaction(current, proposal as ProjectStatusProposal, plan, options);
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: workflowDocPathForRoot(this.root, 'STATUS.md').relativePath,
+          code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED',
+        });
+      }
+    }
+    if (proposal.operation_kind === 'lesson-record-transaction') {
+      try {
+        const plan = prepareLessonRecordTransaction(this.root, current, proposal as LessonRecordProposal);
+        return this.commitLessonRecordTransaction(current, proposal as LessonRecordProposal, plan, options);
+      } catch (error) {
+        return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+          target_path: workflowDocPathForRoot(this.root, 'LESSONS.md').relativePath,
+          code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED',
+        });
+      }
+    }
+    let transition: StateTransition;
+    try {
+      transition = proposal.operation_kind === 'task-state-transaction'
+        ? applyTaskStateDelta(this.root, current, proposal, now)
+        : applyFindingQueueDelta(current, proposal, now);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_HANDLER_BLOCKED' });
+    }
+
+    let taskBasisArtifact: TaskBasisArtifact | undefined;
+    let originalTaskBasisContent: string | undefined;
+    try {
+      if (transition.taskBasis) {
+        const currentIdentity = extractTaskIdentityFromCurrentTask(current.body);
+        const identity = transition.draftIdentity ?? {
+          task_id: current.runtimeState.task_id,
+          task_slug: current.runtimeState.task_slug,
+          document_id: current.sourceTuple.document_id,
+          task_title: currentIdentity.title,
+        };
+        taskBasisArtifact = materializeTaskBasis(this.root, current, identity, transition.taskBasis);
+        const existingReference = readTaskBasisReferenceFromBody(current.body);
+        const basisExists = fs.existsSync(taskBasisArtifact.filePath);
+        if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'create-draft') {
+          if (basisExists) {
+            // A successor publishes the predecessor snapshot and deterministic
+            // Basis before its aggregate. Retry may adopt those exact orphan
+            // prerequisites, never overwrite a different task's existing Basis.
+            // assertSuccessorDecision above already bound identity/source/Basis.
+            const predecessor = proposal.semantic_delta.predecessor;
+            const snapshotPath = predecessor ? safeRepositoryFile(this.root,
+              successorSnapshotPath(current.relativePath, predecessor.document_id, predecessor.source_revision)) : null;
+            const exactPreparedSuccessor = predecessor && snapshotPath
+              && fs.existsSync(snapshotPath) && fs.lstatSync(snapshotPath).isFile()
+              && fs.readFileSync(snapshotPath, 'utf8') === current.raw
+              && fs.lstatSync(taskBasisArtifact.filePath).isFile()
+              && fs.readFileSync(taskBasisArtifact.filePath, 'utf8') === taskBasisArtifact.content;
+            if (!exactPreparedSuccessor) fail('TASK_BASIS_CONFLICT', `create-draft refuses to overwrite existing task basis ${taskBasisArtifact.path}.`);
+          }
+        } else if (existingReference) {
+          if (existingReference.path !== taskBasisArtifact.path) {
+            fail('TASK_BASIS_REFERENCE_INVALID', 'CURRENT_TASK links a different task basis path than the draft transaction target.');
+          }
+          if (!basisExists) fail('TASK_BASIS_MISSING', `Linked task basis is missing: ${taskBasisArtifact.path}`);
+          originalTaskBasisContent = fs.readFileSync(taskBasisArtifact.filePath, 'utf8');
+          if (sha256(originalTaskBasisContent) !== existingReference.revision) {
+            fail('TASK_BASIS_REVISION_CONFLICT', 'Linked task basis changed outside the Runtime transaction.');
+          }
+          const priorBasis = readCanonicalTaskBasis(this.root, current).basis;
+          if (digest(priorBasis.original_request) !== digest(taskBasisArtifact.basis.original_request)
+            || priorBasis.user_decisions.length > taskBasisArtifact.basis.user_decisions.length
+            || priorBasis.user_decisions.some((decision, index) => digest(decision) !== digest(taskBasisArtifact.basis.user_decisions[index]))) {
+            fail('TASK_BASIS_IMMUTABLE', 'Task Basis original_request and existing user_decisions must remain unchanged; append a new user decision instead.');
+          }
+        } else if (basisExists) {
+          fail('TASK_BASIS_CONFLICT', `Unlinked task basis already exists at ${taskBasisArtifact.path}.`);
+        }
+      }
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof VNextRuntimeError ? error.code : 'TASK_BASIS_INVALID',
+      });
+    }
+
+    const successorSnapshot = proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'create-draft' && proposal.semantic_delta.predecessor
+      ? { path: safeRepositoryFile(this.root, successorSnapshotPath(current.relativePath, current.sourceTuple.document_id, current.sourceTuple.revision)), content: current.raw }
+      : null;
+    if (successorSnapshot && fs.existsSync(successorSnapshot.path) && fs.readFileSync(successorSnapshot.path, 'utf8') !== successorSnapshot.content) {
+      return buildResult('blocked', proposal, current, options, 'The retained predecessor snapshot conflicts with its exact source.', { code: 'SUCCESSOR_HISTORY_CONFLICT' });
+    }
+    let nextContent: string;
+    let prepared: PreparedTaskContent;
+    try {
+      if (current.runtimeState.task_evolution_version === 2 && proposal.semantic_delta.kind === 'task-state') {
+        const delta = proposal.semantic_delta;
+        if (delta.action === 'record-step-preflight' || (delta.action === 'step-progress' && delta.execution_result)) {
+          if ((current.runtimeState.artifact_checkpoint_ids?.length ?? 0) >= 256) fail('ARTIFACT_BUDGET_EXHAUSTED', 'Task checkpoint budget is exhausted.');
+          const paths = delta.action === 'record-step-preflight' ? delta.candidate_paths : delta.execution_result!.review_target.entries.map(item => item.path);
+          const checkpointId = saveArtifactCheckpoint(this.root, current.filePath, { task_id: current.runtimeState.task_id,
+            document_id: current.sourceTuple.document_id, step_id: delta.step_id,
+            definition_revision: digest(resolveCanonicalTaskStep(current).current), execution_id: proposal.idempotency_key,
+            phase: delta.action === 'record-step-preflight' ? 'before' : 'after' }, paths, options.dryRun === true);
+          transition.next = { ...transition.next, artifact_checkpoint_ids: [...(current.runtimeState.artifact_checkpoint_ids ?? []), checkpointId] };
+        }
+      }
+      prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, transition.next, {
+        ...(transition.replacementDefinition ? { replacementDefinition: transition.replacementDefinition } : {}),
+        ...(transition.draftDefinition ? { draftDefinition: transition.draftDefinition } : {}),
+        ...(transition.draftIdentity ? { draftIdentity: transition.draftIdentity } : {}),
+        ...(transition.draftDocumentId ? { draftDocumentId: transition.draftDocumentId } : {}),
+        ...(transition.draftDocumentId ? {
+          compactTaskStore: true,
+          taskStoreManifestPath: `${taskStorePaths(this.root, transition.draftDocumentId).relativeRoot}/manifest.json`,
+        } : {}),
+        ...(taskBasisArtifact ? { taskBasisReference: { path: taskBasisArtifact.path, revision: taskBasisArtifact.revision } } : {}),
+        ...(transition.audit ? { audit: transition.audit } : {}),
+      });
+      nextContent = prepared.content;
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_RENDER_BLOCKED',
+      });
+    }
+    const nextRevision = sha256(nextContent);
+    if (nextContent === current.raw) {
+      return buildResult('no-op', proposal, current, options, 'proposal produced no canonical state change.', {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: current.sourceTuple.revision,
+        read_back_verified: true,
+      });
+    }
+    if (options.dryRun) {
+      return buildResult('success', proposal, current, options, 'typed proposal validated; atomic write planned (dry-run).', {
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        state: resultState(transition.next, transition.findingStatus),
+        ...(transition.advancement ? { advancement: transition.advancement } : {}),
+      });
+    }
+
+    // A first-touch review baseline is a prerequisite for the state that
+    // references it. Publish raw content-addressed bytes before staging or
+    // writing CURRENT_TASK so a failed blob admission cannot leave a new
+    // review-coverage grant pointing at storage that does not exist.
+    try {
+      persistReviewPreimageWrites(this.root, transition.reviewPreimageWrites ?? []);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, `review baseline persistence failed: ${error instanceof Error ? error.message : String(error)}`, {
+        code: error instanceof ReviewPreimageStoreError ? error.code : 'REVIEW_BASELINE_PERSISTENCE_FAILED',
+      });
+    }
+
+    let stagedAfter: CanonicalCurrentTask;
+    try {
+      // The pending intent is durable before the canonical file changes.  A
+      // crash after this point is therefore recoverable without rerunning the
+      // business operation or creating a second attempt.
+      stagedAfter = this.stageCurrentTaskCommit(current, nextContent, transition.next, proposal, proposal.requested_write_targets, [
+        { path: current.filePath, content: nextContent },
+        ...(taskBasisArtifact ? [{ path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }] : []),
+        ...(successorSnapshot ? [successorSnapshot] : []),
+      ], prepared);
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
+      });
+    }
+
+    try {
+      if (successorSnapshot && taskBasisArtifact) {
+        publishPreparedSuccessor(current.filePath, current.raw, nextContent, [
+          successorSnapshot,
+          { path: taskBasisArtifact.filePath, content: taskBasisArtifact.content },
+        ], () => { TaskStore.forCurrent(this.root, stagedAfter).ensureInitialized(stagedAfter); });
+      } else {
+        executeWrites([
+          { path: current.filePath, content: nextContent },
+          ...(taskBasisArtifact ? [{ path: taskBasisArtifact.filePath, content: taskBasisArtifact.content }] : []),
+        ], false, `vNext Runtime ${proposal.operation_kind} committed`);
+      }
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: 'ATOMIC_COMMIT_FAILED' });
+    }
+
+    try {
+      if (stagedAfter.sourceTuple.document_id === current.sourceTuple.document_id) {
+        TaskStore.forCurrent(this.root, current as unknown as import('./task-store').TaskStoreCurrent).markCurrentPublished(nextRevision);
+      }
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, `task-store precommit publication failed after CURRENT_TASK write: ${error instanceof Error ? error.message : String(error)}`, {
+        code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
+      });
+    }
+
+    try {
+      const readBack = stagedAfter.frontmatter.task_store === undefined
+        ? this.readCurrentTask(this.root)
+        : stagedAfter;
+      if (readBack.raw !== nextContent || readBack.sourceTuple.revision !== nextRevision) {
+        const rollback = taskBasisArtifact
+          ? rollbackDraftTransactionAndVerify(this.root, current, taskBasisArtifact, originalTaskBasisContent, this.readCurrentTask)
+          : rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
+        return buildResult(
+          'blocked',
+          proposal,
+          current,
+          options,
+          rollback.verified
+            ? 'Runtime read-back did not match the staged canonical document; rollback read-back verified.'
+            : `Runtime read-back did not match the staged canonical document; ${rollback.detail}`,
+          { code: rollback.verified ? 'READ_BACK_MISMATCH' : 'ROLLBACK_FAILED' },
+        );
+      }
+      if (successorSnapshot && fs.readFileSync(successorSnapshot.path, 'utf8') !== current.raw) throw new Error('The predecessor snapshot did not retain the exact unfinished task.');
+      if (taskBasisArtifact) {
+        const basisReadBack = readCanonicalTaskBasis(this.root, readBack);
+        if (basisReadBack.content !== taskBasisArtifact.content || basisReadBack.revision !== taskBasisArtifact.revision) {
+          const rollback = rollbackDraftTransactionAndVerify(this.root, current, taskBasisArtifact, originalTaskBasisContent, this.readCurrentTask);
+          return buildResult(
+            'blocked',
+            proposal,
+            current,
+            options,
+            rollback.verified
+              ? 'Runtime task basis read-back did not match the staged artifact; rollback read-back verified.'
+              : `Runtime task basis read-back did not match the staged artifact; ${rollback.detail}`,
+            { code: rollback.verified ? 'READ_BACK_MISMATCH' : 'ROLLBACK_FAILED' },
+          );
+        }
+      }
+      return buildResult('success', proposal, current, options, 'typed proposal committed and canonical source read-back verified.', {
+        committed: true,
+        governed_mutation_count: successorSnapshot ? 3 : taskBasisArtifact ? 2 : 1,
+        previous_revision: current.sourceTuple.revision,
+        resulting_revision: nextRevision,
+        read_back_verified: true,
+        state: resultState(readBack.runtimeState, transition.findingStatus),
+        ...(transition.advancement ? { advancement: transition.advancement } : {}),
+      });
+    } catch (error) {
+      const rollback = taskBasisArtifact
+        ? rollbackDraftTransactionAndVerify(this.root, current, taskBasisArtifact, originalTaskBasisContent, this.readCurrentTask)
+        : rollbackCurrentTaskAndVerify(this.root, current, this.readCurrentTask);
+      return buildResult(
+        'blocked',
+        proposal,
+        current,
+        options,
+        rollback.verified
+          ? `Runtime read-back failed: ${error instanceof Error ? error.message : String(error)}; rollback read-back verified.`
+          : `Runtime read-back failed: ${error instanceof Error ? error.message : String(error)}; ${rollback.detail}`,
+        { code: rollback.verified ? 'READ_BACK_FAILED' : 'ROLLBACK_FAILED' },
+      );
+    }
+  }
+}
+
+export function applyVNextRuntimeProposal(root: string, proposal: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  return new GovernanceTransactionKernel(root).apply(proposal, options);
+}
+
+export function createTaskStateProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    mode: VNextExecuteStepMode;
+    status: StepStatus;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    note?: string;
+    repair_fingerprint?: string;
+    repair_fingerprints?: string[];
+    repair_wave_id?: string;
+    change_set_id?: string;
+    review_receipt?: StepReviewReceipt;
+    claim_evidence?: ClaimEvidenceRecord[];
+    execution_result?: StepExecutionResult;
+  },
+): RuntimeProposal {
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...claimEvidenceRefs(input.claim_evidence ?? []),
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'execute-step',
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'step-progress',
+      step_id: current.runtimeState.active_step_id,
+      status: input.status,
+      evidence_refs: input.evidence_refs,
+      ...(input.note ? { note: input.note } : {}),
+      ...(input.repair_fingerprint ? { repair_fingerprint: input.repair_fingerprint } : {}),
+      ...(input.repair_fingerprints ? { repair_fingerprints: input.repair_fingerprints } : {}),
+      ...(input.repair_wave_id ? { repair_wave_id: input.repair_wave_id } : {}),
+      ...(input.change_set_id ? { change_set_id: input.change_set_id } : {}),
+      ...(input.review_receipt ? { review_receipt: input.review_receipt } : {}),
+      ...(input.claim_evidence === undefined ? {} : { claim_evidence: input.claim_evidence }),
+      ...(input.execution_result === undefined ? {} : { execution_result: input.execution_result }),
+    },
+    preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted'],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createRetainedReviewConsumptionProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    step_id: string;
+    review_receipt: StepReviewReceipt;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'execute-step',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'consume-retained-review',
+      step_id: input.step_id,
+      review_receipt: input.review_receipt,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-active', 'retained-scope-amendment-review', 'fresh-review-receipt'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function assertOrdinaryPreflight(current: CanonicalCurrentTask, root: string): void {
+  const unresolvedChallenges = (current.runtimeState.evidence_challenges ?? []).filter(item => item.status !== 'resolved');
+  const correctionBatch = unresolvedChallenges.some(item => item.status === 'invalidated' && item.correction_step_id === current.runtimeState.active_step_id);
+  if (!correctionBatch && unresolvedChallenges.some(item => item.correction_step_id !== current.runtimeState.active_step_id)) {
+    fail('EVIDENCE_CHALLENGE_UNRESOLVED', 'A challenged result may affect the next step; only its admitted correction step can run.');
+  }
+  for (const carry of current.runtimeState.evidence_carry_forward ?? []) {
+    const slot = current.runtimeState.claim_evidence?.find(item => item.claim_id === carry.claim_id)?.slots.find(item => item.slot_id === carry.slot_id);
+    if (!slot?.report) fail('EVIDENCE_CARRY_FORWARD_STALE', 'A carried slot no longer has its old report.');
+    assertEvidenceReportApplicable(root, current, slot);
+  }
+  const pending = current.runtimeState.pending_review_result;
+  if (pending) {
+    const execution = current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find(item => !('action' in item) && item.idempotency_key === pending.execution_id);
+    if (!execution || 'action' in execution || !execution.execution_result || captureReviewTarget(root, execution.execution_result.review_target.entries.map(entry => entry.path)).revision !== pending.review_target_revision) fail('REVIEW_TARGET_STALE', 'Pending review target changed; preserve the review and resolve its conflict.');
+    let route = pending.blocker?.next_route ?? 'its recorded blocker route';
+    if (pending.verdict === 'clean') route = 'complete-reviewed-step';
+    if (pending.verdict === 'findings') route = 'begin-repair';
+    fail('PENDING_REVIEW_REQUIRED', `Pending review must be consumed by ${route ?? 'its recorded blocker route'}; no ordinary execution is admitted.`);
+  }
+  if (current.runtimeState.findings.some(item => ['admitted', 'in-progress'].includes(item.status))) {
+    fail('REVIEW_CONVERGENCE_REQUIRED', 'Open findings require admitted repair; ordinary execution cannot consume them.');
+  }
+  if (dynamicReviewRequiredForCurrentExecution(current) && current.runtimeState.active_step_status === 'in-progress') {
+    fail('DYNAMIC_REVIEW_REQUIRED', 'A self-admitted footprint expansion requires fresh cumulative review before another ordinary execution.');
+  }
+  if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active' || current.runtimeState.resume_requires_review || current.runtimeState.active_step_status === 'blocked') {
+    fail('PREFLIGHT_BLOCKED', 'ordinary execution requires an active unblocked task without a resume gate.');
+  }
+}
+
+export function createStepRetryProposal(current: CanonicalCurrentTask, input: {step_id:string;blocked_attempt_id:string;blocker_resolution_refs:string[];repair_diagnosis?:StepRepairDiagnosis;idempotency_key:string}): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version:1,kind:VNEXT_RUNTIME_PROPOSAL_KIND,operation_kind:'task-state-transaction',caller:'execute-step',mode:'default',source_tuple:current.sourceTuple,
+    authority_evidence:['active-task-owner','scope-admission','evidence-admission'].map(kind=>({kind,source:current.relativePath,subject:current.runtimeState.active_step_id})),
+    semantic_delta:{kind:'task-state',action:'retry-step',step_id:input.step_id,blocked_attempt_id:input.blocked_attempt_id,blocker_resolution_refs:input.blocker_resolution_refs,...(input.repair_diagnosis ? {repair_diagnosis:input.repair_diagnosis} : {}),evidence_refs:input.blocker_resolution_refs},
+    preconditions:['current-task-is-active','active-step-matches','scope-admitted'],evidence_refs:input.blocker_resolution_refs,idempotency_key:input.idempotency_key,requested_write_targets:[current.relativePath],
+  });
+}
+
+export function createStepPreflightProposal(
+  current: CanonicalCurrentTask,
+  candidatePaths: string[],
+  blastRadiusAssessments: BlastRadiusAssessment[] = [],
+  input: {
+    mode?: VNextExecuteStepMode;
+    execution_id?: string;
+    plan_revision?: string;
+    execution_phase?: TestStrategyExecutionPhase;
+    repair_fingerprints?: string[];
+    repair_wave_id?: string;
+    review_id?: string;
+    review_target_paths?: string[];
+    change_set_id?: string;
+  } = {},
+): RuntimeProposal {
+  const mode = input.mode ?? 'default';
+  const strategy = resolveTestStrategyExecutionContext(current);
+  const executionPhase = input.execution_phase ?? executionPhaseForCurrentStep(current, strategy);
+  const planRevision = input.plan_revision ?? digest({ step_id: current.runtimeState.active_step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
+  const executionId = input.execution_id ?? `execution-${digest({
+    task: current.sourceTuple.document_id,
+    step: current.runtimeState.active_step_id,
+    plan: planRevision,
+    mode,
+    attempt: mode === 'default' ? nextStepAttemptId(current) : null,
+    repair_fingerprints: input.repair_fingerprints ?? null,
+    repair_wave_id: input.repair_wave_id ?? null,
+    review_id: input.review_id ?? null,
+  })}`;
+  const identity = current.mutationAuthority || mode === 'repair'
+    ? {
+      mode,
+      execution_id: executionId,
+      plan_revision: planRevision,
+      execution_phase: executionPhase,
+      ...(mode === 'repair' ? {
+        repair_fingerprints: input.repair_fingerprints ?? [],
+        repair_wave_id: input.repair_wave_id ?? '',
+        review_id: input.review_id ?? '',
+        review_target_paths: input.review_target_paths ?? [],
+      } : {}),
+      ...(input.change_set_id ? { change_set_id: input.change_set_id } : {}),
+    }
+    : {};
+  const preflightId = `preflight-${digest({
+    task: current.sourceTuple.document_id,
+    plan: planRevision,
+    step: current.runtimeState.active_step_id,
+    mode,
+    execution_id: executionId,
+    paths: candidatePaths,
+    assessments: blastRadiusAssessments,
+    repair_fingerprints: input.repair_fingerprints ?? null,
+    repair_wave_id: input.repair_wave_id ?? null,
+    review_id: input.review_id ?? null,
+  })}`;
+  return validateRuntimeProposal({
+    schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction', caller: 'execute-step', mode, source_tuple: current.sourceTuple,
+    authority_evidence: ['active-task-owner', 'scope-admission', 'evidence-admission'].map(kind => ({ kind, source: current.relativePath, subject: current.runtimeState.active_step_id })),
+    semantic_delta: { kind: 'task-state', action: 'record-step-preflight', step_id: current.runtimeState.active_step_id, candidate_paths: candidatePaths, evidence_refs: [current.relativePath], ...(blastRadiusAssessments.length > 0 ? { blast_radius_assessments: blastRadiusAssessments } : {}), ...identity },
+    preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted', 'execution-admission'], evidence_refs: [current.relativePath, ...blastRadiusAssessments.flatMap(item => item.evidence_refs)],
+    idempotency_key: preflightId,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createStepExtendPreflightProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    step_id: string;
+    current_preflight_id: string;
+    additional_targets: string[];
+    blast_radius_assessments: BlastRadiusAssessment[];
+    evidence_refs: string[];
+    mode?: VNextExecuteStepMode;
+    execution_id?: string;
+    execution_phase?: TestStrategyExecutionPhase;
+  },
+): RuntimeProposal {
+  const mode = input.mode ?? 'default';
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'execute-step',
+    mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: ['active-task-owner', 'scope-admission', 'evidence-admission'].map(kind => ({ kind, source: current.relativePath, subject: input.step_id })),
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'extend-preflight',
+      step_id: input.step_id,
+      current_preflight_id: input.current_preflight_id,
+      additional_targets: input.additional_targets,
+      blast_radius_assessments: input.blast_radius_assessments,
+      evidence_refs: input.evidence_refs,
+      ...(input.mode === undefined ? {} : { mode: input.mode }),
+      ...(input.execution_id === undefined ? {} : { execution_id: input.execution_id }),
+      ...(input.execution_phase === undefined ? {} : { execution_phase: input.execution_phase }),
+    },
+    preconditions: ['current-task-is-active', 'active-step-matches', 'same-attempt', 'scope-admitted', 'execution-admission'],
+    evidence_refs: [...new Set([...input.evidence_refs, ...input.blast_radius_assessments.flatMap(item => item.evidence_refs)])],
+    idempotency_key: `preflight-extension-${digest({ task: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision, step: input.step_id, mode, execution_id: input.execution_id ?? null, current_preflight_id: input.current_preflight_id, targets: input.additional_targets, assessments: input.blast_radius_assessments })}`,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createReviewResultProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    review_result: Omit<PendingReviewResult, 'recorded_at'>;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  const evidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...input.review_result.evidence_refs,
+    ...input.review_result.findings.flatMap(item => item.evidence_refs),
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'review-change',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'record-review-result',
+      review_result: input.review_result,
+      evidence_refs: evidenceRefs,
+    },
+    preconditions: ['current-task-is-active', 'latest-execution-matches', 'review-context-current'],
+    evidence_refs: evidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createEvidenceChallengeProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    claim_id: string;
+    slot_id: string;
+    result_id: string;
+    evidence_ref: string;
+    evidence_sha256: string;
+    reason: string;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'review-change',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'record-evidence-challenge',
+      claim_id: input.claim_id,
+      slot_id: input.slot_id,
+      result_id: input.result_id,
+      evidence_ref: input.evidence_ref,
+      evidence_sha256: input.evidence_sha256,
+      reason: input.reason,
+      evidence_refs: [input.evidence_ref],
+    },
+    preconditions: ['current-task-is-active', 'evidence-admitted'],
+    evidence_refs: [input.evidence_ref],
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createEvidenceChallengeDismissalProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    challenge_id: string;
+    evidence_ref: string;
+    evidence_sha256: string;
+    reason: string;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'review-change',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state', action: 'dismiss-evidence-challenge', challenge_id: input.challenge_id,
+      evidence_ref: input.evidence_ref, evidence_sha256: input.evidence_sha256,
+      reason: input.reason, evidence_refs: [input.evidence_ref],
+    },
+    preconditions: ['current-task-is-active', 'evidence-admitted'],
+    evidence_refs: [input.evidence_ref],
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+/** Ordinary task evidence uses explicit, source-bound caller-reported user input.
+ * This deliberately does not authorize Bootstrap realign or claim a trusted host. */
+export function recordUserEvidenceDecision(root: string, kind: UserEvidenceDecision['kind'], input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  const value = expectRecord(input, 'user-evidence input');
+  expectExactKeys(value, ['claim_id', 'slot_id', 'check_id', 'evidence_plan_revision', 'subject_revision', 'decision_source', 'decision_text', ...(value.validation_items === undefined ? [] : ['validation_items'])], 'user-evidence input');
+  const current = readCanonicalCurrentTask(root);
+  const basisPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
+  const delta = validateTaskStateDelta({ kind: 'task-state', action: 'record-user-evidence', decision_kind: kind, ...value, evidence_refs: [basisPath] });
+  const key = `user-evidence-${digest({ task: current.sourceTuple.document_id, delta }).slice(0, 40)}`;
+  const proposal: RuntimeProposal = {
+    schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND, operation_kind: 'task-state-transaction',
+    caller: 'prepare-task', mode: 'default', source_tuple: current.sourceTuple,
+    authority_evidence: ['active-task-owner', 'evidence-admission', 'user-confirmation'].map(kind => ({
+      kind: kind as AuthorityEvidence['kind'], source: String(value.decision_source), subject: current.runtimeState.task_id,
+    })), semantic_delta: delta, preconditions: ['current-task-is-active', 'exact-user-evidence-target'],
+    evidence_refs: [basisPath], idempotency_key: key, requested_write_targets: [current.relativePath, basisPath],
+  };
+  const previousSlot = current.runtimeState.claim_evidence?.find(c => c.claim_id === value.claim_id)?.slots.find(s => s.slot_id === value.slot_id);
+  if (previousSlot?.user_decision?.decision_id === key) {
+    try {
+      assertUserEvidenceApplicable(root, current, previousSlot);
+      return buildResult('no-op', proposal, current, options, 'This exact user decision is already recorded; no evidence, status or budget changed.', { read_back_verified: true, resulting_revision: current.sourceTuple.revision });
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : 'USER_EVIDENCE_STALE' });
+    }
+  }
+  return applyVNextRuntimeProposal(root, proposal, options);
+}
+
+export function createPrepareTaskResumeReviewProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    mode: 'default';
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'clear-resume-review-gate',
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-active', 'resume-review-complete'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createPrepareTaskClaimEvidenceMigrationProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    claim_evidence: ClaimEvidenceRecord[];
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...claimEvidenceRefs(input.claim_evidence),
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'migrate-claim-evidence',
+      claim_evidence: input.claim_evidence,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-active', 'legacy-claim-evidence-state', 'acceptance-bearing-plan'],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createPrepareTaskDraftProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    action: 'create-draft' | 'update-draft';
+    predecessor?: SuccessorDecision;
+    task_id: string;
+    task_slug: string;
+    document_id?: string;
+    task_title: string;
+    task_basis: TaskBasis;
+    draft_definition: DraftTaskDefinition;
+    active_step_id: string;
+    evidence_refs: string[];
+    claim_evidence?: ClaimEvidenceRecord[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  const documentId = input.document_id ?? generatedDraftDocumentId(input, current.sourceTuple.revision);
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...claimEvidenceRefs(input.claim_evidence ?? []),
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: input.action,
+      ...(input.predecessor ? { predecessor: input.predecessor } : {}),
+      task_id: input.task_id,
+      task_slug: input.task_slug,
+      document_id: documentId,
+      task_title: input.task_title,
+      task_basis: input.task_basis,
+      draft_definition: input.draft_definition,
+      active_step_id: input.active_step_id,
+      evidence_refs: input.evidence_refs,
+      ...(input.claim_evidence === undefined ? {} : { claim_evidence: input.claim_evidence }),
+    },
+    preconditions: input.action === 'create-draft'
+      ? ['current-task-is-closed-and-archived', 'next-unused-task-identity', 'closed-draft-definition']
+      : ['current-task-is-draft-and-active', 'same-task-identity', 'closed-draft-definition'],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath, taskBasisRelativePath(current.relativePath, input.task_id),
+      ...(input.predecessor ? [successorSnapshotPath(current.relativePath, current.sourceTuple.document_id, current.sourceTuple.revision)] : [])],
+  });
+}
+
+export const createPrepareTaskCreateDraftProposal = createPrepareTaskDraftProposal;
+
+export function createPrepareTaskUpdateDraftProposal(
+  current: CanonicalCurrentTask,
+  input: Omit<Parameters<typeof createPrepareTaskDraftProposal>[1], 'action'>,
+): RuntimeProposal {
+  return createPrepareTaskDraftProposal(current, { ...input, action: 'update-draft' });
+}
+
+export function createPrepareTaskConfirmProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    task_id: string;
+    task_slug: string;
+    document_id: string;
+    draft_revision: string;
+    evidence_refs: string[];
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'confirm',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'confirm-draft',
+      task_id: input.task_id,
+      task_slug: input.task_slug,
+      document_id: input.document_id,
+      draft_revision: input.draft_revision,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-draft-and-active', 'exact-draft-revision', 'explicit-confirmation-authority', 'no-unresolved-decisions'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createPrepareTaskReplanProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    delta: Extract<TaskStateDelta, { action: ReplanTaskStateAction }>;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): RuntimeProposal {
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...('claim_evidence' in input.delta && input.delta.claim_evidence !== undefined
+      ? claimEvidenceRefs(input.delta.claim_evidence)
+      : []),
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'replan',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: input.delta.action === 'mark-replan-blocked'
+      ? ['current-task-is-active', 'replan-blocker-evidence-complete']
+      : input.delta.action === 'clear-replan-block'
+        ? ['blocked-by-replan', 'new-authoritative-evidence']
+        : ['superseded-task', 'closed-replacement-definition', 'same-task-identity'],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: input.delta.action === 'commit-replan'
+      ? [current.relativePath, taskBasisRelativePath(current.relativePath, current.runtimeState.task_id)]
+      : [current.relativePath],
+  });
+}
+
+export function createPrepareTaskScopeAmendmentProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    delta: Extract<TaskStateDelta, { action: 'commit-scope-amendment' }>;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): RuntimeProposal {
+  const proposalEvidenceRefs = [...new Set([
+    ...input.evidence_refs,
+    ...('claim_evidence' in input.delta && input.delta.claim_evidence !== undefined
+      ? claimEvidenceRefs(input.delta.claim_evidence)
+      : []),
+  ])];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'amend-scope',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: ['active-or-blocked-task', 'authority-or-persistent-test-admission', 'revision-bound-candidate', 'preserve-review-baseline'],
+    evidence_refs: proposalEvidenceRefs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath, taskBasisRelativePath(current.relativePath, current.runtimeState.task_id)],
+  });
+}
+
+export function createLifecycleProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    mode: LifecycleMode;
+    delta: LifecycleDelta;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): LifecycleProposal {
+  let artifactKind: Extract<TaskArtifactKind, 'paused' | 'interrupted'> | null = null;
+  if (input.mode === 'pause') artifactKind = 'paused';
+  else if (input.mode === 'interrupt') artifactKind = 'interrupted';
+  else if (input.mode === 'resume-paused' || input.mode === 'resume-interrupted') {
+    if (!('artifact_kind' in input.delta)) throw new VNextRuntimeError('RUNTIME_SCHEMA_INVALID', 'resume lifecycle proposal is missing artifact_kind.');
+    artifactKind = input.delta.artifact_kind;
+  }
+  const requestedWriteTargets = artifactKind === null
+    ? [current.relativePath]
+    : [current.relativePath, input.mode === 'resume-paused' || input.mode === 'resume-interrupted'
+      ? 'recovery_package_path' in input.delta ? input.delta.recovery_package_path : ''
+      : getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind)];
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'lifecycle-transaction',
+    caller: 'task-lifecycle',
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: input.mode === 'supersede'
+      ? ['current-task-is-active', 'supersede-evidence-present']
+      : input.mode === 'pause' || input.mode === 'interrupt'
+        ? ['current-task-is-active', 'lifecycle-transition-legal', 'recovery-evidence-complete']
+        : ['explicit-recovery-package', 'resume-review-complete', 'lifecycle-transition-legal'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: requestedWriteTargets,
+  }) as LifecycleProposal;
+}
+
+export function createFindingQueueProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    mode: 'repair';
+    delta: FindingQueueDelta;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): RuntimeProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'finding-queue-transaction',
+    caller: 'execute-step',
+    mode: input.mode,
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: ['current-task-is-active', 'finding-admitted', 'repair-budget-available'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
+export function createArchiveProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    delta: ArchiveDelta;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): ArchiveProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'archive-transaction',
+    caller: 'close-task',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: ['current-task-is-active', 'closure-eligibility-complete', 'archive-path-verified'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath, getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, 'archive')],
+  }) as ArchiveProposal;
+}
+
+export const createArchiveTransactionProposal = createArchiveProposal;
+
+export function createProjectStatusProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    delta: ProjectStatusDelta;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): ProjectStatusProposal {
+  const statusPath = path.posix.join(path.posix.dirname(current.relativePath), 'STATUS.md');
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'project-status-transaction',
+    caller: 'close-task',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: ['archive-committed', 'status-baseline-present'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [statusPath],
+  }) as ProjectStatusProposal;
+}
+
+export const createProjectStatusTransactionProposal = createProjectStatusProposal;
+
+export function createLessonRecordProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    delta: LessonRecordDelta;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): LessonRecordProposal {
+  const lessonsPath = path.posix.join(path.posix.dirname(current.relativePath), 'LESSONS.md');
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'lesson-record-transaction',
+    caller: 'close-task',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: ['archive-committed', 'lesson-admission-is-admit', 'lesson-deduplication-complete'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [lessonsPath],
+  }) as LessonRecordProposal;
+}
+
+export const createLessonRecordTransactionProposal = createLessonRecordProposal;
+
+export function knowledgeProvenanceFromArchive(root: string, current: CanonicalCurrentTask, evidence_refs: string[]): KnowledgeProvenance {
+  const { receipt } = matchingArchiveReceipt(root, current);
+  return {
+    task_id: receipt.taskId,
+    task_slug: receipt.taskSlug,
+    document_id: receipt.documentId,
+    archive_path: receipt.relativePath,
+    archive_revision: receipt.revision,
+    source_revision: receipt.sourceRevision,
+    evidence_refs: [...evidence_refs],
+  };
+}
+
+function createKnowledgeProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    admission: KnowledgeAdmissionRecord;
+    provenance: KnowledgeProvenance;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+  knowledgeKind: 'contract' | 'decision',
+): KnowledgeProposal {
+  const targetPath = path.posix.join(path.posix.dirname(current.relativePath), knowledgeKind === 'contract' ? 'CONTRACTS.md' : 'DECISIONS.md');
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: knowledgeKind === 'contract' ? 'contract-candidate-commit' : 'decision-record-transaction',
+    caller: 'close-task',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: {
+      kind: 'knowledge',
+      action: 'promote',
+      knowledge_kind: knowledgeKind,
+      admission: input.admission,
+      provenance: input.provenance,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['archive-committed', 'knowledge-admission-complete', 'canonical-knowledge-target'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [targetPath],
+  }) as KnowledgeProposal;
+}
+
+export function createContractCandidateProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    admission: KnowledgeAdmissionRecord;

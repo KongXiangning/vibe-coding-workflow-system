@@ -1,9 +1,14 @@
+import { taskStorageMetrics } from '../runtime/vnext/src/task-storage-metrics';
 import { readProjectDocuments } from '../runtime/vnext/src/project-documents';
 import { reviewRead } from '../runtime/vnext/src/review-change-adapter';
 import { installDistribution, upgradeDistribution } from '../scripts/vibe-governance-distribution';
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
-import { semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
+import { prepareSuccessor, semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
 import { commitSupersedeWithHistory, commitTaskEvolutionWithHistory, recoverTaskEvolution, taskHistoryLocation } from '../runtime/vnext/src/task-evolution-io';
+import { commitTaskStorageMigration, TaskStore, taskStoreDefinitionRevision } from '../runtime/vnext/src/task-store';
+import { expandTaskProjection, projectionJson } from '../runtime/vnext/src/task-projection';
+import { taskRead, taskContextMigrationPreview, taskContextMigrationCommit } from '../runtime/vnext/src/task-context';
+import { reviewPreimageBlobPath } from '../runtime/vnext/src/review-preimage-store';
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as crypto from 'crypto';
 import { spawnSync } from 'child_process';
@@ -28,13 +33,23 @@ import {
   createPrepareTaskResumeReviewProposal,
   clearResumeReview,
   captureReviewTarget,
+  recordUserEvidenceDecision,
+  replaceValidation,
+  predecessorObligationKeys,
+  successorSnapshotPath,
+  evaluateClaimEvidence,
+  evaluateEvidenceSlotForContext,
   assertEvidencePlan,
+  applicableResultWaiver,
+  evidenceContext,
   readDraftDefinitionFromBody,
   createReviewChangeDelta,
   confirmDraft,
   prepareCorrectionReplan,
   confirmCorrectionReplan,
   discardCorrectionReplan,
+  discardScopeAmendment,
+  prepareScopeAmendment,
   initializeTaskPreservation,
   recordEvidenceChallenge,
   dismissEvidenceChallenge,
@@ -43,6 +58,7 @@ import {
   beginRepair,
   prepareDraft,
   preflightStep,
+  extendPreflight,
   retryStep,
   createStepRetryProposal,
   reviewContext,
@@ -75,6 +91,9 @@ import {
   type InboxRecordDelta,
   type LifecycleDelta,
   type LessonRecordDelta,
+  type KnowledgeAdmissionBundle,
+  type KnowledgeAdmissionRecord,
+  type KnowledgeCandidate,
   type ReplanReplacementDefinition,
   type ReplanTaskStateAction,
   type RuntimeProposal,
@@ -83,6 +102,7 @@ import {
   type ProjectStatusDelta,
   type PrepareTaskSemanticDraft,
 } from '../scripts/vnext-runtime';
+import { fingerprintKnowledgeStatement } from '../scripts/project-context-resolver';
 import { validateCurrentTaskStatusTuple as validatePureVNextStatusTuple } from '../runtime/vnext/src/task-identity';
 
 // Existing adapter lifecycle fixtures provide explicit caller assessment; S3
@@ -102,12 +122,15 @@ function recordReviewResult(root: string, input: any, options = {}) {
 }
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const STATUS_RECONCILIATION_BEGIN = '<!-- BEGIN vNext close-task STATUS reconciliation -->';
+const RUNTIME_IO_TEST_TIMEOUT = 20_000;
+const LARGE_HISTORY_TEST_TIMEOUT = 180_000;
 const temporaryRoots: string[] = [];
 
 function makeRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
     business_evidence_version: 1,
-    task_evolution_version: 1,
+    task_evolution_version: 2,
     schema_version: 1,
     kind: 'vnext-current-task-runtime-state',
     task_id: '010',
@@ -379,6 +402,8 @@ function completeClaimEvidence(): ClaimEvidenceRecord[] {
 
 function completeFixtureClaims(records: ClaimEvidenceRecord[]): ClaimEvidenceRecord[] {
   const result = records.map(record => ({ ...record, requirement: record.requirement ?? 'original acceptance', source_ref: 'test:original-request', slots: record.slots.map(slot => ({ ...evidencePlanFixture('original acceptance')[0]!.slots[0]!, ...slot, check: { ...evidencePlanFixture('original acceptance')[0]!.slots[0]!.check!, check_id: `${record.claim_id}-${slot.slot_id}`, subject_paths: ['fixture-subject.txt'] }, evidence_refs: ['evidence-report.txt'] })) }));
+  // These represent already confirmed historical reports, not newly admitted checks.
+  for (const record of result) for (const slot of record.slots) delete slot.check.selection;
   const definition = readDraftDefinitionFromBody(makeBody(makeRuntimeState({ claim_evidence: result })));
   const revision = assertEvidencePlan(definition, result);
   for (const record of result) for (const slot of record.slots) slot.report = { result_id: `result-${slot.check.check_id}`, status: 'passed', evidence_plan_revision: revision, subject_revision: captureReviewTarget(ROOT, ['fixture-subject.txt']).revision, actual_method: 'execution', environment: 'isolated Runtime fixture', assurance: 'caller-reported' };
@@ -450,6 +475,21 @@ function taskProposal(root: string, overrides: Partial<Parameters<typeof createT
     authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
     ...overrides,
   });
+}
+
+function legacyMigrationRoot(state: RuntimeState = makeRuntimeState()): string {
+  const root = makeRoot(state);
+  const current = readCanonicalCurrentTask(root);
+  fs.writeFileSync(current.filePath, fs.readFileSync(current.filePath, 'utf8').replace(
+    `- ${state.active_step_id}: implement runtime`,
+    [`- ${state.active_step_id}: implement runtime`, '  - purpose: preserve original validation',
+      '  - mutation_scope: runtime/**', '  - required_evidence: original validation result', '  - review_checkpoint: required: original step evidence',
+      '  - planned_command: bun test test/vnext-runtime.test.ts',
+      '- legacy-other: existing other step', '  - purpose: preserve other validation',
+      '  - mutation_scope: runtime/**', '  - required_evidence: other validation result', '  - review_checkpoint: required: other step evidence',
+      '  - planned_command: bun test test/other.test.ts'].join('\n'),
+  ));
+  return root;
 }
 
 function claimEvidenceMigrationProposal(root: string, claimEvidence = completeClaimEvidence(), idempotencyKey = 'legacy-claim-evidence-migration'): RuntimeProposal {
@@ -548,6 +588,9 @@ function replacementDefinition(overrides: Partial<ReplanReplacementDefinition> =
       '  - mutation_scope: runtime/**',
       '  - required_evidence: test:evidence:replacement',
       '  - review_checkpoint: not-required: final-exemption: isolated state-only fixture has no product diff',
+      '  - planned_command: bun test test/vnext-runtime.test.ts',
+      '    - expected_repo_writes: none',
+      '    - transformation_kind: localized',
     ].join('\n'),
     regression_checks: [
       '### Test Strategy',
@@ -591,6 +634,9 @@ function draftDefinition(overrides: Partial<DraftTaskDefinition> = {}): DraftTas
       '  - mutation_scope: scripts/**',
       '  - required_evidence: test:evidence:step-1',
       '  - review_checkpoint: not-required: final-exemption: isolated state-only fixture has no product diff',
+      '  - planned_command: bun test test/vnext-runtime.test.ts',
+      '    - expected_repo_writes: none',
+      '    - transformation_kind: localized',
     ].join('\n'),
     regression_checks: [
       '### Test Strategy',
@@ -631,7 +677,7 @@ function freshDraftFixtureClaims(definition: ReplanReplacementDefinition, claims
   if (!claims) return undefined;
   const acceptance = definition.acceptance.replace(/^- \[ \] /gm, '').trim();
   const first = /- ([^:]+):/.exec(definition.implementation_steps)?.[1] ?? 'step-1';
-  return claims.map(claim => ({ ...claim, requirement: acceptance, slots: claim.slots.map(slot => ({ ...slot, due_step_id: first, disposition: 'missing' as const, evidence_refs: [], report: null })) }));
+  return claims.map(claim => ({ ...claim, requirement: acceptance, slots: claim.slots.map(slot => ({ ...slot, check: { ...slot.check!, boundary: 'local' as const, selection: evidencePlanFixture(acceptance)[0]!.slots[0]!.check!.selection }, due_step_id: first, disposition: 'missing' as const, evidence_refs: [], report: null })) }));
 }
 
 function createPrepareTaskDraftProposal(
@@ -657,14 +703,38 @@ function createPrepareTaskUpdateDraftProposal(
 }
 
 function evidencePlanFixture(requirement: string, step = 'step-1'): ClaimEvidenceRecord[] {
-  return [{ claim_id: 'A1', claim_kind: 'acceptance', requirement, source_ref: 'test:original-request', slots: [{ slot_id: 'a1', minimum_type: 'focused-test', disposition: 'missing', evidence_refs: [], due_step_id: step, applicability: 'current', check: { check_id: 'K1', method: 'execution', entry: 'bun test test/vnext-runtime.test.ts', expected_observation: requirement, required_boundaries: ['Runtime transaction'], allowed_substitutes: ['isolated filesystem fixture'], subject_paths: ['src/login.ts'], expected_result: 'passed' }, report: null }] }];
+  return [{ claim_id: 'A1', claim_kind: 'acceptance', requirement, source_ref: 'test:original-request', slots: [{ slot_id: 'a1', minimum_type: 'focused-test', disposition: 'missing', evidence_refs: [], due_step_id: step, applicability: 'current', check: { check_id: 'K1', method: 'execution', boundary: 'local', entry: 'bun test test/vnext-runtime.test.ts', expected_observation: requirement, required_boundaries: ['Runtime transaction'], allowed_substitutes: ['isolated filesystem fixture'], subject_paths: ['src/login.ts'], expected_result: 'passed', selection: { granularity: 'focused', selector: 'test/vnext-runtime.test.ts', invocation: { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: 2 }, selection_reason: 'The isolated Runtime fixture directly observes this local adapter claim.', breadth_reason: null, breadth_basis: null, breadth_source_ref: null } }, report: null }] }];
 }
 
-function reportFixture(root: string, claimId = 'A1', slotId = 'a1', status = 'passed') {
+function reportFixture(root: string, claimId = 'A1', slotId = 'a1', status?: string) {
   const current = readCanonicalCurrentTask(root);
   const slot = current.runtimeState.claim_evidence!.find(claim => claim.claim_id === claimId)!.slots.find(slot => slot.slot_id === slotId)!;
+  status ??= slot.check!.method === 'static' ? 'accepted' : 'passed';
   fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Caller-reported isolated fixture result.');
   return { claim_id: claimId, slot_id: slotId, check_id: slot.check!.check_id, minimum_type: slot.minimum_type, disposition: 'newly-executed', evidence_refs: ['evidence-report.txt'], report: { result_id: `result-${slot.check!.check_id}`, status, evidence_plan_revision: current.runtimeState.evidence_plan_revision!, subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision, actual_method: slot.check!.method, environment: 'isolated test fixture', assurance: 'caller-reported' } };
+}
+
+function completeCurrentStepThroughExecution(root: string) {
+  const preflight = preflightStep(root, { candidate_paths: [] });
+  const claims = readCanonicalCurrentTask(root).runtimeState.claim_evidence ?? [];
+  return recordStepResult(root, {
+    preflight_receipt: preflight.receipt,
+    actual_changed_paths: [],
+    command_results: preflight.current_step.commands.map(item => ({
+      command: item.command,
+      status: 'passed',
+      observed_repo_writes: [],
+      evidence_refs: ['evidence-report.txt'],
+    })),
+    validation_results: preflight.current_step.validation.map(validation => ({
+      validation,
+      status: 'passed',
+      evidence_refs: ['evidence-report.txt'],
+    })),
+    acceptance_evidence: claims.flatMap(claim => claim.slots.map(slot => reportFixture(root, claim.claim_id, slot.slot_id))),
+    outcome: 'implemented',
+    note: 'Complete the fixture step through the admitted execution contract',
+  });
 }
 
 function semanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
@@ -746,8 +816,177 @@ function singleStepSemanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = 
   });
 }
 
+function enableV2MutationAuthority(root: string): void {
+  const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+  const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, unknown>;
+  profile.mutation_authority = {
+    domains: [
+      { id: 'node-rollout', roots: ['packages/node-rollout/**'] },
+      { id: 'node-rollout-tests', roots: ['packages/node-rollout-tests/**'] },
+      { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+    ],
+  };
+  fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+}
+
+function rewriteV2MutationAuthorityProfile(root: string, domains: Array<{ id: string; roots: string[] }>): void {
+  const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+  const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, unknown>;
+  profile.mutation_authority = { domains };
+  fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+}
+
+function v2MutationAuthoritySemanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
+  const base = singleStepSemanticDraft({
+    implementation_steps: [{
+      id: 'step-1',
+      description: 'Implement the Node rollout behavior',
+      planned_mutation_targets: [
+        'packages/node-rollout/src/session.ts',
+        'packages/node-rollout/src/reconnect.ts',
+      ],
+      commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+      validation: ['bun test test/vnext-runtime.test.ts passes'],
+      review_checkpoint: { policy: 'required', reason: 'Review the cumulative implementation diff' },
+    }],
+    ...overrides,
+    mutation_authority_version: 2,
+    mutation_authority: {
+      domains: ['node-rollout', 'node-rollout-tests'],
+      exact_exceptions: [],
+      forbidden: [],
+    },
+  });
+  delete base.mutation_scope;
+  // Authority-only fixtures with no planned test command use static evidence;
+  // they must not silently retain K1's unrelated default execution command.
+  for (const claim of base.claim_evidence) for (const slot of claim.slots) {
+    const step = base.implementation_steps.find(item => item.id === slot.due_step_id);
+    if (slot.check?.method === 'execution' && step && !step.commands.some(item => item.command === slot.check!.entry)) {
+      slot.minimum_type = 'static-inspection';
+      slot.check.method = 'static'; slot.check.expected_result = 'accepted';
+      slot.check.entry = 'Inspect the bound authority fixture'; delete slot.check.selection;
+    }
+  }
+  return base;
+}
+
+function v2ConfirmedRoot(input: Partial<PrepareTaskSemanticDraft> = {}): string {
+  const root = archivedBaselineRoot();
+  enableV2MutationAuthority(root);
+  const prepared = prepareDraft(root, v2MutationAuthoritySemanticDraft(input));
+  if (!prepared.confirmation_receipt) throw new Error('v2 test setup did not receive a draft confirmation receipt');
+  const confirmed = confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt });
+  if (confirmed.status !== 'success') throw new Error(`v2 test setup could not confirm draft: ${confirmed.message}`);
+  return root;
+}
+
+function v2TwoStepConfirmedRoot(firstCheckpoint: 'required' | 'not-required' = 'required'): string {
+  const stepTwoTargets = firstCheckpoint === 'not-required'
+    ? ['packages/node-rollout/src/session.ts', 'packages/node-rollout/src/reconnect.ts']
+    : ['packages/node-rollout/src/reconnect.ts'];
+  return v2ConfirmedRoot({
+    claim_evidence: evidencePlanFixture('Complete the first Node rollout step', 'step-1'),
+    implementation_steps: [{
+      id: 'step-1',
+      description: 'Implement the first Node rollout step',
+      planned_mutation_targets: ['packages/node-rollout/src/session.ts'],
+      commands: [],
+      validation: ['The first Node rollout step is recorded'],
+      review_checkpoint: { policy: firstCheckpoint, reason: firstCheckpoint === 'required' ? 'Review the first step' : 'The first step is low risk and needs no ordinary checkpoint' },
+    }, {
+      id: 'step-2',
+      description: 'Implement the second Node rollout step',
+      planned_mutation_targets: stepTwoTargets,
+      commands: [],
+      validation: ['The second Node rollout step is recorded'],
+      review_checkpoint: { policy: 'required', reason: 'Review the second step' },
+    }],
+  });
+}
+
+function installFixedTgzRuntime(target: string, label: string): string {
+  const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), `vnext-${label}-package-`));
+  const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), `vnext-${label}-tgz-`));
+  const consumer = fs.mkdtempSync(path.join(os.tmpdir(), `vnext-${label}-consumer-`));
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  temporaryRoots.push(packageRoot, packDirectory, consumer);
+  buildVibeGovernanceDistribution({ outputRoot: packageRoot });
+  const packed = spawnSync(npm, ['pack', '--ignore-scripts', '--no-audit', '--no-fund', '--pack-destination', packDirectory], {
+    cwd: packageRoot,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (packed.status !== 0) throw new Error(`fixed tgz pack failed: ${packed.stderr}`);
+  const tgz = fs.readdirSync(packDirectory).find(name => name.endsWith('.tgz'));
+  if (!tgz) throw new Error('fixed tgz pack did not produce an archive.');
+  fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({ name: `${label}-consumer`, private: true }) + '\n', 'utf8');
+  const installed = spawnSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(packDirectory, tgz)], {
+    cwd: consumer,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (installed.status !== 0) throw new Error(`fixed tgz install failed: ${installed.stderr}`);
+  const distributionCli = path.join(consumer, 'node_modules', 'vibe-governance', 'dist', 'cli.js');
+  const install = spawnSync('node', [distributionCli, 'install', '--root', target, '--json'], {
+    cwd: consumer,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (install.status !== 0) throw new Error(`fixed tgz Runtime install failed: ${install.stderr}`);
+  return path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js');
+}
+
+function runInstalledRuntimeCli(runtimeCli: string, root: string, command: string, input?: unknown) {
+  const result = spawnSync('node', [runtimeCli, command, '--root', root], {
+    cwd: root,
+    input: input === undefined ? undefined : JSON.stringify(input),
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return {
+    ...result,
+    json: result.stdout.trim() ? JSON.parse(result.stdout) as Record<string, any> : null,
+  };
+}
+
+function installedAcceptanceEvidence(context: Record<string, any>): Record<string, any>[] {
+  const check = context.checks[0];
+  const execution = check.execution_selection !== null;
+  return [{
+    claim_id: check.claim_id,
+    slot_id: check.slot_id,
+    check_id: check.check_id,
+    minimum_type: check.minimum_type,
+    disposition: 'newly-executed',
+    evidence_refs: ['evidence-report.txt'],
+    report: {
+      result_id: `result-${check.check_id}`,
+      status: execution ? 'passed' : 'accepted',
+      evidence_plan_revision: context.evidence_plan_revision,
+      subject_revision: check.subject_revision,
+      actual_method: execution ? 'execution' : 'static',
+      environment: 'installed fixed tgz Node CLI fixture',
+      assurance: 'caller-reported',
+    },
+  }];
+}
+
+function installedReviewAssessment(): Record<string, any> {
+  return {
+    applicable: true,
+    reason: 'The installed CLI review covers the cumulative Runtime file manifest.',
+    evidence_refs: ['evidence-report.txt'],
+    necessity: 'Dynamic footprint expansion requires a fresh cumulative review.',
+    oracle: 'The review oracle is the Runtime-recorded before/after file delta and the frozen acceptance check.',
+    boundary: 'The fixed tgz CLI is exercised in an isolated target project.',
+    reuse: 'Reuse the same installed CLI review context and claim evidence.',
+    applicability: 'The current task has an implementation result and an explicit review checkpoint.',
+  };
+}
+
 function notApplicableSemanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
-  return semanticDraft({
+  const draft = semanticDraft({
     mutation_scope: {
       allowed: ['README.md'],
       conditional: [],
@@ -770,6 +1009,11 @@ function notApplicableSemanticDraft(overrides: Partial<PrepareTaskSemanticDraft>
     persistent_tests: 'none',
     ...overrides,
   });
+  if (overrides.claim_evidence === undefined) for (const claim of draft.claim_evidence) for (const slot of claim.slots) {
+    slot.check!.method = 'static'; slot.check!.expected_result = 'accepted'; slot.check!.entry = 'Review the documentation';
+    delete slot.check!.selection;
+  }
+  return draft;
 }
 
 function archivedBaselineRoot(): string {
@@ -789,6 +1033,19 @@ function confirmedSemanticRoot(input: PrepareTaskSemanticDraft = singleStepSeman
   const confirmed = confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt });
   if (confirmed.status !== 'success') throw new Error(`test setup could not confirm draft: ${confirmed.message}`);
   return root;
+}
+
+function useLegacyInlineCurrent(root: string): void {
+  const current = readCanonicalCurrentTask(root);
+  const frontmatter = structuredClone(current.frontmatter);
+  delete frontmatter.task_store;
+  frontmatter.runtime_state = {
+    ...frontmatter.runtime_state,
+    execution_log: current.runtimeState.execution_log,
+    applied_proposals: current.runtimeState.applied_proposals,
+  };
+  fs.writeFileSync(current.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${current.body}`, 'utf8');
+  fs.rmSync(path.join(root, 'docs', 'workflow', 'task-data', current.sourceTuple.document_id), { recursive: true, force: true });
 }
 
 function runtimeFinding(fingerprint: string, status: FindingRecord['status'], overrides: Partial<FindingRecord> = {}): FindingRecord {
@@ -862,6 +1119,21 @@ function replanProposal(
 
 function fileRevision(filePath: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function taskStoreSnapshot(root: string): string {
+  const storeRoot = path.join(root, 'docs', 'workflow', 'task-data');
+  if (!fs.existsSync(storeRoot)) return 'absent';
+  const files: string[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(absolute);
+      else if (entry.isFile()) files.push(path.relative(storeRoot, absolute));
+    }
+  };
+  visit(storeRoot);
+  return files.sort().map(relative => `${relative}:${fileRevision(path.join(storeRoot, relative))}`).join('\n');
 }
 
 function closureEvidence(overrides: Partial<ClosureEvidence> = {}): ClosureEvidence {
@@ -955,6 +1227,44 @@ function statusDelta(overrides: Partial<ProjectStatusDelta> = {}): ProjectStatus
     next_checkpoint: 'observe the next project checkpoint',
     evidence_refs: ['test:evidence:status'],
     ...overrides,
+  };
+}
+
+function pendingKnowledgeAdmission(kind: 'contract' | 'decision'): KnowledgeAdmissionRecord {
+  const candidateId = `pending-${kind}-predecessor`;
+  const statement = `pending ${kind} predecessor admission`;
+  const applicability = {
+    projectTypes: ['test'],
+    pathsSymbolsOrSurfaces: ['runtime fixture'],
+    triggerConditions: ['the predecessor task closes'],
+  };
+  const candidate: KnowledgeCandidate = {
+    candidateId,
+    kind,
+    fingerprint: fingerprintKnowledgeStatement(kind, statement, applicability),
+    statement,
+    sourceRefs: [{ locator: 'runtime/vnext/src/kernel.ts#project-status', revision: 'fixture-source-r1' }],
+    applicability,
+    authoritySource: kind === 'decision' ? 'user' : 'verified-evidence',
+    stability: 'stable',
+    evidenceRefs: [`test:evidence:pending-${kind}`],
+    noveltyAgainst: [],
+    conflictSet: [],
+    supersedes: null,
+    reviewOrExpiryTrigger: null,
+    expectedConsumers: ['close-task successor gate'],
+    ...(kind === 'decision' ? {
+      decisionContext: {
+        alternatives: ['leave the predecessor admission unresolved'],
+        constraints: ['preserve the predecessor hard gate'],
+      },
+    } : {}),
+  };
+  return {
+    candidate,
+    disposition: 'admit',
+    matched_knowledge_id: null,
+    reasons: [`${kind} admission remains pending in this predecessor fixture`],
   };
 }
 
@@ -1241,13 +1551,18 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     expect(applyVNextRuntimeProposal(emptyConfirmRoot, emptyConfirmCreated).status).toBe('success');
     const persistedConfirmDraft = readCanonicalCurrentTask(emptyConfirmRoot);
+    const legacyConfirmFrontmatter = structuredClone(persistedConfirmDraft.frontmatter);
+    delete legacyConfirmFrontmatter.task_store;
+    legacyConfirmFrontmatter.runtime_state = {
+      ...legacyConfirmFrontmatter.runtime_state,
+      execution_log: persistedConfirmDraft.runtimeState.execution_log,
+      applied_proposals: persistedConfirmDraft.runtimeState.applied_proposals,
+      claim_evidence: [],
+    };
     fs.writeFileSync(persistedConfirmDraft.filePath, `---\n${stringify({
-      ...persistedConfirmDraft.frontmatter,
-      runtime_state: {
-        ...persistedConfirmDraft.runtimeState,
-        claim_evidence: [],
-      },
+      ...legacyConfirmFrontmatter,
     }).trimEnd()}\n---\n${persistedConfirmDraft.body}`, 'utf8');
+    fs.rmSync(path.join(emptyConfirmRoot, 'docs', 'workflow', 'task-data', persistedConfirmDraft.sourceTuple.document_id), { recursive: true, force: true });
     const emptyConfirmDraft = readCanonicalCurrentTask(emptyConfirmRoot);
     const emptyConfirm = createPrepareTaskConfirmProposal(emptyConfirmDraft, {
       task_id: '001',
@@ -1340,9 +1655,26 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('provides a canonical claim-evidence migration for legacy active tasks without changing task semantics', () => {
-    const root = makeRoot();
+    const root = legacyMigrationRoot();
     const before = readCanonicalCurrentTask(root);
     const plan = completeClaimEvidence();
+    delete plan[0]!.slots[0]!.check!.boundary;
+    // Shared legacy fixture: reconstruction is allowed without selection metadata,
+    // but missing/wrong due steps and new or widened commands are not migration.
+    for (const [step, command, code] of [
+      ['missing-step', 'bun test test/vnext-runtime.test.ts', 'CLAIM_EVIDENCE_PLAN_INVALID'],
+      ['legacy-other', 'bun test test/vnext-runtime.test.ts', 'CLAIM_EVIDENCE_COMMAND_UNBOUND'],
+      ['step-1', 'bun test', 'CLAIM_EVIDENCE_COMMAND_UNBOUND'],
+      ['step-1', 'bun run test:e2e', 'CLAIM_EVIDENCE_COMMAND_UNBOUND'],
+    ]) {
+      const invalid = structuredClone(plan);
+      invalid[0]!.slots[0]!.due_step_id = step!;
+      invalid[0]!.slots[0]!.check!.entry = command!;
+      const bytes = fs.readFileSync(before.filePath, 'utf8');
+      expect(applyVNextRuntimeProposal(root, claimEvidenceMigrationProposal(root, invalid, 'reject-migration-expansion')))
+        .toMatchObject({ status: 'blocked', code });
+      expect(fs.readFileSync(before.filePath, 'utf8')).toBe(bytes);
+    }
     const migration = claimEvidenceMigrationProposal(root, plan, 'legacy-claim-evidence-migration-active');
 
     const result = applyVNextRuntimeProposal(root, migration);
@@ -1400,7 +1732,7 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('claim-only migration cannot silently upgrade legacy completion semantics', () => {
-    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed' }));
+    const root = legacyMigrationRoot(makeRuntimeState({ active_step_status: 'completed' }));
 
     expect(applyVNextRuntimeProposal(root, claimEvidenceMigrationProposal(root, completeClaimEvidence(), 'legacy-claim-evidence-migration-completed')).status).toBe('success');
     const preview = previewCloseTask(root, archiveDelta());
@@ -1880,7 +2212,16 @@ describe('vNext Phase 2 Runtime contract', () => {
       evidence_refs: ['test:evidence:draft-execute'],
       claim_evidence: completedCurrentClaims(root),
     }));
-    expect(executed.status).toBe('success');
+    expect(executed).toMatchObject({ status: 'blocked', code: 'CLAIM_EVIDENCE_RESULT_UNBOUND' });
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const currentClaims = readCanonicalCurrentTask(root).runtimeState.claim_evidence!;
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt, actual_changed_paths: [],
+      command_results: preflight.current_step.commands.map(item => ({ command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: currentClaims.flatMap(claim => claim.slots.map(slot => reportFixture(root, claim.claim_id, slot.slot_id))),
+      outcome: 'implemented', note: 'Record the frozen invocation result',
+    }).status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
 
     const closed = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({ evidence_refs: ['test:evidence:draft-close'] }), 'archive-first-task'));
@@ -1904,26 +2245,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
     const prematureResult = applyVNextRuntimeProposal(root, prematureSecondCreate);
-    expect(prematureResult.status).toBe('blocked');
-    expect(prematureResult.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
-
-    const statusResult = applyVNextRuntimeProposal(root, statusProposal(root));
-    expect(statusResult.status).toBe('success');
-
-    const secondCreate = createPrepareTaskDraftProposal(closedTask, {
-      action: 'create-draft',
-      task_id: '002',
-      task_slug: 'second-task',
-      document_id: 'doc-222222222222222222222222',
-      task_title: 'Second task',
-      draft_definition: draftDefinition(),
-      active_step_id: 'step-1',
-      claim_evidence: completeClaimEvidence(),
-      evidence_refs: ['test:evidence:second-create'],
-      idempotency_key: 'draft-create-002',
-      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
-    });
-    expect(applyVNextRuntimeProposal(root, secondCreate).status).toBe('success');
+    expect(prematureResult.status).toBe('success');
+    expect(prematureResult.committed).toBe(true);
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeNextDraft);
     const secondDraft = readCanonicalCurrentTask(root);
     expect(secondDraft.runtimeState.task_id).toBe('002');
@@ -2537,8 +2860,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     const root = confirmedSemanticRoot();
     const original = readCanonicalCurrentTask(root);
     const frontmatter = structuredClone(original.frontmatter);
+    delete frontmatter.task_store;
+    frontmatter.runtime_state = {
+      ...frontmatter.runtime_state,
+      execution_log: original.runtimeState.execution_log,
+      applied_proposals: original.runtimeState.applied_proposals,
+    };
     delete frontmatter.runtime_state.task_evolution_version;
     fs.writeFileSync(original.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${original.body}`, 'utf8');
+    fs.rmSync(path.join(root, 'docs', 'workflow', 'task-data', original.sourceTuple.document_id), { recursive: true, force: true });
     const old = readCanonicalCurrentTask(root);
     const basis = readCanonicalTaskBasis(root, old);
     const input = { source_revision: old.sourceTuple.revision, basis_revision: basis.revision };
@@ -2555,7 +2885,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const result = initializeTaskPreservation(root, input);
     expect(result).toMatchObject({ status: 'success', committed: true, read_back_verified: true });
     const current = readCanonicalCurrentTask(root);
-    expect(current.runtimeState.task_evolution_version).toBe(1);
+    expect(current.runtimeState.task_evolution_version).toBe(2);
     expect(current.runtimeState.preservation_source_revision).toBe(old.sourceTuple.revision);
     expect(current.body).toBe(old.body);
     expect(current.runtimeState.claim_evidence).toEqual(old.runtimeState.claim_evidence);
@@ -2568,7 +2898,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(Buffer.from(history.task_basis_base64, 'base64')).toEqual(basisBytes);
     expect(initializeTaskPreservation(root, input).status).toBe('no-op');
     const initializedBytes = fs.readFileSync(current.filePath, 'utf8');
-    fs.writeFileSync(current.filePath, initializedBytes.replace('task_evolution_version: 1', 'task_evolution_version: 2'));
+    fs.writeFileSync(current.filePath, initializedBytes.replace('task_evolution_version: 2', 'task_evolution_version: 3'));
     expect(() => readCanonicalCurrentTask(root)).toThrow('TASK_EVOLUTION_VERSION_UNSUPPORTED');
     fs.writeFileSync(current.filePath, initializedBytes);
     fs.rmSync(historyPath);
@@ -2579,8 +2909,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     const source = confirmedSemanticRoot();
     const sourceCurrent = readCanonicalCurrentTask(source);
     const frontmatter = structuredClone(sourceCurrent.frontmatter);
+    delete frontmatter.task_store;
+    frontmatter.runtime_state = {
+      ...frontmatter.runtime_state,
+      execution_log: sourceCurrent.runtimeState.execution_log,
+      applied_proposals: sourceCurrent.runtimeState.applied_proposals,
+    };
     delete frontmatter.runtime_state.task_evolution_version;
     fs.writeFileSync(sourceCurrent.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${sourceCurrent.body}`, 'utf8');
+    fs.rmSync(path.join(source, 'docs', 'workflow', 'task-data', sourceCurrent.sourceTuple.document_id), { recursive: true, force: true });
     const target = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-preservation-installed-'));
     temporaryRoots.push(target);
     fs.writeFileSync(path.join(target, 'package.json'), '{"name":"preservation-fixture","private":true}\n');
@@ -2594,7 +2931,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     const distributionState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
     distributionState.distribution_version = '0.18.6';
     fs.writeFileSync(statePath, JSON.stringify(distributionState, null, 2) + '\n');
-    expect(upgradeDistribution({ targetRoot: target, packageRoot: path.join(ROOT, 'packages', 'vibe-governance') }).status).toBe('upgraded');
+    const upgradeResult = upgradeDistribution({ targetRoot: target, packageRoot: path.join(ROOT, 'packages', 'vibe-governance') });
+    expect(upgradeResult.status).toBe('upgraded');
     expect(fs.readFileSync(targetCurrent)).toEqual(before);
     const installedCli = path.join(target, '.workflow-system', 'runtime', 'dist', 'cli.js');
     const summaryProcess = spawnSync('node', [installedCli, 'validate', '--root', target, '--summary'], { cwd: target, encoding: 'utf8' });
@@ -2740,6 +3078,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     const nineIssues = Array.from({ length: 9 }, (_, index): ClaimEvidenceRecord => {
       const claim = evidencePlanFixture(`Rust issue ${index + 1} verified`)[0]!;
       const slot = claim.slots[0]!;
+      // This incident predates structured invocation planning; preserve a real legacy fixture.
+      delete slot.check!.selection; delete slot.check!.boundary;
       return { ...claim, claim_id: `A${index + 1}`, slots: [{ ...slot, slot_id: `a${index + 1}`, check: { ...slot.check!, check_id: `K${index + 1}` } }] };
     });
     const root = makeRoot(makeRuntimeState({
@@ -3330,7 +3670,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBeforeStatus);
   });
 
-  test('projects completed status items into the fixed STATUS sections and fails on ambiguous in-progress records', () => {
+  test('projects completed status items while preserving unrelated STATUS content and repairs projection drift', () => {
     const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
     const statusBeforeArchive = fs.readFileSync(statusPath, 'utf8').replace(
@@ -3347,8 +3687,14 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(projected).toContain('## 🔨 正在开发\n\n## 📋 待开发');
     fs.writeFileSync(statusPath, projected.replace('- runtime fixture task\n\n## 🔨 正在开发', '- drifted completed item\n\n## 🔨 正在开发'), 'utf8');
     const statusReplay = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-projection'));
-    expect(statusReplay.status).toBe('blocked');
-    expect(statusReplay.code).toBe('STATUS_PROVENANCE_MISMATCH');
+    expect(statusReplay.status).toBe('success');
+    expect(statusReplay.committed).toBe(true);
+    const repaired = fs.readFileSync(statusPath, 'utf8');
+    expect(repaired).toContain('- drifted completed item');
+    expect(repaired).toContain('- runtime fixture task');
+    expect(repaired.split(STATUS_RECONCILIATION_BEGIN).length - 1).toBe(1);
+    const statusReplayAgain = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-projection'));
+    expect(statusReplayAgain.status).toBe('no-op');
 
     const ambiguousRoot = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const ambiguousStatusPath = path.join(ambiguousRoot, 'docs', 'workflow', 'STATUS.md');
@@ -3363,6 +3709,82 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(ambiguousResult.status).toBe('blocked');
     expect(ambiguousResult.code).toBe('STATUS_RECONCILIATION_CONFLICT');
     expect(fs.readFileSync(ambiguousStatusPath, 'utf8')).toBe(ambiguousBefore);
+  });
+
+  test('reconciles the TermLink Bootstrap STATUS baseline with unrelated records', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    let status = fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔨 正在开发\n\n- [ ] none',
+      '## 🔨 正在开发\n\n- 旧 Bootstrap 说明',
+    );
+    status = status.replace(
+      '## 🔜 下一检查点\n\n- baseline',
+      '## 🔜 下一检查点\n\n- checkpoint A\n- checkpoint B',
+    );
+    fs.writeFileSync(statusPath, status, 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-termlink-baseline')).status).toBe('success');
+
+    const result = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-termlink-baseline'));
+    expect(result.status).toBe('success');
+    const reconciled = fs.readFileSync(statusPath, 'utf8');
+    expect(reconciled).toContain('- 旧 Bootstrap 说明');
+    expect(reconciled).toContain('- checkpoint A');
+    expect(reconciled).toContain('- checkpoint B');
+    expect(reconciled).toContain('- runtime fixture task');
+    expect(reconciled).toContain('- observe the next project checkpoint');
+  });
+
+  test('adds a completed item without an exact in-progress mapping', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    fs.writeFileSync(statusPath, fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔨 正在开发\n\n- [ ] none',
+      '## 🔨 正在开发\n\n- unrelated item',
+    ), 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-unrelated-development')).status).toBe('success');
+
+    const result = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-unrelated-development'));
+    expect(result.status).toBe('success');
+    const reconciled = fs.readFileSync(statusPath, 'utf8');
+    expect(reconciled).toContain('## 🔨 正在开发\n\n- unrelated item');
+    expect(reconciled).toContain('- runtime fixture task');
+  });
+
+  test('preserves ordinary in-progress text during STATUS reconciliation', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    const ordinaryText = '当前处于 Bootstrap 迁移后的观察阶段。';
+    fs.writeFileSync(statusPath, fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔨 正在开发\n\n- [ ] none',
+      `## 🔨 正在开发\n\n${ordinaryText}\n\n- unrelated item`,
+    ), 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-ordinary-text')).status).toBe('success');
+
+    const result = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-ordinary-text'));
+    expect(result.status).toBe('success');
+    const reconciled = fs.readFileSync(statusPath, 'utf8');
+    expect(reconciled).toContain(ordinaryText);
+    expect(reconciled).toContain('- unrelated item');
+    expect(reconciled).toContain('- runtime fixture task');
+  });
+
+  test('appends the new checkpoint while preserving multiple existing checkpoints and text', () => {
+    const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
+    const statusPath = path.join(root, 'docs', 'workflow', 'STATUS.md');
+    fs.writeFileSync(statusPath, fs.readFileSync(statusPath, 'utf8').replace(
+      '## 🔜 下一检查点\n\n- baseline',
+      '## 🔜 下一检查点\n\n- checkpoint A\n保留的迁移说明\n- checkpoint B',
+    ), 'utf8');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-status-multiple-checkpoints')).status).toBe('success');
+
+    const result = applyVNextRuntimeProposal(root, statusProposal(root, statusDelta(), 'status-multiple-checkpoints'));
+    expect(result.status).toBe('success');
+    const reconciled = fs.readFileSync(statusPath, 'utf8');
+    expect(reconciled).toContain('- checkpoint A');
+    expect(reconciled).toContain('保留的迁移说明');
+    expect(reconciled).toContain('- checkpoint B');
+    expect(reconciled).toContain('- observe the next project checkpoint');
   });
 
   test('fails Lesson replay when the provenance marker survives but its visible record drifts', () => {
@@ -3660,26 +4082,6 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(replan.code).toBe('REPLAN_TRANSITION_INVALID');
   });
 
-  test('stops on a legacy CURRENT_TASK schema before any mutation', () => {
-    const root = makeRoot();
-    const current = readCanonicalCurrentTask(root);
-    const proposal = taskProposal(root);
-    fs.writeFileSync(current.filePath, current.body, 'utf8');
-    const result = applyVNextRuntimeProposal(root, proposal);
-    expect(result.status).toBe('blocked');
-    expect(result.code).toBe('MIGRATION_REQUIRED');
-  });
-
-  test('stops on an unsupported CURRENT_TASK frontmatter kind before any mutation', () => {
-    const root = makeRoot();
-    const current = readCanonicalCurrentTask(root);
-    const proposal = taskProposal(root);
-    fs.writeFileSync(current.filePath, `---\nschema_version: 1\nkind: legacy-current-task\n---\n${current.body}`, 'utf8');
-    const result = applyVNextRuntimeProposal(root, proposal);
-    expect(result.status).toBe('blocked');
-    expect(result.code).toBe('MIGRATION_REQUIRED');
-  });
-
   test('keeps malformed self-declared vNext CURRENT_TASK documents as schema errors', () => {
     const root = makeRoot();
     const current = readCanonicalCurrentTask(root);
@@ -3690,7 +4092,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(result.code).toBe('RUNTIME_SCHEMA_INVALID');
   });
 
-  test('blocks new draft creation when previous task close reconciliation is incomplete', () => {
+  test('allows new draft creation when previous STATUS reconciliation is incomplete', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -3724,7 +4126,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     const archiveResult = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       lesson_admission: { decision: 'defer', candidate_refs: [], evidence_refs: [] },
@@ -3748,19 +4150,50 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
 
-    const blockedBeforeStatus = applyVNextRuntimeProposal(root, draft002Proposal);
-    expect(blockedBeforeStatus.status).toBe('blocked');
-    expect(blockedBeforeStatus.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
-    expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytesBefore);
-    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('closed');
-
-    const statusResult = applyVNextRuntimeProposal(root, statusProposal(root));
-    expect(statusResult.status).toBe('success');
-
     const create002Success = applyVNextRuntimeProposal(root, draft002Proposal);
     expect(create002Success.status).toBe('success');
+    expect(create002Success.committed).toBe(true);
     expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytesBefore);
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
+  });
+
+  test('keeps Contract and Decision predecessor gates hard while ignoring STATUS reconciliation', () => {
+    for (const kind of ['contract', 'decision'] as const) {
+      const root = makeRoot(makeRuntimeState({
+        task_id: '001',
+        task_slug: 'first-task',
+        active_step_status: 'completed',
+        claim_evidence_required: true,
+        claim_evidence: completeClaimEvidence(),
+      }));
+      const admission = pendingKnowledgeAdmission(kind);
+      const knowledgeAdmissions: KnowledgeAdmissionBundle = {
+        contracts: kind === 'contract' ? [admission] : [],
+        decisions: kind === 'decision' ? [admission] : [],
+      };
+      const closeDelta = archiveDelta({
+        knowledge_admissions: knowledgeAdmissions,
+        evidence_refs: ['test:evidence:closure', `test:evidence:pending-${kind}`],
+      });
+      expect(applyVNextRuntimeProposal(root, archiveProposal(root, closeDelta, `archive-pending-${kind}`)).status).toBe('success');
+
+      const successor = createPrepareTaskDraftProposal(readCanonicalCurrentTask(root), {
+        action: 'create-draft',
+        task_id: '002',
+        task_slug: 'second-task',
+        document_id: kind === 'contract' ? 'doc-222222222222222222222222' : 'doc-333333333333333333333333',
+        task_title: 'Second task',
+        draft_definition: draftDefinition(),
+        active_step_id: 'step-1',
+        claim_evidence: completeClaimEvidence(),
+        evidence_refs: [`test:evidence:create-after-${kind}`],
+        idempotency_key: `draft-create-after-${kind}`,
+        authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+      });
+      const result = applyVNextRuntimeProposal(root, successor);
+      expect(result.status).toBe('blocked');
+      expect(result.code).toBe('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE');
+    }
   });
 
   test('blocks new draft creation when admitted Lesson reconciliation is incomplete', () => {
@@ -3797,7 +4230,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     const archiveResult = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
@@ -4055,6 +4488,9 @@ describe('vNext Phase 2 Runtime contract', () => {
           '  - mutation_scope: scripts/**',
           '  - required_evidence: test:evidence:1',
           '  - review_checkpoint: not-required: final-exemption: isolated state-only fixture has no product diff',
+          '  - planned_command: bun test test/vnext-runtime.test.ts',
+          '    - expected_repo_writes: none',
+          '    - transformation_kind: localized',
           '- step-2: second step',
           '  - purpose: second step purpose',
           '  - mutation_scope: scripts/**',
@@ -4084,6 +4520,9 @@ describe('vNext Phase 2 Runtime contract', () => {
           '  - mutation_scope: scripts/**',
           '  - required_evidence: test:evidence:1',
           '  - review_checkpoint: not-required: final-exemption: isolated state-only fixture has no product diff',
+          '  - planned_command: bun test test/vnext-runtime.test.ts',
+          '    - expected_repo_writes: none',
+          '    - transformation_kind: localized',
           '- step-2: second step',
           '  - purpose: second step purpose',
           '  - mutation_scope: scripts/**',
@@ -4129,7 +4568,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(updateSkipResult.code).toBe('TASK_STEPS_INVALID');
   });
 
-  test('semantic-duplicate Lesson writes durable reuse proof without duplicate visible text and unblocks next draft', () => {
+  test('semantic-duplicate Lesson writes durable reuse proof without duplicate visible text and unblocks next draft', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -4165,7 +4604,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     // Archive 001 with lesson admission: admit lesson-a
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -4225,7 +4664,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm002).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     // Archive 002 with lesson admission: admit lesson-b (identical content to lesson-a)
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -4286,7 +4725,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('003');
   });
 
-  test('blocks new draft creation when previous STATUS receipt visible projection has drifted', () => {
+  test('allows new draft creation when previous STATUS receipt visible projection has drifted', () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -4320,7 +4759,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     });
     expect(applyVNextRuntimeProposal(root, confirm001).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     // Archive 001 (defer lesson)
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -4357,18 +4796,10 @@ describe('vNext Phase 2 Runtime contract', () => {
       authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
 
-    // Blocked with STATUS_PROVENANCE_MISMATCH!
-    const blockedDrift = applyVNextRuntimeProposal(root, draft002Proposal);
-    expect(blockedDrift.status).toBe('blocked');
-    expect(blockedDrift.code).toBe('STATUS_PROVENANCE_MISMATCH');
-
-    // Restore STATUS.md
-    fs.writeFileSync(statusPath, statusValidContent, 'utf8');
-
-    // Now create draft succeeds!
     const createSuccess = applyVNextRuntimeProposal(root, draft002Proposal);
     expect(createSuccess.status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.task_id).toBe('002');
+    expect(fs.readFileSync(statusPath, 'utf8')).toContain('tampered visible item');
   });
 
   test('validateVNextRuntimeContract machine-readably enforces reconciliation, step admission, and authority coordinates', () => {
@@ -4379,6 +4810,24 @@ describe('vNext Phase 2 Runtime contract', () => {
     // Contract missing previous_close_reconciliation fails closed
     const contractPath = path.join(ROOT, '.workflow-system', 'vnext', 'RUNTIME_CONTRACT.yaml');
     const originalContract = fs.readFileSync(contractPath, 'utf8');
+    const parsedContract = parse(originalContract) as {
+      proposal: {
+        task_state: {
+          draft: {
+            previous_close_reconciliation: {
+              archive: string;
+              status: string;
+              admitted_lesson: string;
+            };
+          };
+        };
+      };
+    };
+    expect(parsedContract.proposal.task_state.draft.previous_close_reconciliation).toEqual({
+      archive: 'required',
+      status: 'non-blocking',
+      admitted_lesson: 'required-or-durable-reuse-proof',
+    });
     try {
       const missingRecon = originalContract.replace(/previous_close_reconciliation:[\s\S]*?step_admission:/, 'step_admission:');
       fs.writeFileSync(contractPath, missingRecon, 'utf8');
@@ -4395,13 +4844,17 @@ describe('vNext Phase 2 Runtime contract', () => {
       const unsafeReplan = originalContract.replace('direct_replan_result: REPLAN_CONFIRMATION_REQUIRED', 'direct_replan_result: success');
       fs.writeFileSync(contractPath, unsafeReplan, 'utf8');
       expect(() => validateVNextRuntimeContract(ROOT)).toThrow('RUNTIME_CONTRACT_INVALID');
+
+      const blockingStatus = originalContract.replace('status: non-blocking', 'status: required');
+      fs.writeFileSync(contractPath, blockingStatus, 'utf8');
+      expect(() => validateVNextRuntimeContract(ROOT)).toThrow('RUNTIME_CONTRACT_INVALID');
     } finally {
       fs.writeFileSync(contractPath, originalContract, 'utf8');
     }
     expect(validateVNextRuntimeContract(ROOT).phase).toBe('Phase 2');
   });
 
-  test('cross-task candidate_ref collision resolves to exact target coordinates', () => {
+  test('cross-task candidate_ref collision resolves to exact target coordinates', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -4435,7 +4888,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-001',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-1'], evidence_refs: ['test:evidence:lesson'] },
@@ -4485,7 +4938,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-002',
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-1'], evidence_refs: ['test:evidence:lesson'] },
@@ -4525,7 +4978,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-003',
       authority_evidence: confirmationAuthority(draft003, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-3', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-new'], evidence_refs: ['test:evidence:lesson'] },
@@ -4556,7 +5009,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(record003!.marker.reused_candidate!.candidate_ref).toBe('lesson-1');
   });
 
-  test('reuse target coordinate drift fails closed', () => {
+  test('reuse target coordinate drift fails closed', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -4588,7 +5041,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-drift-1',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-target'], evidence_refs: ['test:evidence:lesson'] },
@@ -4638,7 +5091,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-drift-2',
       authority_evidence: confirmationAuthority(draft002, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-2', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
       lesson_admission: { decision: 'admit', candidate_refs: ['lesson-reused'], evidence_refs: ['test:evidence:lesson'] },
@@ -4730,7 +5183,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-same-prop',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     // Archive 001 admitting both candidate-a and candidate-b
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
@@ -4826,7 +5279,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-diff-ev',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:alpha', 'test:evidence:beta'],
@@ -5035,7 +5488,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       idempotency_key: 'confirm-replay-combo',
       authority_evidence: confirmationAuthority(draft001, 'user-confirmation'),
     })).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { idempotency_key: 'exec-1', claim_evidence: completedCurrentClaims(root) })).status).toBe('success');
+    expect(completeCurrentStepThroughExecution(root).status).toBe('success');
 
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       evidence_refs: ['test:evidence:closure', 'test:evidence:lesson'],
@@ -5350,9 +5803,1234 @@ describe('vNext Phase 2 Runtime contract', () => {
     })).toThrow('COMMAND_FOOTPRINT_BLOCKED');
   });
 
+  test('freezes minimum-sufficient test selection instead of promoting a related target or suite', () => {
+    const focused = singleStepSemanticDraft();
+    const focusedCommand = 'bun test test/dogfood-target.test.ts --test-name-pattern "reconnect preserves the owner"';
+    focused.implementation_steps[0]!.commands = [{ command: focusedCommand, expected_repo_writes: 'none' }];
+    focused.implementation_steps[0]!.validation = ['Focused reconnect owner check passes'];
+    focused.claim_evidence[0]!.slots[0]!.check!.entry = focusedCommand;
+    focused.claim_evidence[0]!.slots[0]!.check!.selection = {
+      granularity: 'focused', selector: 'reconnect preserves the owner',
+      invocation: { argv: ['bun', 'test', 'test/dogfood-target.test.ts', '--test-name-pattern', 'reconnect preserves the owner'], selector_arg_index: 4 },
+      selection_reason: 'The local owner branch is the only changed function chain.',
+      breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
+    };
+    const focusedRoot = archivedBaselineRoot();
+    expect(prepareDraft(focusedRoot, focused).status).toBe('success');
+    const focusedCheck = readCanonicalCurrentTask(focusedRoot).runtimeState.claim_evidence![0]!.slots[0]!.check!;
+    expect(focusedCheck.selection).toMatchObject({ granularity: 'focused', selector: 'reconnect preserves the owner' });
+    expect(focusedCheck.entry).toBe(focusedCommand);
+
+    const targetWithoutNeed = singleStepSemanticDraft();
+    const wholeTarget = 'bun test test/dogfood-target.test.ts';
+    targetWithoutNeed.implementation_steps[0]!.commands = [{ command: wholeTarget, expected_repo_writes: 'none' }];
+    targetWithoutNeed.implementation_steps[0]!.validation = ['Dogfood target passes'];
+    targetWithoutNeed.claim_evidence[0]!.slots[0]!.check!.entry = wholeTarget;
+    targetWithoutNeed.claim_evidence[0]!.slots[0]!.check!.selection = {
+      granularity: 'target', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/dogfood-target.test.ts'], selector_arg_index: null },
+      selection_reason: 'A related target exists.',
+      breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
+    };
+    expect(() => prepareDraft(archivedBaselineRoot(), targetWithoutNeed)).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+
+    const flowReplacedByUnits = singleStepSemanticDraft();
+    const broadCommand = 'bun test test/business-flow.test.ts';
+    flowReplacedByUnits.implementation_steps[0]!.commands = [{ command: broadCommand, expected_repo_writes: 'none' }];
+    flowReplacedByUnits.implementation_steps[0]!.validation = ['Business-flow target passes'];
+    flowReplacedByUnits.claim_evidence[0]!.slots[0]!.check!.entry = broadCommand;
+    flowReplacedByUnits.claim_evidence[0]!.slots[0]!.check!.boundary = 'business-flow';
+    flowReplacedByUnits.claim_evidence[0]!.slots[0]!.check!.selection = {
+      granularity: 'broad-regression', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/business-flow.test.ts'], selector_arg_index: null },
+      selection_reason: 'Several unit checks are already green.',
+      breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
+    };
+    expect(() => prepareDraft(archivedBaselineRoot(), flowReplacedByUnits)).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+
+    const e2eByDefault = singleStepSemanticDraft();
+    e2eByDefault.implementation_steps[0]!.commands = [{ command: broadCommand, expected_repo_writes: 'none' }];
+    e2eByDefault.implementation_steps[0]!.validation = ['E2E target passes'];
+    e2eByDefault.claim_evidence[0]!.slots[0]!.check!.entry = broadCommand;
+    e2eByDefault.claim_evidence[0]!.slots[0]!.check!.boundary = 'e2e';
+    e2eByDefault.claim_evidence[0]!.slots[0]!.check!.selection = {
+      granularity: 'target', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/business-flow.test.ts'], selector_arg_index: null },
+      selection_reason: 'Run E2E just in case.',
+      breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
+    };
+    expect(() => prepareDraft(archivedBaselineRoot(), e2eByDefault)).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+
+    const userRequestedBroad = singleStepSemanticDraft();
+    userRequestedBroad.task_basis.user_decisions = [{ source: 'test:user-request#broad-regression', verbatim: 'Run the broad regression suite before accepting this change.' }];
+    userRequestedBroad.implementation_steps[0]!.commands = [{ command: broadCommand, expected_repo_writes: 'none' }];
+    userRequestedBroad.implementation_steps[0]!.validation = ['User-requested broad regression passes'];
+    userRequestedBroad.claim_evidence[0]!.slots[0]!.check!.entry = broadCommand;
+    userRequestedBroad.claim_evidence[0]!.slots[0]!.check!.selection = {
+      granularity: 'broad-regression', selector: null,
+      invocation: { argv: ['bun', 'test', 'test/business-flow.test.ts'], selector_arg_index: null },
+      selection_reason: 'The user explicitly requested broad regression evidence.',
+      breadth_reason: 'User requested the whole regression target.', breadth_basis: 'explicit-user', breadth_source_ref: 'test:user-request#broad-regression',
+    };
+    expect(prepareDraft(archivedBaselineRoot(), userRequestedBroad).status).toBe('success');
+  });
+
+  test('validation contract binds boundary invocation and real breadth authority in prepare update and confirm', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const local = singleStepSemanticDraft();
+    const check = local.claim_evidence[0]!.slots[0]!.check!;
+    check.selection = { ...check.selection!, scope: 'integration', selector: null,
+      claim_scope: 'local',
+      invocation: { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null } };
+    delete check.selection.granularity;
+    expect(() => prepareDraft(archivedBaselineRoot(), local)).toThrow('CLAIM_EVIDENCE_SELECTION_INVALID');
+    const flow = singleStepSemanticDraft();
+    flow.claim_evidence[0]!.slots[0]!.check!.boundary = 'business-flow';
+    flow.claim_evidence[0]!.slots[0]!.check!.required_boundaries = ['writer persists ticket', 'fresh process reads ticket'];
+    expect(prepareDraft(archivedBaselineRoot(), flow).status).toBe('success');
+
+    const focused = singleStepSemanticDraft();
+    const selected = focused.claim_evidence[0]!.slots[0]!.check!;
+    selected.selection!.selector = 'owner survives reconnect';
+    selected.selection!.invocation = { kind: 'structured', argv: ['bun', 'test', 'test/vnext-runtime.test.ts', '--test-name-pattern', 'owner survives reconnect'], selector_arg_index: 4 };
+    // The declared focused argv must not accompany the old whole-target entry.
+    expect(() => prepareDraft(archivedBaselineRoot(), focused)).toThrow('CLAIM_EVIDENCE_INVOCATION_UNBOUND');
+    selected.entry = 'bun test test/vnext-runtime.test.ts --test-name-pattern "owner survives reconnect"';
+    focused.implementation_steps[0]!.commands[0]!.command = selected.entry;
+    selected.selection!.invocation.selector_arg_index = 2;
+    expect(() => prepareDraft(archivedBaselineRoot(), focused)).toThrow('CLAIM_EVIDENCE_SELECTOR_UNBOUND');
+    selected.selection!.invocation.selector_arg_index = 4;
+    const root = archivedBaselineRoot();
+    expect(prepareDraft(root, focused).status).toBe('success');
+    const updated = structuredClone(focused);
+    updated.claim_evidence[0]!.slots[0]!.slot_id = 'replacement';
+    updated.claim_evidence[0]!.slots[0]!.check!.check_id = 'replacement';
+    delete updated.claim_evidence[0]!.slots[0]!.check!.selection;
+    expect(() => prepareDraft(root, updated)).toThrow('CLAIM_EVIDENCE_SELECTION_REQUIRED');
+    updated.claim_evidence[0]!.slots[0]!.check!.selection = structuredClone(selected.selection);
+    const refined = prepareDraft(root, updated);
+    expect(refined.status).toBe('success');
+    expect(confirmDraft(root, { confirmation_receipt: refined.confirmation_receipt }).status).toBe('success');
+
+    for (const [argv, selectorIndex, entry] of [
+      [['cargo', 'test', '--test', 'test', 'reconnect_case'], 4, 'cargo test --test test reconnect_case'],
+      [['python', '-m', 'unittest', 'ticket.Owner.test_reconnect'], 3, 'python -m unittest ticket.Owner.test_reconnect'],
+    ] as const) {
+      const otherRunner = singleStepSemanticDraft();
+      const otherCheck = otherRunner.claim_evidence[0]!.slots[0]!.check!;
+      otherCheck.entry = entry;
+      otherCheck.selection!.selector = argv[selectorIndex]!;
+      otherCheck.selection!.invocation = { argv: [...argv], selector_arg_index: selectorIndex };
+      otherRunner.implementation_steps[0]!.commands[0]!.command = entry;
+      expect(prepareDraft(archivedBaselineRoot(), otherRunner).status).toBe('success');
+    }
+
+    const broad = singleStepSemanticDraft();
+    const selection = broad.claim_evidence[0]!.slots[0]!.check!.selection!;
+    Object.assign(selection, { granularity: 'target', selector: null, invocation: { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null },
+      breadth_reason: 'This runner cannot select a case; this target is its smallest invocation.', breadth_basis: 'explicit-user', breadth_source_ref: 'missing:user' });
+    expect(() => prepareDraft(archivedBaselineRoot(), broad)).toThrow('TEST_STRATEGY_INVALID');
+    broad.task_basis.user_decisions.push({ source: 'test:granularity', verbatim: 'Allow the target because this runner has no finer selector.' });
+    selection.breadth_source_ref = 'test:granularity';
+    expect(prepareDraft(archivedBaselineRoot(), broad).status).toBe('success');
+    selection.breadth_basis = 'project-policy'; selection.breadth_source_ref = 'missing-policy.md';
+    expect(() => prepareDraft(archivedBaselineRoot(), broad)).toThrow('TEST_STRATEGY_INVALID');
+    const policyRoot = archivedBaselineRoot();
+    fs.writeFileSync(path.join(policyRoot, 'release-policy.md'), 'Release gate: run the real end-to-end ticket boundary before release.');
+    selection.breadth_source_ref = 'release-policy.md';
+    expect(prepareDraft(policyRoot, broad).status).toBe('success');
+    selection.breadth_source_ref = '../release-policy.md';
+    expect(() => prepareDraft(archivedBaselineRoot(), broad)).toThrow();
+    selection.breadth_basis = 'claim-risk-contract'; selection.breadth_source_ref = 'invented-claim';
+    expect(() => prepareDraft(archivedBaselineRoot(), broad)).toThrow('CLAIM_EVIDENCE_AUTHORITY_INVALID');
+    selection.breadth_source_ref = 'A1';
+    expect(prepareDraft(archivedBaselineRoot(), broad).status).toBe('success');
+
+    const release = structuredClone(broad);
+    release.claim_evidence[0]!.slots[0]!.check!.boundary = 'e2e';
+    const e2e = release.claim_evidence[0]!.slots[0]!.check!.selection!;
+    Object.assign(e2e, { breadth_basis: 'release-gate', breadth_source_ref: 'release-policy.md' });
+    const releaseRoot = archivedBaselineRoot();
+    expect(() => prepareDraft(releaseRoot, release)).toThrow('TEST_STRATEGY_INVALID');
+    fs.writeFileSync(path.join(releaseRoot, 'release-policy.md'), 'Release gate requires real end-to-end ticket validation.');
+    const prepared = prepareDraft(releaseRoot, release);
+    expect(prepared.status).toBe('success');
+    expect(confirmDraft(releaseRoot, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+    Object.assign(e2e, { breadth_basis: null, breadth_source_ref: null, breadth_reason: null });
+    expect(() => prepareDraft(archivedBaselineRoot(), { ...release, test_strategy: singleStepSemanticDraft().test_strategy })).toThrow('CLAIM_EVIDENCE_BREADTH_REQUIRED');
+  });
+
+  test('storage metrics review invalidates samples when a real commit crosses the start or final sampling boundary', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    for (const timing of ['start', 'during', 'failure'] as const) {
+      const root = archivedBaselineRoot();
+      const draft = singleStepSemanticDraft();
+      prepareDraft(root, draft);
+      const current = readCanonicalCurrentTask(root);
+      const initial = taskStorageMetrics(root, current);
+      const originalManifest = Object.getOwnPropertyDescriptor(TaskStore.prototype, 'manifest')!;
+      const originalReadEvent = TaskStore.prototype.readEvent;
+      let injected = false;
+      const commitDuringRead = () => {
+        if (injected) return;
+        injected = true; // No recursion while the real transaction reads its store.
+        expect(prepareDraft(root, { ...draft, goal: draft.goal + ' Additional approved detail 中文'.repeat(12) }).status).toBe('success');
+      };
+      let sample: ReturnType<typeof taskStorageMetrics>;
+      try {
+        if (timing === 'start') Object.defineProperty(TaskStore.prototype, 'manifest', {
+          ...originalManifest,
+          get() {
+            const value = originalManifest.get!.call(this);
+            if (this.paths.root === root) commitDuringRead();
+            return value;
+          },
+        });
+        else TaskStore.prototype.readEvent = function(reference) {
+          const value = originalReadEvent.call(this, reference);
+          if (this.paths.root === root && !injected) {
+            commitDuringRead();
+            if (timing === 'failure') throw new Error('INJECTED_OPTIONAL_READ_FAILURE');
+          }
+          return value;
+        };
+        sample = taskStorageMetrics(root, current);
+      } finally {
+        Object.defineProperty(TaskStore.prototype, 'manifest', originalManifest);
+        TaskStore.prototype.readEvent = originalReadEvent;
+      }
+      expect(injected).toBe(true);
+      const after = readCanonicalCurrentTask(root);
+      expect(after.sourceTuple.revision).not.toBe(current.sourceTuple.revision);
+      expect(sample!.source_revision).toBe(current.sourceTuple.revision);
+      expect(sample!.status, timing).toBe('unavailable');
+      expect(sample!.coverage.notes).toContain('METRICS_SAMPLE_CHANGED');
+      for (const key of ['definition_bytes', 'claim_evidence_bytes', 'pending_review_bytes', 'execution_hot_state_bytes', 'logical_state_bytes',
+        'task_basis_bytes', 'aggregate_total_bytes', 'external_history_bytes', 'committed_material_bytes'] as const) expect(sample![key], key).toBeNull();
+      expect(sample!.physical_breakdown).toBeNull();
+      expect(sample!.previous_transaction_delta.status).toBe('unavailable');
+      expect(sample!.previous_transaction_delta.definition_bytes).toBeNull();
+      expect(sample!.previous_transaction_delta.committed_material_bytes).toBeNull();
+      // Only the injected business transaction writes. A fresh measurement and
+      // the compiled CLI are read-only and agree on the new, settled revision.
+      const store = TaskStore.forCurrent(root, after);
+      const manifest = fs.readFileSync(store.paths.manifest);
+      const eventCount = store.listEvents().length;
+      const fresh = taskStorageMetrics(root, after);
+      expect(fresh.status).toBe('complete');
+      expect(fresh.definition_bytes!).toBeGreaterThan(initial.definition_bytes!);
+      expect(taskStorageMetrics(root, current).status).toBe('unavailable');
+      expect(fresh.aggregate_total_bytes).toBe(store.measure().total_bytes);
+      const cli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--summary', '--root', root], { encoding: 'utf8' });
+      expect(cli.status, cli.stderr).toBe(0);
+      expect(JSON.parse(cli.stdout).storage_metrics).toEqual(fresh);
+      expect(fs.readFileSync(store.paths.manifest)).toEqual(manifest);
+      expect(fs.readFileSync(current.filePath, 'utf8')).toBe(after.raw);
+      expect(store.listEvents().length).toBe(eventCount);
+    }
+  });
+
+  test('storage metrics review uses canonical Task Basis references without imposing blank-line spelling', () => {
+    const root = archivedBaselineRoot();
+    prepareDraft(root, singleStepSemanticDraft());
+    useLegacyInlineCurrent(root);
+    const original = readCanonicalCurrentTask(root);
+    const basis = readCanonicalTaskBasis(root, original);
+    for (const heading of ['任务输入依据', 'Task Basis']) {
+      const raw = original.raw.replace(/## 任务输入依据\n\n- path:/u, `## ${heading}\n- path:`);
+      expect(raw).not.toBe(original.raw);
+      fs.writeFileSync(original.filePath, raw);
+      const current = readCanonicalCurrentTask(root);
+      expect(readCanonicalTaskBasis(root, current).content).toBe(basis.content);
+      const metrics = taskStorageMetrics(root, current);
+      expect(metrics.task_basis_bytes).toBe(Buffer.byteLength(basis.content, 'utf8'));
+      const cli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--summary', '--root', root], { encoding: 'utf8' });
+      expect(cli.status, cli.stderr).toBe(0);
+      expect(JSON.parse(cli.stdout).storage_metrics.task_basis_bytes).toBe(metrics.task_basis_bytes);
+      expect(fs.readFileSync(original.filePath, 'utf8')).toBe(raw);
+    }
+    // A present but malformed reference is unavailable, never "no link = 0".
+    fs.writeFileSync(original.filePath, original.raw.replace(/(- revision: `)[a-f0-9]{64}(`)/u, '$1invalid$2'));
+    const malformed = taskStorageMetrics(root, readCanonicalCurrentTask(root));
+    expect(malformed.task_basis_bytes).toBeNull();
+    expect(malformed.coverage.notes).toContain('TASK_BASIS_REFERENCE_INVALID');
+  });
+
+  test('storage metrics observe draft, execution, review and migration without consuming receipts or writing data', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const draft = singleStepSemanticDraft({ goal: 'Observe 中文 task growth, not an arbitrary test count.' });
+    draft.mutation_scope.allowed = ['README.md'];
+    draft.implementation_steps[0]!.mutation_scope = ['README.md'];
+    draft.claim_evidence[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    const root = archivedBaselineRoot();
+    const prepared = prepareDraft(root, draft);
+    const metrics = () => taskStorageMetrics(root, readCanonicalCurrentTask(root));
+    const filesDigest = () => {
+      const values: string[] = [];
+      const walk = (directory: string) => { for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const file = path.join(directory, entry.name);
+        if (entry.isDirectory()) walk(file);
+        else values.push(path.relative(root, file) + ':' + crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+      } };
+      walk(root); return values.sort();
+    };
+    const beforeRead = filesDigest();
+    const first = metrics();
+    const again = metrics();
+    expect(again).toEqual(first);
+    expect(filesDigest()).toEqual(beforeRead);
+    const current = readCanonicalCurrentTask(root);
+    expect(first.active_projection_bytes).toBe(Buffer.byteLength(current.raw, 'utf8'));
+    expect(first.claim_evidence_bytes).toBe(Buffer.byteLength(projectionJson(current.runtimeState.claim_evidence), 'utf8'));
+    expect(first.task_basis_bytes).toBe(Buffer.byteLength(readCanonicalTaskBasis(root).content, 'utf8'));
+    const store = TaskStore.forCurrent(root, current);
+    expect(first.aggregate_total_bytes).toBe(store.measure().total_bytes);
+    expect(first.previous_transaction_delta.reason).toBe('NO_PREVIOUS_EVENT');
+    const refined = prepareDraft(root, { ...draft, goal: draft.goal + ' Additional approved draft detail 中文' });
+    const draftMetrics = metrics();
+    expect(draftMetrics.previous_transaction_delta.definition_bytes).toBe(draftMetrics.definition_bytes! - first.definition_bytes!);
+    expect(draftMetrics.previous_transaction_delta.definition_bytes!).toBeGreaterThan(0);
+    const confirmed = confirmDraft(root, { confirmation_receipt: refined.confirmation_receipt });
+    expect(confirmed.status).toBe('success');
+    const confirmation = metrics();
+    expect(confirmation.previous_transaction_delta.definition_bytes).toBe(0);
+    expect(confirmation.previous_transaction_delta.active_projection_bytes).toBe(confirmation.active_projection_bytes - draftMetrics.active_projection_bytes);
+    expect(confirmation.previous_transaction_delta.committed_material_bytes).toBe(confirmation.committed_material_bytes! - draftMetrics.committed_material_bytes!);
+    const preflight = preflightStep(root, { candidate_paths: ['README.md'] });
+    const beforeResult = metrics();
+    const summary = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--summary', '--root', root], { encoding: 'utf8' });
+    expect(summary.status, summary.stderr).toBe(0);
+    expect(JSON.parse(summary.stdout).storage_metrics).toEqual(beforeResult);
+    fs.writeFileSync(path.join(root, 'README.md'), 'Approved product edit after measurement.\n');
+    expect(recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: ['README.md'],
+      command_results: draft.implementation_steps[0]!.commands.map(item => ({ command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: draft.implementation_steps[0]!.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Metric sampling must preserve the current attempt' }).status).toBe('success');
+    const afterResult = metrics();
+    expect(afterResult.previous_transaction_delta.status, JSON.stringify(afterResult)).toBe('available');
+    expect(afterResult.previous_transaction_delta.action).toBe('step-progress');
+    expect(afterResult.previous_transaction_delta.definition_bytes).toBe(0);
+    expect(afterResult.previous_transaction_delta.claim_evidence_bytes).toBe(afterResult.claim_evidence_bytes! - beforeResult.claim_evidence_bytes!);
+    expect(afterResult.previous_transaction_delta.claim_evidence_bytes!).toBeGreaterThan(0);
+    expect(afterResult.previous_transaction_delta.committed_material_bytes).toBe(afterResult.committed_material_bytes! - beforeResult.committed_material_bytes!);
+    const review = reviewContext(root, {});
+    const reviewBytes = metrics().pending_review_bytes;
+    expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [],
+      unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    const afterReview = metrics();
+    expect(afterReview.previous_transaction_delta.pending_review_bytes).toBe(afterReview.pending_review_bytes! - reviewBytes!);
+    expect(afterReview.previous_transaction_delta.definition_bytes).toBe(0);
+    expect(afterReview.external_history_bytes!).toBeGreaterThan(0);
+    expect(afterReview.committed_material_bytes!).toBeLessThan(afterReview.aggregate_total_bytes!);
+    // A no-op and a read are not transactions. Keep the same last-event delta.
+    const afterReviewFiles = filesDigest();
+    expect(metrics()).toEqual(afterReview);
+    expect(filesDigest()).toEqual(afterReviewFiles);
+
+    useLegacyInlineCurrent(root);
+    const inline = readCanonicalCurrentTask(root);
+    const legacyMetrics = metrics();
+    expect(legacyMetrics.coverage.notes).toContain('NO_COMMITTED_AGGREGATE');
+    expect(legacyMetrics.aggregate_total_bytes).toBeNull();
+    expect(taskContextMigrationCommit(root, inline.sourceTuple.revision).status).toBe('committed');
+    const migration = metrics();
+    expect(migration.previous_transaction_delta.event_type).toBe('storage-migration');
+    expect(migration.previous_transaction_delta.active_projection_bytes).toBe(migration.active_projection_bytes - legacyMetrics.active_projection_bytes);
+    expect(migration.previous_transaction_delta.active_projection_bytes!).toBeLessThan(0);
+    expect(migration.previous_transaction_delta.definition_bytes).toBe(0);
+    expect(migration.previous_transaction_delta.claim_evidence_bytes).toBe(0);
+    expect(migration.previous_transaction_delta.pending_review_bytes).toBe(0);
+    expect(migration.previous_transaction_delta.logical_state_bytes).toBe(0);
+    expect(migration.previous_transaction_delta.aggregate_total_bytes).toBeNull();
+    expect(taskContextMigrationCommit(root, inline.sourceTuple.revision).status).toBe('no-op');
+    expect(metrics()).toEqual(migration);
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Metrics and migration do not consume review' }).status).toBe('success');
+  });
+
+  test('compact-v3 durable golden is reader-versioned and independent of YAML writer spelling', () => {
+    const fixture = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/compact-v3/afeec7b.json'), 'utf8'));
+    expect(fixture.producer_commit).toBe('afeec7b8f7eed0cbf9c11dd74544582acb78c25f');
+    const root = archivedBaselineRoot();
+    const raw: string = fixture.current_task;
+    const header = /^---\n([\s\S]*?)\n---\n/u.exec(raw)!;
+    const frontmatter = parse(header[1]!);
+    const material = path.join(root, 'docs/workflow/task-data', frontmatter.document_id, 'objects');
+    fs.mkdirSync(material, { recursive: true });
+    for (const object of fixture.objects) {
+      const hash = crypto.createHash('sha256').update(projectionJson(object)).digest('hex');
+      fs.writeFileSync(path.join(material, `${hash}.json`), projectionJson(object) + '\n');
+    }
+    const read = (content: string) => expandTaskProjection(content, path.join(root, fixture.relative_path), fixture.relative_path);
+    const modelDigest = (expanded: string) => {
+      const match = /^---\n([\s\S]*?)\n---\n/u.exec(expanded)!;
+      const fm = parse(match[1]!); delete fm.task_store;
+      return crypto.createHash('sha256').update(projectionJson({ frontmatter: fm, body: expanded.slice(match[0].length) })).digest('hex');
+    };
+    expect(modelDigest(read(raw).expandedContent)).toBe(fixture.logical_digest);
+    // Simulate a future serializer without generating the expected input with
+    // prepareTaskProjection: JSON is valid YAML, reordered and differently quoted.
+    const reordered = Object.fromEntries(Object.entries(frontmatter).reverse());
+    const alternate = `---\n${JSON.stringify(reordered, null, 2)}\n---\n${raw.slice(header[0].length)}`.replace(/\n/g, '\r\n');
+    expect(modelDigest(read(alternate).expandedContent)).toBe(fixture.logical_digest);
+    const wrong = structuredClone(reordered) as any;
+    wrong.runtime_state.active_step_status = 'completed';
+    expect(() => read(`---\n${JSON.stringify(wrong)}\n---\n${raw.slice(header[0].length)}`)).toThrow('TASK_PROJECTION_INVALID');
+    expect(() => read(raw.replace('K1: missing', 'K1: passed'))).toThrow('TASK_PROJECTION_INVALID');
+    const object = fixture.objects.find((x: any) => x.object_type === 'definition');
+    const hash = crypto.createHash('sha256').update(projectionJson(object)).digest('hex');
+    fs.writeFileSync(path.join(material, `${hash}.json`), JSON.stringify({ ...object, payload: {} }));
+    expect(() => read(raw)).toThrow('TASK_PROJECTION_INVALID');
+  });
+
+  test('storage migration preserves issued draft and execution receipts without weakening stale detection', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    for (const format of ['inline', 'compact-v2']) {
+      const draft = singleStepSemanticDraft();
+      draft.mutation_scope.allowed = ['README.md'];
+      draft.implementation_steps[0]!.mutation_scope = ['README.md'];
+      draft.claim_evidence[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+      const root = archivedBaselineRoot();
+      prepareDraft(root, draft);
+      useLegacyInlineCurrent(root);
+      if (format === 'compact-v2') {
+        const old = readCanonicalCurrentTask(root);
+        const fm = structuredClone(old.frontmatter);
+        delete fm.runtime_state.execution_log; delete fm.runtime_state.applied_proposals;
+        fm.task_store = { schema_version: 1, kind: 'vnext-current-task-store-binding', format,
+          manifest_path: `docs/workflow/task-data/${old.sourceTuple.document_id}/manifest.json`,
+          history: { execution_log: 'task-store', applied_proposals: 'task-store' } };
+        const raw = `---\n${stringify(fm).trimEnd()}\n---\n${old.body}`;
+        fs.writeFileSync(old.filePath, raw);
+        TaskStore.forCurrent(root, old as any).ensureInitialized({ ...old, raw, frontmatter: fm,
+          sourceTuple: { ...old.sourceTuple, revision: crypto.createHash('sha256').update(raw).digest('hex') } } as any);
+      }
+      // Refine through the real adapter to obtain a legitimately issued legacy
+      // receipt, not a handcrafted replacement for one invalidated by storage.
+      const refined = prepareDraft(root, draft);
+      const receipt = refined.confirmation_receipt!;
+      const before = readCanonicalCurrentTask(root);
+      expect(before.frontmatter.task_store?.format).not.toBe('compact-v3');
+      expect(taskContextMigrationCommit(root, before.sourceTuple.revision).status).toBe('committed');
+      const migrated = readCanonicalCurrentTask(root);
+      expect(migrated.runtimeState).toEqual(before.runtimeState);
+      expect(taskStoreDefinitionRevision(migrated as any)).toBe(taskStoreDefinitionRevision(before as any));
+      // A cold compiled CLI must consume the original receipt and support retry.
+      const confirmed = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'confirm-draft', { confirmation_receipt: receipt });
+      expect(confirmed.status, confirmed.stderr + confirmed.stdout).toBe(0);
+      expect(confirmed.json.status).toBe('success');
+      expect(confirmDraft(root, { confirmation_receipt: receipt }).status).toBe('no-op');
+      useLegacyInlineCurrent(root);
+      const preflight = preflightStep(root, { candidate_paths: ['README.md'] });
+      fs.writeFileSync(path.join(root, 'README.md'), 'Approved product edit after preflight.\n');
+      const preMigration = readCanonicalCurrentTask(root);
+      expect(taskContextMigrationCommit(root, preMigration.sourceTuple.revision).status).toBe('committed');
+      expect(readCanonicalCurrentTask(root).runtimeState).toEqual(preMigration.runtimeState);
+      const result = { preflight_receipt: preflight.receipt, actual_changed_paths: ['README.md'],
+        command_results: draft.implementation_steps[0]!.commands.map(item => ({ command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+        validation_results: draft.implementation_steps[0]!.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+        acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Keep the original first-touch baseline across representation migration' };
+      const recorded = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'record-step-result', result);
+      expect(recorded.status, recorded.stderr + recorded.stdout).toBe(0);
+      expect(recorded.json.status).toBe('success');
+      expect(() => recordStepResult(root, { ...result, note: 'Do not reuse the old source after a real result transaction' })).toThrow('EXECUTE_PREFLIGHT_STALE');
+      // Review context is another already-issued receipt, not a new checkpoint.
+      useLegacyInlineCurrent(root);
+      const context = reviewContext(root, {});
+      taskContextMigrationCommit(root, readCanonicalCurrentTask(root).sourceTuple.revision);
+      expect(recordReviewResult(root, { context_receipt: context.receipt, verdict: 'clean', findings: [],
+        unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Consume original review without rebuilding its target' }).status).toBe('success');
+    }
+    // Same definition is insufficient: a real draft update invalidates the old
+    // receipt even when followed by storage migration and equal final content.
+    const root = archivedBaselineRoot(); const draft = singleStepSemanticDraft();
+    prepareDraft(root, draft); useLegacyInlineCurrent(root);
+    const first = prepareDraft(root, draft).confirmation_receipt!;
+    prepareDraft(root, { ...draft, goal: 'A changed user-approved draft' });
+    const last = prepareDraft(root, draft).confirmation_receipt!;
+    taskContextMigrationCommit(root, last.draft_revision);
+    expect(() => confirmDraft(root, { confirmation_receipt: first })).toThrow('DRAFT_REVISION_CONFLICT');
+    expect(() => confirmDraft(root, { confirmation_receipt: { ...last, draft_revision: 'f'.repeat(64) } })).toThrow('DRAFT_REVISION_CONFLICT');
+    expect(confirmDraft(root, { confirmation_receipt: last }).status).toBe('success');
+  });
+
+  test('active task projection retains exact large definitions, evidence and standalone material without inline duplication', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const root = archivedBaselineRoot();
+    const longObservation = ('业务观察：生产者写入后消费者读取同一条记录；不得用局部成功替代。'.repeat(75));
+    const draft = singleStepSemanticDraft({ validation_plan: Array.from({ length: 40 }, (_, i) => `${i}: ${longObservation.slice(0, 450)}`) });
+    draft.claim_evidence[0]!.requirement = longObservation;
+    draft.claim_evidence[0]!.slots[0]!.check!.expected_observation = longObservation;
+    draft.mutation_scope.allowed = ['README.md'];
+    draft.implementation_steps[0]!.mutation_scope = ['README.md'];
+    draft.claim_evidence[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    const before = readCanonicalCurrentTask(root);
+    const filesBefore = fs.readdirSync(path.dirname(before.filePath), { recursive: true }).sort();
+    expect(prepareDraft(root, draft, { dryRun: true }).status).toBe('success');
+    expect(fs.readFileSync(before.filePath, 'utf8')).toBe(before.raw);
+    expect(fs.readdirSync(path.dirname(before.filePath), { recursive: true }).sort()).toEqual(filesBefore);
+    const created = prepareDraft(root, draft);
+    const current = readCanonicalCurrentTask(root);
+    expect(current.frontmatter.task_store.format).toBe('compact-v3');
+    expect(current.runtimeState.claim_evidence).toEqual(draft.claim_evidence);
+    expect(current.body).toContain(longObservation);
+    expect(current.raw).not.toContain(longObservation);
+    const expandedBytes = Buffer.byteLength(`---\n${stringify(current.frontmatter)}---\n${current.body}`);
+    expect(Buffer.byteLength(current.raw)).toBeLessThan(expandedBytes / 5);
+    const store = TaskStore.forCurrent(root, current as any);
+    const definition = store.manifest!.object_refs.definition.sha256;
+    expect(confirmDraft(root, { confirmation_receipt: created.confirmation_receipt }).status).toBe('success');
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const report = reportFixture(root);
+    const longReport = 'Exact retained environment observation. '.repeat(80).trim();
+    report.report.environment = longReport;
+    expect(recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: [],
+      command_results: draft.implementation_steps[0]!.commands.map(c => ({ command: c.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: draft.implementation_steps[0]!.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: [report], outcome: 'implemented', note: 'Bound projection test observation' }).status).toBe('success');
+    const after = readCanonicalCurrentTask(root);
+    expect(store.manifest!.object_refs.definition.sha256).toBe(definition);
+    expect(after.runtimeState.claim_evidence![0]!.slots[0]!.report!.environment).toBe(longReport);
+    expect(after.raw).not.toContain(longReport);
+    expect(Buffer.byteLength(after.raw)).toBeLessThan(Buffer.byteLength(current.raw) + 300);
+    expect(after.runtimeState.execution_log.length).toBeGreaterThan(current.runtimeState.execution_log.length);
+    const readAll = (kind: string) => {
+      let page = taskRead(root, { kind, max_bytes: 4096 });
+      if (page.value !== undefined) return page.value as any;
+      let text = page.text ?? '';
+      while (page.continuation) { page = taskRead(root, { kind, continuation: page.continuation, max_bytes: 4096 }); text += page.text ?? ''; }
+      return JSON.parse(text);
+    };
+    expect(readAll('definition').payload.claim_evidence_plan[0].requirement).toBe(longObservation);
+    expect(readAll('claim-evidence')[0].slots[0].report.environment).toBe(longReport);
+    expect(readAll('state').payload.runtime_state.pending_review_result).toEqual(after.runtimeState.pending_review_result);
+    expect(store.deepValidate().status).toBe('valid');
+    const exported = store.exportAggregate();
+    // Exact SHA reads remain raw objects; resolved definition/state views never
+    // claim their rendered payload is itself the content-addressed object.
+    expect(exported.objects.find(x => x.sha256 === definition)!.object.payload.kind).toBe('vnext-active-definition/v1');
+    const rawObject = taskRead(root, { kind: 'object', object_sha256: definition, max_bytes: 65536 });
+    expect((rawObject.value as any).payload.kind).toBe('vnext-active-definition/v1');
+    const materialDir = path.join(root, 'docs/workflow/task-data', current.sourceTuple.document_id, 'objects');
+    const corrupt = exported.objects.find(x => x.object.object_type === 'evidence-report' && (x.object.payload as any).result_id === report.report.result_id)!;
+    const corruptPath = path.join(materialDir, `${corrupt.sha256}.json`);
+    const bytes = fs.readFileSync(corruptPath, 'utf8');
+    fs.writeFileSync(corruptPath, bytes.replace('Exact retained', 'Wrong retained'));
+    expect(() => readCanonicalCurrentTask(root)).toThrow('TASK_PROJECTION_INVALID');
+    fs.writeFileSync(corruptPath, bytes);
+    expect(readCanonicalCurrentTask(root).raw).toBe(after.raw);
+    // Reconstruct the store from its public export, not a copy of internal
+    // indexes/caches. A cold Node process must read the same full evidence.
+    const restored = archivedBaselineRoot();
+    fs.cpSync(root, restored, { recursive: true });
+    const restoredStore = path.join(restored, exported.manifest.storage_root);
+    fs.rmSync(restoredStore, { recursive: true, force: true });
+    fs.mkdirSync(path.join(restoredStore, 'objects'), { recursive: true });
+    fs.mkdirSync(path.join(restoredStore, 'events'), { recursive: true });
+    fs.writeFileSync(path.join(restoredStore, 'manifest.json'), projectionJson(exported.manifest) + '\n');
+    for (const object of exported.objects) fs.writeFileSync(path.join(restoredStore, 'objects', `${object.sha256}.json`), projectionJson(object.object) + '\n');
+    for (const event of exported.events) fs.writeFileSync(path.join(restoredStore, 'events', `${String(event.sequence).padStart(12, '0')}-${event.event_hash}.json`), projectionJson(event) + '\n');
+    expect(readCanonicalCurrentTask(restored).runtimeState).toEqual(after.runtimeState);
+    expect(readCanonicalCurrentTask(restored).body).toBe(after.body);
+    const cli = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), restored, 'evidence-context', {});
+    expect(cli.status, cli.stderr + cli.stdout).toBe(0);
+    expect(cli.stdout).toContain(after.runtimeState.evidence_plan_revision!);
+    const review = reviewContext(restored, {});
+    expect(recordReviewResult(restored, { context_receipt: review.receipt, verdict: 'clean', findings: [],
+      unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(restored, { step_id: 'step-1', note: 'Restored aggregate keeps normal completion semantics.' }).status).toBe('success');
+  });
+
+  test('active task projection migrates inline and compact-v2 tasks without changing decisions or consuming receipts', () => {
+    for (const format of ['inline', 'compact-v2']) {
+      const root = confirmedSemanticRoot();
+      useLegacyInlineCurrent(root);
+      if (format === 'compact-v2') {
+        const old = readCanonicalCurrentTask(root);
+        const frontmatter = structuredClone(old.frontmatter);
+        delete frontmatter.runtime_state.execution_log; delete frontmatter.runtime_state.applied_proposals;
+        frontmatter.task_store = { schema_version: 1, kind: 'vnext-current-task-store-binding', format,
+          manifest_path: `docs/workflow/task-data/${old.sourceTuple.document_id}/manifest.json`,
+          history: { execution_log: 'task-store', applied_proposals: 'task-store' } };
+        const raw = `---\n${stringify(frontmatter).trimEnd()}\n---\n${old.body}`;
+        fs.writeFileSync(old.filePath, raw);
+        TaskStore.forCurrent(root, old as any).ensureInitialized({ ...old, raw, frontmatter,
+          sourceTuple: { ...old.sourceTuple, revision: crypto.createHash('sha256').update(raw).digest('hex') } } as any);
+      }
+      const before = readCanonicalCurrentTask(root);
+      const definition = taskStoreDefinitionRevision(before as any);
+      const basis = readCanonicalTaskBasis(root, before);
+      const view = taskContextMigrationPreview(root);
+      expect(view.status).toBe('preview');
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      if (format === 'compact-v2') {
+        // Real public migration entry, interrupted after canonical publication
+        // but before manifest acknowledgement, then retried in a cold CLI.
+        const commit = TaskStore.prototype.recordCommit;
+        try {
+          TaskStore.prototype.recordCommit = function(input) {
+            if (input.result.operation_kind === 'task-storage-migration') throw new Error('injected projection publication interruption');
+            return commit.call(this, input);
+          };
+          expect(() => taskContextMigrationCommit(root, before.sourceTuple.revision)).toThrow('injected projection publication interruption');
+        } finally { TaskStore.prototype.recordCommit = commit; }
+        expect(() => readCanonicalCurrentTask(root)).toThrow('RUNTIME_STORAGE_RECOVERY_REQUIRED');
+        const retry = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'task-storage-migration', { mode: 'commit', source_revision: before.sourceTuple.revision });
+        expect(retry.status, retry.stderr + retry.stdout).toBe(0);
+        expect(JSON.parse(retry.stdout).status).toBe('no-op');
+      } else expect(taskContextMigrationCommit(root, before.sourceTuple.revision).status).toBe('committed');
+      const after = readCanonicalCurrentTask(root);
+      expect(after.sourceTuple.document_id).toBe(before.sourceTuple.document_id);
+      expect(after.runtimeState).toEqual(before.runtimeState);
+      expect(taskStoreDefinitionRevision(after as any)).toBe(definition);
+      expect(readCanonicalTaskBasis(root, after).content).toBe(basis.content);
+      expect(TaskStore.forCurrent(root, after as any).readHistoryMaterial(before.sourceTuple.revision)).toBe(before.raw);
+      expect(commitTaskStorageMigration(root, after as any, after.sourceTuple.revision).status).toBe('no-op');
+      expect(preflightStep(root, { candidate_paths: [] }).status).toBe('pass');
+      expect(() => taskContextMigrationCommit(root, before.sourceTuple.revision)).toThrow('TASK_STORE_MIGRATION_SOURCE_STALE');
+    }
+  });
+
+  test('process-control review rejects validation selection changes through engineering replacement', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    for (const scenario of ['target-to-focused', 'broad-to-target', 'broad-to-focused', 'selector-change', 'e2e-authority-change']) {
+      const draft = singleStepSemanticDraft();
+      const check = draft.claim_evidence[0]!.slots[0]!.check!;
+      const selection = check.selection!;
+      draft.task_basis.user_decisions.push({ source: 'test:other-authority', verbatim: 'A separate verification decision, not an engineering invocation change.' });
+      if (scenario.startsWith('target-') || scenario.startsWith('broad-')) {
+        selection.granularity = scenario.startsWith('target-') ? 'target' : 'broad-regression';
+        selection.selector = null;
+        selection.invocation = { argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null };
+      }
+      if (scenario === 'e2e-authority-change') check.boundary = 'e2e';
+      if (selection.granularity !== 'focused' || check.boundary === 'e2e') {
+        selection.breadth_reason = 'The exact original verification set was explicitly requested.';
+        selection.breadth_basis = 'explicit-user'; selection.breadth_source_ref = draft.task_basis.original_request.source;
+      }
+      const root = confirmedSemanticRoot(draft);
+      const before = readCanonicalCurrentTask(root);
+      const replacement = structuredClone(check); replacement.check_id = 'engineering-replacement';
+      if (scenario.endsWith('-focused')) {
+        replacement.selection!.granularity = 'focused'; replacement.selection!.selector = 'ticket_rule';
+        replacement.selection!.breadth_reason = null; replacement.selection!.breadth_basis = null; replacement.selection!.breadth_source_ref = null;
+        replacement.entry = 'bun test test/vnext-runtime.test.ts --test-name-pattern ticket_rule';
+        replacement.selection!.invocation = { argv: ['bun', 'test', 'test/vnext-runtime.test.ts', '--test-name-pattern', 'ticket_rule'], selector_arg_index: 4 };
+      } else if (scenario === 'broad-to-target') replacement.selection!.granularity = 'target';
+      else if (scenario === 'selector-change') {
+        replacement.entry = 'bun test test/other.test.ts'; replacement.selection!.selector = 'test/other.test.ts';
+        replacement.selection!.invocation = { argv: ['bun', 'test', 'test/other.test.ts'], selector_arg_index: 2 };
+      } else replacement.selection!.breadth_source_ref = 'test:other-authority';
+      expect(() => replaceValidation(root, { source_revision: before.sourceTuple.revision,
+        claim_id: draft.claim_evidence[0]!.claim_id, slot_id: draft.claim_evidence[0]!.slots[0]!.slot_id,
+        replaces_check_id: check.check_id, replacement_check: replacement, reason: 'Only the launcher should change.' }), scenario)
+        .toThrow('VALIDATION_REPLACEMENT_WEAKENED');
+      expect(readCanonicalCurrentTask(root).raw, scenario).toBe(before.raw);
+    }
+  });
+
+  test('process-control review waiver cannot claim an independent planned validation', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const semantic = singleStepSemanticDraft();
+    const own = semantic.implementation_steps[0]!.validation[0]!;
+    const independent = 'Independent project policy verification';
+    const userClaim = semantic.claim_evidence[0]!;
+    userClaim.slots[0]!.check!.validation_items = [own];
+    const policy = structuredClone(userClaim);
+    policy.claim_id = 'Policy'; policy.claim_kind = 'invariant';
+    policy.slots[0]!.slot_id = 'policy'; policy.slots[0]!.check!.check_id = 'policy-check';
+    policy.slots[0]!.check!.method = 'static'; policy.slots[0]!.check!.expected_result = 'accepted';
+    policy.slots[0]!.check!.entry = 'Inspect independent policy'; delete policy.slots[0]!.check!.selection;
+    policy.slots[0]!.check!.validation_items = [independent];
+    semantic.claim_evidence.push(policy);
+    semantic.implementation_steps[0]!.validation.push(independent);
+    const duplicate = structuredClone(semantic); duplicate.claim_evidence[0]!.slots[0]!.check!.validation_items!.push(independent);
+    expect(() => prepareDraft(archivedBaselineRoot(), duplicate)).toThrow('CLAIM_EVIDENCE_VALIDATION_UNBOUND');
+    const invented = structuredClone(semantic); invented.claim_evidence[0]!.slots[0]!.check!.validation_items = ['Not planned'];
+    expect(() => prepareDraft(archivedBaselineRoot(), invented)).toThrow('CLAIM_EVIDENCE_VALIDATION_UNBOUND');
+    const root = confirmedSemanticRoot(semantic);
+    const before = readCanonicalCurrentTask(root);
+    const claim = before.runtimeState.claim_evidence![0]!; const slot = claim.slots[0]!;
+    const request = { claim_id: claim.claim_id, slot_id: slot.slot_id, check_id: slot.check!.check_id,
+      evidence_plan_revision: before.runtimeState.evidence_plan_revision!, subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision,
+      decision_source: 'conversation:waive-one-obligation', decision_text: 'Waive only my requested obligation; do not waive project policy.',
+      validation_items: [independent] };
+    for (const labels of [[independent], [own, independent]]) {
+      expect(recordUserEvidenceDecision(root, 'waiver', { ...request, validation_items: labels }))
+        .toMatchObject({ status: 'blocked', code: 'EVIDENCE_WAIVER_TARGET_INVALID' });
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+    }
+    const cli = path.join(ROOT, 'runtime/vnext/dist/cli.js');
+    const recorded = runInstalledRuntimeCli(cli, root, 'record-evidence-waiver', { ...request, validation_items: [own] });
+    expect(recorded.status, recorded.stderr + recorded.stdout).toBe(0);
+    expect(recorded.json.status).toBe('success');
+    expect(runInstalledRuntimeCli(cli, root, 'evidence-context', {}).json.checks[0].validation_items).toEqual([own]);
+    const current = readCanonicalCurrentTask(root);
+    const decision = current.runtimeState.claim_evidence![0]!.slots[0]!.user_decision!;
+    expect(applicableResultWaiver(root, current, 'step-1', { validation: own }, decision.decision_id)).toEqual(decision);
+    expect(applicableResultWaiver(root, current, 'step-1', { validation: independent }, decision.decision_id)).toBeNull();
+    // Recheck ownership at consumption too, even for pre-fix stored decisions.
+    decision.validation_items!.push(independent);
+    expect(applicableResultWaiver(root, current, 'step-1', { validation: independent }, decision.decision_id)).toBeNull();
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Independent policy validation failed; user risk decision must not hide it.');
+    expect(() => recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: [], acceptance_evidence: [],
+      command_results: [{ command: slot.check!.entry, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: own, status: 'not-run', evidence_refs: ['evidence-report.txt'], waiver_decision_id: decision.decision_id },
+        { validation: independent, status: 'failed', evidence_refs: ['evidence-report.txt'], waiver_decision_id: decision.decision_id }],
+      outcome: 'implemented', note: 'An exact user waiver cannot cover the independent policy failure.' }))
+      .toThrow('EVIDENCE_WAIVER_RESULT_UNBOUND');
+    // No mandatory migration: an old check whose validation is its exact entry
+    // has a unique owner without the optional descriptive-label binding.
+    const legacy = singleStepSemanticDraft(); const entry = legacy.claim_evidence[0]!.slots[0]!.check!.entry;
+    legacy.implementation_steps[0]!.validation = [entry];
+    const legacyRoot = confirmedSemanticRoot(legacy); const legacyCurrent = readCanonicalCurrentTask(legacyRoot);
+    expect(recordUserEvidenceDecision(legacyRoot, 'waiver', { ...request, validation_items: [entry],
+      evidence_plan_revision: legacyCurrent.runtimeState.evidence_plan_revision!,
+      subject_revision: captureReviewTarget(legacyRoot, legacy.claim_evidence[0]!.slots[0]!.check!.subject_paths).revision }).status).toBe('success');
+  });
+
+  test('process-control review prepareSuccessor retries after real publication interruption', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    for (const interruption of ['before-aggregate', 'after-aggregate']) {
+      const root = confirmedSemanticRoot(singleStepSemanticDraft());
+      const original = readCanonicalCurrentTask(root); const originalBasis = readCanonicalTaskBasis(root, original);
+      expect(applyVNextRuntimeProposal(root, createLifecycleProposal(original, {
+        mode: 'supersede', delta: supersedeDelta(), idempotency_key: 'review-successor-supersede',
+        authority_evidence: evidence('active-task-owner', 'evidence-admission'), evidence_refs: ['test:evidence:supersede'],
+      })).status).toBe('success');
+      const before = readCanonicalCurrentTask(root);
+      const draft = singleStepSemanticDraft({ goal: 'Explicit replacement surviving a publication crash' });
+      const source = 'conversation:successor-crash'; const text = 'Retire the old obligations and prepare this new task; preserve unfinished history.';
+      draft.task_basis.user_decisions.push({ source, verbatim: text });
+      const predecessor = { task_id: before.runtimeState.task_id, document_id: before.sourceTuple.document_id,
+        source_revision: before.sourceTuple.revision, basis_revision: originalBasis.revision,
+        decision_source: source, decision_text: text, obligations: predecessorObligationKeys(before).map(prior_key => ({
+          prior_key, disposition: 'retired' as const, successor_claim_id: null, reason: 'Explicit retirement, not a PASS.' })) };
+      const request = { predecessor, draft };
+      const launcherRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-successor-crash-')); temporaryRoots.push(launcherRoot);
+      const launcher = path.join(launcherRoot, 'crash.ts');
+      fs.writeFileSync(launcher, `import { TaskStore } from ${JSON.stringify(path.join(ROOT, 'runtime/vnext/src/task-store.ts'))};
+  import { prepareSuccessor } from ${JSON.stringify(path.join(ROOT, 'runtime/vnext/src/prepare-task-adapter.ts'))};
+  const original = TaskStore.prototype.ensureInitialized;
+  TaskStore.prototype.ensureInitialized = function(current, ...args) {
+    if (current.sourceTuple.document_id !== ${JSON.stringify(before.sourceTuple.document_id)}) {
+      if (${JSON.stringify(interruption)} === 'after-aggregate') original.call(this, current, ...args);
+      throw new Error('injected aggregate publication interruption');
+    }
+    return original.call(this, current, ...args);
+  };
+  console.log(JSON.stringify(prepareSuccessor(${JSON.stringify(root)}, ${JSON.stringify(request)})));`);
+      const interrupted = spawnSync(process.execPath, [launcher], { encoding: 'utf8' });
+      expect(interrupted.status, interrupted.stderr + interrupted.stdout).toBe(0);
+      expect(JSON.parse(interrupted.stdout)).toMatchObject({ status: 'blocked', code: 'ATOMIC_COMMIT_FAILED' });
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      const nextBasis = path.join(path.dirname(originalBasis.filePath), `TASK_BASIS-${String(Number(before.runtimeState.task_id) + 1).padStart(3, '0')}.md`);
+      expect(fs.existsSync(nextBasis)).toBe(true);
+      const basisBytes = fs.readFileSync(nextBasis, 'utf8');
+      fs.writeFileSync(nextBasis, basisBytes + '\nConflicting request.');
+      expect(prepareSuccessor(root, request).code).toBe('TASK_BASIS_CONFLICT');
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      fs.writeFileSync(nextBasis, basisBytes);
+      if (interruption === 'after-aggregate') {
+        const changed = structuredClone(request); changed.draft.validation_plan.push('A different proposed verification plan');
+        expect(prepareSuccessor(root, changed).code).toBe('SUCCESSOR_HISTORY_CONFLICT');
+        expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      }
+      const retried = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'prepare-successor', request);
+      expect(retried.status, interruption + ': ' + retried.stderr + retried.stdout).toBe(0);
+      const prepared = retried.json;
+      expect(prepared.status, interruption + ': ' + JSON.stringify(prepared)).toBe('success');
+      const next = readCanonicalCurrentTask(root);
+      expect(next.runtimeState.workflow_status).toBe('draft');
+      expect(fs.readFileSync(nextBasis, 'utf8')).toBe(basisBytes);
+      expect(fs.readFileSync(originalBasis.filePath, 'utf8')).toBe(originalBasis.content);
+      expect(fs.readFileSync(path.join(root, successorSnapshotPath(before.relativePath, before.sourceTuple.document_id, before.sourceTuple.revision)), 'utf8')).toBe(before.raw);
+      expect(prepareSuccessor(root, request).status).toBe('no-op');
+      expect(() => preflightStep(root, { candidate_paths: [] })).toThrow();
+      expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt! }).status).toBe('success');
+    }
+  });
+
+  test('process-control equivalent validation replacement retains task intent, prior decisions and retry accounting', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const semantic = singleStepSemanticDraft();
+    semantic.claim_evidence[0]!.slots[0]!.check!.validation_items = [...semantic.implementation_steps[0]!.validation];
+    const claim = semantic.claim_evidence[0]!;
+    const human = structuredClone(claim.slots[0]!);
+    human.slot_id = 'manual'; human.check!.check_id = 'manual-check';
+    human.check!.method = 'human'; human.check!.expected_result = 'accepted';
+    human.check!.entry = 'Inspect the user-visible result'; delete human.check!.selection; delete human.check!.validation_items;
+    claim.slots.push(human);
+    const root = confirmedSemanticRoot(semantic);
+    let current = readCanonicalCurrentTask(root);
+    expect(recordUserEvidenceDecision(root, 'human-acceptance', {
+      claim_id: claim.claim_id, slot_id: human.slot_id, check_id: human.check!.check_id,
+      evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+      subject_revision: captureReviewTarget(root, human.check!.subject_paths).revision,
+      decision_source: 'conversation:prior-observation', decision_text: 'I checked the visible result; this manual observation is accepted.',
+    }).status).toBe('success');
+    const original = readCanonicalCurrentTask(root);
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const old = original.runtimeState.claim_evidence![0]!.slots[0]!.check!;
+    const replacement = structuredClone(old); replacement.check_id = 'check-cwd-replacement';
+    replacement.entry = 'bun test --cwd . test/vnext-runtime.test.ts';
+    replacement.selection!.invocation = { kind: 'structured', argv: ['bun', 'test', '--cwd', '.', 'test/vnext-runtime.test.ts'], selector_arg_index: 4 };
+    const request = () => ({ source_revision: readCanonicalCurrentTask(root).sourceTuple.revision, claim_id: claim.claim_id,
+      slot_id: claim.slots[0]!.slot_id, replaces_check_id: old.check_id, replacement_check: replacement,
+      reason: 'Specify the same runner working directory without changing the selected test or observation.' });
+    expect(() => replaceValidation(root, request())).toThrow('EXECUTE_ATTEMPT_OUTSTANDING');
+    fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Launcher failed before running the selected check.');
+    expect(recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: [], acceptance_evidence: [],
+      command_results: [{ command: old.entry, status: 'failed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: preflight.current_step.validation[0], status: 'failed', evidence_refs: ['evidence-report.txt'] }],
+      outcome: 'blocked', note: 'The launcher used a wrong working directory; no successful result is claimed.' }).status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    const before = readDraftDefinitionFromBody(current.body);
+    const beforeBasis = readCanonicalTaskBasis(root, current);
+    const retainedAttempts = structuredClone(current.runtimeState.step_attempts!['step-1']!);
+    expect(() => replaceValidation(root, { ...request(), replacement_check: { ...replacement, validation_items: [] } })).toThrow('VALIDATION_REPLACEMENT_WEAKENED');
+    const changedMeaning = { ...replacement, expected_observation: 'Weaken the acceptance condition' };
+    expect(() => replaceValidation(root, { ...request(), replacement_check: changedMeaning })).toThrow('VALIDATION_REPLACEMENT_WEAKENED');
+    const exact = request();
+    expect(replaceValidation(root, exact, { dryRun: true }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).raw).toBe(current.raw);
+    expect(replaceValidation(root, exact).status).toBe('success');
+    const after = readCanonicalCurrentTask(root);
+    const afterDefinition = readDraftDefinitionFromBody(after.body);
+    expect({ ...afterDefinition, implementation_steps: '' }).toEqual({ ...before, implementation_steps: '' });
+    expect(after.runtimeState.task_id).toBe(current.runtimeState.task_id);
+    expect(after.sourceTuple.document_id).toBe(current.sourceTuple.document_id);
+    expect(after.runtimeState.active_step_id).toBe('step-1');
+    expect(after.runtimeState.claim_evidence![0]!.slots[0]!.check!.entry).toBe(replacement.entry);
+    expect(after.runtimeState.claim_evidence![0]!.slots[0]!.check!.validation_items).toEqual(old.validation_items);
+    expect(after.runtimeState.claim_evidence![0]!.slots[0]!.report).toBeNull();
+    expect(after.runtimeState.claim_evidence![0]!.slots[1]!.user_decision).toEqual(original.runtimeState.claim_evidence![0]!.slots[1]!.user_decision);
+    expect(evaluateEvidenceSlotForContext(root, after, after.runtimeState.claim_evidence![0]!, after.runtimeState.claim_evidence![0]!.slots[1]!)).toEqual({ satisfied: true, reason: null });
+    expect(readCanonicalTaskBasis(root, after).content).toBe(beforeBasis.content);
+    const ledger = after.runtimeState.step_attempts!['step-1']!;
+    expect(ledger.max_attempts).toBe(retainedAttempts.max_attempts);
+    expect(ledger.attempts.slice(0, -1)).toEqual(retainedAttempts.attempts);
+    expect(ledger.attempts.at(-1)!.status).toBe('ready');
+    expect(replaceValidation(root, exact).status).toBe('no-op');
+    const next = preflightStep(root, { candidate_paths: [] });
+    expect(next.current_step.commands[0]!.command).toBe(replacement.entry);
+    expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toEqual(current.runtimeState.review_cycle);
+    expect(recordStepResult(root, { preflight_receipt: next.receipt, actual_changed_paths: [],
+      command_results: [{ command: replacement.entry, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: next.current_step.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [reportFixture(root, claim.claim_id, claim.slots[0]!.slot_id)],
+      outcome: 'implemented', note: 'Replacement check has fresh evidence; the independent manual observation is retained.' }).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Same-task verification repaired without redefining the goal.' }).status).toBe('success');
+  });
+
+  test('process-control bundled Node CLI exposes task decisions and bounded validation replacement', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const cli = path.join(ROOT, 'runtime/vnext/dist/cli.js');
+    for (const kind of ['human-acceptance', 'waiver'] as const) {
+      const semantic = singleStepSemanticDraft(); const planned = semantic.claim_evidence[0]!.slots[0]!;
+      if (kind === 'human-acceptance') {
+        planned.check!.method = 'human'; planned.check!.expected_result = 'accepted'; delete planned.check!.selection;
+      }
+      const root = confirmedSemanticRoot(semantic);
+      const before = readCanonicalCurrentTask(root); const claim = before.runtimeState.claim_evidence![0]!; const slot = claim.slots[0]!;
+      const request = { claim_id: claim.claim_id, slot_id: slot.slot_id, check_id: slot.check!.check_id,
+        evidence_plan_revision: before.runtimeState.evidence_plan_revision,
+        subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision,
+        decision_source: 'conversation:node-cli-user', decision_text: kind === 'waiver' ? 'Accept the unverified risk, not PASS.' : 'I observed and accept this human check.' };
+      const command = kind === 'waiver' ? 'record-evidence-waiver' : 'record-human-acceptance';
+      const recorded = runInstalledRuntimeCli(cli, root, command, request);
+      expect(recorded.status, recorded.stderr + recorded.stdout).toBe(0);
+      expect(recorded.json).toMatchObject({ status: 'success', evidence_assurance: 'caller-reported' });
+      const after = readCanonicalCurrentTask(root);
+      expect(after.runtimeState.claim_evidence![0]!.slots[0]!.user_decision?.kind).toBe(kind);
+      const projection = runInstalledRuntimeCli(cli, root, 'evidence-context', {});
+      expect(projection.status, projection.stderr).toBe(0);
+      expect(projection.json.checks[0].user_decision.kind).toBe(kind);
+      expect(runInstalledRuntimeCli(cli, root, command, request).json.status).toBe('no-op');
+      expect(after.runtimeState.active_step_status).toBe(before.runtimeState.active_step_status);
+    }
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const before = readCanonicalCurrentTask(root); const claim = before.runtimeState.claim_evidence![0]!; const slot = claim.slots[0]!;
+    const check = structuredClone(slot.check!); check.check_id = 'node-cli-check';
+    check.entry = 'bun test --cwd . test/vnext-runtime.test.ts';
+    check.selection!.invocation = { kind: 'structured', argv: ['bun', 'test', '--cwd', '.', 'test/vnext-runtime.test.ts'], selector_arg_index: 4 };
+    const replaced = runInstalledRuntimeCli(cli, root, 'replace-validation', { source_revision: before.sourceTuple.revision,
+      claim_id: claim.claim_id, slot_id: slot.slot_id, replaces_check_id: slot.check!.check_id, replacement_check: check,
+      reason: 'Preserve the exact observation and selected test with an explicit working directory.' });
+    expect(replaced.status, replaced.stderr + replaced.stdout).toBe(0);
+    expect(replaced.json.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).sourceTuple.document_id).toBe(before.sourceTuple.document_id);
+  });
+
+  test('process-control successor publication retains the predecessor if preparation exits', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-successor-publication-')); temporaryRoots.push(root);
+    const current = path.join(root, 'CURRENT_TASK.md'); const artifact = path.join(root, 'TASK_BASIS-new.md');
+    fs.writeFileSync(current, 'old unfinished task');
+    const launcher = path.join(root, 'publish.ts');
+    const modulePath = path.resolve(import.meta.dir, '../runtime/vnext/src/task-evolution-io.ts');
+    const source = `import { publishPreparedSuccessor } from ${JSON.stringify(modulePath)};
+` +
+      `publishPreparedSuccessor(${JSON.stringify(current)}, 'old unfinished task', 'new unconfirmed draft',
+` +
+      `[{path:${JSON.stringify(artifact)},content:'exact new request'}],()=>{process.exit(87)});`;
+    fs.writeFileSync(launcher, source);
+    const exited = spawnSync(process.execPath, [launcher], { encoding: 'utf8' });
+    expect(exited.status, exited.stderr).toBe(87);
+    expect(fs.readFileSync(current, 'utf8')).toBe('old unfinished task');
+    expect(fs.readFileSync(artifact, 'utf8')).toBe('exact new request');
+    fs.writeFileSync(launcher, source.replace('process.exit(87)', ''));
+    expect(spawnSync(process.execPath, [launcher], { encoding: 'utf8' }).status).toBe(0);
+    expect(fs.readFileSync(current, 'utf8')).toBe('new unconfirmed draft');
+  });
+
+  test('process-control successor preserves unfinished history and requires an explicit new draft confirmation', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const original = readCanonicalCurrentTask(root);
+    const oldBasis = readCanonicalTaskBasis(root, original);
+    fs.writeFileSync(path.join(root, 'README.md'), 'Retain this partially implemented behavior; do not reset it.');
+    const draft = singleStepSemanticDraft({ goal: 'Replace the old task with the explicitly requested direction' });
+    const source = 'conversation:explicit-successor';
+    const decision = 'Stop the prior direction, retain its unfinished facts and changes, and prepare this replacement for confirmation.';
+    draft.task_basis.user_decisions.push({ source, verbatim: decision });
+    const beforeRequest = {
+      task_id: original.runtimeState.task_id, document_id: original.sourceTuple.document_id,
+      source_revision: original.sourceTuple.revision, basis_revision: oldBasis.revision,
+      decision_source: source, decision_text: decision, obligations: [],
+    };
+    expect(() => prepareSuccessor(root, { predecessor: beforeRequest, draft })).toThrow('SUCCESSOR_STATE_INVALID');
+    expect(applyVNextRuntimeProposal(root, createLifecycleProposal(original, {
+      mode: 'supersede', delta: supersedeDelta(), idempotency_key: 'process-control-supersede',
+      authority_evidence: evidence('active-task-owner', 'evidence-admission'), evidence_refs: ['test:evidence:supersede'],
+    })).status).toBe('success');
+    const superseded = readCanonicalCurrentTask(root);
+    const predecessor = { ...beforeRequest, source_revision: superseded.sourceTuple.revision,
+      obligations: predecessorObligationKeys(superseded).map(prior_key => ({ prior_key, disposition: 'retired' as const, successor_claim_id: null, reason: 'Explicitly replaced requirement, not a completed result.' })) };
+    expect(() => prepareDraft(root, draft)).toThrow('REPLACEMENT_OUTCOME_UNSUPPORTED');
+    expect(prepareSuccessor(root, { predecessor: { ...predecessor, source_revision: original.sourceTuple.revision }, draft }).code).toBe('SUCCESSOR_SOURCE_STALE');
+    expect(prepareSuccessor(root, { predecessor: { ...predecessor, obligations: [] }, draft }).code).toBe('SUCCESSOR_OBLIGATIONS_INVALID');
+    const invented = structuredClone(draft); invented.task_basis.user_decisions = [];
+    expect(prepareSuccessor(root, { predecessor, draft: invented }).code).toBe('SUCCESSOR_AUTHORITY_INVALID');
+    expect(readCanonicalCurrentTask(root).raw).toBe(superseded.raw);
+    const preview = prepareSuccessor(root, { predecessor, draft }, { dryRun: true });
+    expect(preview.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).raw).toBe(superseded.raw);
+    const cliPrepared = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'prepare-successor', { predecessor, draft });
+    expect(cliPrepared.status, cliPrepared.stderr + cliPrepared.stdout).toBe(0);
+    const prepared = cliPrepared.json;
+    expect(prepared.status).toBe('success');
+    const next = readCanonicalCurrentTask(root);
+    expect(next.runtimeState.workflow_status).toBe('draft');
+    expect(next.runtimeState.task_id).not.toBe(original.runtimeState.task_id);
+    expect(next.sourceTuple.document_id).not.toBe(original.sourceTuple.document_id);
+    expect(next.runtimeState.claim_evidence![0]!.slots[0]!.report).toBeNull();
+    expect(fs.readFileSync(oldBasis.filePath, 'utf8')).toBe(oldBasis.content);
+    const snapshot = path.join(root, successorSnapshotPath(superseded.relativePath, superseded.sourceTuple.document_id, superseded.sourceTuple.revision));
+    expect(fs.readFileSync(snapshot, 'utf8')).toBe(superseded.raw);
+    expect(fs.readFileSync(path.join(root, 'README.md'), 'utf8')).toContain('Retain this partially implemented');
+    expect(() => preflightStep(root, { candidate_paths: [] })).toThrow();
+    expect(prepareSuccessor(root, { predecessor, draft }).status).toBe('no-op');
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.workflow_status).toBe('active');
+    expect(fs.readFileSync(snapshot, 'utf8')).toContain('workflow_status: superseded');
+    expect(fs.readFileSync(oldBasis.filePath, 'utf8')).toBe(oldBasis.content);
+  });
+
+  test('process-control risk decision skips only its bound verification and preserves real failures through retry', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const semantic = singleStepSemanticDraft();
+    semantic.claim_evidence[0]!.slots[0]!.check!.validation_items = [...semantic.implementation_steps[0]!.validation];
+    const root = confirmedSemanticRoot(semantic);
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const command = preflight.current_step.commands[0]!.command;
+    const validation = preflight.current_step.validation[0]!;
+    fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Actual observed validation failure, retained after the risk decision.');
+    const failed = { preflight_receipt: preflight.receipt, actual_changed_paths: [], acceptance_evidence: [],
+      command_results: [{ command, status: 'failed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation, status: 'failed', evidence_refs: ['evidence-report.txt'] }],
+      outcome: 'blocked', note: 'The check failed; do not turn this into PASS.' };
+    expect(recordStepResult(root, failed).status).toBe('success');
+    const before = readCanonicalCurrentTask(root);
+    const claim = before.runtimeState.claim_evidence![0]!; const slot = claim.slots[0]!;
+    const request = { claim_id: claim.claim_id, slot_id: slot.slot_id, check_id: slot.check!.check_id,
+      evidence_plan_revision: before.runtimeState.evidence_plan_revision!, subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision,
+      decision_source: 'conversation:accept-risk', decision_text: 'I accept the unverified risk of this check and its associated validation; retain the actual failure.', validation_items: [validation] };
+    expect(recordUserEvidenceDecision(root, 'waiver', { ...request, validation_items: ['Unrelated verification'] }).code).toBe('EVIDENCE_WAIVER_TARGET_INVALID');
+    const recorded = recordUserEvidenceDecision(root, 'waiver', request);
+    expect(recorded.status, JSON.stringify(recorded)).toBe('success');
+    const decided = readCanonicalCurrentTask(root);
+    const decision = decided.runtimeState.claim_evidence![0]!.slots[0]!.user_decision!;
+    const budget = decided.runtimeState.step_attempts!['step-1']!;
+    expect(retryStep(root, { step_id: 'step-1', blocked_attempt_id: budget.attempts.at(-1)!.attempt_id,
+      blocker_resolution_refs: [readCanonicalTaskBasis(root).path], idempotency_key: 'risk-accepted-retry' }).status).toBe('success');
+    const next = preflightStep(root, { candidate_paths: [] });
+    const accepted = { ...failed, preflight_receipt: next.receipt, outcome: 'implemented', note: 'Implemented; required check not run by explicit risk decision, not PASS.',
+      command_results: [{ command, status: 'not-run', observed_repo_writes: [], evidence_refs: [readCanonicalTaskBasis(root).path], waiver_decision_id: decision.decision_id }],
+      validation_results: [{ validation, status: 'not-run', evidence_refs: [readCanonicalTaskBasis(root).path], waiver_decision_id: decision.decision_id }] };
+    expect(() => recordStepResult(root, { ...accepted, command_results: [{ ...accepted.command_results[0], waiver_decision_id: 'fabricated' }] })).toThrow('EVIDENCE_WAIVER_RESULT_UNBOUND');
+    expect(recordStepResult(root, accepted).status).toBe('success');
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.step_attempts!['step-1']!.max_attempts).toBe(budget.max_attempts);
+    expect(after.runtimeState.step_attempts!['step-1']!.attempts[0]!.blocker!.execution_result.command_results[0]!.status).toBe('failed');
+    expect(after.runtimeState.claim_evidence![0]!.slots[0]!.report).toEqual(slot.report);
+    expect(evaluateClaimEvidence(after.runtimeState.claim_evidence!, { root, current: after }).acceptance_satisfied).toBe(true);
+    expect(after.runtimeState.pending_review_result).toBeNull();
+    const context = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: context.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Review completed; retained explicit risk is not tested success.' }).status).toBe('success');
+    const close = archiveProposal(root, archiveDelta({
+      delivery_summary: deliverySummary({ verification: ['Check not run by explicit user risk decision; the original failure remains retained.'] }),
+      remaining_risks: ['The waived observation remains unverified.'],
+    }));
+    const archived = applyVNextRuntimeProposal(root, close);
+    expect(archived.status, JSON.stringify(archived)).toBe('success');
+    const archivePath = archived.planned_writes.find(item => /TASK-.*\.md$/.test(item));
+    expect(archivePath).toBeDefined();
+    expect(fs.readFileSync(path.join(root, archivePath!), 'utf8')).toContain('conversation:accept-risk');
+  });
+
+  test('process-control user evidence preserves observation, risk and gate semantics', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    for (const kind of ['human-acceptance', 'waiver'] as const) {
+      const semantic = singleStepSemanticDraft();
+      const plannedSlot = semantic.claim_evidence[0]!.slots[0]!;
+      if (kind === 'human-acceptance') {
+        plannedSlot.check!.method = 'human'; plannedSlot.check!.expected_result = 'accepted';
+        delete plannedSlot.check!.selection;
+      }
+      const root = confirmedSemanticRoot(semantic);
+      const before = readCanonicalCurrentTask(root);
+      const claim = before.runtimeState.claim_evidence![0]!;
+      const slot = claim.slots[0]!;
+      if (kind === 'human-acceptance') {
+        const raw = structuredClone(slot);
+        raw.disposition = 'newly-executed'; raw.evidence_refs = ['evidence-report.txt'];
+        raw.report = reportFixture(root, claim.claim_id, slot.slot_id, 'accepted').report;
+        expect(evaluateEvidenceSlotForContext(root, before, claim, raw).satisfied).toBe(false);
+      }
+      const request = { claim_id: claim.claim_id, slot_id: slot.slot_id, check_id: slot.check!.check_id,
+        evidence_plan_revision: before.runtimeState.evidence_plan_revision!,
+        subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision,
+        decision_source: 'conversation:user-acceptance-1',
+        decision_text: kind === 'human-acceptance' ? 'I personally checked the requested behavior and accept this observation.' : 'I waive this exact verification obligation and accept its unverified risk, not a test PASS.' };
+      const preview = recordUserEvidenceDecision(root, kind, request, { dryRun: true });
+      expect(preview.status, JSON.stringify(preview)).toBe('success');
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      const result = recordUserEvidenceDecision(root, kind, request);
+      expect(result.status, JSON.stringify(result)).toBe('success');
+      const after = readCanonicalCurrentTask(root);
+      const observed = after.runtimeState.claim_evidence![0]!.slots[0]!;
+      expect(readDraftDefinitionFromBody(after.body)).toEqual(readDraftDefinitionFromBody(before.body));
+      expect(after.runtimeState.evidence_plan_revision).toBe(before.runtimeState.evidence_plan_revision);
+      expect(after.runtimeState.active_step_status).toBe(before.runtimeState.active_step_status);
+      expect(after.runtimeState.findings).toEqual(before.runtimeState.findings);
+      expect(after.runtimeState.pending_review_result).toEqual(before.runtimeState.pending_review_result);
+      expect(readCanonicalTaskBasis(root).basis.user_decisions.at(-1)).toEqual({ source: request.decision_source, verbatim: request.decision_text });
+      expect(observed.user_decision).toMatchObject({ kind, assurance: 'caller-reported', check_id: request.check_id });
+      if (kind === 'waiver') {
+        expect(observed.report).toEqual(slot.report);
+        expect(observed.disposition).toEqual(slot.disposition);
+        expect(result.state!.recorded_evidence_waivers).toHaveLength(1);
+      } else expect(observed.report).toMatchObject({ status: 'accepted', actual_method: 'human', assurance: 'caller-reported' });
+      expect(evaluateClaimEvidence(after.runtimeState.claim_evidence!, { root, current: after }).acceptance_satisfied).toBe(true);
+      expect(recordUserEvidenceDecision(root, kind, request).status).toBe('no-op');
+      fs.appendFileSync(path.join(root, slot.check!.subject_paths[0]!), '\nchanged after user observation');
+      expect(evaluateClaimEvidence(after.runtimeState.claim_evidence!, { root, current: after }).acceptance_satisfied).toBe(false);
+      expect(recordUserEvidenceDecision(root, kind, { ...request, decision_source: 'conversation:user-acceptance-2' }).status).toBe('blocked');
+    }
+  });
+
+  test('process-control rejects an incompatible human method and conflicting user source', () => {
+    const semantic = singleStepSemanticDraft();
+    const root = confirmedSemanticRoot(semantic);
+    const current = readCanonicalCurrentTask(root);
+    const claim = current.runtimeState.claim_evidence![0]!; const slot = claim.slots[0]!;
+    const request = { claim_id: claim.claim_id, slot_id: slot.slot_id, check_id: slot.check!.check_id,
+      evidence_plan_revision: current.runtimeState.evidence_plan_revision!, subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision,
+      decision_source: 'conversation:user-decision-2', decision_text: 'I have manually checked it.' };
+    expect(recordUserEvidenceDecision(root, 'human-acceptance', request)).toMatchObject({ status: 'blocked', code: 'USER_EVIDENCE_METHOD_INVALID' });
+    const basis = readCanonicalTaskBasis(root).basis;
+    expect(recordUserEvidenceDecision(root, 'waiver', { ...request, decision_source: basis.original_request.source, decision_text: 'Invented replacement of original user statement' }))
+      .toMatchObject({ status: 'blocked', code: 'USER_EVIDENCE_SOURCE_INVALID' });
+    expect(readCanonicalCurrentTask(root).raw).toBe(current.raw);
+  });
+
+  test('shared minimum-sufficient validation matrix', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    // One claim/fixture; each row changes only the dimension under examination.
+    // The target contains unrelated cases; selecting it is never the default.
+    const cases = [
+      { name: 'C1 local rule + business-flow focused slots', mixed: true },
+      { name: 'local focused selector' },
+      { name: 'local target without reason', target: true, error: 'CLAIM_EVIDENCE_BREADTH_REQUIRED' },
+      { name: 'local runner limited to target', target: true, authority: 'user' },
+      { name: 'business-flow focused integration case', flow: true },
+      { name: 'business-flow target runner limitation', flow: true, target: true, authority: 'user' },
+      { name: 'unit PASS cannot replace flow', mixed: true, reportSubstitution: true },
+      { name: 'E2E without reason', e2e: true, error: 'CLAIM_EVIDENCE_BREADTH_REQUIRED' },
+      { name: 'real release policy requires E2E', e2e: true, authority: 'release' },
+      { name: 'forged explicit-user', target: true, authority: 'forged', error: 'TEST_STRATEGY_INVALID' },
+      { name: 'Contract authorizes broad without user decision', broad: true, authority: 'contract' },
+      { name: 'missing Contract identity', broad: true, authority: 'missing-contract', error: 'CLAIM_EVIDENCE_AUTHORITY_INVALID' },
+      { name: 'Contract is not explicit-user', target: true, authority: 'contract-as-user', error: 'TEST_STRATEGY_INVALID' },
+      { name: 'focused metadata disagrees with whole-target invocation', mismatch: true, error: 'CLAIM_EVIDENCE_INVOCATION_UNBOUND' },
+      { name: 'opaque wrapper preserves command format', target: true, opaque: true, authority: 'user' },
+      { name: 'opaque cannot claim Runtime-proven focused', opaque: true, error: 'CLAIM_EVIDENCE_SELECTOR_UNBOUND' },
+      { name: 'opaque target still needs reason', target: true, opaque: true, error: 'CLAIM_EVIDENCE_BREADTH_REQUIRED' },
+      { name: 'recovery replacement without selection', legacy: true, replacement: true, error: 'CLAIM_EVIDENCE_SELECTION_REQUIRED' },
+      { name: 'recovery replacement with new contract', legacy: true, replacement: true, restore: true },
+      { name: 'unchanged legacy check', legacy: true },
+    ];
+    for (const row of cases) {
+      const root = archivedBaselineRoot();
+      const draft = singleStepSemanticDraft();
+      draft.mutation_scope.allowed = ['README.md'];
+      draft.implementation_steps[0]!.mutation_scope = ['README.md'];
+      const claim = draft.claim_evidence[0]!;
+      claim.claim_id = 'C1';
+      const rule = claim.slots[0]!;
+      rule.slot_id = 'C1-rule'; rule.check!.check_id = 'C1-rule-check';
+      rule.check!.subject_paths = ['README.md'];
+      const check = rule.check!;
+      const selection = check.selection!;
+      const focusedCommand = 'bun test test/ticket.test.ts --test-name-pattern ticket_rule';
+      check.entry = focusedCommand;
+      selection.selector = 'ticket_rule';
+      selection.invocation = { kind: 'structured', argv: ['bun', 'test', 'test/ticket.test.ts', '--test-name-pattern', 'ticket_rule'], selector_arg_index: 4 };
+      if (row.flow || row.e2e) {
+        check.boundary = row.e2e ? 'e2e' : 'business-flow';
+        check.required_boundaries = ['writer persists ticket', 'fresh process reads ticket'];
+      }
+      if (row.target || row.broad) {
+        selection.granularity = row.broad ? 'broad-regression' : 'target';
+        selection.selector = null;
+        selection.invocation = { argv: ['bun', 'test', 'test/ticket.test.ts'], selector_arg_index: null };
+        check.entry = 'bun test test/ticket.test.ts';
+      }
+      if (row.opaque) {
+        check.entry = 'pwsh -File scripts/test-ticket.ps1 -Environment test';
+        selection.invocation = { kind: 'opaque', command: check.entry };
+      }
+      if (row.authority) {
+        selection.breadth_reason = 'This launcher has no finer selector for the required ticket observation.';
+        selection.breadth_basis = 'explicit-user';
+        selection.breadth_source_ref = 'test:runner-decision';
+        if (row.authority === 'user') draft.task_basis.user_decisions.push({
+          source: 'test:runner-decision', verbatim: 'Allow the target: the ticket launcher cannot select individual cases.',
+        });
+        if (row.authority === 'release') {
+          fs.writeFileSync(path.join(root, 'release-policy.md'), '# Release\nReal end-to-end ticket validation is required before release.\n');
+          selection.breadth_basis = 'release-gate'; selection.breadth_source_ref = 'release-policy.md#Release';
+        }
+        if (row.authority.includes('contract')) {
+          fs.writeFileSync(path.join(root, 'CONTRACTS.md'), '# C-1: Ticket compatibility\nBroad compatibility validation is required across ticket consumers.\n');
+          claim.source_ref = row.authority === 'missing-contract' ? 'CONTRACTS.md#missing' : 'CONTRACTS.md#C-1';
+          selection.breadth_basis = 'claim-risk-contract'; selection.breadth_source_ref = 'C1';
+          if (row.authority === 'contract-as-user') {
+            selection.breadth_basis = 'explicit-user'; selection.breadth_source_ref = claim.source_ref;
+          }
+        }
+      }
+      if (row.mismatch) check.entry = 'bun test test/ticket.test.ts';
+      if (row.mixed) {
+        const flow = structuredClone(rule);
+        flow.slot_id = 'C1-flow'; flow.check!.check_id = 'C1-flow-check';
+        flow.minimum_type = 'integration-smoke'; flow.check!.boundary = 'business-flow';
+        flow.check!.expected_observation = 'A ticket persists across writer and fresh reader processes';
+        flow.check!.required_boundaries = ['writer persists ticket', 'fresh process reads ticket'];
+        flow.check!.entry = 'bun test test/ticket.test.ts --test-name-pattern ticket_flow';
+        flow.check!.selection!.selector = 'ticket_flow';
+        flow.check!.selection!.invocation = { kind: 'structured', argv: ['bun', 'test', 'test/ticket.test.ts', '--test-name-pattern', 'ticket_flow'], selector_arg_index: 4 };
+        claim.slots.push(flow);
+      }
+      draft.implementation_steps[0]!.commands = claim.slots.map(slot => ({ command: slot.check!.entry, expected_repo_writes: 'none' }));
+      let previous: ClaimEvidenceRecord[] = [];
+      if (row.legacy) {
+        delete check.selection; delete check.boundary;
+        previous = structuredClone(draft.claim_evidence);
+        if (row.replacement) {
+          check.check_id = 'replacement';
+          if (row.restore) { check.selection = selection; check.boundary = 'local'; }
+        }
+      }
+      const admission = () => assertEvidencePlan(semanticDraftDefinition(draft), draft.claim_evidence, !row.legacy,
+        { root, taskBasis: draft.task_basis, previous });
+      if (row.error) {
+        expect(admission, row.name).toThrow(row.error);
+        continue;
+      }
+      expect(admission, row.name).not.toThrow();
+      if (row.legacy) {
+        expect(readCanonicalCurrentTask(makeRoot(makeRuntimeState({ claim_evidence: previous }))).runtimeState.claim_evidence, row.name).toEqual(previous);
+        continue;
+      }
+      const prepared = prepareDraft(root, draft);
+      expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status, row.name).toBe('success');
+      const frozen = readCanonicalCurrentTask(root).runtimeState.claim_evidence![0]!;
+      expect(frozen, row.name).not.toHaveProperty('boundary');
+      expect(frozen.slots, row.name).toEqual(claim.slots);
+      if (row.mixed) expect(frozen.slots.map(slot => [slot.slot_id, slot.check!.boundary, slot.check!.selection!.granularity]), row.name)
+        .toEqual([['C1-rule', 'local', 'focused'], ['C1-flow', 'business-flow', 'focused']]);
+      if (row.opaque) expect(evidenceContext(root, {}).checks[0], row.name).toMatchObject({
+        frozen_invocation: check.entry, execution_selection: { invocation: selection.invocation },
+      });
+      if (row.reportSubstitution) {
+        const preflight = preflightStep(root, { candidate_paths: [] });
+        const ruleReport = reportFixture(root, 'C1', 'C1-rule');
+        const result = { preflight_receipt: preflight.receipt, actual_changed_paths: [],
+          command_results: draft.implementation_steps[0]!.commands.map(item => ({
+            command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'],
+          })),
+          validation_results: [{ validation: draft.implementation_steps[0]!.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+          acceptance_evidence: [{ ...ruleReport, slot_id: 'C1-flow' }], outcome: 'implemented', note: 'Matrix caller-reported result fixture' };
+        expect(() => recordStepResult(root, result), row.name).toThrow('CLAIM_EVIDENCE_PLAN_CONFLICT');
+        expect(recordStepResult(root, { ...result, acceptance_evidence: [ruleReport] }).status, row.name).toBe('success');
+        const current = readCanonicalCurrentTask(root);
+        expect(current.runtimeState.claim_evidence![0]!.slots[1]!.report, row.name).toBeNull();
+        expect(applyVNextRuntimeProposal(root, taskProposal(root, { claim_evidence: current.runtimeState.claim_evidence, idempotency_key: 'matrix-missing-flow' })), row.name)
+          .toMatchObject({ status: 'blocked', code: 'CLAIM_EVIDENCE_INCOMPLETE' });
+      }
+    }
+  });
+
+  test('validation contract enforces replacement selection through correction and execution recovery adapters', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const semantic = singleStepSemanticDraft();
+    semantic.mutation_scope.allowed = ['README.md'];
+    semantic.implementation_steps[0]!.mutation_scope = ['README.md'];
+    semantic.claim_evidence[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    const root = confirmedSemanticRoot(semantic);
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const report = reportFixture(root);
+    const command = semantic.implementation_steps[0]!.commands[0]!.command;
+    const result = { preflight_receipt: preflight.receipt, actual_changed_paths: [],
+      command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: semantic.implementation_steps[0]!.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [report], outcome: 'implemented', note: 'Observe the original check' };
+    expect(recordStepResult(root, { ...result, outcome: 'blocked', command_results: [{ ...result.command_results[0], status: 'blocked' }] })).toMatchObject({ status: 'blocked', code: 'CLAIM_EVIDENCE_RESULT_UNBOUND' });
+    expect(recordStepResult(root, result).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(review.claim_evidence[0]).toMatchObject({ slots: [{ boundary: 'local', frozen_invocation: command }] });
+    expect(review.claim_evidence[0]).not.toHaveProperty('boundary');
+    expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Reviewed the original observation' }).status).toBe('success');
+    fs.writeFileSync(path.join(root, 'counterexample.txt'), 'The selected case missed the reconnect failure.');
+    expect(recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: report.report.result_id,
+      evidence_ref: 'counterexample.txt', evidence_sha256: fileRevision(path.join(root, 'counterexample.txt')), reason: 'A replacement selector is required' }).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    const replacement = structuredClone(current.runtimeState.claim_evidence![0]!.slots[0]!.check!);
+    replacement.check_id = 'replacement';
+    const selected = replacement.selection;
+    delete replacement.selection;
+    const recovery = { challenge_ids: [current.runtimeState.evidence_challenges![0]!.challenge_id],
+      correction_step: { id: 'R1', description: 'Verify the replacement case', mutation_scope: semantic.implementation_steps[0]!.mutation_scope,
+        commands: [{ command, expected_repo_writes: 'none' }], required_evidence: ['Replacement observation'] },
+      obligation_map: [{ claim_id: 'A1', slot_id: 'a1', due_step_id: 'R1', replaces_check_id: 'K1', check: replacement }] };
+    expect(() => prepareCorrectionReplan(root, { ...recovery, mode: 'execution-recovery', obligation_map: [
+      { ...recovery.obligation_map[0], check: { ...replacement, boundary: 'business-flow', selection: selected } },
+    ] })).toThrow('RECOVERY_CHECK_WEAKENED');
+    for (const mode of ['conclusion-correction', 'execution-recovery']) {
+      expect(() => prepareCorrectionReplan(root, { ...recovery, mode })).toThrow('CLAIM_EVIDENCE_SELECTION_REQUIRED');
+    }
+    replacement.selection = selected;
+    const prepared = prepareCorrectionReplan(root, { ...recovery, mode: 'execution-recovery' });
+    expect(confirmCorrectionReplan(root, { candidate_receipt: prepared.candidate_receipt, authorization: {
+      approved_candidate_digest: prepared.candidate_receipt.candidate_digest, decision_source: 'test:replacement',
+      decision_text: 'Approve the bounded replacement check.', invalidation_reason: 'The old check missed reconnect.' } }).status).toBe('success');
+    expect(evidenceContext(root, {}).checks[0]).toMatchObject({ check_id: 'replacement', boundary: 'local', frozen_invocation: command });
+  });
+
   // S2 admission: protects distinct business obligations, current applicability,
   // and Runtime-owned prerequisite consumption through production adapters.
-  test('S2 rule success cannot complete or close missing/failed flow; exact reports survive audit but not fixture changes', () => {
+  test('S2 rule success cannot complete or close missing/failed flow; exact reports survive audit but not fixture changes', { timeout: 30000 }, () => {
     const semantic = singleStepSemanticDraft();
     const requirement = 'A valid ticket can be saved and read by a fresh process';
     semantic.task_basis.original_request.verbatim = requirement;
@@ -5362,26 +7040,49 @@ describe('vNext Phase 2 Runtime contract', () => {
     const ruleScript = 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("fixture.json")); if(x.ticket!=="persisted") process.exit(1); fs.writeFileSync("stored.json",JSON.stringify(x));';
     const flowScript = 'const x=require("./stored.json"); if(x.ticket!=="persisted") process.exit(1);';
     const ruleCommand = `node -e ${JSON.stringify(ruleScript)}`;
-    semantic.implementation_steps[0]!.commands = [{ command: ruleCommand, expected_repo_writes: ['stored.json'] }];
+    semantic.implementation_steps[0]!.commands = [{ command: ruleCommand, expected_repo_writes: ['stored.json'] }, { command: `node -e ${JSON.stringify(flowScript)}`, expected_repo_writes: 'none' }];
     semantic.implementation_steps[0]!.validation = ['Stored ticket satisfies the admitted schema'];
     const rule = semantic.claim_evidence[0]!.slots[0]!;
     rule.check!.entry = ruleCommand;
-    rule.check!.expected_observation = requirement;
+    rule.check!.selection = { granularity: 'focused', selector: ruleScript,
+      invocation: { argv: ['node', '-e', ruleScript], selector_arg_index: 2 },
+      selection_reason: 'Observe the ticket schema rule in this isolated function chain.', breadth_reason: null, breadth_basis: null, breadth_source_ref: null };
+    rule.check!.expected_observation = 'The ticket satisfies the persisted schema rule';
     rule.check!.subject_paths = ['fixture.json'];
     const flow = structuredClone(rule);
     flow.slot_id = 'flow'; flow.minimum_type = 'integration-smoke'; flow.check!.check_id = 'flow-check';
     flow.check!.required_boundaries = ['write storage', 'new process reads storage'];
     flow.check!.subject_paths = ['fixture.json', 'stored.json'];
     flow.check!.entry = `node -e ${JSON.stringify(flowScript)}`;
+    flow.check!.boundary = 'business-flow';
+    flow.check!.expected_observation = requirement;
+    flow.check!.selection = {
+      granularity: 'focused', selector: flowScript,
+      invocation: { argv: ['node', '-e', flowScript], selector_arg_index: 2 },
+      selection_reason: 'The claim requires a write followed by a fresh-process read.',
+      breadth_reason: null, breadth_basis: null, breadth_source_ref: null,
+    };
     semantic.claim_evidence[0]!.slots.push(flow);
-    const root = confirmedSemanticRoot(semantic);
+    const root = archivedBaselineRoot();
+    const ruleOnly = structuredClone(semantic);
+    ruleOnly.claim_evidence[0]!.slots.pop();
+    ruleOnly.implementation_steps[0]!.commands = [ruleOnly.implementation_steps[0]!.commands[0]!];
+    expect(prepareDraft(root, ruleOnly).status).toBe('success');
+    const mixedDraft = prepareDraft(root, semantic);
+    expect(mixedDraft.status).toBe('success');
+    expect(confirmDraft(root, { confirmation_receipt: mixedDraft.confirmation_receipt }).status).toBe('success');
+    const frozen = readCanonicalCurrentTask(root).runtimeState.claim_evidence![0]!;
+    expect(frozen).not.toHaveProperty('boundary');
+    expect(frozen.slots.map(slot => [slot.check!.boundary, slot.check!.selection!.granularity])).toEqual([
+      ['local', 'focused'], ['business-flow', 'focused'],
+    ]);
     fs.writeFileSync(path.join(root, 'fixture.json'), '{"ticket":"persisted"}');
     const preflight = preflightStep(root, { candidate_paths: ['stored.json'] });
     expect(Bun.spawnSync([process.execPath, '-e', ruleScript], { cwd: root }).exitCode).toBe(0);
     expect(Bun.spawnSync([process.execPath, '-e', flowScript], { cwd: root }).exitCode).toBe(0);
     const ruleReport = reportFixture(root);
     const wrong = { ...ruleReport, slot_id: 'flow' };
-    const input = { preflight_receipt: preflight.receipt, actual_changed_paths: ['stored.json'], command_results: [{ command: ruleCommand, status: 'passed', observed_repo_writes: ['stored.json'], evidence_refs: ['evidence-report.txt'] }], validation_results: [{ validation: 'Stored ticket satisfies the admitted schema', status: 'passed', evidence_refs: ['evidence-report.txt'] }], acceptance_evidence: [wrong], outcome: 'implemented', note: 'isolated evidence checks' };
+    const input = { preflight_receipt: preflight.receipt, actual_changed_paths: ['stored.json'], command_results: [{ command: ruleCommand, status: 'passed', observed_repo_writes: ['stored.json'], evidence_refs: ['evidence-report.txt'] }, { command: flow.check!.entry, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }], validation_results: [{ validation: 'Stored ticket satisfies the admitted schema', status: 'passed', evidence_refs: ['evidence-report.txt'] }], acceptance_evidence: [wrong], outcome: 'implemented', note: 'isolated evidence checks' };
     expect(() => recordStepResult(root, input)).toThrow('CLAIM_EVIDENCE_PLAN_CONFLICT');
     expect(recordStepResult(root, { ...input, acceptance_evidence: [{ ...ruleReport, report: { ...ruleReport.report, assurance: 'trusted' } }] })).toMatchObject({ status: 'success', evidence_assurance: 'caller-reported' });
     let current = readCanonicalCurrentTask(root);
@@ -5438,7 +7139,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const before = fs.readFileSync(canonical.filePath, 'utf8');
     function context() {
       const result = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'evidence-context', '--root', root], {input: '{}', encoding: 'utf8'});
-      expect(result.status, result.stderr).toBe(0);
+      expect(result.status).toBe(0);
       const value = JSON.parse(result.stdout);
       expect(value).toMatchObject({status: 'pass', committed: false, evidence_assurance: 'caller-reported'});
       expect(fs.readFileSync(canonical.filePath, 'utf8')).toBe(before);
@@ -5457,6 +7158,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
     const initial = context();
     expect(initial.checks).toHaveLength(2);
+    expect(initial.checks[0]).toMatchObject({ boundary: 'local', execution_selection: { granularity: 'focused' } });
     expect(initial.checks[0].subject_revision).not.toBe(initial.checks[1].subject_revision);
     fs.appendFileSync(path.join(root, editedPath), '\n// fixture v2');
     const input = {
@@ -5476,13 +7178,15 @@ describe('vNext Phase 2 Runtime contract', () => {
   // preserve the user's dirty base, and repair that path at the later checkpoint.
   // S4/P-12: a real environment-dependent process fails then succeeds;
   // durable retry neither grants evidence nor erases the original failure.
-  test('S4 retries an environment blocker through fresh preflight and execution without bypassing evidence', () => {
+  test('S4 retries an environment blocker through fresh preflight and execution without bypassing evidence', { timeout: LARGE_HISTORY_TEST_TIMEOUT }, () => {
     const semantic=singleStepSemanticDraft();
     const code='process.exit(process.env.S4_READY === "yes" ? 0 : 9)';
     const command='bun -e '+JSON.stringify(code);
     semantic.implementation_steps[0]!.commands=[{command,expected_repo_writes:'none'}];
     semantic.implementation_steps[0]!.validation=[command];
     semantic.claim_evidence[0]!.slots[0]!.check!.entry=command;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.selector = code;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.invocation = { argv: ['bun', '-e', code], selector_arg_index: 2 };
     const root=confirmedSemanticRoot(semantic);
     const editedPath='runtime/vnext/src/prepare-task-adapter.ts';
     fs.mkdirSync(path.dirname(path.join(root,editedPath)),{recursive:true});
@@ -5536,18 +7240,18 @@ describe('vNext Phase 2 Runtime contract', () => {
     // Bind the actual successful run to its still-required business check.
     const refreshed=preflightStep(root,{candidate_paths:[]});
     expect(recordStepResult(root,{...passed,preflight_receipt:refreshed.receipt,acceptance_evidence:[reportFixture(root)]}).status).toBe('success');
-    // Exercise real Runtime pruning through bounded state-only audit entries;
+    // Exercise durable Runtime history past the legacy 256-entry hot window;
     // no canonical editing and no invented additional process executions.
     for (let i=0;i<257;i++) {
       expect(applyVNextRuntimeProposal(root,taskProposal(root,{status:'in-progress',idempotency_key:`retry-audit-${i}`,note:`retained evidence audit ${i}`})).status).toBe('success');
     }
-    const pruned=readCanonicalCurrentTask(root);
-    expect(pruned.runtimeState.applied_proposals.some(p=>p.idempotency_key===retryInput.idempotency_key)).toBe(false);
-    expect(pruned.runtimeState.execution_log.some(e=>e.idempotency_key===failure.idempotency_key)).toBe(false);
-    const prunedBytes=fs.readFileSync(pruned.filePath,'utf8');
+    const durable=readCanonicalCurrentTask(root);
+    expect(durable.runtimeState.applied_proposals.some(p=>p.idempotency_key===retryInput.idempotency_key)).toBe(true);
+    expect(durable.runtimeState.execution_log.some(e=>!('action' in e) && e.step_id==='step-1' && e.status==='blocked')).toBe(true);
+    const durableBytes=fs.readFileSync(durable.filePath,'utf8');
     expect(applyVNextRuntimeProposal(root,raw).status).toBe('no-op');
     expect(retryStep(root,retryInput).status).toBe('no-op');
-    expect(fs.readFileSync(pruned.filePath,'utf8')).toBe(prunedBytes);
+    expect(fs.readFileSync(durable.filePath,'utf8')).toBe(durableBytes);
     const postPrune=preflightStep(root,{candidate_paths:[]});
     expect(spawnSync('bun',['-e',code],{env:{...process.env,S4_READY:'yes'},encoding:'utf8'}).status).toBe(0);
     expect(recordStepResult(root,{...passed,preflight_receipt:postPrune.receipt,acceptance_evidence:[],note:'fresh execution after audit pruning'}).status).toBe('success');
@@ -5557,10 +7261,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(completeReviewedStep(root,{step_id:'step-1',note:'fresh evidence reviewed'}).status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(2);
     expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts[0]).toEqual(failure);
-  }, 90000);
+  });
 
   // S4/V11: retries are bounded and cannot change frozen authority or objects.
-  test('S4 rejects changed subjects and unknown causes and exhausts exactly two retries', () => {
+  test('S4 rejects changed subjects and unknown causes and exhausts exactly two retries', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     for (const kind of ['environment','unknown'] as const) {
       const root=confirmedSemanticRoot(singleStepSemanticDraft());
       const failAttempt=(receipt: ReturnType<typeof preflightStep>['receipt']) => recordStepResult(root,{preflight_receipt:receipt,actual_changed_paths:[],command_results:[{command:'bun test test/vnext-runtime.test.ts',status:'blocked',observed_repo_writes:[],evidence_refs:['evidence-report.txt']}],validation_results:[{validation:'bun test test/vnext-runtime.test.ts passes',status:'not-run',evidence_refs:[]}],acceptance_evidence:[],outcome:'blocked',blocker_kind:kind,note:'fixture environment unavailable'});
@@ -5610,6 +7314,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     semantic.implementation_steps[0]!.commands = [{ command, expected_repo_writes: 'none' }];
     semantic.implementation_steps[0]!.validation = [command];
     semantic.claim_evidence[0]!.slots[0]!.check!.entry = command;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.selector = file;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.invocation = { argv: ['bun', file], selector_arg_index: 1 };
     const root = confirmedSemanticRoot(semantic);
     fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
     const preflight = preflightStep(root, { candidate_paths: [file] });
@@ -5713,7 +7419,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const before = fs.readFileSync(canonicalPath);
     const raw = spawnSync('node', [path.join(root, '.workflow-system/runtime/dist/cli.js'), 'validate', '--root', root], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     expect(raw.status).toBe(0);
-    expect(Buffer.byteLength(raw.stdout)).toBeGreaterThan(1024 * 1024);
+    expect(Buffer.byteLength(raw.stdout)).toBeLessThan(512 * 1024);
     const identityPath = path.join(root, '.workflow-system/runtime/tools/rg/identity.json');
     fs.unlinkSync(identityPath);
     expect(upgradeDistribution({ targetRoot: root, packageRoot, dryRun: true }).status).toBe('ready');
@@ -5745,7 +7451,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(recordStepResult(root,{preflight_receipt:first.receipt,actual_changed_paths:[a],command_results:[],validation_results:[{validation:semantic.implementation_steps[0]!.validation[0]!,status:'passed',evidence_refs:['evidence-report.txt']}],acceptance_evidence:[],outcome:'implemented',note:'defer review to integration'})).toMatchObject({status:'success',advancement:{to_step_id:'step-2'}});
     const aState = readCanonicalCurrentTask(root).runtimeState.review_coverage!;
     expect(aState.pending_paths).toEqual([a]);
-    expect(Buffer.from(aState.preimages.find(p => p.path===a)!.content_base64!,'base64').toString()).toBe(dirtyBase);
+    const preimage = aState.preimages.find(p => p.path === a)!;
+    expect(Object.keys(preimage).sort()).toEqual(['path', 'sha256', 'state']);
+    expect(preimage.sha256).toBe(crypto.createHash('sha256').update(dirtyBase).digest('hex'));
+    expect(fs.readFileSync(reviewPreimageBlobPath(root, preimage.sha256!)).toString()).toBe(dirtyBase);
     const second = preflightStep(root,{candidate_paths:[b]});
     fs.mkdirSync(path.dirname(path.join(root,b)),{recursive:true});
     fs.writeFileSync(path.join(root,b),'export const PRODUCTION_LIMIT = 99;\n');
@@ -5771,7 +7480,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(summaryCli.stdout).not.toContain('content_base64');
     const rawCli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', '--root', root], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     expect(rawCli.status).toBe(0);
-    expect(JSON.parse(rawCli.stdout).runtime_state.review_coverage.preimages.find((item: any) => item.path === a).content_base64).toBe(Buffer.from(dirtyBase).toString('base64'));
+    expect(JSON.parse(rawCli.stdout).runtime_state.review_coverage.preimages.find((item: any) => item.path === a).content_base64).toBeUndefined();
     const beforeReview = fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8');
     const contextCli = spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'review-context', '--root', root], { encoding: 'utf8', input: '{}' });
     expect(contextCli.status).toBe(0);
@@ -5821,6 +7530,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const due = structuredClone(semantic.claim_evidence[0]!);
     due.claim_id='early-rule'; due.claim_kind='invariant';
     due.slots[0]!.slot_id='early-rule'; due.slots[0]!.check!.check_id='early-rule'; due.slots[0]!.due_step_id='step-1';
+    due.slots[0]!.minimum_type='static-inspection'; due.slots[0]!.check!.method='static'; due.slots[0]!.check!.expected_result='accepted'; delete due.slots[0]!.check!.selection;
     semantic.claim_evidence.push(due);
     const root=confirmedSemanticRoot(semantic);
     // Fixture paths are within this isolated root; preserve the declared original.
@@ -5858,7 +7568,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.review_coverage!.pending_paths.sort()).toEqual([a,b,c].sort());
   });
 
-  test('S2 consumes reproduction before editing, preserves H0 after H1 repair, and rejects forged/stale consumption', () => {
+  test('S2 consumes reproduction before editing, preserves H0 after H1 repair, and rejects forged/stale consumption', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const semantic = semanticDraft();
     semantic.test_strategy = { mode: 'test-first', source: 'explicit-user', source_ref: 'test:original-request', task_classification: 'contract-clear-behavior', rationale: 'Reproduce the defect before fixing it' };
     semantic.mutation_scope.allowed.push('src/login.ts');
@@ -5868,12 +7578,21 @@ describe('vNext Phase 2 Runtime contract', () => {
     const slot = prerequisite.slots[0]!;
     slot.slot_id = 'reproduce'; slot.due_step_id = 'step-1'; slot.applicability = 'before-step'; slot.before_step_id = 'step-2'; slot.prerequisite_receipt = null;
     slot.check!.check_id = 'reproduce-check'; slot.check!.expected_result = 'expected-failure'; slot.check!.entry = semantic.implementation_steps[1]!.commands[0]!.command;
+    semantic.implementation_steps[0]!.commands = [{ command: slot.check!.entry, expected_repo_writes: 'none' }];
     semantic.implementation_steps[0]!.validation = [slot.check!.entry];
     semantic.claim_evidence.push(prerequisite);
     const root = confirmedSemanticRoot(semantic);
+    const unconsumed = readCanonicalCurrentTask(root);
+    expect(recordUserEvidenceDecision(root, 'waiver', {
+      claim_id: prerequisite.claim_id, slot_id: slot.slot_id, check_id: slot.check!.check_id,
+      evidence_plan_revision: unconsumed.runtimeState.evidence_plan_revision,
+      subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision,
+      decision_source: 'conversation:cannot-waive-prerequisite', decision_text: 'Skip this prerequisite.',
+    }).code).toBe('EVIDENCE_WAIVER_AUTHORITY_INVALID');
+    expect(readCanonicalCurrentTask(root).raw).toBe(unconsumed.raw);
     const first = preflightStep(root, { candidate_paths: ['test/vnext-runtime.test.ts'] });
     const report = reportFixture(root, 'reproduction', 'reproduce', 'expected-failure');
-    expect(recordStepResult(root, { preflight_receipt: first.receipt, actual_changed_paths: [], command_results: [], validation_results: [{ validation: slot.check!.entry, status: 'expected-failure', evidence_refs: ['evidence-report.txt'], expected_failure: { kind: 'behavior-not-implemented', expected_behavior: 'defect fixed', observed_failure_signature: 'defect reproduced' } }], acceptance_evidence: [report], outcome: 'implemented', note: 'reproduction completed; positive acceptance remains missing' }).status).toBe('success');
+    expect(recordStepResult(root, { preflight_receipt: first.receipt, actual_changed_paths: [], command_results: [{ command: slot.check!.entry, status: 'expected-failure', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'], expected_failure: { kind: 'behavior-not-implemented', expected_behavior: 'defect fixed', observed_failure_signature: 'defect reproduced' } }], validation_results: [{ validation: slot.check!.entry, status: 'expected-failure', evidence_refs: ['evidence-report.txt'], expected_failure: { kind: 'behavior-not-implemented', expected_behavior: 'defect fixed', observed_failure_signature: 'defect reproduced' } }], acceptance_evidence: [report], outcome: 'implemented', note: 'reproduction completed; positive acceptance remains missing' }).status).toBe('success');
     const reviewed = reviewContext(root, {});
     expect(recordReviewResult(root, { context_receipt: reviewed.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
     expect(completeReviewedStep(root, { step_id: 'step-1', note: 'reproduction reviewed' }).status).toBe('success');
@@ -6068,6 +7787,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('reads unversioned task history but blocks preflight, raw progress and closure without rewriting it', () => {
     const root = confirmedSemanticRoot();
+    useLegacyInlineCurrent(root);
     const file = readCanonicalCurrentTask(root).filePath;
     const historical = fs.readFileSync(file, 'utf8').replace(/^  business_evidence_version: 1\r?\n/m, '');
     fs.writeFileSync(file, historical);
@@ -6083,6 +7803,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('does not let raw progress bypass an explicit ordering strategy on an existing versioned task', () => {
     const root = confirmedSemanticRoot();
+    useLegacyInlineCurrent(root);
     const file = readCanonicalCurrentTask(root).filePath;
     // A fixture of a future/forged ordered task must still fail at execution,
     // even when the caller bypasses prepare and semantic execution adapters.
@@ -6394,7 +8115,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
   });
 
-  test('rejects caller-supplied clean receipts and stale Runtime file-manifest targets', () => {
+  test('rejects caller-supplied clean receipts and stale Runtime file-manifest targets', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const makeRecordedRoot = () => {
       const root = confirmedSemanticRoot();
       const productPath = path.join(root, 'runtime', 'vnext', 'src', 'prepare-task-adapter.ts');
@@ -6542,7 +8263,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     })).toThrow('REVIEW_TARGET_STALE');
   });
 
-  test('hands multiple review findings across sessions through one bounded repair wave and verification', () => {
+  test('hands multiple review findings across sessions through one bounded repair wave and verification', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = confirmedSemanticRoot(singleStepSemanticDraft({
       mutation_scope: {
         allowed: ['runtime/vnext/src/prepare-task-adapter.ts', 'runtime/vnext/src/kernel.ts'],
@@ -6618,12 +8339,16 @@ describe('vNext Phase 2 Runtime contract', () => {
     }).status).toBe('success');
 
     // A later execute invocation reads only canonical state; it does not need reviewer chat context.
+    useLegacyInlineCurrent(root);
     const repair = beginRepair(root, {
       candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'runtime/vnext/src/kernel.ts'],
     });
     fs.writeFileSync(path.join(root, 'runtime', 'vnext', 'src', 'prepare-task-adapter.ts'), 'repaired adapter\n', 'utf8');
     fs.writeFileSync(path.join(root, 'runtime', 'vnext', 'src', 'kernel.ts'), 'repaired kernel\n', 'utf8');
     expect(repair.receipt.repair_fingerprints).toHaveLength(2);
+    const repairing = readCanonicalCurrentTask(root);
+    expect(taskContextMigrationCommit(root, repairing.sourceTuple.revision).status).toBe('committed');
+    expect(readCanonicalCurrentTask(root).runtimeState).toEqual(repairing.runtimeState);
     expect(recordStepResult(root, {
       preflight_receipt: repair.receipt,
       actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'runtime/vnext/src/kernel.ts'],
@@ -6673,7 +8398,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(complete.runtimeState.pending_review_result).toBeNull();
   });
 
-  test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', () => {
+  test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', { timeout: 30000 }, () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
     const draft = singleStepSemanticDraft({
       implementation_steps: ['step-1', 'step-2'].map(id => ({
@@ -6729,6 +8454,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       expect(advanced.runtimeState.findings.find(item => item.fingerprint === firstRepair.receipt.repair_fingerprints[0])?.status).toBe('resolved');
 
       if (legacyCycle) {
+        useLegacyInlineCurrent(root);
         const raw = fs.readFileSync(advanced.filePath, 'utf8');
         const boundary = raw.indexOf('\n---\n', 4);
         const frontmatter = parse(raw.slice(4, boundary)) as Record<string, any>;
@@ -6838,6 +8564,13 @@ describe('vNext Phase 2 Runtime contract', () => {
   });
 
   test('validates the prepared test strategy and its minimum planning invariants', () => {
+    function inspection(step: string): ClaimEvidenceRecord[] {
+      const claims = evidencePlanFixture('The semantic adapter persists and reads back a canonical draft', step);
+      const check = claims[0]!.slots[0]!.check!;
+      check.method = 'static'; check.expected_result = 'accepted'; check.entry = 'inspect the implementation';
+      delete check.selection;
+      return claims;
+    }
     const missingRoot = archivedBaselineRoot();
     const { test_strategy: _omitted, ...withoutStrategy } = semanticDraft();
     expect(() => prepareDraft(missingRoot, withoutStrategy)).toThrow('PREPARE_ADAPTER_INPUT_INVALID');
@@ -6845,6 +8578,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     const noTestsRoot = archivedBaselineRoot();
     expect(() => prepareDraft(noTestsRoot, semanticDraft({
+      claim_evidence: inspection('implementation-only'),
       mutation_scope: {
         allowed: ['runtime/vnext/src/prepare-task-adapter.ts'],
         conditional: [],
@@ -6873,6 +8607,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     const orderingRoot = archivedBaselineRoot();
     expect(() => prepareDraft(orderingRoot, semanticDraft({
+      claim_evidence: inspection('implementation-first-by-mistake'),
       implementation_steps: [{
         id: 'implementation-first-by-mistake',
         description: 'Modify product code before admitting the planned regression',
@@ -6884,6 +8619,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
     const mixedFirstStepRoot = archivedBaselineRoot();
     expect(() => prepareDraft(mixedFirstStepRoot, semanticDraft({
+      claim_evidence: inspection('mixed-test-and-product'),
       implementation_steps: [{
         id: 'mixed-test-and-product',
         description: 'Combine test authoring and product implementation',
@@ -7240,6 +8976,9 @@ describe('vNext Phase 2 Runtime contract', () => {
       commands: [{
         command: 'npm install',
         expected_repo_writes: ['package-lock.json', 'node_modules/**'],
+      }, {
+        command: 'bun test test/vnext-runtime.test.ts',
+        expected_repo_writes: 'none' as const,
       }],
       validation: ['npm install completes with the declared lockfile'],
     };
@@ -7283,6 +9022,9 @@ describe('vNext Phase 2 Runtime contract', () => {
         commands: [{
           command: 'node src/app.ts',
           expected_repo_writes: ['data/fixflow.sqlite'],
+        }, {
+          command: 'bun test test/vnext-runtime.test.ts',
+          expected_repo_writes: 'none',
         }],
         validation: ['the application smoke check starts successfully'],
       }],
@@ -7312,6 +9054,9 @@ describe('vNext Phase 2 Runtime contract', () => {
         commands: [{
           command: 'node src/app.ts',
           expected_repo_writes: ['data/fixflow.sqlite'],
+        }, {
+          command: 'bun test test/vnext-runtime.test.ts',
+          expected_repo_writes: 'none',
         }],
         validation: ['the application smoke check starts successfully'],
       }],
@@ -7367,6 +9112,9 @@ describe('vNext Phase 2 Runtime contract', () => {
     })).toThrow('RESUME_READINESS_REVISION_CONFLICT');
     expect(fs.readFileSync(resumeCurrent.filePath, 'utf8')).toBe(resumeBytes);
 
+    // A source-bound readiness observation survives only a representation change.
+    expect(taskContextMigrationCommit(resumeRoot, resumeCurrent.sourceTuple.revision).status).toBe('committed');
+    expect(readCanonicalCurrentTask(resumeRoot).runtimeState).toEqual(resumeCurrent.runtimeState);
     const cleared = clearResumeReview(resumeRoot, { readiness_receipt: readinessReceipt });
     expect(cleared.status).toBe('success');
     expect(readCanonicalCurrentTask(resumeRoot).runtimeState.resume_requires_review).toBe(false);
@@ -7392,6 +9140,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   test('validate refuses a directly drifted plan and rejected replan cannot legitimize it', () => {
     const root = confirmedSemanticRoot();
+    useLegacyInlineCurrent(root);
     const initial = readCanonicalCurrentTask(root);
     const validate = (summary: boolean) => spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'validate', ...(summary ? ['--summary'] : []), '--root', root], { encoding: 'utf8' });
     expect(validate(true).status).toBe(0);
@@ -7478,22 +9227,24 @@ describe('vNext Phase 2 Runtime contract', () => {
          } };
       };
     };
-    expect(contract.proposal.execute_step.semantic_adapter.commands).toEqual([
-      'preflight-step',
-      'evidence-context',
-      'retry-step',
-      'begin-repair',
-      'record-step-result',
-      'complete-reviewed-step',
-    ]);
-    expect(contract.proposal.execute_step.semantic_adapter.scope_enforcement).toBe('task-and-current-step');
+      expect(contract.proposal.execute_step.semantic_adapter.commands).toEqual([
+        'preflight-step',
+        'extend-preflight',
+        'evidence-context',
+        'retry-step',
+        'replace-validation',
+        'begin-repair',
+        'record-step-result',
+        'complete-reviewed-step',
+      ]);
+    expect(contract.proposal.execute_step.semantic_adapter.scope_enforcement).toBe('task-authority-envelope-with-v1-step-compatibility');
     expect(contract.proposal.execute_step.semantic_adapter.completion_evidence_source).toBe('recorded-step-result-only');
     expect(contract.proposal.execute_step.semantic_adapter.change_detection).toBe('runtime-preflight-candidate-before-after-delta');
     expect(contract.proposal.execute_step.semantic_adapter.advancement_owner).toBe('runtime');
     expect(contract.proposal.execute_step.semantic_adapter.post_completion_commit_owner).toBe('user-or-explicit-outer-orchestrator');
     expect(contract.proposal.execute_step.semantic_adapter.post_completion_route).toBe('git-commit');
     expect(contract.proposal.execute_step.semantic_adapter.test_strategy_execution).toEqual({
-      phase_source: 'versioned-frozen-test-strategy',
+      phase_source: 'versioned-frozen-test-strategy-and-current-step-evidence-obligation',
       legacy_behavior: 'read-history-block-unversioned-execution',
       test_first: {
         first_step_phase: 'test-first',
@@ -7513,7 +9264,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       },
       non_red_outcome: 'implemented-with-passed-results-or-bound-reproduction',
     });
-    expect(contract.proposal.review_change.semantic_adapter.reviewable_execution).toBe('implemented-or-test-red-awaiting-required-checkpoint-or-repair-verification');
+    expect(contract.proposal.review_change.semantic_adapter.reviewable_execution).toBe('implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification');
     expect(contract.proposal.review_change.semantic_adapter.review_target).toBe('runtime-cumulative-before-after-file-delta');
     expect(contract.proposal.prepare_task.semantic_adapter.decision_partition).toEqual({
       decided: 'confirmed_decisions',
@@ -7522,7 +9273,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight).toEqual({
       source: 'implementation_steps[].commands',
       fields: ['command', 'expected_repo_writes'],
-      evaluator: 'shared-mutation-scope-evaluator',
+      evaluator: 'shared-mutation-scope-evaluator-and-v2-authority-evaluator',
       timing: 'before-draft-commit',
     });
     expect(contract.proposal.prepare_task.semantic_adapter.test_strategy).toEqual({
@@ -7585,7 +9336,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       input: JSON.stringify(semanticDraft()),
       encoding: 'utf8',
     });
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       status: 'success',
       committed: true,
@@ -7600,7 +9351,55 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(resolveExternalProposalFile(root, outsideProposal)).toBe(path.resolve(outsideProposal));
   });
 
-  test('keeps original audit obligations while confirming a bounded correction before the original next step', () => {
+  test('G09 G20 recovery replaces a check identity and binds a new prerequisite consumer without copying old consumption', { timeout: 30000 }, () => {
+    const claims = evidencePlanFixture('The document observation stays verified', 'S1');
+    claims[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    const prerequisite = structuredClone(claims[0]!);
+    prerequisite.claim_id = 'I1'; prerequisite.claim_kind = 'invariant';
+    prerequisite.slots[0]!.slot_id = 'i1'; prerequisite.slots[0]!.check!.check_id = 'K-I1';
+    prerequisite.slots[0]!.applicability = 'before-step'; prerequisite.slots[0]!.before_step_id = 'S2';
+    for (const claim of [claims[0]!, prerequisite]) for (const slot of claim.slots) {
+      slot.minimum_type = 'static-inspection';
+      slot.check!.method = 'static'; slot.check!.expected_result = 'accepted'; delete slot.check!.selection;
+    }
+    const input = semanticDraft({ claim_evidence: [...claims, prerequisite], persistent_tests: 'none',
+      mutation_scope: { allowed: ['README.md'], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: ['S1', 'S2', 'S3'].map(id => ({ id, description: `Verify ${id}`, mutation_scope: ['README.md'], commands: [], validation: [`Validate ${id}`], review_checkpoint: { policy: 'required', reason: 'Review the document observation' } })) });
+    const root = confirmedSemanticRoot(input);
+    fs.writeFileSync(path.join(root, 'README.md'), 'Observation\n');
+    function execute(id: string, withReports: boolean) {
+      const preflight = preflightStep(root, { candidate_paths: ['README.md'] });
+      const acceptance = withReports ? [reportFixture(root), reportFixture(root, 'I1', 'i1')] : [];
+      for (const report of acceptance) { report.report.result_id += `-${id}`; report.report.status = readCanonicalCurrentTask(root).runtimeState.claim_evidence!.find(claim => claim.claim_id === report.claim_id)!.slots[0]!.check!.expected_result; }
+      expect(recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: [], command_results: [], validation_results: [{ validation: `Validate ${id}`, status: 'passed', evidence_refs: ['evidence-report.txt'] }], acceptance_evidence: acceptance, outcome: 'implemented', note: `Observed ${id}` }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: id, note: `Reviewed ${id}` }).status).toBe('success');
+    }
+    execute('S1', true); execute('S2', false);
+    const old = readCanonicalCurrentTask(root);
+    const oldReceipt = structuredClone(old.runtimeState.claim_evidence![1]!.slots[0]!.prerequisite_receipt);
+    expect(oldReceipt?.step_id).toBe('S2');
+    fs.writeFileSync(path.join(root, 'counterexample.txt'), 'The observation requires a revised check.\n');
+    recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: old.runtimeState.claim_evidence![0]!.slots[0]!.report!.result_id,
+      evidence_ref: 'counterexample.txt', evidence_sha256: fileRevision(path.join(root, 'counterexample.txt')), reason: 'Reassess the observation boundary' });
+    const recovery = { id: 'R1', description: 'Revalidate observation', mutation_scope: ['README.md'], commands: [], required_evidence: ['Validate R1'] };
+    const replacementCheck = { ...prerequisite.slots[0]!.check!, check_id: 'K-I2', method: 'static', expected_result: 'accepted' };
+    const candidateInput = { challenge_ids: [readCanonicalCurrentTask(root).runtimeState.evidence_challenges![0]!.challenge_id], correction_step: recovery,
+      pending_step_changes: { steps: [{ ...recovery, id: 'S3-new', required_evidence: ['Validate S3-new'] }], step_map: [{ old_step_id: 'S3', new_step_ids: ['S3-new'] }] },
+      obligation_map: [{ claim_id: 'A1', slot_id: 'a1', due_step_id: 'R1' }, { claim_id: 'I1', slot_id: 'i1', due_step_id: 'R1', before_step_id: 'S3-new', replaces_check_id: 'K-I1', check: replacementCheck }] };
+    expect(() => prepareCorrectionReplan(root, { ...candidateInput, obligation_map: [candidateInput.obligation_map[0], { ...candidateInput.obligation_map[1], check: { ...replacementCheck, check_id: 'K-I1' } }] })).toThrow('RECOVERY_CHECK_ID_REUSED');
+    const prepared = prepareCorrectionReplan(root, candidateInput);
+    confirmCorrectionReplan(root, { candidate_receipt: prepared.candidate_receipt, authorization: { approved_candidate_digest: prepared.candidate_receipt.candidate_digest,
+      decision_source: 'fixture:recovery', decision_text: 'Approve the new check and consumer while preserving all requirements.', invalidation_reason: 'A bounded check replacement is required.' } });
+    expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence![1]!.slots[0]!.prerequisite_receipt).toBeUndefined();
+    execute('R1', true); execute('S3-new', false);
+    const nextReceipt = readCanonicalCurrentTask(root).runtimeState.claim_evidence![1]!.slots[0]!.prerequisite_receipt;
+    expect(nextReceipt?.step_id).toBe('S3-new');
+    expect(nextReceipt?.preflight_id).not.toBe(oldReceipt?.preflight_id);
+  });
+
+  test('keeps original audit obligations while confirming a bounded correction before the original next step', { timeout: 30000 }, () => {
     const audited = evidencePlanFixture('Nine issue conclusions remain verified', 'S3');
     audited[0]!.slots[0]!.check!.subject_paths = ['docs/audit.md'];
     const unaffected = structuredClone(audited[0]!);
@@ -7621,23 +9420,42 @@ describe('vNext Phase 2 Runtime contract', () => {
       ],
       persistent_tests: 'none',
     });
+    // This is a static document-audit fixture, not an unplanned execution.
+    for (const claim of input.claim_evidence) for (const slot of claim.slots) {
+      slot.minimum_type = 'static-inspection';
+      slot.check!.method = 'static'; slot.check!.expected_result = 'accepted'; delete slot.check!.selection;
+    }
     const root = confirmedSemanticRoot(input);
     fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+    fs.appendFileSync(path.join(root, '.workflow-system/PROJECT_PROFILE.yaml'), '    - docs/audit.md\n    - docs/other.md\n');
     fs.writeFileSync(path.join(root, 'docs', 'audit.md'), 'old audit result\n');
     fs.writeFileSync(path.join(root, 'docs', 'other.md'), 'independent observation\n');
+    fs.writeFileSync(path.join(root, 'independent-evidence.txt'), 'Independent observation evidence.\n');
     fs.writeFileSync(path.join(root, 'docs', 'challenge.md'), 'External review: public cursor result is unsupported.\n');
     const confirmed = readCanonicalCurrentTask(root);
-    const claims = structuredClone(confirmed.runtimeState.claim_evidence!);
+    const legacyFrontmatter = structuredClone(confirmed.frontmatter);
+    delete legacyFrontmatter.task_store;
+    legacyFrontmatter.runtime_state = {
+      ...legacyFrontmatter.runtime_state,
+      execution_log: confirmed.runtimeState.execution_log,
+      applied_proposals: confirmed.runtimeState.applied_proposals,
+    };
+    fs.writeFileSync(confirmed.filePath, `---\n${stringify(legacyFrontmatter).trimEnd()}\n---\n${confirmed.body}`, 'utf8');
+    fs.rmSync(path.join(root, 'docs', 'workflow', 'task-data', confirmed.sourceTuple.document_id), { recursive: true, force: true });
+    const legacy = readCanonicalCurrentTask(root);
+    const claims = structuredClone(legacy.runtimeState.claim_evidence!);
     for (const claim of claims) for (const slot of claim.slots) {
       slot.disposition = 'newly-executed';
-      slot.evidence_refs = ['evidence-report.txt'];
-      slot.report = { result_id: `result-${slot.check!.check_id}`, status: 'passed', evidence_plan_revision: confirmed.runtimeState.evidence_plan_revision!,
+      slot.evidence_refs = ['independent-evidence.txt'];
+      slot.report = { result_id: `result-${slot.check!.check_id}`, status: slot.check!.expected_result, evidence_plan_revision: confirmed.runtimeState.evidence_plan_revision!,
         subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision, actual_method: slot.check!.method,
         environment: 'isolated audit fixture', assurance: 'caller-reported' };
     }
     const state = { ...confirmed.runtimeState, active_step_id: 'S4', active_step_status: 'ready' as const, claim_evidence: claims };
-    const frontmatter = { ...confirmed.frontmatter, runtime_state: state };
-    fs.writeFileSync(confirmed.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${confirmed.body}`, 'utf8');
+    const frontmatter = { ...legacy.frontmatter, runtime_state: state };
+    fs.writeFileSync(legacy.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${legacy.body}`, 'utf8');
+    const beforeLegacy = readCanonicalCurrentTask(root);
+    commitTaskStorageMigration(root, beforeLegacy, beforeLegacy.sourceTuple.revision);
     const before = readCanonicalCurrentTask(root);
     const challenged = recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: 'result-K1', evidence_ref: 'docs/challenge.md',
       evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge.md')), reason: 'The public cursor boundary was not observed' });
@@ -7659,8 +9477,9 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(dismissEvidenceChallenge(root, assessment).status).toBe('no-op');
     expect(readCanonicalCurrentTask(root).runtimeState.evidence_challenges?.[1]?.resolution?.kind).toBe('not-substantiated');
     expect(readCanonicalCurrentTask(root).runtimeState.claim_evidence?.[1]?.slots[0]?.report?.result_id).toBe('result-K2');
-    const challengedCurrent = readCanonicalCurrentTask(root);
-    const challengedBytes = fs.readFileSync(challengedCurrent.filePath);
+    useLegacyInlineCurrent(root);
+    let challengedCurrent = readCanonicalCurrentTask(root);
+    let challengedBytes = fs.readFileSync(challengedCurrent.filePath);
     const candidateInput = { challenge_id: challengeId, correction_step: { id: 'S3-C1', description: 'Recheck challenged public cursor conclusion',
       mutation_scope: ['docs/audit.md'], required_evidence: ['Targeted public cursor observation'], commands: [] } };
     const candidate = prepareCorrectionReplan(root, candidateInput);
@@ -7668,6 +9487,11 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(challengedCurrent.sourceTuple.revision);
     expect(() => prepareCorrectionReplan(root, { ...candidateInput, correction_step: { ...candidateInput.correction_step, mutation_scope: ['src/login.ts'] } })).toThrow('REPLAN_SCOPE_EXPANSION');
     const receipt = candidate.candidate_receipt;
+    expect(taskContextMigrationCommit(root, receipt.source_revision).status).toBe('committed');
+    challengedCurrent = readCanonicalCurrentTask(root);
+    challengedBytes = fs.readFileSync(challengedCurrent.filePath);
+    const summary = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'validate', undefined);
+    expect(summary.status, summary.stderr + summary.stdout).toBe(0);
     const authorization = { approved_candidate_digest: receipt.candidate_digest, decision_source: 'user:explicit-correction',
       decision_text: 'Approve only S3-C1 correction of the challenged result before original S4; preserve all original audit obligations.',
       invalidation_reason: 'Independent counterevidence invalidates the old public cursor conclusion.' };
@@ -7722,5 +9546,2584 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(resumed.runtimeState.active_step_id).toBe('S4');
     expect(resumed.runtimeState.evidence_challenges?.[0]?.status).toBe('resolved');
     expect(resumed.runtimeState.claim_evidence?.[1]?.slots[0]?.report?.result_id).toBe('result-K2');
+    // A -> B -> C must retain A's original report, rather than relabel it as B.
+    const originalReport = structuredClone(resumed.runtimeState.claim_evidence![1]!.slots[0]!.report);
+    fs.writeFileSync(path.join(root, 'docs', 'challenge-2.md'), 'A second bounded counterexample.\n');
+    recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: 'result-K1-correction',
+      evidence_ref: 'docs/challenge-2.md', evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge-2.md')),
+      reason: 'A second counterexample requires a new observation' });
+    const secondChallenge = readCanonicalCurrentTask(root).runtimeState.evidence_challenges!.at(-1)!;
+    const second = prepareCorrectionReplan(root, { challenge_id: secondChallenge.challenge_id,
+      correction_step: { ...candidateInput.correction_step, id: 'S3-C2' } });
+    const secondPayload = JSON.parse(fs.readFileSync(path.join(root, second.candidate_path), 'utf8'));
+    expect(secondPayload.carry_forward[0].old_plan_revision).toBe(originalReport!.evidence_plan_revision);
+    expect(secondPayload.claim_evidence[1].slots[0].report).toEqual(originalReport);
+    expect(confirmCorrectionReplan(root, { candidate_receipt: second.candidate_receipt,
+      authorization: { ...authorization, decision_text: 'Approve the second bounded correction while retaining all original obligations.', approved_candidate_digest: second.candidate_receipt.candidate_digest } }).status).toBe('success');
+    // Preparing yet another generation consumes C's carry-forward proof.
+    const secondPreflight = preflightStep(root, { candidate_paths: ['docs/audit.md'] });
+    const secondReport = reportFixture(root);
+    secondReport.report.result_id = 'result-K1-second-correction';
+    expect(recordStepResult(root, { preflight_receipt: secondPreflight.receipt, actual_changed_paths: [],
+      command_results: [], validation_results: [{ validation: 'Targeted public cursor observation', status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [secondReport], outcome: 'implemented', note: 'Second correction' }).status).toBe('success');
+    const secondReview = reviewContext(root, {});
+    recordReviewResult(root, { context_receipt: secondReview.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'], blocker: null });
+    completeReviewedStep(root, { step_id: 'S3-C2', note: 'Second correction reviewed' });
+    fs.writeFileSync(path.join(root, 'docs', 'challenge-3.md'), 'Third bounded observation.\n');
+    recordEvidenceChallenge(root, { claim_id: 'A1', slot_id: 'a1', result_id: 'result-K1-second-correction',
+      evidence_ref: 'docs/challenge-3.md', evidence_sha256: fileRevision(path.join(root, 'docs', 'challenge-3.md')), reason: 'Third observation' });
+    const thirdInput = { challenge_id: readCanonicalCurrentTask(root).runtimeState.evidence_challenges!.at(-1)!.challenge_id,
+      correction_step: { ...candidateInput.correction_step, id: 'S3-C3' } };
+    const third = prepareCorrectionReplan(root, thirdInput);
+    // G18: discarding and changing recovery IDs cannot renew the candidate budget.
+    discardCorrectionReplan(root, { candidate_digest: third.candidate_receipt.candidate_digest });
+    for (const id of ['S3-C3-alternative', 'S3-C3-final']) {
+      const alternative = prepareCorrectionReplan(root, { ...thirdInput, correction_step: { ...thirdInput.correction_step, id } });
+      discardCorrectionReplan(root, { candidate_digest: alternative.candidate_receipt.candidate_digest });
+    }
+    const preserved = fs.readFileSync(resumed.filePath);
+    expect(() => prepareCorrectionReplan(root, { ...thirdInput, correction_step: { ...thirdInput.correction_step, id: 'S3-C3-again' } })).toThrow('REPLAN_CANDIDATE_BUDGET_EXHAUSTED');
+    expect(fs.readFileSync(resumed.filePath)).toEqual(preserved);
+  });
+
+  test('scope amendment consumes prior authorization across blocked pending review and findings while legacy replan stays closed', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const input = singleStepSemanticDraft({
+      claim_evidence: evidencePlanFixture('The authorized continuation preserves the acceptance check', 'step-1'),
+      mutation_scope: { allowed: ['runtime/vnext/src/prepare-task-adapter.ts'], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement the bounded Runtime fixture',
+        mutation_scope: ['runtime/vnext/src/prepare-task-adapter.ts'],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['The bounded Runtime fixture is verified'],
+        review_checkpoint: { policy: 'required', reason: 'Retain a pending review while testing the scope amendment route' },
+      }],
+    });
+    const root = confirmedSemanticRoot(input);
+
+    let current = readCanonicalCurrentTask(root);
+    const preflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts'] });
+    const changed = path.join(root, 'runtime', 'vnext', 'src', 'prepare-task-adapter.ts');
+    fs.mkdirSync(path.dirname(changed), { recursive: true });
+    fs.writeFileSync(changed, 'caller-reported existing implementation change\n', 'utf8');
+    const validation = preflight.current_step.validation[0]!;
+    const result = recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts'],
+      command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes, evidence_refs: ['evidence-report.txt'] })),
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Retain the existing implementation change for later review',
+    });
+    expect(result.status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: review.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness',
+        file: 'runtime/vnext/src/prepare-task-adapter.ts',
+        failure_condition: 'the retained implementation still violates the bounded contract',
+        required_behavior: 'repair and revalidate the bounded contract',
+        root_cause_status: 'confirmed',
+        evidence_refs: ['evidence-report.txt'],
+      }],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+    }).status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.pending_review_result?.verdict).toBe('findings');
+    const findingPath = 'runtime/vnext/src/prepare-task-adapter.ts';
+    expect(beginRepair(root, { candidate_paths: [findingPath] }).receipt.kind).toBe('execute-step-repair-preflight/v1');
+    current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.findings[0]?.status).toBe('admitted');
+
+    const oldReplanInput = {
+      challenge_id: 'challenge-not-present',
+      correction_step: { id: 'legacy-correction', description: 'Legacy route must remain closed', mutation_scope: ['runtime/vnext/src/prepare-task-adapter.ts'], required_evidence: ['fresh review'], commands: [] },
+    };
+    expect(() => prepareCorrectionReplan(root, oldReplanInput)).toThrow('REPLAN_CANDIDATE_STATE_INVALID');
+
+    expect(applyVNextRuntimeProposal(root, replanProposal(root, 'mark-replan-blocked', 'scope-amendment-mark-blocked')).status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    const pendingReviewId = current.runtimeState.pending_review_result?.review_id;
+    const reviewCycle = structuredClone(current.runtimeState.review_cycle);
+    const amendmentInput = {
+      added_paths: ['src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+      persistent_test_paths: ['test/scope-amendment-regression.test.ts'],
+      authorization: {
+        decision_source: 'user:scope-amendment-request',
+        decision_text: 'Add the two exact paths so the blocked repair can continue; keep the original task and review obligations.',
+        authorized_paths: ['src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+      },
+      amendment_step: {
+        id: 'scope-amend-1',
+        description: 'Apply the explicitly authorized continuation and revalidate it',
+        mutation_scope: ['src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+        required_evidence: ['fresh execution result', 'fresh review of the amended scope'],
+        commands: [],
+      },
+    };
+    const beforeAmendment = readCanonicalCurrentTask(root);
+    const beforePendingReview = beforeAmendment.runtimeState.pending_review_result;
+    const prepared = prepareScopeAmendment(root, amendmentInput);
+    expect(prepared.candidate_receipt.kind).toBe('scope-amendment-candidate-receipt/v1');
+    expect(prepared.candidate_receipt.permission_change).toBe('additive-scope');
+    expect(prepared.evidence_assurance).toBe('caller-reported');
+    expect(prepared.status).toBe('success');
+    expect(prepared.committed).toBe(true);
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.workflow_status).toBe('active');
+    expect(after.runtimeState.active_step_id).toBe('scope-amend-1');
+    expect(after.runtimeState.active_step_status).toBe('ready');
+    expect(after.runtimeState.pending_review_result?.review_id).toBe(pendingReviewId);
+    expect(after.runtimeState.review_cycle).toEqual(reviewCycle);
+    expect(after.runtimeState.review_coverage?.last_clean_revision).toBe(beforeAmendment.runtimeState.review_coverage?.last_clean_revision ?? null);
+    expect(after.runtimeState.findings[0]?.status).toBe('admitted');
+    expect(after.body).toContain('src/authorized-continuation.ts');
+    expect(after.body).toContain('test/scope-amendment-regression.test.ts');
+    expect(after.body).toContain('- step-1: Implement the bounded Runtime fixture');
+    expect(after.body).toContain('- scope-amend-1: Apply the explicitly authorized continuation and revalidate it');
+    expect(readCanonicalTaskBasis(root, after).basis.user_decisions.at(-1)).toEqual({ source: amendmentInput.authorization.decision_source, verbatim: amendmentInput.authorization.decision_text });
+    const audit = after.runtimeState.execution_log.find(item => 'action' in item && item.action === 'commit-scope-amendment');
+    expect(audit && 'candidate_digest' in audit ? audit.candidate_digest : null).toBe(prepared.candidate_receipt.candidate_digest);
+    expect(audit && 'correction_reason' in audit ? audit.correction_reason : '').toContain('caller-reported scope amendment');
+    const committedBytes = fs.readFileSync(after.filePath, 'utf8');
+    const repeated = prepareScopeAmendment(root, amendmentInput);
+    expect(repeated.status).toBe('no-op');
+    expect(repeated.committed).toBe(false);
+    expect(repeated.candidate_receipt).toEqual(prepared.candidate_receipt);
+    expect(fs.readFileSync(after.filePath, 'utf8')).toBe(committedBytes);
+    expect(beforePendingReview).not.toBeNull();
+    const continuation = beginRepair(root, {
+      candidate_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+    });
+    expect(continuation.receipt).toMatchObject({ kind: 'execute-step-repair-preflight/v1', step_id: 'scope-amend-1' });
+    for (const file of ['runtime/vnext/src/prepare-task-adapter.ts', 'src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts']) {
+      const target = path.join(root, ...file.split('/'));
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, `scope amendment repair: ${file}\n`, 'utf8');
+    }
+    const repairCommand = continuation.current_step.commands[0]!;
+    expect(recordStepResult(root, {
+      preflight_receipt: continuation.receipt,
+      actual_changed_paths: ['runtime/vnext/src/prepare-task-adapter.ts', 'src/authorized-continuation.ts', 'test/scope-amendment-regression.test.ts'],
+      command_results: [{ command: repairCommand.command, status: 'passed', observed_repo_writes: repairCommand.expected_repo_writes === 'none' ? [] : repairCommand.expected_repo_writes, evidence_refs: ['evidence-report.txt'] }],
+      validation_results: continuation.current_step.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Repaired the authorized scope and ran a fresh validation',
+    }).status).toBe('success');
+    const repaired = readCanonicalCurrentTask(root);
+    expect(repaired.runtimeState.scope_amendment_pending_review_step_id).toBeUndefined();
+    expect(repaired.runtimeState.pending_review_result).toBeNull();
+    expect(repaired.runtimeState.findings[0]?.status).toBe('in-progress');
+    const verification = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: verification.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'scope-amend-1', note: 'Fresh amended-scope review passed' }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    expect(after.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-scope-amendment')).toBe(true);
+  });
+
+  test('scope amendment requires an existing explicit exact-path authorization and never creates a candidate without it', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const before = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
+    expect(() => prepareScopeAmendment(root, {
+      added_paths: ['src/not-explicitly-authorized.ts'],
+      authorization: { decision_source: 'user:missing-path', decision_text: 'Authorize a different exact path.', authorized_paths: ['src/different-path.ts'] },
+      step: { id: 'scope-amend-missing-auth', description: 'This must not be admitted', mutation_scope: ['src/not-explicitly-authorized.ts'], required_evidence: ['fresh review'], commands: [] },
+    })).toThrow('SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED');
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(root, 'docs', 'workflow', 'task-candidates'))).toBe(false);
+  });
+
+  test('scope amendment retains and then consumes a clean pending review before the continuation runs', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const oldPath = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const preflight = preflightStep(root, { candidate_paths: [oldPath] });
+    fs.mkdirSync(path.dirname(path.join(root, oldPath)), { recursive: true });
+    fs.writeFileSync(path.join(root, oldPath), 'existing implementation change\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: [oldPath],
+      command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes, evidence_refs: ['evidence-report.txt'] })),
+      validation_results: [{ validation: preflight.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Retain the old step for its pending clean review',
+    }).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: review.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+    }).status).toBe('success');
+    const pending = readCanonicalCurrentTask(root).runtimeState.pending_review_result!;
+    const authorization = {
+      decision_source: 'user:clean-review-amendment',
+      decision_text: 'Authorize the exact continuation path while retaining the clean review for the existing change.',
+      authorized_paths: ['src/clean-review-continuation.ts'],
+    };
+    const prepared = prepareScopeAmendment(root, {
+      added_paths: authorization.authorized_paths,
+      authorization,
+      amendment_step: {
+        id: 'scope-amend-clean-review',
+        description: 'Run the newly authorized continuation after the retained review',
+        mutation_scope: authorization.authorized_paths,
+        required_evidence: ['fresh continuation review'],
+        commands: [],
+      },
+    });
+    expect(prepared.status).toBe('success');
+    expect(prepared.committed).toBe(true);
+    const amended = readCanonicalCurrentTask(root);
+    expect(amended.runtimeState.active_step_id).toBe('scope-amend-clean-review');
+    expect(amended.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
+    expect(amended.runtimeState.scope_amendment_pending_review_step_id).toBe('step-1');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Consume the retained clean review before continuation' }).status).toBe('success');
+    const continued = readCanonicalCurrentTask(root);
+    expect(continued.runtimeState.active_step_id).toBe('scope-amend-clean-review');
+    expect(continued.runtimeState.active_step_status).toBe('ready');
+    expect(continued.runtimeState.pending_review_result).toBeNull();
+    expect(continued.runtimeState.scope_amendment_pending_review_step_id).toBeUndefined();
+  });
+
+  test('scope amendment records a step-only increment without treating it as a new task-scope addition', () => {
+    const stepOnlyPath = 'src/already-authorized.ts';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: {
+        allowed: ['runtime/vnext/src/prepare-task-adapter.ts', stepOnlyPath],
+        conditional: [],
+        forbidden: ['.git/**'],
+      },
+    }));
+    const authorization = {
+      decision_source: 'user:step-only-amendment',
+      decision_text: 'Authorize the exact step-only path that is already in the task boundary.',
+      authorized_paths: [stepOnlyPath],
+    };
+    const prepared = prepareScopeAmendment(root, {
+      added_paths: [stepOnlyPath],
+      authorization,
+      amendment_step: {
+        id: 'scope-amend-step-only',
+        description: 'Use the already-authorized path in the continuation step',
+        mutation_scope: [stepOnlyPath],
+        required_evidence: ['fresh step-only review'],
+        commands: [],
+      },
+    });
+    const candidatePath = path.join(root, ...prepared.candidate_path.split('/'));
+    const candidate = JSON.parse(fs.readFileSync(candidatePath, 'utf8')) as { scope_diff: { added_paths: string[] }; step_diff: { scope_paths: string[] }; input: { added_paths: string[] } };
+    expect(candidate.scope_diff.added_paths).toEqual([]);
+    expect(candidate.step_diff.scope_paths).toEqual([stepOnlyPath]);
+    expect(candidate.input.added_paths).toEqual([stepOnlyPath]);
+    expect(prepared.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.active_step_id).toBe('scope-amend-step-only');
+  });
+
+  test('scope amendment carries attempt accounting through direct and unpreflighted continuations', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const firstPreflight = preflightStep(root, { candidate_paths: [] });
+    const firstStep = firstPreflight.current_step;
+    expect(recordStepResult(root, {
+      preflight_receipt: firstPreflight.receipt,
+      actual_changed_paths: [],
+      command_results: [{ command: firstStep.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['lineage-failure.json'] }],
+      validation_results: [{ validation: firstStep.validation[0]!, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'The first attempt is retained for the amendment lineage fixture',
+    }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const failure = blocked.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    const resolutionPath = 'lineage-resolution.json';
+    fs.writeFileSync(path.join(root, resolutionPath), JSON.stringify({
+      kind: 'environment-restored/v1', task_id: blocked.runtimeState.task_id, document_id: blocked.sourceTuple.document_id,
+      step_id: 'step-1', blocked_attempt_id: failure.attempt_id, evidence_plan_revision: blocked.runtimeState.evidence_plan_revision,
+      subject_revision: failure.blocker!.subject_snapshot.revision, status: 'passed', diagnosis: 'fixture environment restored', resolution: 'The bounded retry fixture is available',
+    }));
+    expect(retryStep(root, { step_id: 'step-1', blocked_attempt_id: failure.attempt_id, blocker_resolution_refs: [resolutionPath], idempotency_key: 'scope-lineage-retry-1' }).status).toBe('success');
+    const usedBeforeAmendment = readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts;
+    expect(usedBeforeAmendment).toHaveLength(2);
+
+    const amendment = (file: string, id: string) => ({
+      added_paths: [file],
+      authorization: { decision_source: `user:lineage-${id}`, decision_text: `Authorize the exact lineage path ${file}.`, authorized_paths: [file] },
+      amendment_step: { id, description: `Continue through ${file}`, mutation_scope: [file], required_evidence: ['fresh lineage review'], commands: [] },
+    });
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/lineage-a.ts', 'scope-lineage-a')).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts).toEqual(usedBeforeAmendment);
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-lineage-a']).toBeUndefined();
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/lineage-b.ts', 'scope-lineage-b')).status).toBe('success');
+    const beforeFinalPreflight = readCanonicalCurrentTask(root);
+    expect(beforeFinalPreflight.runtimeState.active_step_id).toBe('scope-lineage-b');
+    expect(beforeFinalPreflight.runtimeState.step_attempts!['scope-lineage-b']).toBeUndefined();
+
+    const finalPreflight = preflightStep(root, { candidate_paths: ['runtime/vnext/src/lineage-b.ts'] });
+    expect(finalPreflight.receipt.step_id).toBe('scope-lineage-b');
+    const finalLedger = readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-lineage-b']!;
+    expect(finalLedger.max_attempts).toBe(3);
+    expect(finalLedger.attempts[0]).toEqual(usedBeforeAmendment[0]);
+    expect(finalLedger.attempts).toHaveLength(2);
+    expect(finalLedger.attempts[1]).toMatchObject({ attempt_id: usedBeforeAmendment[1]!.attempt_id, status: 'preflighted' });
+  });
+
+  test('scope amendment walks three continuation layers without resetting the inherited budget', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    const step = preflight.current_step;
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: [],
+      command_results: [{ command: step.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['three-layer-failure.json'] }],
+      validation_results: [{ validation: step.validation[0]!, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Retain one failed attempt before three amendments',
+    }).status).toBe('success');
+    const amendment = (file: string, id: string) => ({
+      added_paths: [file],
+      authorization: { decision_source: `user:three-layer-${id}`, decision_text: `Authorize the exact three-layer path ${file}.`, authorized_paths: [file] },
+      amendment_step: { id, description: `Continue through ${file}`, mutation_scope: [file], required_evidence: ['fresh three-layer review'], commands: [] },
+    });
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/ancestry-a.ts', 'scope-ancestry-a')).status).toBe('success');
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/ancestry-b.ts', 'scope-ancestry-b')).status).toBe('success');
+    expect(prepareScopeAmendment(root, amendment('runtime/vnext/src/ancestry-c.ts', 'scope-ancestry-c')).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-ancestry-c']).toBeUndefined();
+    preflightStep(root, { candidate_paths: ['runtime/vnext/src/ancestry-c.ts'] });
+    const inherited = readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-ancestry-c']!;
+    expect(inherited.max_attempts).toBe(3);
+    expect(inherited.attempts[0]!.status).toBe('blocked');
+    expect(inherited.attempts).toHaveLength(2);
+  });
+
+  test('scope amendment directly reuses the latest ready attempt without consuming another budget slot', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft());
+    const firstPreflight = preflightStep(root, { candidate_paths: [] });
+    const firstStep = firstPreflight.current_step;
+    expect(recordStepResult(root, {
+      preflight_receipt: firstPreflight.receipt,
+      actual_changed_paths: [],
+      command_results: [{ command: firstStep.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['direct-lineage-failure.json'] }],
+      validation_results: [{ validation: firstStep.validation[0]!, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Create the retained failure before the direct amendment fixture',
+    }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const failure = blocked.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    const resolutionPath = 'direct-lineage-resolution.json';
+    fs.writeFileSync(path.join(root, resolutionPath), JSON.stringify({
+      kind: 'environment-restored/v1', task_id: blocked.runtimeState.task_id, document_id: blocked.sourceTuple.document_id,
+      step_id: 'step-1', blocked_attempt_id: failure.attempt_id, evidence_plan_revision: blocked.runtimeState.evidence_plan_revision,
+      subject_revision: failure.blocker!.subject_snapshot.revision, status: 'passed', diagnosis: 'fixture environment restored', resolution: 'The direct lineage fixture is available',
+    }));
+    expect(retryStep(root, { step_id: 'step-1', blocked_attempt_id: failure.attempt_id, blocker_resolution_refs: [resolutionPath], idempotency_key: 'scope-direct-lineage-retry' }).status).toBe('success');
+    const prior = readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts;
+    expect(prior).toHaveLength(2);
+    const continuationPath = 'runtime/vnext/src/direct-lineage.ts';
+    expect(prepareScopeAmendment(root, {
+      added_paths: [continuationPath],
+      authorization: { decision_source: 'user:direct-lineage', decision_text: 'Authorize the exact direct lineage path.', authorized_paths: [continuationPath] },
+      amendment_step: { id: 'scope-direct-lineage', description: 'Continue through the directly inherited budget', mutation_scope: [continuationPath], required_evidence: ['fresh direct lineage review'], commands: [] },
+    }).status).toBe('success');
+    preflightStep(root, { candidate_paths: [continuationPath] });
+    const inherited = readCanonicalCurrentTask(root).runtimeState.step_attempts!['scope-direct-lineage']!;
+    expect(inherited.max_attempts).toBe(3);
+    expect(inherited.attempts).toHaveLength(2);
+    expect(inherited.attempts[0]).toEqual(prior[0]);
+    expect(inherited.attempts[1]).toMatchObject({ attempt_id: prior[1]!.attempt_id, status: 'preflighted' });
+  });
+
+  test('scope amendment preserves existing wildcard authority and adds only exact increments', () => {
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: ['src/**', 'packages/foo/**'], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Implement the wildcard-scoped fixture', mutation_scope: ['src/**', 'packages/foo/**'],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }], validation: ['The wildcard-scoped fixture passes'],
+      }],
+    }));
+    const added = 'tests/wildcard-amendment.test.ts';
+    const alreadyCovered = 'src/already-covered.ts';
+    const prepared = prepareScopeAmendment(root, {
+      added_paths: [added, alreadyCovered],
+      authorization: { decision_source: 'user:wildcard-amendment', decision_text: 'Authorize these two exact paths while retaining all existing wildcard authority.', authorized_paths: [added, alreadyCovered] },
+      amendment_step: { id: 'scope-wildcard-amend', description: 'Retain wildcard authority and add the exact regression path', mutation_scope: [added, alreadyCovered], required_evidence: ['fresh wildcard review'], commands: [] },
+    });
+    expect(prepared.status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    const definition = readDraftDefinitionFromBody(current.body);
+    const continuation = definition.implementation_steps.match(/- scope-wildcard-amend:[\s\S]*?(?=\n- |$)/)?.[0] ?? '';
+    const continuationScope = continuation.split('\n').find(line => line.includes('mutation_scope:')) ?? '';
+    expect(continuationScope).toBe('  - mutation_scope: src/**, packages/foo/**, tests/wildcard-amendment.test.ts');
+    expect(continuationScope).not.toContain('src/already-covered.ts');
+    expect(current.body).toContain('- `src/**`');
+    expect(current.body).toContain('- `packages/foo/**`');
+    expect(current.body).toContain('- `tests/wildcard-amendment.test.ts`');
+    const candidatePath = path.join(root, ...prepared.candidate_path.split('/'));
+    const candidate = JSON.parse(fs.readFileSync(candidatePath, 'utf8')) as { step_diff: { scope_paths: string[] } };
+    expect(candidate.step_diff.scope_paths).toEqual([added]);
+  });
+
+  test('process-control dynamic review follows assessed risk without erasing the ordinary checkpoint', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    for (const elevated of [false, true]) {
+    const target = 'packages/node-rollout/src/session.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement a low-risk Node rollout change',
+        planned_mutation_targets: [target],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+        review_checkpoint: { policy: 'not-required', reason: 'final-exemption: isolated fixture defers only the ordinary checkpoint; dynamic expansions remain reviewable' },
+      }],
+    });
+    try {
+      fs.mkdirSync(path.dirname(path.join(root, ...target.split('/'))), { recursive: true });
+      fs.mkdirSync(path.dirname(path.join(root, ...discovered.split('/'))), { recursive: true });
+      fs.writeFileSync(path.join(root, ...target.split('/')), 'export const session = "before";\n', 'utf8');
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value;\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [target] });
+      fs.writeFileSync(path.join(root, ...target.split('/')), 'export const session = "after";\n', 'utf8');
+      fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'Dynamic review evidence.\n', 'utf8');
+      const extended = extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'normalizeState' },
+          reason: 'The local helper is the smallest correct fix and does not require a shared change.',
+          blast_radius: { locality: elevated ? 'elevated' : 'local', visibility: elevated ? 'shared' : 'private', cross_component_consumers: elevated ? 'present' : 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(() => recordStepResult(root, {
+        preflight_receipt: initial.receipt,
+        actual_changed_paths: [target],
+        command_results: [{ command: initial.current_step.commands[0].command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: initial.current_step.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [reportFixture(root)],
+        outcome: 'implemented',
+        note: 'The old receipt must be stale after extension.',
+      })).toThrow('EXECUTE_PREFLIGHT_STALE');
+
+      const result = recordStepResult(root, {
+        preflight_receipt: extended.receipt,
+        actual_changed_paths: [target],
+        command_results: [{ command: extended.current_step.commands[0].command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: extended.current_step.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [reportFixture(root)],
+        outcome: 'implemented',
+        note: 'The same-envelope expansion needs cumulative review even for a not-required ordinary checkpoint.',
+      });
+      expect(result.status).toBe('success');
+      const after = readCanonicalCurrentTask(root);
+      expect(after.runtimeState.dynamic_expansions!.at(-1)!.review_required).toBe(elevated);
+      if (!elevated) {
+        expect(after.runtimeState.active_step_status).toBe('completed');
+        expect(after.runtimeState.task_id).toBe(initial.receipt.task_id);
+        // The already-confirmed final cumulative exemption is preserved.
+        expect(after.runtimeState.review_coverage!.pending_paths).toEqual([]);
+        continue;
+      }
+      expect(after.runtimeState.active_step_status).toBe('in-progress');
+      const context = reviewContext(root, {});
+      expect(context.status).toBe('pass');
+      expect(context.dynamic_review_required).toBe(true);
+      const review = recordReviewResult(root, {
+        context_receipt: context.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      });
+      expect(review.status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The dynamic cumulative review is clean.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    }
+  });
+
+  test('same-domain discovery without assessment has a distinct admission error', () => {
+    const planned = 'packages/node-rollout/src/session.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement the Node rollout behavior',
+        planned_mutation_targets: [planned],
+        commands: [],
+        validation: ['The Node rollout behavior is verified'],
+        review_checkpoint: { policy: 'required', reason: 'Review the implementation diff' },
+      }],
+    });
+    try {
+      const plannedPath = path.join(root, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedPath), { recursive: true });
+      fs.writeFileSync(plannedPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [planned] });
+      const before = readCanonicalCurrentTask(root);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      const beforeStore = taskStoreSnapshot(root);
+      const beforeAttempts = JSON.stringify(before.runtimeState.step_attempts);
+      const beforeReviewCoverage = JSON.stringify(before.runtimeState.review_coverage);
+      const beforeDynamicExpansions = JSON.stringify(before.runtimeState.dynamic_expansions);
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED');
+      const after = readCanonicalCurrentTask(root);
+      expect(fs.readFileSync(after.filePath, 'utf8')).toBe(beforeBytes);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(after.runtimeState)).toBe(JSON.stringify(before.runtimeState));
+      expect(taskStoreSnapshot(root)).toBe(beforeStore);
+      expect(JSON.stringify(after.runtimeState.step_attempts)).toBe(beforeAttempts);
+      expect(JSON.stringify(after.runtimeState.review_coverage)).toBe(beforeReviewCoverage);
+      expect(JSON.stringify(after.runtimeState.dynamic_expansions)).toBe(beforeDynamicExpansions);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('Step 5 Flow A records same-envelope discovery as an actual reviewed mutation', () => {
+    const plannedA = 'packages/node-rollout/src/session.ts';
+    const plannedB = 'packages/node-rollout/src/reconnect.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement the Node rollout behavior and discover local state normalization',
+        planned_mutation_targets: [plannedA, plannedB],
+        commands: [],
+        validation: ['The Node rollout behavior is verified'],
+        review_checkpoint: { policy: 'required', reason: 'Review the planned and discovered implementation diff' },
+      }],
+    });
+    try {
+      const absolute = (relative: string) => path.join(root, ...relative.split('/'));
+      for (const file of [plannedA, plannedB, discovered]) {
+        fs.mkdirSync(path.dirname(absolute(file)), { recursive: true });
+      }
+      fs.writeFileSync(absolute(plannedA), 'export const session = "before";\n', 'utf8');
+      fs.writeFileSync(absolute(plannedB), 'export const reconnect = "before";\n', 'utf8');
+      fs.writeFileSync(absolute(discovered), 'export const normalizeState = (value) => value;\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [plannedA, plannedB] });
+
+      fs.writeFileSync(absolute(plannedA), 'export const session = "after";\n', 'utf8');
+      const beforeExtension = fs.readFileSync(absolute(discovered), 'utf8');
+      const extension = extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'normalizeState' },
+          reason: 'The private helper is the smallest correct local change; propagating into the shared protocol would broaden the fix without evidence.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(fs.readFileSync(absolute(discovered), 'utf8')).toBe(beforeExtension);
+      expect(extension.receipt.candidate_paths).toEqual([plannedA, plannedB, discovered]);
+      expect(extension.receipt.execution_id).toBe(initial.receipt.execution_id);
+
+      fs.writeFileSync(absolute(discovered), 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: extension.receipt,
+        actual_changed_paths: [plannedA, discovered],
+        command_results: [],
+        validation_results: [{ validation: extension.current_step.validation[0]!, status: 'passed', evidence_refs: evidence.evidence_refs }],
+        acceptance_evidence: [evidence],
+        outcome: 'implemented',
+        note: 'Record both the planned implementation and the discovered helper mutation.',
+      }).status).toBe('success');
+      expect(fs.readFileSync(absolute(discovered), 'utf8')).toContain('value.trim()');
+
+      const context = reviewContext(root, {});
+      expect(context.planned_mutation_targets).toEqual([plannedA, plannedB]);
+      expect(context.expanded_mutation_targets).toEqual([
+        expect.objectContaining({
+          path: discovered,
+          assessment: expect.objectContaining({ disposition: 'self-admit' }),
+        }),
+      ]);
+      expect(context.recorded_execution.execution_result?.actual_changed_paths).toEqual([discovered, plannedA].sort());
+      expect(context.recorded_execution.execution_result?.change_delta.entries.map(entry => entry.path)).toEqual(
+        expect.arrayContaining([plannedA, discovered]),
+      );
+      const diff = reviewRead(root, { context_receipt: context.receipt, path: discovered, view: 'diff' });
+      expect(diff.content_status).toBe('text');
+      expect(diff.text).toContain('value.trim()');
+      expect(recordReviewResult(root, {
+        context_receipt: context.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The planned and discovered mutations are reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('Step 5 Flow B repair discovery stays in one repair wave and execution identity', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement and repair the Node rollout behavior',
+        planned_mutation_targets: [target],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+        review_checkpoint: { policy: 'required', reason: 'Review the cumulative implementation and repair diff' },
+      }],
+    });
+    try {
+      const targetPath = path.join(root, ...target.split('/'));
+      const discoveredPath = path.join(root, ...discovered.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.mkdirSync(path.dirname(discoveredPath), { recursive: true });
+      fs.writeFileSync(targetPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [target] });
+      fs.writeFileSync(targetPath, 'export const session = "implemented";\n', 'utf8');
+      const acceptance = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: initial.receipt,
+        actual_changed_paths: [target],
+        command_results: [{ command: initial.current_step.commands[0]!.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: initial.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [acceptance],
+        outcome: 'implemented',
+        note: 'Record the initial Node implementation before review repair.',
+      }).status).toBe('success');
+
+      const discovery = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: discovery.receipt,
+        verdict: 'findings',
+        findings: [{
+          category: 'correctness',
+          file: target,
+          failure_condition: 'the session state is not normalized before reconnect',
+          required_behavior: 'normalize session state before reconnect',
+          root_cause_status: 'confirmed',
+          evidence_refs: ['evidence-report.txt'],
+        }],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+
+      const repair = beginRepair(root, { candidate_paths: [target] });
+      const beforeExtension = readCanonicalCurrentTask(root);
+      const attemptsBefore = structuredClone(beforeExtension.runtimeState.step_attempts);
+      fs.writeFileSync(targetPath, 'export const session = "repaired";\n', 'utf8');
+
+      const extension = extendPreflight(root, {
+        current_preflight_receipt: repair.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'normalizeState' },
+          reason: 'The private helper is the smallest correct repair; changing the shared protocol would broaden the fix without evidence.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(extension.receipt).toMatchObject({
+        mode: 'repair',
+        execution_id: repair.receipt.execution_id,
+        repair_wave_id: repair.receipt.repair_wave_id,
+        repair_fingerprints: repair.receipt.repair_fingerprints,
+      });
+      const afterExtension = readCanonicalCurrentTask(root);
+      expect(afterExtension.runtimeState.step_attempts).toEqual(attemptsBefore);
+      expect(afterExtension.runtimeState.evidence_plan_revision).toBe(beforeExtension.runtimeState.evidence_plan_revision);
+      expect(afterExtension.runtimeState.active_step_id).toBe('step-1');
+      expect(afterExtension.runtimeState.dynamic_expansions).toEqual([
+        expect.objectContaining({
+          path: discovered,
+          mode: 'repair',
+          execution_id: repair.receipt.execution_id,
+          step_id: 'step-1',
+          first_touch_state: 'absent',
+        }),
+      ]);
+      expect(afterExtension.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-scope-amendment')).toBe(false);
+
+      fs.writeFileSync(targetPath, 'export const session = "fixed";\n', 'utf8');
+      fs.writeFileSync(discoveredPath, 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+      expect(fs.readFileSync(discoveredPath, 'utf8')).toContain('value.trim()');
+      expect(recordStepResult(root, {
+        preflight_receipt: extension.receipt,
+        actual_changed_paths: [target, discovered],
+        command_results: [{ command: extension.current_step.commands[0]!.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: extension.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [],
+        outcome: 'implemented',
+        note: 'Repair the finding and its locally discovered helper in one wave.',
+      }).status).toBe('success');
+      const verification = reviewContext(root, {});
+      expect(verification.receipt.cycle_phase).toBe('verification');
+      expect(verification.recorded_execution.execution_result?.execution_id).toBe(repair.receipt.execution_id);
+      expect(verification.recorded_execution.execution_result?.actual_changed_paths).toEqual([discovered, target].sort());
+      expect(verification.recorded_execution.execution_result?.change_delta.entries.map(entry => entry.path)).toEqual(
+        expect.arrayContaining([target, discovered]),
+      );
+      expect(recordReviewResult(root, {
+        context_receipt: verification.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The repair wave and local expansion are verified.' }).status).toBe('success');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E3 rejects a test-first Red product expansion before changing Runtime state', () => {
+    const testPath = 'packages/node-rollout-tests/qa/check.ts';
+    const productPath = 'packages/node-rollout/src/foo.ts';
+    const semantic = v2MutationAuthoritySemanticDraft({
+      test_strategy: {
+        mode: 'test-first',
+        source: 'explicit-user',
+        source_ref: 'test:original-request',
+        task_classification: 'contract-clear-behavior',
+        rationale: 'The regression must be reproduced before product implementation.',
+      },
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Record the existing regression in Red',
+        planned_mutation_targets: [testPath],
+        commands: [],
+        validation: ['The regression test reproduces the defect'],
+        review_checkpoint: { policy: 'required', reason: 'Review the Red reproduction' },
+      }, {
+        id: 'step-2',
+        description: 'Implement the product fix after Red',
+        planned_mutation_targets: [productPath],
+        commands: [],
+        validation: ['The product fix passes the regression'],
+        review_checkpoint: { policy: 'required', reason: 'Review the product fix' },
+      }],
+      persistent_tests: [{
+        path: testPath,
+        proves: ['A1'],
+        owner: 'workflow-system',
+        owner_source: 'task-basis',
+        source_ref: 'test:original-request',
+        basis: 'regression',
+        existing_evidence_insufficiency: 'The existing checks do not reproduce this regression.',
+        assertion_boundary: 'The test asserts the requested Node rollout behavior only.',
+        failure_disposition: 'block',
+      }],
+    });
+    const prerequisite = structuredClone(semantic.claim_evidence[0]!);
+    prerequisite.claim_id = 'red-reproduction';
+    prerequisite.claim_kind = 'invariant';
+    prerequisite.requirement = 'Observe the regression before product implementation';
+    const slot = prerequisite.slots[0]!;
+    slot.slot_id = 'red-reproduction';
+    slot.due_step_id = 'step-1';
+    slot.applicability = 'before-step';
+    slot.before_step_id = 'step-2';
+    slot.prerequisite_receipt = null;
+    slot.check!.check_id = 'red-reproduction';
+    slot.check!.entry = 'bun test packages/node-rollout-tests/existing-regression.test.ts';
+    slot.check!.expected_result = 'expected-failure';
+    slot.check!.method = 'execution'; slot.minimum_type = 'focused-test';
+    slot.check!.selection = { ...evidencePlanFixture('reproduction')[0]!.slots[0]!.check!.selection!,
+      selector: 'packages/node-rollout-tests/existing-regression.test.ts',
+      invocation: { argv: ['bun', 'test', 'packages/node-rollout-tests/existing-regression.test.ts'], selector_arg_index: 2 } };
+    semantic.implementation_steps[0]!.commands = [{ command: slot.check!.entry, expected_repo_writes: 'none' }];
+    semantic.claim_evidence.push(prerequisite);
+
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    const prepared = prepareDraft(root, semantic);
+    if (!prepared.confirmation_receipt) throw new Error('E3 setup did not receive a confirmation receipt');
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+    try {
+      const testFile = path.join(root, ...testPath.split('/'));
+      fs.mkdirSync(path.dirname(testFile), { recursive: true });
+      fs.writeFileSync(testFile, 'test("existing regression", () => {});\n', 'utf8');
+      const mixedBefore = readCanonicalCurrentTask(root);
+      const mixedBeforeBytes = fs.readFileSync(mixedBefore.filePath, 'utf8');
+      const mixedBeforeStore = taskStoreSnapshot(root);
+      const mixedBeforeRuntime = JSON.stringify(mixedBefore.runtimeState);
+      expect(() => preflightStep(root, {
+        candidate_paths: [testPath, productPath],
+        blast_radius_assessments: [{
+          target: { path: productPath, symbol: 'foo' },
+          reason: 'The product implementation is the likely local fix after the Red reproduction.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+      })).toThrow('TEST_STRATEGY_SEQUENCE_INVALID');
+      expect(fs.readFileSync(mixedBefore.filePath, 'utf8')).toBe(mixedBeforeBytes);
+      expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(mixedBefore.sourceTuple.revision);
+      expect(taskStoreSnapshot(root)).toBe(mixedBeforeStore);
+      expect(JSON.stringify(readCanonicalCurrentTask(root).runtimeState)).toBe(mixedBeforeRuntime);
+      const initial = preflightStep(root, { candidate_paths: [testPath] });
+      expect(initial.receipt.execution_phase).toBe('red');
+      expect(initial.current_step.required_outcome).toBe('implemented');
+      const before = readCanonicalCurrentTask(root);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      const beforeRuntime = JSON.stringify(before.runtimeState);
+      const beforeStore = taskStoreSnapshot(root);
+      const beforeAttempts = JSON.stringify(before.runtimeState.step_attempts);
+      const beforeReviewCoverage = JSON.stringify(before.runtimeState.review_coverage);
+      const beforeDynamicExpansions = JSON.stringify(before.runtimeState.dynamic_expansions);
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [productPath],
+        blast_radius_assessments: [{
+          target: { path: productPath, symbol: 'foo' },
+          reason: 'The product implementation is the likely local fix after the Red reproduction.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('TEST_STRATEGY_SEQUENCE_INVALID');
+      const after = readCanonicalCurrentTask(root);
+      expect(fs.readFileSync(after.filePath, 'utf8')).toBe(beforeBytes);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(after.runtimeState)).toBe(beforeRuntime);
+      expect(taskStoreSnapshot(root)).toBe(beforeStore);
+      expect(JSON.stringify(after.runtimeState.step_attempts)).toBe(beforeAttempts);
+      expect(JSON.stringify(after.runtimeState.review_coverage)).toBe(beforeReviewCoverage);
+      expect(JSON.stringify(after.runtimeState.dynamic_expansions)).toBe(beforeDynamicExpansions);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E4 keeps not-applicable execution closed under dynamic executable discovery', () => {
+    const planned = 'packages/node-rollout/README.md';
+    const discovered = 'packages/node-rollout/src/app.ts';
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+    const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, any>;
+    profile.boundaries.non_executable_change_paths.push(planned);
+    fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+    const prepared = prepareDraft(root, v2MutationAuthoritySemanticDraft({
+      test_strategy: notApplicableSemanticDraft().test_strategy,
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Update the non-executable Node rollout documentation',
+        planned_mutation_targets: [planned],
+        commands: [],
+        validation: ['Review the rendered documentation content'],
+        review_checkpoint: { policy: 'required', reason: 'Review the documentation change' },
+      }],
+    }));
+    if (!prepared.confirmation_receipt) throw new Error('E4 setup did not receive a confirmation receipt');
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+    try {
+      const plannedFile = path.join(root, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedFile), { recursive: true });
+      fs.writeFileSync(plannedFile, '# Node rollout notes\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [planned] });
+      const before = readCanonicalCurrentTask(root);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      const beforeStore = taskStoreSnapshot(root);
+      const beforeAttempts = JSON.stringify(before.runtimeState.step_attempts);
+      const beforeReviewCoverage = JSON.stringify(before.runtimeState.review_coverage);
+      const beforeDynamicExpansions = JSON.stringify(before.runtimeState.dynamic_expansions);
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'app' },
+          reason: 'The discovered executable target would be a broader implementation change.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION');
+      const after = readCanonicalCurrentTask(root);
+      expect(fs.readFileSync(after.filePath, 'utf8')).toBe(beforeBytes);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(after.runtimeState)).toBe(JSON.stringify(before.runtimeState));
+      expect(taskStoreSnapshot(root)).toBe(beforeStore);
+      expect(JSON.stringify(after.runtimeState.step_attempts)).toBe(beforeAttempts);
+      expect(JSON.stringify(after.runtimeState.review_coverage)).toBe(beforeReviewCoverage);
+      expect(JSON.stringify(after.runtimeState.dynamic_expansions)).toBe(beforeDynamicExpansions);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E5 admits an existing same-envelope regression test as ordinary dynamic expansion', () => {
+    const product = 'packages/node-rollout/src/session.ts';
+    const existingTest = 'packages/node-rollout-tests/existing-regression.test.ts';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement the Node rollout behavior and its existing regression test',
+        planned_mutation_targets: [product],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+        review_checkpoint: { policy: 'required', reason: 'Review the cumulative implementation and regression oracle' },
+      }],
+    });
+    try {
+      const productPath = path.join(root, ...product.split('/'));
+      const testPath = path.join(root, ...existingTest.split('/'));
+      fs.mkdirSync(path.dirname(productPath), { recursive: true });
+      fs.mkdirSync(path.dirname(testPath), { recursive: true });
+      fs.writeFileSync(productPath, 'export const session = "before";\n', 'utf8');
+      fs.writeFileSync(testPath, 'test("existing regression", () => expect(true).toBe(true));\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [product] });
+      fs.writeFileSync(productPath, 'export const session = "after";\n', 'utf8');
+      const extended = extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [existingTest],
+        blast_radius_assessments: [{
+          target: { path: existingTest, symbol: 'existing regression oracle' },
+          reason: 'The existing regression test is the smallest correct local oracle; reuse its boundary instead of creating a new persistent test.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(extended.receipt.candidate_paths).toEqual([product, existingTest]);
+      expect(readCanonicalCurrentTask(root).runtimeState.dynamic_review_required).toBe(false);
+      fs.writeFileSync(testPath, 'test("existing regression", () => expect(session()).toBe("after"));\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: extended.receipt,
+        actual_changed_paths: [product, existingTest],
+        command_results: [{ command: extended.current_step.commands[0]!.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: extended.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [evidence],
+        outcome: 'implemented',
+        note: 'Update the existing regression oracle inside the authorized test domain.',
+      }).status).toBe('success');
+      const context = reviewContext(root, {});
+      expect(context.dynamic_review_required).toBe(false);
+      expect(context.recorded_execution.execution_result?.actual_changed_paths).toEqual([existingTest, product].sort());
+      expect(context.expanded_mutation_targets).toEqual([
+        expect.objectContaining({ path: existingTest, assessment: expect.objectContaining({ disposition: 'self-admit' }) }),
+      ]);
+      expect(recordReviewResult(root, {
+        context_receipt: context.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+        test_assessment: {
+          applicable: true,
+          reason: 'The existing regression oracle remains applicable to the same Node behavior.',
+          evidence_refs: ['evidence-report.txt'],
+          necessity: 'The existing regression test protects the discovered behavior.',
+          oracle: 'The existing assertion remains the oracle for the requested Node behavior.',
+          boundary: 'The regression test remains inside the authorized Node test domain.',
+          reuse: 'The existing regression test is updated rather than replaced by a new persistent test.',
+          applicability: 'The recorded cumulative diff includes the product and existing test changes.',
+        },
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The existing regression oracle and cumulative diff are reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E6/E7/E9 binds dynamic authority and review consumption to the current execution identity', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const plannedA = 'packages/node-rollout/src/session.ts';
+    const plannedB = 'packages/node-rollout/src/reconnect.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2TwoStepConfirmedRoot();
+    const assessment = (reason: string) => ({
+      target: { path: discovered, symbol: 'normalizeState' },
+      reason,
+      blast_radius: { locality: 'local' as const, visibility: 'private' as const, cross_component_consumers: 'none' as const, contract_impact: 'none' as const },
+      evidence_refs: ['evidence-report.txt'],
+      disposition: 'self-admit' as const,
+    });
+    try {
+      for (const file of [plannedA, plannedB, discovered]) {
+        const absolute = path.join(root, ...file.split('/'));
+        fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      }
+      fs.writeFileSync(path.join(root, ...plannedA.split('/')), 'export const session = "before";\n', 'utf8');
+      fs.writeFileSync(path.join(root, ...plannedB.split('/')), 'export const reconnect = "before";\n', 'utf8');
+      const discoveredBefore = 'export const normalizeState = (value) => value;\n';
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), discoveredBefore, 'utf8');
+
+      const first = preflightStep(root, { candidate_paths: [plannedA] });
+      fs.writeFileSync(path.join(root, ...plannedA.split('/')), 'export const session = "first";\n', 'utf8');
+      const firstExtension = extendPreflight(root, {
+        current_preflight_receipt: first.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [assessment('S1 needs the private helper as the smallest correct local implementation.')],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(firstExtension.receipt.execution_id).toBe(first.receipt.execution_id);
+      expect(firstExtension.receipt.plan_revision).toBe(first.receipt.plan_revision);
+      expect(firstExtension.receipt.candidate_paths).toEqual([plannedA, discovered]);
+      const discoveredPreimage = readCanonicalCurrentTask(root).runtimeState.review_coverage!.preimages.find(item => item.path === discovered)!;
+      expect(Object.keys(discoveredPreimage).sort()).toEqual(['path', 'sha256', 'state']);
+      expect(fs.readFileSync(reviewPreimageBlobPath(root, discoveredPreimage.sha256!)).toString()).toBe(discoveredBefore);
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+      const firstEvidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: firstExtension.receipt,
+        actual_changed_paths: [plannedA, discovered],
+        command_results: [],
+        validation_results: [{ validation: firstExtension.current_step.validation[0]!, status: 'passed', evidence_refs: firstEvidence.evidence_refs }],
+        acceptance_evidence: [firstEvidence],
+        outcome: 'implemented',
+        note: 'Record S1 with its same-envelope discovery.',
+      }).status).toBe('success');
+      const firstReviewContext = reviewContext(root, {});
+      expect(firstReviewContext.expanded_mutation_targets).toEqual([
+        expect.objectContaining({ path: discovered, step_id: 'step-1', execution_id: first.receipt.execution_id }),
+      ]);
+      expect(recordReviewResult(root, {
+        context_receipt: firstReviewContext.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      const afterFirstReview = readCanonicalCurrentTask(root);
+      const firstReviewId = afterFirstReview.runtimeState.dynamic_expansions!.find(item => item.path === discovered && item.step_id === 'step-1')!.reviewed_by_review_id;
+      expect(firstReviewId).toBeDefined();
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'S1 dynamic expansion is reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_id).toBe('step-2');
+
+      const second = preflightStep(root, { candidate_paths: [plannedB] });
+      const beforeRejectedExtension = readCanonicalCurrentTask(root);
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: second.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED');
+      const afterRejectedExtension = readCanonicalCurrentTask(root);
+      expect(afterRejectedExtension.sourceTuple.revision).toBe(beforeRejectedExtension.sourceTuple.revision);
+      expect(JSON.stringify(afterRejectedExtension.runtimeState)).toBe(JSON.stringify(beforeRejectedExtension.runtimeState));
+
+      const secondExtension = extendPreflight(root, {
+        current_preflight_receipt: second.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [assessment('S2 has a different local reason to revisit the helper after reconnect changes.')],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(secondExtension.receipt.execution_id).not.toBe(first.receipt.execution_id);
+      expect(secondExtension.receipt.step_id).toBe('step-2');
+      expect(secondExtension.receipt.plan_revision).not.toBe(first.receipt.plan_revision);
+      expect(secondExtension.receipt.candidate_paths).toEqual([plannedB, discovered]);
+      const afterSecondAdmission = readCanonicalCurrentTask(root);
+      const discoveredExpansions = afterSecondAdmission.runtimeState.dynamic_expansions!.filter(item => item.path === discovered);
+      expect(discoveredExpansions).toHaveLength(2);
+      expect(discoveredExpansions[0]).toMatchObject({ step_id: 'step-1', execution_id: first.receipt.execution_id, reviewed_by_review_id: firstReviewId });
+      expect(discoveredExpansions[1]).toMatchObject({ step_id: 'step-2', execution_id: second.receipt.execution_id });
+      expect(discoveredExpansions[1]!.reviewed_by_review_id).toBeUndefined();
+      expect(discoveredExpansions[0]!.assessment.reason).not.toBe(discoveredExpansions[1]!.assessment.reason);
+
+      fs.writeFileSync(path.join(root, ...plannedB.split('/')), 'export const reconnect = "second";\n', 'utf8');
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim().toLowerCase();\n', 'utf8');
+      const secondResult = recordStepResult(root, {
+        preflight_receipt: secondExtension.receipt,
+        actual_changed_paths: [plannedB, discovered],
+        command_results: [],
+        validation_results: [{ validation: secondExtension.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [],
+        outcome: 'implemented',
+        note: 'Record S2 with a new assessment for the same path.',
+      });
+      expect(secondResult.status, JSON.stringify(secondResult)).toBe('success');
+      const secondReviewContext = reviewContext(root, {});
+      expect(secondReviewContext.expanded_mutation_targets).toEqual([
+        expect.objectContaining({ path: discovered, step_id: 'step-2', execution_id: second.receipt.execution_id }),
+      ]);
+      expect(recordReviewResult(root, {
+        context_receipt: secondReviewContext.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      const afterSecondReview = readCanonicalCurrentTask(root);
+      const secondReviewId = afterSecondReview.runtimeState.dynamic_expansions!.find(item => item.path === discovered && item.step_id === 'step-2')!.reviewed_by_review_id;
+      expect(secondReviewId).toBeDefined();
+      expect(secondReviewId).not.toBe(firstReviewId);
+      expect(afterSecondReview.runtimeState.dynamic_expansions!.find(item => item.path === discovered && item.step_id === 'step-1')!.reviewed_by_review_id).toBe(firstReviewId);
+      expect(afterSecondReview.runtimeState.dynamic_review_required).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E8 keeps cumulative review coverage separate from current-step dynamic authority', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const plannedA = 'packages/node-rollout/src/session.ts';
+    const plannedB = 'packages/node-rollout/src/reconnect.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    const root = v2TwoStepConfirmedRoot('not-required');
+    try {
+      for (const file of [plannedA, plannedB, discovered]) {
+        const absolute = path.join(root, ...file.split('/'));
+        fs.mkdirSync(path.dirname(absolute), { recursive: true });
+        fs.writeFileSync(absolute, `export const ${path.basename(file, path.extname(file))} = "before";\n`, 'utf8');
+      }
+      const first = preflightStep(root, { candidate_paths: [plannedA] });
+      fs.writeFileSync(path.join(root, ...plannedA.split('/')), 'export const session = "after";\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: first.receipt,
+        actual_changed_paths: [plannedA],
+        command_results: [],
+        validation_results: [{ validation: first.current_step.validation[0]!, status: 'passed', evidence_refs: evidence.evidence_refs }],
+        acceptance_evidence: [evidence],
+        outcome: 'implemented',
+        note: 'Complete the exempt first step and retain its cumulative review target.',
+      }).status).toBe('success');
+      const afterFirst = readCanonicalCurrentTask(root);
+      expect(afterFirst.runtimeState.active_step_id).toBe('step-2');
+      expect(afterFirst.runtimeState.review_coverage?.target.entries.map(entry => entry.path)).toContain(plannedA);
+
+      const second = preflightStep(root, { candidate_paths: [plannedB] });
+      const extension = extendPreflight(root, {
+        current_preflight_receipt: second.receipt,
+        additional_targets: [discovered],
+        blast_radius_assessments: [{
+          target: { path: discovered, symbol: 'normalizeState' },
+          reason: 'The S2 helper is a private same-domain implementation detail.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'],
+          disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      expect(extension.receipt.candidate_paths).toEqual([plannedB, discovered]);
+      expect(readCanonicalCurrentTask(root).runtimeState.dynamic_expansions).toEqual([
+        expect.objectContaining({ path: discovered, step_id: 'step-2', execution_id: second.receipt.execution_id }),
+      ]);
+      fs.writeFileSync(path.join(root, ...plannedB.split('/')), 'export const reconnect = "after";\n', 'utf8');
+      fs.writeFileSync(path.join(root, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+      expect(recordStepResult(root, {
+        preflight_receipt: extension.receipt,
+        actual_changed_paths: [plannedB, discovered],
+        command_results: [],
+        validation_results: [{ validation: extension.current_step.validation[0]!, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+        acceptance_evidence: [],
+        outcome: 'implemented',
+        note: 'Record S2 while preserving the cumulative S1 review target.',
+      }).status).toBe('success');
+      const secondReview = reviewContext(root, {});
+      expect(secondReview.expanded_mutation_targets).toEqual([
+        expect.objectContaining({ path: discovered, step_id: 'step-2', execution_id: second.receipt.execution_id }),
+      ]);
+      expect(secondReview.recorded_execution.execution_result?.actual_changed_paths).toEqual([discovered, plannedB].sort());
+      expect(secondReview.recorded_execution.execution_result?.change_delta.entries.map(entry => entry.path)).toEqual(
+        expect.arrayContaining([plannedA, plannedB, discovered]),
+      );
+      expect(readCanonicalCurrentTask(root).runtimeState.review_coverage?.target.entries.map(entry => entry.path)).toEqual(
+        expect.arrayContaining([plannedA, plannedB, discovered]),
+      );
+      expect(recordReviewResult(root, {
+        context_receipt: secondReview.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-2', note: 'The cumulative S1 and S2 implementation diff is reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('v2 authority amendment waits for the current execution to settle', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const root = v2ConfirmedRoot();
+    const planned = 'packages/node-rollout/src/session.ts';
+    const crossDomain = 'native/codex-rollout-collector/src/protocol.rs';
+    try {
+      fs.mkdirSync(path.dirname(path.join(root, ...planned.split('/'))), { recursive: true });
+      fs.writeFileSync(path.join(root, ...planned.split('/')), 'export const session = "stable";\n', 'utf8');
+      const preflight = preflightStep(root, { candidate_paths: [planned] });
+      expect(() => prepareScopeAmendment(root, {
+        added_paths: [crossDomain],
+        authorization: { decision_source: 'user:gate', decision_text: 'Authorize the exact Rust protocol path after the Node execution settles.', authorized_paths: [crossDomain] },
+        amendment_step: { id: 'cross-domain-after-settlement', description: 'Continue through the authorized Rust protocol path', mutation_scope: [crossDomain], required_evidence: ['fresh cross-domain review'], commands: [] },
+      })).toThrow('SCOPE_AMENDMENT_EXECUTION_GATE');
+
+      const evidence = reportFixture(root);
+      const step = preflight.current_step;
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: [{ command: step.commands[0].command, status: 'passed', observed_repo_writes: [], evidence_refs: evidence.evidence_refs }],
+        validation_results: [{ validation: step.validation[0], status: 'passed', evidence_refs: evidence.evidence_refs }],
+        acceptance_evidence: [evidence],
+        outcome: 'implemented',
+        note: 'Settle the current Node execution before changing authority.',
+      }).status).toBe('success');
+      const context = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: context.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: evidence.evidence_refs,
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The original Node execution is settled.' }).status).toBe('success');
+
+      const amended = prepareScopeAmendment(root, {
+        added_paths: [crossDomain],
+        authorization: { decision_source: 'user:gate', decision_text: 'Authorize the exact Rust protocol path after the Node execution settles.', authorized_paths: [crossDomain] },
+        amendment_step: { id: 'cross-domain-after-settlement', description: 'Continue through the authorized Rust protocol path', mutation_scope: [crossDomain], required_evidence: ['fresh cross-domain review'], commands: [] },
+      });
+      expect(amended.status).toBe('success');
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toContain(crossDomain);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E10/E11 authority amendment gates only an unsettled preflight and preserves ready retry lineage', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const crossDomain = 'native/codex-rollout-collector/src/protocol.rs';
+    const amendment = (pathToAdd: string, id: string) => ({
+      added_paths: [pathToAdd],
+      authorization: {
+        decision_source: `user:step-3-${id}`,
+        decision_text: `Authorize the exact cross-domain path ${pathToAdd} after the current execution is settled.`,
+        authorized_paths: [pathToAdd],
+      },
+      amendment_step: {
+        id,
+        description: `Continue through the authorized path ${pathToAdd}`,
+        mutation_scope: [pathToAdd],
+        required_evidence: ['fresh authority-amendment execution and review'],
+        commands: [],
+      },
+    });
+
+    const blockedRoot = v2ConfirmedRoot();
+    try {
+      const planned = 'packages/node-rollout/src/session.ts';
+      const preflight = preflightStep(blockedRoot, { candidate_paths: [planned] });
+      const before = readCanonicalCurrentTask(blockedRoot);
+      expect(() => prepareScopeAmendment(blockedRoot, amendment(crossDomain, 'after-blocked'))).toThrow('SCOPE_AMENDMENT_EXECUTION_GATE');
+      const afterRejected = readCanonicalCurrentTask(blockedRoot);
+      expect(afterRejected.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(afterRejected.runtimeState)).toBe(JSON.stringify(before.runtimeState));
+
+      fs.writeFileSync(path.join(blockedRoot, 'blocked-result.txt'), 'the current execution was blocked before implementation\n', 'utf8');
+      expect(recordStepResult(blockedRoot, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'blocked' as const, observed_repo_writes: [], evidence_refs: ['blocked-result.txt'] })),
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'not-run' as const, evidence_refs: [] })),
+        acceptance_evidence: [],
+        outcome: 'blocked',
+        blocker_kind: 'environment',
+        note: 'The current execution is settled as an environment blocker.',
+      }).status).toBe('success');
+      expect(prepareScopeAmendment(blockedRoot, amendment(crossDomain, 'after-blocked')).status).toBe('success');
+      expect(readCanonicalCurrentTask(blockedRoot).mutationAuthority?.exact_exceptions).toContain(crossDomain);
+    } finally {
+      fs.rmSync(blockedRoot, { recursive: true, force: true });
+    }
+
+    const readyRoot = v2ConfirmedRoot();
+    try {
+      const preflight = preflightStep(readyRoot, { candidate_paths: ['packages/node-rollout/src/session.ts'] });
+      fs.writeFileSync(path.join(readyRoot, 'retry-blocked.txt'), 'retry blocker\n', 'utf8');
+      expect(recordStepResult(readyRoot, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: [{ command: preflight.current_step.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['retry-blocked.txt'] }],
+        validation_results: [{ validation: preflight.current_step.validation[0]!, status: 'not-run', evidence_refs: [] }],
+        acceptance_evidence: [],
+        outcome: 'blocked',
+        blocker_kind: 'environment',
+        note: 'Create a settled failed attempt before retrying.',
+      }).status).toBe('success');
+      const blocked = readCanonicalCurrentTask(readyRoot);
+      const failedAttempt = blocked.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+      fs.writeFileSync(path.join(readyRoot, 'retry-resolution.json'), JSON.stringify({
+        kind: 'environment-restored/v1', task_id: blocked.runtimeState.task_id, document_id: blocked.sourceTuple.document_id,
+        step_id: 'step-1', blocked_attempt_id: failedAttempt.attempt_id, evidence_plan_revision: blocked.runtimeState.evidence_plan_revision,
+        subject_revision: failedAttempt.blocker!.subject_snapshot.revision, status: 'passed',
+        diagnosis: 'The fixture environment was unavailable.', resolution: 'The fixture environment is available for the next attempt.',
+      }), 'utf8');
+      expect(retryStep(readyRoot, {
+        step_id: 'step-1', blocked_attempt_id: failedAttempt.attempt_id,
+        blocker_resolution_refs: ['retry-resolution.json'], idempotency_key: 'step-3-ready-retry',
+      }).status).toBe('success');
+      const ready = readCanonicalCurrentTask(readyRoot);
+      expect(ready.runtimeState.step_attempts!['step-1']!.attempts.at(-1)?.status).toBe('ready');
+      expect(prepareScopeAmendment(readyRoot, amendment(crossDomain, 'after-ready-retry')).status).toBe('success');
+      const amended = readCanonicalCurrentTask(readyRoot);
+      expect(amended.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(2);
+      expect(amended.runtimeState.step_attempts!['step-1']!.attempts[0]?.status).toBe('blocked');
+      expect(amended.runtimeState.step_attempts!['step-1']!.attempts[1]?.status).toBe('ready');
+    } finally {
+      fs.rmSync(readyRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('E12 settled repair permits authority amendment while retaining findings and review state', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const product = 'packages/node-rollout/src/session.ts';
+    const crossDomain = 'native/codex-rollout-collector/src/repair-protocol.rs';
+    const root = v2ConfirmedRoot();
+    try {
+      const productPath = path.join(root, ...product.split('/'));
+      fs.mkdirSync(path.dirname(productPath), { recursive: true });
+      fs.writeFileSync(productPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [product] });
+      fs.writeFileSync(productPath, 'export const session = "initial";\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: initial.receipt,
+        actual_changed_paths: [product],
+        command_results: initial.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: [{ validation: initial.current_step.validation[0]!, status: 'passed', evidence_refs: evidence.evidence_refs }],
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Record the implementation before the repair wave.',
+      }).status).toBe('success');
+      const discovery = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: discovery.receipt,
+        verdict: 'findings',
+        findings: [{
+          category: 'correctness', file: product,
+          failure_condition: 'the Node session behavior still violates the requested contract',
+          required_behavior: 'repair the Node session behavior', root_cause_status: 'confirmed',
+          evidence_refs: ['evidence-report.txt'],
+        }],
+        unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null,
+      }).status).toBe('success');
+      const repair = beginRepair(root, { candidate_paths: [product] });
+      fs.writeFileSync(productPath, 'export const session = "repaired";\n', 'utf8');
+      expect(recordStepResult(root, {
+        preflight_receipt: repair.receipt,
+        actual_changed_paths: [product],
+        command_results: repair.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+        validation_results: repair.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: ['evidence-report.txt'] })),
+        acceptance_evidence: [], outcome: 'implemented', note: 'Settle the repair execution before changing authority.',
+      }).status).toBe('success');
+      const settled = readCanonicalCurrentTask(root);
+      const cycle = structuredClone(settled.runtimeState.review_cycle);
+      expect(settled.runtimeState.findings[0]?.status).toBe('in-progress');
+      expect(settled.runtimeState.execution_preflight?.mode).toBe('repair');
+      expect(prepareScopeAmendment(root, {
+        added_paths: [crossDomain],
+        authorization: {
+          decision_source: 'user:settled-repair-authority',
+          decision_text: 'Authorize the exact Rust repair protocol path after the repair result is recorded.',
+          authorized_paths: [crossDomain],
+        },
+        amendment_step: {
+          id: 'settled-repair-authority-amendment',
+          description: 'Continue the settled repair through the authorized Rust path',
+          mutation_scope: [crossDomain],
+          required_evidence: ['fresh cross-domain repair review'],
+          commands: [],
+        },
+      }).status).toBe('success');
+      const amended = readCanonicalCurrentTask(root);
+      expect(amended.runtimeState.findings[0]?.status).toBe('in-progress');
+      expect(amended.runtimeState.review_cycle).toEqual(cycle);
+      expect(amended.runtimeState.review_coverage?.pending_paths).toEqual(expect.arrayContaining([product, crossDomain]));
+      expect(amended.mutationAuthority?.exact_exceptions).toContain(crossDomain);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('Step 5 Flow C recovers from an actual blocked execution through authority amendment', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const nodeTarget = 'packages/node-rollout/src/session.ts';
+    const rustTarget = 'native/codex-rollout-collector/src/protocol.rs';
+    const root = v2ConfirmedRoot({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Implement the Node rollout behavior before any cross-domain recovery',
+        planned_mutation_targets: [nodeTarget],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['The Node rollout behavior is verified'],
+        review_checkpoint: { policy: 'required', reason: 'Review the Node implementation and any authorized continuation' },
+      }],
+    });
+    try {
+      const nodePath = path.join(root, ...nodeTarget.split('/'));
+      const rustPath = path.join(root, ...rustTarget.split('/'));
+      fs.mkdirSync(path.dirname(nodePath), { recursive: true });
+      fs.writeFileSync(nodePath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(root, { candidate_paths: [nodeTarget] });
+      fs.writeFileSync(nodePath, 'export const session = "partially-implemented";\n', 'utf8');
+
+      expect(recordStepResult(root, {
+        preflight_receipt: initial.receipt,
+        actual_changed_paths: [nodeTarget],
+        command_results: [{ command: initial.current_step.commands[0]!.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+        validation_results: [{ validation: initial.current_step.validation[0]!, status: 'not-run', evidence_refs: [] }],
+        acceptance_evidence: [],
+        outcome: 'blocked',
+        blocker_kind: 'unknown',
+        note: 'The Node implementation was changed before the cross-domain dependency blocked the execution.',
+      }).status).toBe('success');
+      const blockedState = readCanonicalCurrentTask(root);
+      expect(blockedState.runtimeState.execution_log).toContainEqual(expect.objectContaining({
+        step_id: 'step-1',
+        status: 'blocked',
+        execution_result: expect.objectContaining({
+          outcome: 'blocked',
+          actual_changed_paths: [nodeTarget],
+        }),
+      }));
+
+      const amended = prepareScopeAmendment(root, {
+        added_paths: [rustTarget],
+        authorization: {
+          decision_source: 'user:step-5-cross-domain-recovery',
+          decision_text: 'Authorize this exact Rust protocol target after the actual Node execution blocker is recorded.',
+          authorized_paths: [rustTarget],
+        },
+        amendment_step: {
+          id: 'cross-domain-recovery-continuation',
+          description: 'Continue through the explicitly authorized Rust protocol target',
+          mutation_scope: [rustTarget],
+          required_evidence: ['Fresh Rust continuation execution and review'],
+          commands: [],
+        },
+      });
+      expect(amended.status).toBe('success');
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toContain(rustTarget);
+
+      const fresh = preflightStep(root, { candidate_paths: [rustTarget] });
+      expect(fresh.receipt.step_id).toBe('cross-domain-recovery-continuation');
+      fs.mkdirSync(path.dirname(rustPath), { recursive: true });
+      fs.writeFileSync(rustPath, 'pub fn protocol() {\n    // authorized continuation\n}\n', 'utf8');
+      expect(fs.readFileSync(rustPath, 'utf8')).toContain('authorized continuation');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: fresh.receipt,
+        actual_changed_paths: [rustTarget],
+        command_results: fresh.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: [{ validation: fresh.current_step.validation[0]!, status: 'passed', evidence_refs: evidence.evidence_refs }],
+        acceptance_evidence: [evidence],
+        outcome: 'implemented',
+        note: 'Execute the fresh cross-domain continuation after explicit authority amendment.',
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(review.recorded_execution.execution_result?.actual_changed_paths).toEqual([rustTarget]);
+      expect(review.recorded_execution.execution_result?.change_delta.entries.map(entry => entry.path)).toEqual(
+        expect.arrayContaining([nodeTarget, rustTarget]),
+      );
+      expect(recordReviewResult(root, {
+        context_receipt: review.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: evidence.evidence_refs,
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'cross-domain-recovery-continuation', note: 'The explicitly authorized continuation is reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E13 committed scope-amendment candidates are immutable and do not corrupt later history', () => {
+    const firstPath = 'native/codex-rollout-collector/src/first-protocol.rs';
+    const secondPath = 'native/codex-rollout-collector/src/second-protocol.rs';
+    const root = v2ConfirmedRoot();
+    try {
+      const amendment = (pathToAdd: string, id: string) => ({
+        added_paths: [pathToAdd],
+        authorization: {
+          decision_source: `user:immutable-${id}`,
+          decision_text: `Authorize the exact immutable-history path ${pathToAdd}.`,
+          authorized_paths: [pathToAdd],
+        },
+        amendment_step: { id, description: `Continue through ${pathToAdd}`, mutation_scope: [pathToAdd], required_evidence: ['fresh review'], commands: [] },
+      });
+      const first = prepareScopeAmendment(root, amendment(firstPath, 'immutable-first'));
+      const candidatePath = path.join(root, ...first.candidate_path.split('/'));
+      expect(fs.existsSync(candidatePath)).toBe(true);
+      expect(() => discardScopeAmendment(root, { candidate_digest: first.candidate_receipt.candidate_digest })).toThrow('SCOPE_AMENDMENT_ALREADY_COMMITTED');
+      expect(fs.existsSync(`${candidatePath}.discarded`)).toBe(false);
+      expect(prepareScopeAmendment(root, amendment(secondPath, 'immutable-second')).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toEqual(expect.arrayContaining([firstPath, secondPath]));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E14 same-domain absent persistent tests use an explicit P-12 admission route', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const newTest = 'packages/node-rollout-tests/new-regression.test.ts';
+    const admission = {
+      path: newTest,
+      proves: ['A1'],
+      owner: 'node-rollout-tests',
+      owner_source: 'test:step-3-owner',
+      source_ref: 'test:step-3-p12',
+      basis: 'regression',
+      existing_evidence_insufficiency: 'The existing implementation check does not exercise the newly discovered regression boundary.',
+      assertion_boundary: 'The new regression assertion covers the Node rollout behavior within the node-rollout-tests domain.',
+      failure_disposition: 'block',
+    };
+    const root = v2ConfirmedRoot();
+    try {
+      const initial = preflightStep(root, { candidate_paths: ['packages/node-rollout/src/session.ts'] });
+      const before = readCanonicalCurrentTask(root);
+      expect(() => extendPreflight(root, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: [newTest],
+        blast_radius_assessments: [{
+          target: { path: newTest, symbol: 'new regression oracle' },
+          reason: 'The new test is a local test-domain oracle for the discovered behavior.',
+          blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+          evidence_refs: ['evidence-report.txt'], disposition: 'self-admit',
+        }],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('PERSISTENT_TEST_UNADMITTED');
+      const afterRejected = readCanonicalCurrentTask(root);
+      expect(afterRejected.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(JSON.stringify(afterRejected.runtimeState)).toBe(JSON.stringify(before.runtimeState));
+
+      expect(() => prepareScopeAmendment(root, {
+        added_paths: [newTest],
+        authorization: null,
+        amendment_step: {
+          id: 'persistent-test-admission-missing',
+          description: 'A new persistent test must not fall through to a no-op amendment',
+          mutation_scope: [newTest],
+          required_evidence: ['fresh regression execution and review'],
+          commands: [],
+        },
+      })).toThrow('PERSISTENT_TEST_ADMISSION_REQUIRED');
+
+      const amended = prepareScopeAmendment(root, {
+        added_paths: [newTest],
+        authorization: null,
+        persistent_test_admissions: [admission],
+        amendment_step: {
+          id: 'persistent-test-admission-amendment',
+          description: 'Add and verify the explicitly admitted regression test',
+          mutation_scope: [newTest],
+          required_evidence: ['fresh regression execution and review'],
+          commands: [],
+        },
+      });
+      expect(amended.status).toBe('success');
+      expect(amended.committed).toBe(true);
+      const afterAmendment = readCanonicalCurrentTask(root);
+      expect(afterAmendment.mutationAuthority?.exact_exceptions).toEqual([]);
+      expect(afterAmendment.body).toContain('owner: node-rollout-tests');
+      expect(afterAmendment.body).toContain('existing_evidence_insufficiency: The existing implementation check does not exercise the newly discovered regression boundary.');
+      expect(afterAmendment.body).not.toContain('owner: workflow-system');
+
+      const fresh = preflightStep(root, { candidate_paths: [newTest] });
+      const testPath = path.join(root, ...newTest.split('/'));
+      fs.mkdirSync(path.dirname(testPath), { recursive: true });
+      fs.writeFileSync(testPath, 'test("new regression", () => expect(true).toBe(true));\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: fresh.receipt,
+        actual_changed_paths: [newTest],
+        command_results: fresh.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes, evidence_refs: evidence.evidence_refs })),
+        validation_results: fresh.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Execute the newly admitted persistent regression test.',
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'], blocker: null,
+        test_assessment: {
+          applicable: true,
+          reason: 'The newly admitted persistent test is reviewed as the current regression oracle.',
+          evidence_refs: ['evidence-report.txt'],
+          necessity: 'The discovered regression boundary was not covered by existing evidence.',
+          oracle: 'The new assertion is the explicit regression oracle for the Node behavior.',
+          boundary: 'The test remains inside the node-rollout-tests authority domain.',
+          reuse: 'No existing test covered this boundary, so the admitted test is newly created.',
+          applicability: 'The current execution and cumulative diff cover the admitted test.',
+        },
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'persistent-test-admission-amendment', note: 'The explicit P-12 regression admission and test are reviewed.' }).status).toBe('success');
+      expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E15 persistent-test admission rejects every missing P-12 field without Runtime defaults', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const fields = ['owner', 'proves', 'basis', 'existing_evidence_insufficiency', 'assertion_boundary'] as const;
+    for (const field of fields) {
+      const newTest = `packages/node-rollout-tests/missing-${field}.test.ts`;
+      const root = v2ConfirmedRoot();
+      try {
+        const admission: Record<string, unknown> = {
+          path: newTest, proves: ['A1'], owner: 'node-rollout-tests', owner_source: 'test:step-3-owner',
+          source_ref: 'test:step-3-p12', basis: 'regression',
+          existing_evidence_insufficiency: 'Existing evidence does not cover this new regression boundary.',
+          assertion_boundary: 'The new test asserts the bounded Node behavior.', failure_disposition: 'block',
+        };
+        delete admission[field];
+        const current = readCanonicalCurrentTask(root);
+        const before = fs.readFileSync(current.filePath, 'utf8');
+        expect(() => prepareScopeAmendment(root, {
+          added_paths: [newTest], authorization: null, persistent_test_admissions: [admission],
+          amendment_step: { id: `missing-p12-${field}`, description: 'This admission is incomplete', mutation_scope: [newTest], required_evidence: ['fresh review'], commands: [] },
+        })).toThrow('PERSISTENT_TEST_ADMISSION_INVALID');
+        expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
+        expect(fs.existsSync(path.join(root, 'docs', 'workflow', 'task-candidates'))).toBe(false);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('explicit typed P-12 admission accepts an unconventional same-domain test path', () => {
+    const unconventional = 'packages/node-rollout-tests/qa/check.ts';
+    const root = v2ConfirmedRoot();
+    try {
+      const prepared = prepareScopeAmendment(root, {
+        added_paths: [unconventional],
+        authorization: null,
+        persistent_test_admissions: [{
+          path: unconventional,
+          proves: ['A1'],
+          owner: 'node-rollout-tests',
+          owner_source: 'test:step-3-unconventional-owner',
+          source_ref: 'test:step-3-unconventional-p12',
+          basis: 'regression',
+          existing_evidence_insufficiency: 'Existing evidence does not exercise the unconventional regression boundary.',
+          assertion_boundary: 'The explicit QA test covers only the Node rollout behavior in its authorized domain.',
+          failure_disposition: 'block',
+        }],
+        amendment_step: {
+          id: 'unconventional-persistent-test-admission',
+          description: 'Add the explicitly admitted QA regression test',
+          mutation_scope: [unconventional],
+          required_evidence: ['fresh unconventional regression execution and review'],
+          commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        },
+      });
+      expect(prepared.status).toBe('success');
+      expect(prepared.candidate_receipt.authority_diff).toEqual({ added_exact_exceptions: [], added_domains: [] });
+      expect(prepared.candidate_receipt.persistent_test_admission).toEqual({ added_paths: [unconventional] });
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toEqual([]);
+
+      const fresh = preflightStep(root, { candidate_paths: [unconventional] });
+      const testPath = path.join(root, ...unconventional.split('/'));
+      fs.mkdirSync(path.dirname(testPath), { recursive: true });
+      fs.writeFileSync(testPath, 'test("unconventional regression", () => expect(true).toBe(true));\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: fresh.receipt,
+        actual_changed_paths: [unconventional],
+        command_results: fresh.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: fresh.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Create the explicitly admitted unconventional regression test.',
+      }).status).toBe('success');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('review-read resolves new raw preimage blobs and fails closed when storage is missing or corrupt', () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const root = v2ConfirmedRoot();
+    try {
+      const targetPath = path.join(root, ...target.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      const baseline = 'export const session = "baseline";\n';
+      fs.writeFileSync(targetPath, baseline, 'utf8');
+      const preflight = preflightStep(root, { candidate_paths: [target] });
+      const currentAfterPreflight = readCanonicalCurrentTask(root);
+      const preimage = currentAfterPreflight.runtimeState.review_coverage!.preimages.find(item => item.path === target)!;
+      expect(Object.keys(preimage).sort()).toEqual(['path', 'sha256', 'state']);
+      const blob = reviewPreimageBlobPath(root, preimage.sha256!);
+      expect(fs.readFileSync(blob)).toEqual(Buffer.from(baseline));
+      fs.writeFileSync(targetPath, 'export const session = "changed";\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [target],
+        command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Review the raw first-touch baseline.',
+      }).status).toBe('success');
+      const context = reviewContext(root, {});
+      expect(reviewRead(root, { context_receipt: context.receipt, path: target, view: 'before' }).text).toBe(baseline);
+      expect(reviewRead(root, { context_receipt: context.receipt, path: target, view: 'after' }).text).toContain('changed');
+      expect(reviewRead(root, { context_receipt: context.receipt, path: target, view: 'diff' }).text).toContain('+export const session = "changed";');
+
+      fs.unlinkSync(blob);
+      expect(() => reviewRead(root, { context_receipt: context.receipt, path: target, view: 'before' })).toThrow('REVIEW_BASELINE_MISSING');
+      fs.writeFileSync(blob, 'corrupt baseline', 'utf8');
+      expect(() => reviewRead(root, { context_receipt: context.receipt, path: target, view: 'diff' })).toThrow('REVIEW_BASELINE_HASH_MISMATCH');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('large review first-touch bytes stay outside canonical CURRENT_TASK', () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const root = v2ConfirmedRoot();
+    try {
+      const targetPath = path.join(root, ...target.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      const baseline = 'x'.repeat(500 * 1024) + '\n';
+      fs.writeFileSync(targetPath, baseline, 'utf8');
+      const currentPath = readCanonicalCurrentTask(root).filePath;
+      const beforeBytes = fs.statSync(currentPath).size;
+      preflightStep(root, { candidate_paths: [target] });
+      const after = readCanonicalCurrentTask(root);
+      const preimage = after.runtimeState.review_coverage!.preimages.find(item => item.path === target)!;
+      const blob = reviewPreimageBlobPath(root, preimage.sha256!);
+      expect(fs.statSync(blob).size).toBe(Buffer.byteLength(baseline));
+      expect(fs.statSync(currentPath).size - beforeBytes).toBeLessThan(64 * 1024);
+      expect(fs.readFileSync(currentPath, 'utf8')).not.toContain('content_base64');
+      expect(Object.keys(preimage).sort()).toEqual(['path', 'sha256', 'state']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('legacy inline review preimages remain readable and migrate to verified raw blobs', () => {
+    const target = 'packages/node-rollout/src/session.ts';
+    const root = v2ConfirmedRoot();
+    try {
+      const targetPath = path.join(root, ...target.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      const baseline = 'export const session = "legacy baseline";\n';
+      fs.writeFileSync(targetPath, baseline, 'utf8');
+      const preflight = preflightStep(root, { candidate_paths: [target] });
+      fs.writeFileSync(targetPath, 'export const session = "legacy after";\n', 'utf8');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [target],
+        command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Create a legacy inline review fixture.',
+      }).status).toBe('success');
+
+      useLegacyInlineCurrent(root);
+      const current = readCanonicalCurrentTask(root);
+      const frontmatter = structuredClone(current.frontmatter);
+      const runtimeState = frontmatter.runtime_state as Record<string, any>;
+      const coverage = runtimeState.review_coverage as Record<string, any>;
+      coverage.preimages = coverage.preimages.map((item: Record<string, any>) => item.path === target
+        ? { ...item, content_base64: Buffer.from(baseline).toString('base64') }
+        : item);
+      fs.writeFileSync(current.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${current.body}`, 'utf8');
+      const legacy = readCanonicalCurrentTask(root);
+      const legacyContext = reviewContext(root, {});
+      fs.unlinkSync(reviewPreimageBlobPath(root, legacy.runtimeState.review_coverage!.preimages.find(item => item.path === target)!.sha256!));
+      expect(reviewRead(root, { context_receipt: legacyContext.receipt, path: target, view: 'before' }).text).toBe(baseline);
+
+      const migrated = commitTaskStorageMigration(root, legacy, legacy.sourceTuple.revision);
+      expect(migrated.status).toBe('committed');
+      const after = readCanonicalCurrentTask(root);
+      const migratedPreimage = after.runtimeState.review_coverage!.preimages.find(item => item.path === target)!;
+      expect(Object.keys(migratedPreimage).sort()).toEqual(['path', 'sha256', 'state']);
+      expect(fs.readFileSync(reviewPreimageBlobPath(root, migratedPreimage.sha256!))).toEqual(Buffer.from(baseline));
+      expect(fs.readFileSync(after.filePath, 'utf8')).not.toContain('content_base64');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('Step 5 Flow F failed dynamic expansion admission is atomic for forbidden, outside-domain and stale receipts', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const planned = 'packages/node-rollout/src/session.ts';
+    const assessment = (target: string) => ({
+      target: { path: target, symbol: 'discoveredTarget' },
+      reason: 'The discovered target is the smallest bounded implementation change for this focused fixture.',
+      blast_radius: { locality: 'local' as const, visibility: 'private' as const, cross_component_consumers: 'none' as const, contract_impact: 'none' as const },
+      evidence_refs: ['evidence-report.txt'],
+      disposition: 'self-admit' as const,
+    });
+    const assertUnchanged = (root: string, before: ReturnType<typeof readCanonicalCurrentTask>, beforeBytes: string, beforeStore: string) => {
+      const after = readCanonicalCurrentTask(root);
+      expect(fs.readFileSync(after.filePath, 'utf8')).toBe(beforeBytes);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(after.runtimeState).toEqual(before.runtimeState);
+      expect(taskStoreSnapshot(root)).toBe(beforeStore);
+    };
+
+    const forbiddenRoot = archivedBaselineRoot();
+    enableV2MutationAuthority(forbiddenRoot);
+    const forbiddenSemantic = v2MutationAuthoritySemanticDraft({
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Exercise explicit forbidden expansion atomicity',
+        planned_mutation_targets: [planned],
+        commands: [],
+        validation: ['The atomicity fixture is checked'],
+        review_checkpoint: { policy: 'required', reason: 'Review the atomicity fixture' },
+      }],
+    });
+    forbiddenSemantic.mutation_authority = {
+      ...forbiddenSemantic.mutation_authority!,
+      forbidden: ['packages/node-rollout/forbidden/**'],
+    };
+    const forbiddenPrepared = prepareDraft(forbiddenRoot, forbiddenSemantic);
+    if (!forbiddenPrepared.confirmation_receipt) throw new Error('Flow F forbidden setup did not receive a confirmation receipt');
+    expect(confirmDraft(forbiddenRoot, { confirmation_receipt: forbiddenPrepared.confirmation_receipt }).status).toBe('success');
+    try {
+      const plannedPath = path.join(forbiddenRoot, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedPath), { recursive: true });
+      fs.writeFileSync(plannedPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(forbiddenRoot, { candidate_paths: [planned] });
+      const before = readCanonicalCurrentTask(forbiddenRoot);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      const beforeStore = taskStoreSnapshot(forbiddenRoot);
+      expect(() => extendPreflight(forbiddenRoot, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: ['packages/node-rollout/forbidden/file.ts'],
+        blast_radius_assessments: [assessment('packages/node-rollout/forbidden/file.ts')],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('MUTATION_AUTHORITY_GOVERNANCE_BOUNDARY');
+      assertUnchanged(forbiddenRoot, before, beforeBytes, beforeStore);
+    } finally {
+      fs.rmSync(forbiddenRoot, { recursive: true, force: true });
+    }
+
+    const outsideRoot = v2ConfirmedRoot();
+    try {
+      const plannedPath = path.join(outsideRoot, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedPath), { recursive: true });
+      fs.writeFileSync(plannedPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(outsideRoot, { candidate_paths: [planned] });
+      const before = readCanonicalCurrentTask(outsideRoot);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      const beforeStore = taskStoreSnapshot(outsideRoot);
+      expect(() => extendPreflight(outsideRoot, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: ['native/codex-rollout-collector/src/outside.rs'],
+        blast_radius_assessments: [assessment('native/codex-rollout-collector/src/outside.rs')],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('MUTATION_AUTHORITY_EXPANSION_REQUIRED');
+      assertUnchanged(outsideRoot, before, beforeBytes, beforeStore);
+    } finally {
+      fs.rmSync(outsideRoot, { recursive: true, force: true });
+    }
+
+    const staleRoot = v2ConfirmedRoot();
+    try {
+      const plannedPath = path.join(staleRoot, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedPath), { recursive: true });
+      fs.writeFileSync(plannedPath, 'export const session = "before";\n', 'utf8');
+      const initial = preflightStep(staleRoot, { candidate_paths: [planned] });
+      const firstExtension = extendPreflight(staleRoot, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: ['packages/node-rollout/internal/first.ts'],
+        blast_radius_assessments: [assessment('packages/node-rollout/internal/first.ts')],
+        evidence_refs: ['evidence-report.txt'],
+      });
+      const before = readCanonicalCurrentTask(staleRoot);
+      const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+      const beforeStore = taskStoreSnapshot(staleRoot);
+      expect(() => extendPreflight(staleRoot, {
+        current_preflight_receipt: initial.receipt,
+        additional_targets: ['packages/node-rollout/internal/stale.ts'],
+        blast_radius_assessments: [assessment('packages/node-rollout/internal/stale.ts')],
+        evidence_refs: ['evidence-report.txt'],
+      })).toThrow('EXECUTE_PREFLIGHT_STALE');
+      assertUnchanged(staleRoot, before, beforeBytes, beforeStore);
+      expect(firstExtension.receipt.candidate_paths).toEqual([planned, 'packages/node-rollout/internal/first.ts']);
+    } finally {
+      fs.rmSync(staleRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('E16 blocks v2 planned targets outside the selected authority domain during prepare', () => {
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    try {
+      const before = readCanonicalCurrentTask(root);
+      expect(() => prepareDraft(root, v2MutationAuthoritySemanticDraft({
+        implementation_steps: [{
+          id: 'step-1',
+          description: 'Attempt to plan a Rust target from a Node task',
+          planned_mutation_targets: ['native/codex-rollout-collector/src/protocol.rs'],
+          commands: [],
+          validation: ['The planned target is checked'],
+          review_checkpoint: { policy: 'required', reason: 'Review the planned target' },
+        }],
+      }))).toThrow('MUTATION_AUTHORITY_PLANNING_BLOCKED');
+      expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(before.sourceTuple.revision);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E17 blocks a planned command glob that is broader than the granted domain', () => {
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    try {
+      expect(() => prepareDraft(root, v2MutationAuthoritySemanticDraft({
+        implementation_steps: [{
+          id: 'step-1',
+          description: 'Plan a command with an over-broad write footprint',
+          planned_mutation_targets: ['packages/node-rollout/src/session.ts'],
+          commands: [{ command: 'generator', expected_repo_writes: ['native/**'] }],
+          validation: ['The command footprint is checked'],
+          review_checkpoint: { policy: 'required', reason: 'Review the command footprint' },
+        }],
+      }))).toThrow('COMMAND_FOOTPRINT_AUTHORITY_BLOCKED');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E18 accepts a planned command glob that is a strict subset of the granted domain', () => {
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    try {
+      const prepared = prepareDraft(root, v2MutationAuthoritySemanticDraft({
+        implementation_steps: [{
+          id: 'step-1',
+          description: 'Plan a bounded generated-file command',
+          planned_mutation_targets: ['packages/node-rollout/src/session.ts'],
+          commands: [{ command: 'generator', expected_repo_writes: ['packages/node-rollout/generated/**'] }],
+          validation: ['The bounded command footprint is checked'],
+          review_checkpoint: { policy: 'required', reason: 'Review the bounded command footprint' },
+        }],
+      }));
+      expect(prepared.confirmation_receipt).toBeDefined();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('E20 fails closed when the project authority domain-map revision changes after confirmation', () => {
+    const root = v2ConfirmedRoot();
+    try {
+      const before = readCanonicalCurrentTask(root);
+      expect(before.runtimeState.authority_domain_revision).toMatch(/^[a-f0-9]{64}$/);
+      const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+      const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, unknown>;
+      profile.mutation_authority = {
+        domains: [
+          { id: 'node-rollout', roots: ['packages/node-rollout-v2/**'] },
+          { id: 'node-rollout-tests', roots: ['packages/node-rollout-tests/**'] },
+          { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+        ],
+      };
+      fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+      expect(() => preflightStep(root, { candidate_paths: ['packages/node-rollout/src/session.ts'] })).toThrow('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE');
+      const after = readCanonicalCurrentTask(root);
+      expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(after.runtimeState).toEqual(before.runtimeState);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('stale domain-map revision blocks correction-replan without rebinding the task', () => {
+    const root = v2TwoStepConfirmedRoot();
+    const planned = 'packages/node-rollout/src/session.ts';
+    try {
+      const plannedPath = path.join(root, ...planned.split('/'));
+      fs.mkdirSync(path.dirname(plannedPath), { recursive: true });
+      fs.writeFileSync(plannedPath, 'export const session = "before";\n', 'utf8');
+      const preflight = preflightStep(root, { candidate_paths: [planned] });
+      const acceptance = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: [],
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: ['evidence-report.txt'] })),
+        acceptance_evidence: [acceptance],
+        outcome: 'implemented',
+        note: 'Settle the first step before challenging its evidence.',
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: review.receipt,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: ['evidence-report.txt'],
+        blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The first step is settled.' }).status).toBe('success');
+
+      const current = readCanonicalCurrentTask(root);
+      const result = current.runtimeState.claim_evidence![0]!.slots[0]!.report!;
+      fs.writeFileSync(path.join(root, 'correction-counterexample.txt'), 'The first observation needs a bounded correction.\n', 'utf8');
+      expect(recordEvidenceChallenge(root, {
+        claim_id: 'A1',
+        slot_id: 'a1',
+        result_id: result.result_id,
+        evidence_ref: 'correction-counterexample.txt',
+        evidence_sha256: fileRevision(path.join(root, 'correction-counterexample.txt')),
+        reason: 'The original observation requires a bounded correction.',
+      }).status).toBe('success');
+      const challenge = readCanonicalCurrentTask(root).runtimeState.evidence_challenges![0]!;
+      const correction = prepareCorrectionReplan(root, {
+        challenge_id: challenge.challenge_id,
+        correction_step: {
+          id: 'stale-domain-correction',
+          description: 'Apply the bounded correction inside the existing Node domain',
+          mutation_scope: ['packages/node-rollout/src/foo.ts'],
+          commands: [],
+          required_evidence: ['Verify the bounded correction'],
+        },
+        mode: 'execution-recovery',
+        obligation_map: [{ claim_id: 'A1', slot_id: 'a1', due_step_id: 'stale-domain-correction' }],
+      });
+      const beforeDrift = readCanonicalCurrentTask(root);
+      rewriteV2MutationAuthorityProfile(root, [
+        { id: 'node-rollout', roots: ['packages/**'] },
+        { id: 'node-rollout-tests', roots: ['node-test-surface/**'] },
+        { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+      ]);
+      expect(() => confirmCorrectionReplan(root, {
+        candidate_receipt: correction.candidate_receipt,
+        authorization: {
+          approved_candidate_digest: correction.candidate_receipt.candidate_digest,
+          decision_source: 'test:stale-domain-replan',
+          decision_text: 'Approve the bounded correction without changing task authority.',
+          invalidation_reason: 'The challenged observation requires a bounded correction.',
+        },
+      })).toThrow('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE');
+      const afterRejected = readCanonicalCurrentTask(root);
+      expect(afterRejected.runtimeState.authority_domain_revision).toBe(beforeDrift.runtimeState.authority_domain_revision);
+      expect(afterRejected.sourceTuple.revision).toBe(beforeDrift.sourceTuple.revision);
+      expect(fs.existsSync(path.join(root, ...correction.candidate_path.split('/')))).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('stale domain-map revision blocks exact-path authority amendment without rebinding other domains', () => {
+    const root = v2ConfirmedRoot();
+    const crossDomain = 'native/codex-rollout-collector/src/protocol.rs';
+    try {
+      const before = readCanonicalCurrentTask(root);
+      rewriteV2MutationAuthorityProfile(root, [
+        { id: 'node-rollout', roots: ['packages/**'] },
+        { id: 'node-rollout-tests', roots: ['node-test-surface/**'] },
+        { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+      ]);
+      expect(() => prepareScopeAmendment(root, {
+        added_paths: [crossDomain],
+        authorization: {
+          decision_source: 'test:stale-domain-amendment',
+          decision_text: 'Authorize only this exact Rust protocol path.',
+          authorized_paths: [crossDomain],
+        },
+        amendment_step: {
+          id: 'stale-domain-exact-amendment',
+          description: 'Continue through the explicitly authorized Rust protocol path',
+          mutation_scope: [crossDomain],
+          required_evidence: ['Verify the exact authorized path'],
+          commands: [],
+        },
+      })).toThrow('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE');
+      const afterRejected = readCanonicalCurrentTask(root);
+      expect(afterRejected.runtimeState.authority_domain_revision).toBe(before.runtimeState.authority_domain_revision);
+      expect(afterRejected.sourceTuple.revision).toBe(before.sourceTuple.revision);
+      expect(afterRejected.mutationAuthority?.exact_exceptions).toEqual(before.mutationAuthority?.exact_exceptions);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('fixed tgz installed Node CLI supports same-envelope discovery without amendment or retry reset', { timeout: 120000 }, () => {
+    const target = v2ConfirmedRoot();
+    const plannedA = 'packages/node-rollout/src/session.ts';
+    const plannedB = 'packages/node-rollout/src/reconnect.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    fs.mkdirSync(path.join(target, 'packages', 'node-rollout', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(target, 'packages', 'node-rollout', 'internal'), { recursive: true });
+    fs.writeFileSync(path.join(target, ...plannedA.split('/')), 'export const session = "before";\n', 'utf8');
+    fs.writeFileSync(path.join(target, ...plannedB.split('/')), 'export const reconnect = "before";\n', 'utf8');
+    fs.writeFileSync(path.join(target, ...discovered.split('/')), 'export const normalizeState = (value) => value;\n', 'utf8');
+    const runtimeCli = installFixedTgzRuntime(target, 'same-envelope');
+    const before = readCanonicalCurrentTask(target);
+    const initial = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [plannedA, plannedB] });
+    expect(initial.status, initial.stderr).toBe(0);
+    expect(initial.json).toMatchObject({ status: 'pass', receipt: { mutation_authority_version: 2, candidate_paths: [plannedA, plannedB] } });
+    const initialAttempt = readCanonicalCurrentTask(target).runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    fs.writeFileSync(path.join(target, ...plannedA.split('/')), 'export const session = "after";\n', 'utf8');
+
+    const extension = runInstalledRuntimeCli(runtimeCli, target, 'extend-preflight', {
+      current_preflight_receipt: initial.json.receipt,
+      additional_targets: [discovered],
+      blast_radius_assessments: [{
+        target: { path: discovered, symbol: 'normalizeState' },
+        reason: 'The local helper owns the normalization bug; changing the shared protocol would be broader and is not needed.',
+        blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+        evidence_refs: ['packages/node-rollout/src/session.ts', 'evidence-report.txt'],
+        disposition: 'self-admit',
+      }],
+      evidence_refs: ['evidence-report.txt'],
+    });
+    expect(extension.status).toBe(0);
+    expect(extension.json).toMatchObject({ status: 'pass', operation_kind: 'execute-step-preflight-extension', receipt: { mutation_authority_version: 2, candidate_paths: [plannedA, plannedB, discovered] } });
+    const afterExtension = readCanonicalCurrentTask(target);
+    const extendedAttempt = afterExtension.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    expect(extendedAttempt.attempt_id).toBe(initialAttempt.attempt_id);
+    expect(afterExtension.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(1);
+    expect(afterExtension.runtimeState.evidence_plan_revision).toBe(before.runtimeState.evidence_plan_revision);
+    expect(afterExtension.runtimeState.dynamic_review_required).toBe(false);
+    expect(afterExtension.runtimeState.dynamic_expansions).toEqual([expect.objectContaining({ path: discovered, domain: 'node-rollout', first_touch_state: 'file' })]);
+    expect(afterExtension.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-scope-amendment')).toBe(false);
+
+    fs.writeFileSync(path.join(target, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+    expect(fs.readFileSync(path.join(target, ...discovered.split('/')), 'utf8')).toContain('value.trim()');
+    const evidenceContext = runInstalledRuntimeCli(runtimeCli, target, 'evidence-context', {});
+    expect(evidenceContext.status).toBe(0);
+    const currentStep = extension.json.current_step;
+    const result = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: extension.json.receipt,
+      actual_changed_paths: [plannedA, discovered],
+      command_results: [{ command: currentStep.commands[0].command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: currentStep.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: installedAcceptanceEvidence(evidenceContext.json),
+      outcome: 'implemented',
+      note: 'The installed CLI recorded the implementation after same-envelope discovery.',
+    });
+    if (result.status !== 0) throw new Error(`same-envelope result failed: ${result.stderr}\n${result.stdout}`);
+    const afterResult = readCanonicalCurrentTask(target);
+    expect(afterResult.runtimeState.dynamic_review_required).toBe(false);
+    expect(afterResult.runtimeState.active_step_status).toBe('in-progress');
+    expect(afterResult.runtimeState.execution_log).toContainEqual(expect.objectContaining({
+      execution_result: expect.objectContaining({
+        actual_changed_paths: [discovered, plannedA].sort(),
+        change_delta: expect.objectContaining({ entries: expect.arrayContaining([expect.objectContaining({ path: discovered })]) }),
+      }),
+    }));
+    const reviewContextResult = runInstalledRuntimeCli(runtimeCli, target, 'review-context', {});
+    expect(reviewContextResult.status).toBe(0);
+    expect(reviewContextResult.json).toMatchObject({
+      planned_mutation_targets: [plannedA, plannedB],
+      expanded_mutation_targets: [expect.objectContaining({ path: discovered, assessment: expect.objectContaining({ disposition: 'self-admit' }) })],
+    });
+    expect(reviewContextResult.json.recorded_execution.execution_result.actual_changed_paths).toEqual([discovered, plannedA].sort());
+    const discoveredDiff = runInstalledRuntimeCli(runtimeCli, target, 'review-read', {
+      context_receipt: reviewContextResult.json.receipt,
+      path: discovered,
+      view: 'diff',
+    });
+    expect(discoveredDiff.status).toBe(0);
+    expect(discoveredDiff.json.text).toContain('value.trim()');
+    const prematureCompletion = runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'step-1', note: 'review is still required' });
+    expect(prematureCompletion.status).not.toBe(0);
+    expect(prematureCompletion.stderr).toContain('CLEAN_REVIEW_REQUIRED');
+    const review = runInstalledRuntimeCli(runtimeCli, target, 'record-review-result', {
+      context_receipt: reviewContextResult.json.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+      test_assessment: installedReviewAssessment(),
+    });
+    expect(review.status).toBe(0);
+    expect(readCanonicalCurrentTask(target).runtimeState.dynamic_review_required).toBe(false);
+    const completed = runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'step-1', note: 'The cumulative dynamic review is clean.' });
+    expect(completed.status).toBe(0);
+    const final = readCanonicalCurrentTask(target);
+    expect(final.runtimeState.active_step_status).toBe('completed');
+    expect(final.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(1);
+  });
+
+  test('Step 5 fixed tgz Flow B repairs a same-envelope discovered helper without amendment', { timeout: 120000 }, () => {
+    const target = v2ConfirmedRoot();
+    const planned = 'packages/node-rollout/src/session.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    fs.mkdirSync(path.dirname(path.join(target, ...planned.split('/'))), { recursive: true });
+    fs.mkdirSync(path.dirname(path.join(target, ...discovered.split('/'))), { recursive: true });
+    fs.writeFileSync(path.join(target, ...planned.split('/')), 'export const session = "before";\n', 'utf8');
+    fs.writeFileSync(path.join(target, ...discovered.split('/')), 'export const normalizeState = (value) => value;\n', 'utf8');
+    const runtimeCli = installFixedTgzRuntime(target, 'repair-discovery');
+    const initial = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [planned] });
+    if (initial.status !== 0) throw new Error(`repair initial preflight failed: ${initial.stderr}\n${initial.stdout}`);
+    fs.writeFileSync(path.join(target, ...planned.split('/')), 'export const session = "implemented";\n', 'utf8');
+    const initialStep = initial.json.current_step;
+    const evidenceContext = runInstalledRuntimeCli(runtimeCli, target, 'evidence-context', {});
+    expect(evidenceContext.status).toBe(0);
+    const result = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: initial.json.receipt,
+      actual_changed_paths: [planned],
+      command_results: initialStep.commands.map(command => ({ command: command.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: initialStep.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: installedAcceptanceEvidence(evidenceContext.json),
+      outcome: 'implemented',
+      note: 'Record the initial installed implementation before repair discovery.',
+    });
+    if (result.status !== 0) throw new Error(`repair initial result failed: ${result.stderr}\n${result.stdout}`);
+    const discovery = runInstalledRuntimeCli(runtimeCli, target, 'review-context', {});
+    expect(discovery.status).toBe(0);
+    const finding = runInstalledRuntimeCli(runtimeCli, target, 'record-review-result', {
+      context_receipt: discovery.json.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness',
+        file: planned,
+        failure_condition: 'session state is not normalized before reconnect',
+        required_behavior: 'normalize session state before reconnect',
+        root_cause_status: 'confirmed',
+        evidence_refs: ['evidence-report.txt'],
+      }],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+      test_assessment: installedReviewAssessment(),
+    });
+    if (finding.status !== 0) throw new Error(`repair finding result failed: ${finding.stderr}\n${finding.stdout}`);
+    const repair = runInstalledRuntimeCli(runtimeCli, target, 'begin-repair', { candidate_paths: [planned] });
+    if (repair.status !== 0) throw new Error(`repair preflight failed: ${repair.stderr}\n${repair.stdout}`);
+    fs.writeFileSync(path.join(target, ...planned.split('/')), 'export const session = "repaired";\n', 'utf8');
+    const extension = runInstalledRuntimeCli(runtimeCli, target, 'extend-preflight', {
+      current_preflight_receipt: repair.json.receipt,
+      additional_targets: [discovered],
+      blast_radius_assessments: [{
+        target: { path: discovered, symbol: 'normalizeState' },
+        reason: 'The private helper is the smallest correct repair; changing a shared protocol would broaden the change without evidence.',
+        blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+        evidence_refs: ['evidence-report.txt'],
+        disposition: 'self-admit',
+      }],
+      evidence_refs: ['evidence-report.txt'],
+    });
+    if (extension.status !== 0) throw new Error(`repair extension failed: ${extension.stderr}\n${extension.stdout}`);
+    expect(extension.json.receipt.mode).toBe('repair');
+    expect(extension.json.receipt.execution_id).toBe(repair.json.receipt.execution_id);
+    fs.writeFileSync(path.join(target, ...planned.split('/')), 'export const session = "fixed";\n', 'utf8');
+    fs.writeFileSync(path.join(target, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+    expect(fs.readFileSync(path.join(target, ...discovered.split('/')), 'utf8')).toContain('value.trim()');
+    const repairedStep = extension.json.current_step;
+    const repaired = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: extension.json.receipt,
+      actual_changed_paths: [planned, discovered],
+      command_results: repairedStep.commands.map(command => ({ command: command.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: repairedStep.validation.map(validation => ({ validation: validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: [],
+      outcome: 'implemented',
+      note: 'Repair the finding and the discovered private helper in one installed repair wave.',
+    });
+    if (repaired.status !== 0) throw new Error(`repair result failed: ${repaired.stderr}\n${repaired.stdout}`);
+    const verification = runInstalledRuntimeCli(runtimeCli, target, 'review-context', {});
+    expect(verification.status).toBe(0);
+    expect(verification.json.receipt.cycle_phase).toBe('verification');
+    expect(verification.json.recorded_execution.execution_result.actual_changed_paths).toEqual([discovered, planned].sort());
+    expect(readCanonicalCurrentTask(target).runtimeState.execution_log.some((item: { action?: string }) => item.action === 'commit-scope-amendment')).toBe(false);
+    const clean = runInstalledRuntimeCli(runtimeCli, target, 'record-review-result', {
+      context_receipt: verification.json.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+      test_assessment: installedReviewAssessment(),
+    });
+    expect(clean.status).toBe(0);
+    expect(runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'step-1', note: 'The repair discovery and local helper change are verified.' }).status).toBe(0);
+    const final = readCanonicalCurrentTask(target);
+    expect(final.runtimeState.active_step_status).toBe('completed');
+    expect(final.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(1);
+  });
+
+  test('Step 5 fixed tgz Flow C recovers after an actual blocked Node execution', { timeout: 120000 }, () => {
+    const target = v2ConfirmedRoot();
+    const nodeTarget = 'packages/node-rollout/src/session.ts';
+    const rustTarget = 'native/codex-rollout-collector/src/protocol.rs';
+    fs.mkdirSync(path.dirname(path.join(target, ...nodeTarget.split('/'))), { recursive: true });
+    fs.writeFileSync(path.join(target, ...nodeTarget.split('/')), 'export const session = "before";\n', 'utf8');
+    const runtimeCli = installFixedTgzRuntime(target, 'cross-envelope-recovery');
+    const before = readCanonicalCurrentTask(target);
+    const initial = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [nodeTarget] });
+    if (initial.status !== 0) throw new Error(`cross-envelope initial preflight failed: ${initial.stderr}\n${initial.stdout}`);
+    fs.writeFileSync(path.join(target, ...nodeTarget.split('/')), 'export const session = "partially-implemented";\n', 'utf8');
+    const initialStep = initial.json.current_step;
+    const blocked = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: initial.json.receipt,
+      actual_changed_paths: [nodeTarget],
+      command_results: initialStep.commands.map(command => ({ command: command.command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: initialStep.validation.map(validation => ({ validation, status: 'not-run', evidence_refs: [] })),
+      acceptance_evidence: [],
+      outcome: 'blocked',
+      blocker_kind: 'unknown',
+      note: 'The installed Node execution changed its target before a cross-domain dependency blocked the work.',
+    });
+    if (blocked.status !== 0) throw new Error(`cross-envelope blocked result failed: ${blocked.stderr}\n${blocked.stdout}`);
+    expect(readCanonicalCurrentTask(target).runtimeState.execution_log).toContainEqual(expect.objectContaining({
+      execution_result: expect.objectContaining({ outcome: 'blocked', actual_changed_paths: [nodeTarget] }),
+    }));
+
+    const amended = runInstalledRuntimeCli(runtimeCli, target, 'prepare-scope-amendment', {
+      added_paths: [rustTarget],
+      authorization: {
+        decision_source: 'user:fixed-tgz-cross-envelope-recovery',
+        decision_text: 'Authorize this exact Rust protocol path after the actual Node execution blocker is recorded.',
+        authorized_paths: [rustTarget],
+      },
+      amendment_step: {
+        id: 'cross-envelope-recovery-continuation',
+        description: 'Apply and verify the explicitly authorized Rust protocol continuation',
+        mutation_scope: [rustTarget],
+        required_evidence: ['fresh installed cross-domain execution and review'],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+      },
+    });
+    expect(amended.status).toBe(0);
+    expect(amended.json).toMatchObject({ status: 'success', committed: true });
+    const afterAmendment = readCanonicalCurrentTask(target);
+    expect(afterAmendment.runtimeState.active_step_id).toBe('cross-envelope-recovery-continuation');
+    expect(afterAmendment.mutationAuthority?.exact_exceptions).toContain(rustTarget);
+    expect(afterAmendment.sourceTuple.revision).not.toBe(before.sourceTuple.revision);
+    expect(afterAmendment.runtimeState.execution_log.some(item => 'action' in item && item.action === 'commit-scope-amendment')).toBe(true);
+
+    const preflight = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [rustTarget] });
+    if (preflight.status !== 0) throw new Error(`cross-envelope fresh preflight failed: ${preflight.stderr}\n${preflight.stdout}`);
+    expect(preflight.json.receipt.candidate_paths).toEqual([rustTarget]);
+    fs.mkdirSync(path.dirname(path.join(target, ...rustTarget.split('/'))), { recursive: true });
+    fs.writeFileSync(path.join(target, ...rustTarget.split('/')), 'pub fn protocol() {\n    // authorized continuation\n}\n', 'utf8');
+    expect(fs.readFileSync(path.join(target, ...rustTarget.split('/')), 'utf8')).toContain('authorized continuation');
+    const evidenceContext = runInstalledRuntimeCli(runtimeCli, target, 'evidence-context', {});
+    expect(evidenceContext.status).toBe(0);
+    const currentStep = preflight.json.current_step;
+    const result = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: preflight.json.receipt,
+      actual_changed_paths: [rustTarget],
+      command_results: currentStep.commands.map(command => ({ command: command.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
+      validation_results: currentStep.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: installedAcceptanceEvidence(evidenceContext.json),
+      outcome: 'implemented',
+      note: 'The amended task executed the exact cross-domain exception after fresh preflight.',
+    });
+    if (result.status !== 0) throw new Error(`cross-envelope result failed: ${result.stderr}\n${result.stdout}`);
+    const reviewContextResult = runInstalledRuntimeCli(runtimeCli, target, 'review-context', {});
+    expect(reviewContextResult.status).toBe(0);
+    expect(reviewContextResult.json.recorded_execution.execution_result.actual_changed_paths).toEqual([rustTarget]);
+    expect(reviewContextResult.json.recorded_execution.execution_result.change_delta.entries.map((entry: { path: string }) => entry.path)).toEqual(
+      expect.arrayContaining([nodeTarget, rustTarget]),
+    );
+    const review = runInstalledRuntimeCli(runtimeCli, target, 'record-review-result', {
+      context_receipt: reviewContextResult.json.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+      test_assessment: installedReviewAssessment(),
+    });
+    expect(review.status).toBe(0);
+    expect(runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'cross-envelope-recovery-continuation', note: 'The amended cross-domain change is reviewed.' }).status).toBe(0);
+    expect(readCanonicalCurrentTask(target).runtimeState.active_step_status).toBe('completed');
+  });
+
+  test('Step 5 fixed tgz Flow D preserves cumulative review across steps and extensions', { timeout: 120000 }, () => {
+    const target = v2TwoStepConfirmedRoot('not-required');
+    const plannedA = 'packages/node-rollout/src/session.ts';
+    const plannedB = 'packages/node-rollout/src/reconnect.ts';
+    const discovered = 'packages/node-rollout/internal/state.ts';
+    for (const file of [plannedA, plannedB, discovered]) {
+      fs.mkdirSync(path.dirname(path.join(target, ...file.split('/'))), { recursive: true });
+      fs.writeFileSync(path.join(target, ...file.split('/')), `export const ${path.basename(file, path.extname(file))} = "before";\n`, 'utf8');
+    }
+    const runtimeCli = installFixedTgzRuntime(target, 'cumulative-review');
+    const first = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [plannedA] });
+    if (first.status !== 0) throw new Error(`cumulative S1 preflight failed: ${first.stderr}\n${first.stdout}`);
+    fs.writeFileSync(path.join(target, ...plannedA.split('/')), 'export const session = "after";\n', 'utf8');
+    const firstEvidenceContext = runInstalledRuntimeCli(runtimeCli, target, 'evidence-context', {});
+    expect(firstEvidenceContext.status).toBe(0);
+    const firstResult = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: first.json.receipt,
+      actual_changed_paths: [plannedA],
+      command_results: [],
+      validation_results: [{ validation: first.json.current_step.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: installedAcceptanceEvidence(firstEvidenceContext.json),
+      outcome: 'implemented',
+      note: 'Complete the exempt first step and retain its cumulative review target.',
+    });
+    if (firstResult.status !== 0) throw new Error(`cumulative S1 result failed: ${firstResult.stderr}\n${firstResult.stdout}`);
+    expect(readCanonicalCurrentTask(target).runtimeState.active_step_id).toBe('step-2');
+    expect(readCanonicalCurrentTask(target).runtimeState.review_coverage.target.entries.map((entry: { path: string }) => entry.path)).toContain(plannedA);
+
+    const second = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [plannedB] });
+    if (second.status !== 0) throw new Error(`cumulative S2 preflight failed: ${second.stderr}\n${second.stdout}`);
+    const extension = runInstalledRuntimeCli(runtimeCli, target, 'extend-preflight', {
+      current_preflight_receipt: second.json.receipt,
+      additional_targets: [discovered],
+      blast_radius_assessments: [{
+        target: { path: discovered, symbol: 'normalizeState' },
+        reason: 'The private helper is the smallest correct S2 implementation and does not require propagation.',
+        blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+        evidence_refs: ['evidence-report.txt'],
+        disposition: 'self-admit',
+      }],
+      evidence_refs: ['evidence-report.txt'],
+    });
+    if (extension.status !== 0) throw new Error(`cumulative S2 extension failed: ${extension.stderr}\n${extension.stdout}`);
+    fs.writeFileSync(path.join(target, ...plannedB.split('/')), 'export const reconnect = "after";\n', 'utf8');
+    fs.writeFileSync(path.join(target, ...discovered.split('/')), 'export const normalizeState = (value) => value.trim();\n', 'utf8');
+    const secondResult = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: extension.json.receipt,
+      actual_changed_paths: [plannedB, discovered],
+      command_results: [],
+      validation_results: [{ validation: extension.json.current_step.validation[0], status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [],
+      outcome: 'implemented',
+      note: 'Record S2 with its local same-envelope discovery.',
+    });
+    if (secondResult.status !== 0) throw new Error(`cumulative S2 result failed: ${secondResult.stderr}\n${secondResult.stdout}`);
+    const reviewContextResult = runInstalledRuntimeCli(runtimeCli, target, 'review-context', {});
+    expect(reviewContextResult.status).toBe(0);
+    expect(reviewContextResult.json.expanded_mutation_targets).toEqual([
+      expect.objectContaining({ path: discovered, step_id: 'step-2' }),
+    ]);
+    expect(reviewContextResult.json.recorded_execution.execution_result.actual_changed_paths).toEqual([discovered, plannedB].sort());
+    expect(reviewContextResult.json.recorded_execution.execution_result.change_delta.entries.map((entry: { path: string }) => entry.path)).toEqual(
+      expect.arrayContaining([plannedA, plannedB, discovered]),
+    );
+    const review = runInstalledRuntimeCli(runtimeCli, target, 'record-review-result', {
+      context_receipt: reviewContextResult.json.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+      test_assessment: installedReviewAssessment(),
+    });
+    expect(review.status).toBe(0);
+    expect(runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'step-2', note: 'The cumulative S1 and S2 diff is reviewed.' }).status).toBe(0);
+    expect(readCanonicalCurrentTask(target).runtimeState.active_step_status).toBe('completed');
+  });
+
+  test('Step 5 fixed tgz Flow E admits an absent persistent test explicitly', { timeout: 120000 }, () => {
+    const target = v2ConfirmedRoot();
+    const planned = 'packages/node-rollout/src/session.ts';
+    const newTest = 'packages/node-rollout-tests/new-regression.test.ts';
+    fs.mkdirSync(path.dirname(path.join(target, ...planned.split('/'))), { recursive: true });
+    fs.writeFileSync(path.join(target, ...planned.split('/')), 'export const session = "before";\n', 'utf8');
+    const runtimeCli = installFixedTgzRuntime(target, 'persistent-test-admission');
+    const initial = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [planned] });
+    if (initial.status !== 0) throw new Error(`persistent-test initial preflight failed: ${initial.stderr}\n${initial.stdout}`);
+    const before = readCanonicalCurrentTask(target);
+    const beforeBytes = fs.readFileSync(before.filePath, 'utf8');
+    const ordinary = runInstalledRuntimeCli(runtimeCli, target, 'extend-preflight', {
+      current_preflight_receipt: initial.json.receipt,
+      additional_targets: [newTest],
+      blast_radius_assessments: [{
+        target: { path: newTest, symbol: 'regressionOracle' },
+        reason: 'The absent test is a local oracle for the discovered behavior.',
+        blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+        evidence_refs: ['evidence-report.txt'],
+        disposition: 'self-admit',
+      }],
+      evidence_refs: ['evidence-report.txt'],
+    });
+    expect(ordinary.status).not.toBe(0);
+    expect(ordinary.stderr).toContain('PERSISTENT_TEST_UNADMITTED');
+    expect(fs.readFileSync(before.filePath, 'utf8')).toBe(beforeBytes);
+    expect(readCanonicalCurrentTask(target).sourceTuple.revision).toBe(before.sourceTuple.revision);
+    const admission = {
+      path: newTest,
+      proves: ['A1'],
+      owner: 'node-rollout-tests',
+      owner_source: 'test:step-5-p12-owner',
+      source_ref: 'test:step-5-p12',
+      basis: 'regression',
+      existing_evidence_insufficiency: 'Existing implementation checks do not exercise the newly discovered regression boundary.',
+      assertion_boundary: 'The explicit QA regression test covers only the authorized Node rollout behavior.',
+      failure_disposition: 'block',
+    };
+    const amended = runInstalledRuntimeCli(runtimeCli, target, 'prepare-scope-amendment', {
+      added_paths: [newTest],
+      authorization: null,
+      persistent_test_admissions: [admission],
+      amendment_step: {
+        id: 'persistent-test-admission-continuation',
+        description: 'Add and verify the explicitly admitted persistent regression test',
+        mutation_scope: [newTest],
+        required_evidence: ['fresh persistent-test execution and review'],
+        commands: [],
+      },
+    });
+    if (amended.status !== 0) throw new Error(`persistent-test amendment failed: ${amended.stderr}\n${amended.stdout}`);
+    expect(amended.json.candidate_receipt.authority_diff).toEqual({ added_exact_exceptions: [], added_domains: [] });
+    expect(amended.json.candidate_receipt.persistent_test_admission).toEqual({ added_paths: [newTest] });
+
+    const fresh = runInstalledRuntimeCli(runtimeCli, target, 'preflight-step', { candidate_paths: [newTest] });
+    if (fresh.status !== 0) throw new Error(`persistent-test fresh preflight failed: ${fresh.stderr}\n${fresh.stdout}`);
+    const testPath = path.join(target, ...newTest.split('/'));
+    fs.mkdirSync(path.dirname(testPath), { recursive: true });
+    fs.writeFileSync(testPath, 'test("new regression", () => expect(true).toBe(true));\n', 'utf8');
+    const evidenceContext = runInstalledRuntimeCli(runtimeCli, target, 'evidence-context', {});
+    expect(evidenceContext.status).toBe(0);
+    const currentStep = fresh.json.current_step;
+    const result = runInstalledRuntimeCli(runtimeCli, target, 'record-step-result', {
+      preflight_receipt: fresh.json.receipt,
+      actual_changed_paths: [newTest],
+      command_results: currentStep.commands.map((command: { command: string; expected_repo_writes: string | string[] }) => ({
+        command: command.command,
+        status: 'passed',
+        observed_repo_writes: command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes,
+        evidence_refs: ['evidence-report.txt'],
+      })),
+      validation_results: currentStep.validation.map((validation: string) => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
+      acceptance_evidence: installedAcceptanceEvidence(evidenceContext.json),
+      outcome: 'implemented',
+      note: 'Create the explicitly admitted unconventional persistent regression test.',
+    });
+    if (result.status !== 0) throw new Error(`persistent-test result failed: ${result.stderr}\n${result.stdout}`);
+    const reviewContextResult = runInstalledRuntimeCli(runtimeCli, target, 'review-context', {});
+    expect(reviewContextResult.status).toBe(0);
+    expect(reviewContextResult.json.persistent_tests).toContain(newTest);
+    const review = runInstalledRuntimeCli(runtimeCli, target, 'record-review-result', {
+      context_receipt: reviewContextResult.json.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['evidence-report.txt'],
+      blocker: null,
+      test_assessment: {
+        ...installedReviewAssessment(),
+        necessity: 'The explicit P-12 admission records why existing evidence was insufficient.',
+        oracle: 'The QA assertion is the newly admitted regression oracle.',
+        reuse: 'No existing test covered the unconventional path, so the test is newly created.',
+      },
+    });
+    expect(review.status).toBe(0);
+    expect(runInstalledRuntimeCli(runtimeCli, target, 'complete-reviewed-step', { step_id: 'persistent-test-admission-continuation', note: 'The explicit P-12 test admission and change are reviewed.' }).status).toBe(0);
+    expect(fs.readFileSync(testPath, 'utf8')).toContain('new regression');
+    expect(readCanonicalCurrentTask(target).runtimeState.active_step_status).toBe('completed');
   });
 });

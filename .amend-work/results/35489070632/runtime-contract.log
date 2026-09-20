@@ -1,0 +1,47 @@
+$ bun run build:vnext-runtime && bun run scripts/vnext-runtime.ts validate-contract --root .
+$ bun run check:toolchain && bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js
+$ bun run scripts/check-toolchain.ts
+Bun toolchain verified: 1.3.10
+Bundled 36 modules in 53ms
+
+  cli.js  1.72 MB  (entry point)
+
+Bundled 17 modules in 9ms
+
+  install-tools.js  97.66 KB  (entry point)
+
+{
+  "phase": "Phase 2",
+  "runtime_distribution": {
+    "kind": "project-local-node",
+    "package_path": ".workflow-system/runtime",
+    "entrypoint": ".workflow-system/runtime/dist/cli.js",
+    "package_version": "0.20.2",
+    "node_min_version": ">=20.0.0",
+    "package_lock_sha256": "8b23b7f804bca049353bc8f6a422d7f89cc95febc3105d09f664505cefaecb5d",
+    "entrypoint_sha256": "da62e755c7750972ad4692e4ad4d39734f3240950b016f4650a25821d2a44628"
+  },
+  "mutation_scope": {
+    "status": "bound",
+    "binding": "vnext-runtime-read-only",
+    "check_command": "scope-check"
+  },
+  "bound_operations": [
+    "task-state-transaction",
+    "finding-queue-transaction",
+    "lifecycle-transaction",
+    "inbox-record-transaction",
+    "project-status-transaction",
+    "archive-transaction",
+    "lesson-record-transaction",
+    "contract-candidate-commit",
+    "decision-record-transaction"
+  ],
+  "unbound_operations": [],
+  "bootstrap_operations": [
+    "contract-candidate-commit",
+    "decision-record-transaction",
+    "project-status-transaction",
+    "paired-host-guidance-transaction"
+  ]
+}

@@ -108,6 +108,10 @@ finding_handoff_rules:
 
 将 review-diff / review-implementation 发现的实现问题写入 CURRENT_TASK.md 的审查问题队列，作为下一轮修复输入。
 
+## Unified task context protocol
+
+同步 finding 前先用 `validate --summary` 和只读 `task-context` 固定当前 definition/state revision、累计审查目标、既有 finding、未完成义务与门禁；具体 review receipt、execution、report 和旧 finding 用 `task-read` 精确引用并完成分页。不得从最近 N 条或缓存 hash 猜测缺失正文，收据不授予写权限；写入仍走既有 Runtime 提交器并读回。
+
 ## Trigger
 
 只读审查输出 P1 / P2 / P3 implementation findings，且这些 finding 需要在进入修复前持久记录时。

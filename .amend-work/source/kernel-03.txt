@@ -1,0 +1,2000 @@
+
+const KNOWLEDGE_CANDIDATE_KEYS = [
+  'candidateId',
+  'kind',
+  'fingerprint',
+  'statement',
+  'sourceRefs',
+  'applicability',
+  'authoritySource',
+  'stability',
+  'evidenceRefs',
+  'noveltyAgainst',
+  'conflictSet',
+  'supersedes',
+  'reviewOrExpiryTrigger',
+  'expectedConsumers',
+  'decisionContext',
+  'systemicSeverity',
+  'implementation_anchors',
+] as const;
+
+function validateImplementationAnchors(value: unknown, location: string): ImplementationAnchors {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ['coverage', 'source_revision', 'anchors'], location);
+  const sourceRevision = expectString(record.source_revision, `${location}.source_revision`);
+  if (sourceRevision.length > 256) fail('IMPLEMENTATION_ANCHOR_INVALID', `${location}.source_revision exceeds 256 characters.`);
+  if (!Array.isArray(record.anchors) || record.anchors.length > 5) {
+    fail('IMPLEMENTATION_ANCHOR_INVALID', `${location}.anchors must contain at most five anchors.`);
+  }
+  const anchors = record.anchors.map((raw, index) => {
+    const anchor = expectRecord(raw, `${location}.anchors[${index}]`);
+    const extra = Object.keys(anchor).filter(key => !['path', 'symbol', 'role', 'evidence_refs'].includes(key));
+    const missing = ['path', 'role', 'evidence_refs'].filter(key => !(key in anchor));
+    if (missing.length > 0 || extra.length > 0) {
+      fail('IMPLEMENTATION_ANCHOR_INVALID', `${location}.anchors[${index}] keys mismatch; missing=[${missing.join(', ')}], unexpected=[${extra.join(', ')}].`);
+    }
+    const rawAnchorPath = expectString(anchor.path, `${location}.anchors[${index}].path`);
+    const anchorPath = normalizeRepoPath(rawAnchorPath, `${location}.anchors[${index}].path`);
+    if (/^[A-Za-z]:\//u.test(anchorPath) || anchorPath.includes(':') || anchorPath !== path.posix.normalize(anchorPath)) {
+      fail('IMPLEMENTATION_ANCHOR_INVALID', `${location}.anchors[${index}].path must be a canonical repository-relative path.`);
+    }
+    if (anchorPath.includes('*') || /:\d+(?:-\d+)?$/u.test(anchorPath)) {
+      fail('IMPLEMENTATION_ANCHOR_INVALID', `${location}.anchors[${index}].path must not be a wildcard or line-number locator.`);
+    }
+    const symbol = anchor.symbol === undefined || anchor.symbol === null
+      ? null
+      : expectText(anchor.symbol, `${location}.anchors[${index}].symbol`, 256);
+    if (symbol !== null && /\r|\n/u.test(symbol)) fail('IMPLEMENTATION_ANCHOR_INVALID', `${location}.anchors[${index}].symbol must be single-line.`);
+    if (symbol !== null && /^.+:\d+(?:-\d+)?$/u.test(symbol)) fail('IMPLEMENTATION_ANCHOR_INVALID', `${location}.anchors[${index}].symbol must not be a line-number locator.`);
+    const role = expectText(anchor.role, `${location}.anchors[${index}].role`, 256);
+    const evidenceRefs = validateEvidenceRefs(anchor.evidence_refs, `${location}.anchors[${index}].evidence_refs`);
+    return { path: anchorPath, symbol, role, evidence_refs: evidenceRefs };
+  });
+  const anchorKeys = anchors.map(anchor => `${anchor.path}#${anchor.symbol ?? ''}`);
+  if (new Set(anchorKeys).size !== anchorKeys.length) fail('IMPLEMENTATION_ANCHOR_INVALID', `${location}.anchors must not contain duplicate path/symbol locators.`);
+  return {
+    coverage: expectEnum(record.coverage, ['observed', 'verified-scope'], `${location}.coverage`),
+    source_revision: sourceRevision,
+    anchors,
+  };
+}
+
+function validateKnowledgeCandidate(value: unknown, location: string, expectedKind?: 'contract' | 'decision'): KnowledgeCandidate {
+  const record = expectRecord(value, location);
+  const allowedKeys = new Set<string>(KNOWLEDGE_CANDIDATE_KEYS);
+  const requiredKeys = KNOWLEDGE_CANDIDATE_KEYS.filter(key => !['decisionContext', 'systemicSeverity', 'implementation_anchors'].includes(key));
+  const missing = requiredKeys.filter(key => !(key in record));
+  const extra = Object.keys(record).filter(key => !allowedKeys.has(key));
+  if (missing.length > 0 || extra.length > 0) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', `${location} keys mismatch; missing=[${missing.join(', ')}], unexpected=[${extra.join(', ')}].`);
+  }
+  const kind = expectEnum(record.kind, ['contract', 'decision'], `${location}.kind`);
+  if (expectedKind !== undefined && kind !== expectedKind) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.kind must be ${expectedKind}.`);
+  const sourceRefsRaw = record.sourceRefs;
+  if (!Array.isArray(sourceRefsRaw) || sourceRefsRaw.length === 0 || sourceRefsRaw.length > 32) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.sourceRefs must contain between one and 32 entries.`);
+  const sourceRefs = sourceRefsRaw.map((raw, index) => {
+    const sourceRef = expectRecord(raw, `${location}.sourceRefs[${index}]`);
+    expectExactKeys(sourceRef, ['locator', 'revision'], `${location}.sourceRefs[${index}]`);
+    return { locator: expectText(sourceRef.locator, `${location}.sourceRefs[${index}].locator`, 512), revision: expectText(sourceRef.revision, `${location}.sourceRefs[${index}].revision`, 256) };
+  });
+  const applicabilityRecord = expectRecord(record.applicability, `${location}.applicability`);
+  expectExactKeys(applicabilityRecord, ['projectTypes', 'pathsSymbolsOrSurfaces', 'triggerConditions'], `${location}.applicability`);
+  const applicability = {
+    projectTypes: expectStringArray(applicabilityRecord.projectTypes, `${location}.applicability.projectTypes`, true, 32),
+    pathsSymbolsOrSurfaces: expectStringArray(applicabilityRecord.pathsSymbolsOrSurfaces, `${location}.applicability.pathsSymbolsOrSurfaces`, true, 32),
+    triggerConditions: expectStringArray(applicabilityRecord.triggerConditions, `${location}.applicability.triggerConditions`, true, 32),
+  };
+  if (applicability.projectTypes.length === 0 && applicability.pathsSymbolsOrSurfaces.length === 0 && applicability.triggerConditions.length === 0) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.applicability must identify at least one project, surface, or trigger.`);
+  }
+  const decisionContext = record.decisionContext === undefined
+    ? undefined
+    : (() => {
+      const context = expectRecord(record.decisionContext, `${location}.decisionContext`);
+      expectExactKeys(context, ['alternatives', 'constraints'], `${location}.decisionContext`);
+      return {
+        alternatives: expectStringArray(context.alternatives, `${location}.decisionContext.alternatives`, false, 32),
+        constraints: expectStringArray(context.constraints, `${location}.decisionContext.constraints`, false, 32),
+      };
+    })();
+  if (kind === 'decision' && decisionContext === undefined) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.decisionContext is required for a Decision.`);
+  const implementationAnchors = record.implementation_anchors === undefined
+    ? undefined
+    : validateImplementationAnchors(record.implementation_anchors, `${location}.implementation_anchors`);
+  const candidate: KnowledgeCandidate = {
+    candidateId: expectString(record.candidateId, `${location}.candidateId`, SAFE_KEY_PATTERN),
+    kind,
+    fingerprint: expectString(record.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
+    statement: expectText(record.statement, `${location}.statement`, MAX_TEXT_LENGTH),
+    sourceRefs,
+    applicability,
+    authoritySource: expectEnum(record.authoritySource, ['user', 'existing-contract', 'accepted-decision', 'verified-evidence', 'none'], `${location}.authoritySource`),
+    stability: expectEnum(record.stability, ['stable', 'provisional', 'exploratory'], `${location}.stability`),
+    evidenceRefs: validateEvidenceRefs(record.evidenceRefs, `${location}.evidenceRefs`),
+    noveltyAgainst: expectStringArray(record.noveltyAgainst, `${location}.noveltyAgainst`, true, 32),
+    conflictSet: expectStringArray(record.conflictSet, `${location}.conflictSet`, true, 32),
+    supersedes: expectNullableString(record.supersedes, `${location}.supersedes`, SAFE_KEY_PATTERN),
+    reviewOrExpiryTrigger: expectNullableString(record.reviewOrExpiryTrigger, `${location}.reviewOrExpiryTrigger`),
+    expectedConsumers: expectStringArray(record.expectedConsumers, `${location}.expectedConsumers`, false, 32),
+    ...(decisionContext ? { decisionContext } : {}),
+    ...(record.systemicSeverity === undefined ? {} : { systemicSeverity: expectEnum(record.systemicSeverity, ['ordinary', 'high'], `${location}.systemicSeverity`) }),
+    ...(implementationAnchors ? { implementation_anchors: implementationAnchors } : {}),
+  };
+  return candidate;
+}
+
+function validateKnowledgeAdmissionRecord(value: unknown, location: string, expectedKind: 'contract' | 'decision'): KnowledgeAdmissionRecord {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ['candidate', 'disposition', 'matched_knowledge_id', 'reasons'], location);
+  const candidate = validateKnowledgeCandidate(record.candidate, `${location}.candidate`, expectedKind);
+  const disposition = expectEnum(record.disposition, KNOWLEDGE_ADMISSION_DISPOSITIONS, `${location}.disposition`);
+  const matchedKnowledgeId = expectNullableString(record.matched_knowledge_id, `${location}.matched_knowledge_id`, SAFE_KEY_PATTERN);
+  const reasons = expectStringArray(record.reasons, `${location}.reasons`, true, 32);
+  const durableDisposition = ['admit', 'merge', 'supersede'].includes(disposition);
+  if (durableDisposition && reasons.length === 0) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.reasons must be non-empty for a durable admission.`);
+  }
+  if (durableDisposition && candidate.authoritySource === 'none') {
+    fail('KNOWLEDGE_ADMISSION_INVALID', `${location} cannot admit knowledge without an authority source.`);
+  }
+  if (durableDisposition && expectedKind === 'decision' && !['user', 'accepted-decision'].includes(candidate.authoritySource)) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', `${location} Decision admission requires user or accepted-decision authority.`);
+  }
+  if (disposition === 'merge' && matchedKnowledgeId === null) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.matched_knowledge_id is required for merge.`);
+  if (disposition === 'supersede' && (matchedKnowledgeId === null || candidate.supersedes !== matchedKnowledgeId)) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.supersede must identify the same predecessor in matched_knowledge_id and candidate.supersedes.`);
+  if (durableDisposition) {
+    if (candidate.stability !== 'stable' || candidate.conflictSet.length > 0 || candidate.evidenceRefs.length === 0) {
+      fail('KNOWLEDGE_ADMISSION_INVALID', `${location} durable admission requires stable, conflict-free candidate evidence.`);
+    }
+  }
+  return { candidate, disposition, matched_knowledge_id: matchedKnowledgeId, reasons };
+}
+
+function validateKnowledgeAdmissionBundle(value: unknown, location: string): KnowledgeAdmissionBundle {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ['contracts', 'decisions'], location);
+  if (!Array.isArray(record.contracts) || record.contracts.length > 32) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.contracts must contain at most 32 records.`);
+  if (!Array.isArray(record.decisions) || record.decisions.length > 32) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.decisions must contain at most 32 records.`);
+  const contracts = record.contracts.map((item, index) => validateKnowledgeAdmissionRecord(item, `${location}.contracts[${index}]`, 'contract'));
+  const decisions = record.decisions.map((item, index) => validateKnowledgeAdmissionRecord(item, `${location}.decisions[${index}]`, 'decision'));
+  if (new Set(contracts.map(item => item.candidate.candidateId)).size !== contracts.length) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.contracts candidate identity must be unique.`);
+  if (new Set(decisions.map(item => item.candidate.candidateId)).size !== decisions.length) fail('KNOWLEDGE_ADMISSION_INVALID', `${location}.decisions candidate identity must be unique.`);
+  return { contracts, decisions };
+}
+
+function emptyKnowledgeAdmissionBundle(): KnowledgeAdmissionBundle {
+  return { contracts: [], decisions: [] };
+}
+
+function validateKnowledgeProvenance(value: unknown, location: string): KnowledgeProvenance {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'evidence_refs'], location);
+  const taskId = expectString(record.task_id, `${location}.task_id`);
+  const taskSlug = expectString(record.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(taskId);
+    validateTaskSlug(taskSlug);
+  } catch (error) {
+    fail('KNOWLEDGE_PROVENANCE_MISMATCH', error instanceof Error ? error.message : String(error));
+  }
+  const documentId = expectString(record.document_id, `${location}.document_id`);
+  const archiveRevision = expectString(record.archive_revision, `${location}.archive_revision`);
+  const sourceRevision = expectString(record.source_revision, `${location}.source_revision`);
+  if (!DOCUMENT_ID_PATTERN.test(documentId) || !SHA256_PATTERN.test(archiveRevision) || !SHA256_PATTERN.test(sourceRevision)) {
+    fail('KNOWLEDGE_PROVENANCE_MISMATCH', `${location} contains an invalid document or revision.`);
+  }
+  const archivePath = normalizeRepoPath(expectString(record.archive_path, `${location}.archive_path`), `${location}.archive_path`);
+  if (!/^TASKS\/TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.test(archivePath)) fail('KNOWLEDGE_PROVENANCE_MISMATCH', `${location}.archive_path is not a canonical task archive path.`);
+  return {
+    task_id: taskId,
+    task_slug: taskSlug,
+    document_id: documentId,
+    archive_path: archivePath,
+    archive_revision: archiveRevision,
+    source_revision: sourceRevision,
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+  };
+}
+
+function validateKnowledgeDelta(value: unknown, expectedKind?: 'contract' | 'decision'): KnowledgeDelta {
+  const record = expectRecord(value, 'semantic_delta');
+  expectExactKeys(record, ['kind', 'action', 'knowledge_kind', 'admission', 'provenance', 'evidence_refs'], 'semantic_delta');
+  const knowledgeKind = expectEnum(record.knowledge_kind, ['contract', 'decision'], 'semantic_delta.knowledge_kind');
+  if (expectedKind !== undefined && knowledgeKind !== expectedKind) fail('RUNTIME_SCHEMA_INVALID', `semantic_delta.knowledge_kind must be ${expectedKind}.`);
+  const admission = validateKnowledgeAdmissionRecord(record.admission, 'semantic_delta.admission', knowledgeKind);
+  if (!['admit', 'merge', 'supersede'].includes(admission.disposition)) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', 'Only admitted, merged, or superseded knowledge may be submitted to a Runtime promotion operation.');
+  }
+  const provenance = validateKnowledgeProvenance(record.provenance, 'semantic_delta.provenance');
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs');
+  const candidateEvidenceRefs = [
+    ...admission.candidate.evidenceRefs,
+    ...(admission.candidate.implementation_anchors?.anchors.flatMap(anchor => anchor.evidence_refs) ?? []),
+    ...provenance.evidence_refs,
+  ];
+  if (!candidateEvidenceRefs.every(ref => evidenceRefs.includes(ref))) fail('RUNTIME_EVIDENCE_INVALID', 'knowledge proposal evidence_refs must cover candidate, anchor, and provenance evidence_refs.');
+  return {
+    kind: 'knowledge',
+    action: 'promote',
+    knowledge_kind: knowledgeKind,
+    admission,
+    provenance,
+    evidence_refs: evidenceRefs,
+  };
+}
+
+function validateArchiveDelta(value: unknown): ArchiveDelta {
+  const record = expectRecord(value, 'semantic_delta');
+  const allowedKeys = ['kind', 'action', 'closure_evidence', 'delivery_summary', 'remaining_risks', 'lesson_admission', 'knowledge_admissions', 'evidence_refs'];
+  const extra = Object.keys(record).filter(key => !allowedKeys.includes(key));
+  const required = allowedKeys.filter(key => !['knowledge_admissions'].includes(key) && !(key in record));
+  if (required.length > 0 || extra.length > 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `semantic_delta keys mismatch; missing=[${required.join(', ')}], unexpected=[${extra.join(', ')}].`);
+  }
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs');
+  const closureEvidence = validateClosureEvidence(record.closure_evidence, 'semantic_delta.closure_evidence');
+  const lessonAdmission = validateLessonAdmission(record.lesson_admission, 'semantic_delta.lesson_admission');
+  const knowledgeAdmissions = record.knowledge_admissions === undefined
+    ? emptyKnowledgeAdmissionBundle()
+    : validateKnowledgeAdmissionBundle(record.knowledge_admissions, 'semantic_delta.knowledge_admissions');
+  const referencedEvidence = [
+    ...closureEvidence.release_evidence.evidence_refs,
+    ...closureEvidence.rollback_evidence.evidence_refs,
+    ...closureEvidence.observation_evidence.evidence_refs,
+    ...lessonAdmission.evidence_refs,
+    ...knowledgeAdmissions.contracts.flatMap(item => [...item.candidate.evidenceRefs, ...(item.candidate.implementation_anchors?.anchors.flatMap(anchor => anchor.evidence_refs) ?? [])]),
+    ...knowledgeAdmissions.decisions.flatMap(item => [...item.candidate.evidenceRefs, ...(item.candidate.implementation_anchors?.anchors.flatMap(anchor => anchor.evidence_refs) ?? [])]),
+  ];
+  if (!referencedEvidence.every(ref => evidenceRefs.includes(ref))) {
+    fail('RUNTIME_EVIDENCE_INVALID', 'archive proposal evidence_refs must cover closure and lesson-admission evidence_refs.');
+  }
+  return {
+    kind: expectEnum(record.kind, ['archive'], 'semantic_delta.kind'),
+    action: expectEnum(record.action, ['archive'], 'semantic_delta.action'),
+    closure_evidence: closureEvidence,
+    delivery_summary: validateDeliverySummary(record.delivery_summary, 'semantic_delta.delivery_summary'),
+    remaining_risks: expectStringArray(record.remaining_risks, 'semantic_delta.remaining_risks', true, 64),
+    lesson_admission: lessonAdmission,
+    knowledge_admissions: knowledgeAdmissions,
+    evidence_refs: evidenceRefs,
+  };
+}
+
+const LESSON_CATEGORIES = ['通用', '数据与存储', '前端与交互', '后端与服务', '测试与回归', '部署与运行时'] as const satisfies readonly LessonCandidate['category'][];
+const LESSON_REQUIRED_SECTION_HEADINGS = ['使用规则', ...LESSON_CATEGORIES] as const;
+
+function validateLessonCandidate(value: unknown, location: string): LessonCandidate {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ['candidate_ref', 'category', 'scene', 'conclusion', 'trigger', 'cause', 'action', 'consumer', 'evidence_refs'], location);
+  return {
+    candidate_ref: expectString(record.candidate_ref, `${location}.candidate_ref`, SAFE_KEY_PATTERN),
+    category: expectEnum(record.category, LESSON_CATEGORIES, `${location}.category`),
+    scene: expectText(record.scene, `${location}.scene`),
+    conclusion: expectText(record.conclusion, `${location}.conclusion`),
+    trigger: expectText(record.trigger, `${location}.trigger`),
+    cause: expectText(record.cause, `${location}.cause`),
+    action: expectText(record.action, `${location}.action`),
+    consumer: expectText(record.consumer, `${location}.consumer`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+  };
+}
+
+function validateProjectStatusDelta(value: unknown): ProjectStatusDelta {
+  const record = expectRecord(value, 'semantic_delta');
+  expectExactKeys(record, ['kind', 'action', 'status', 'summary', 'completed_items', 'remaining_risks', 'next_checkpoint', 'evidence_refs'], 'semantic_delta');
+  return {
+    kind: expectEnum(record.kind, ['project-status'], 'semantic_delta.kind'),
+    action: expectEnum(record.action, ['sync'], 'semantic_delta.action'),
+    status: expectEnum(record.status, ['completed', 'observing'], 'semantic_delta.status'),
+    summary: expectText(record.summary, 'semantic_delta.summary'),
+    completed_items: expectStringArray(record.completed_items, 'semantic_delta.completed_items', false, 64),
+    remaining_risks: expectStringArray(record.remaining_risks, 'semantic_delta.remaining_risks', true, 64),
+    next_checkpoint: expectText(record.next_checkpoint, 'semantic_delta.next_checkpoint'),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs'),
+  };
+}
+
+function validateLessonRecordDelta(value: unknown): LessonRecordDelta {
+  const record = expectRecord(value, 'semantic_delta');
+  expectExactKeys(record, ['kind', 'action', 'candidates', 'evidence_refs'], 'semantic_delta');
+  if (!Array.isArray(record.candidates) || record.candidates.length === 0 || record.candidates.length > 32) {
+    fail('RUNTIME_SCHEMA_INVALID', 'semantic_delta.candidates must contain between 1 and 32 candidates.');
+  }
+  const candidates = record.candidates.map((candidate, index) => validateLessonCandidate(candidate, `semantic_delta.candidates[${index}]`));
+  if (new Set(candidates.map(candidate => candidate.candidate_ref)).size !== candidates.length) {
+    fail('RUNTIME_SCHEMA_INVALID', 'semantic_delta.candidates must have unique candidate_ref values.');
+  }
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs');
+  if (!candidates.every(candidate => candidate.evidence_refs.every(ref => evidenceRefs.includes(ref)))) {
+    fail('RUNTIME_EVIDENCE_INVALID', 'lesson-record proposal evidence_refs must cover every candidate evidence reference.');
+  }
+  return {
+    kind: expectEnum(record.kind, ['lesson-record'], 'semantic_delta.kind'),
+    action: expectEnum(record.action, ['record'], 'semantic_delta.action'),
+    candidates,
+    evidence_refs: evidenceRefs,
+  };
+}
+
+function validateInboxItemId(value: unknown, location: string): string {
+  const itemId = expectString(value, location);
+  const match = INBOX_RECORD_ITEM_ID_PATTERN.exec(itemId);
+  if (!match) {
+    fail('RUNTIME_IDENTITY_INVALID', `${location} must use YYYYMMDD-short-id with a lowercase alphanumeric short-id.`);
+  }
+  const year = Number(match[1]!.slice(0, 4));
+  const month = Number(match[1]!.slice(4, 6));
+  const day = Number(match[1]!.slice(6, 8));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    year < 1
+    || date.getUTCFullYear() !== year
+    || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day
+  ) {
+    fail('RUNTIME_IDENTITY_INVALID', `${location} must begin with a valid YYYYMMDD date.`);
+  }
+  return itemId;
+}
+
+function validateInboxRecord(value: unknown, location: string): InboxRecord {
+  const record = expectRecord(value, location);
+  expectExactKeys(
+    record,
+    ['artifact_kind', 'item_id', 'title', 'type', 'source', 'captured_at', 'relation_to_current_task', 'current_task_id', 'description', 'evidence', 'suggested_next_action', 'status'],
+    location,
+  );
+  const title = expectText(record.title, `${location}.title`, 512);
+  if (/[\r\n]/u.test(title) || /^\{\{[^{}]+\}\}$/.test(title)) {
+    fail('RUNTIME_IDENTITY_INVALID', `${location}.title must be a concrete single-line value.`);
+  }
+  const capturedAt = expectString(record.captured_at, `${location}.captured_at`);
+  if (/[\r\n]/u.test(capturedAt) || Number.isNaN(Date.parse(capturedAt))) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.captured_at must be a parseable timestamp.`);
+  }
+  const currentTaskId = expectString(record.current_task_id, `${location}.current_task_id`);
+  try {
+    validateTaskId(currentTaskId);
+  } catch (error) {
+    fail('RUNTIME_IDENTITY_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  return {
+    artifact_kind: expectEnum(record.artifact_kind, ['inbox_item'], `${location}.artifact_kind`),
+    item_id: validateInboxItemId(record.item_id, `${location}.item_id`),
+    title,
+    type: expectEnum(record.type, INBOX_ITEM_TYPES, `${location}.type`),
+    source: expectEnum(record.source, INBOX_ITEM_SOURCES, `${location}.source`),
+    captured_at: capturedAt,
+    relation_to_current_task: expectEnum(record.relation_to_current_task, ['unrelated'], `${location}.relation_to_current_task`),
+    current_task_id: currentTaskId,
+    description: expectText(record.description, `${location}.description`, MAX_INBOX_TEXT_LENGTH),
+    evidence: expectText(record.evidence, `${location}.evidence`, MAX_INBOX_TEXT_LENGTH),
+    suggested_next_action: expectEnum(record.suggested_next_action, INBOX_SUGGESTED_NEXT_ACTIONS, `${location}.suggested_next_action`),
+    status: expectEnum(record.status, ['captured'], `${location}.status`),
+  };
+}
+
+function validateInboxRecordDelta(value: unknown): InboxRecordDelta {
+  const record = expectRecord(value, 'semantic_delta');
+  expectExactKeys(
+    record,
+    ['kind', 'action', 'item_slug', 'record', 'relation_evidence_refs', 'duplicate_check', 'proposed_owner', 'target_path', 'evidence_refs'],
+    'semantic_delta',
+  );
+  const itemSlug = expectString(record.item_slug, 'semantic_delta.item_slug');
+  try {
+    validateTaskSlug(itemSlug);
+  } catch (error) {
+    fail('RUNTIME_IDENTITY_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const inboxRecord = validateInboxRecord(record.record, 'semantic_delta.record');
+  const relationEvidenceRefs = validateEvidenceRefs(record.relation_evidence_refs, 'semantic_delta.relation_evidence_refs');
+  const evidenceRefs = validateEvidenceRefs(record.evidence_refs, 'semantic_delta.evidence_refs');
+  if (!relationEvidenceRefs.every(ref => evidenceRefs.includes(ref))) {
+    fail('RUNTIME_EVIDENCE_INVALID', 'semantic_delta.evidence_refs must cover every relation_evidence_refs entry.');
+  }
+  const duplicateCheck = expectEnum(record.duplicate_check, ['clear'], 'semantic_delta.duplicate_check');
+  const proposedOwner = expectEnum(record.proposed_owner, INBOX_SUGGESTED_NEXT_ACTIONS, 'semantic_delta.proposed_owner');
+  if (inboxRecord.suggested_next_action !== proposedOwner) {
+    fail('RUNTIME_RELATION_INVALID', 'semantic_delta.proposed_owner must match record.suggested_next_action.');
+  }
+  const targetPath = normalizeRepoPath(expectString(record.target_path, 'semantic_delta.target_path'), 'semantic_delta.target_path');
+  const targetMatch = INBOX_RECORD_PATH_PATTERN.exec(targetPath);
+  if (!targetMatch || `${targetMatch[1]}-${targetMatch[2]}` !== inboxRecord.item_id || targetMatch[3] !== itemSlug) {
+    fail('RUNTIME_PATH_INVALID', 'semantic_delta.target_path must be the canonical path derived from item_id and item_slug.');
+  }
+  return {
+    kind: expectEnum(record.kind, ['inbox-record'], 'semantic_delta.kind'),
+    action: expectEnum(record.action, ['record'], 'semantic_delta.action'),
+    item_slug: itemSlug,
+    record: inboxRecord,
+    relation_evidence_refs: relationEvidenceRefs,
+    duplicate_check: duplicateCheck,
+    proposed_owner: proposedOwner,
+    target_path: targetPath,
+    evidence_refs: evidenceRefs,
+  };
+}
+
+function validateSemanticDelta(value: unknown, operationKind: RuntimeOperationKind): RuntimeSemanticDelta {
+  const record = expectRecord(value, 'semantic_delta');
+  const kind = expectString(record.kind, 'semantic_delta.kind');
+  if (operationKind === 'task-state-transaction') {
+    if (kind !== 'task-state') fail('RUNTIME_SCHEMA_INVALID', 'task-state-transaction requires task-state semantic_delta.');
+    return validateTaskStateDelta(value);
+  }
+  if (operationKind === 'lifecycle-transaction') {
+    if (kind !== 'lifecycle') fail('RUNTIME_SCHEMA_INVALID', 'lifecycle-transaction requires lifecycle semantic_delta.');
+    return validateLifecycleDelta(value);
+  }
+  if (operationKind === 'archive-transaction') {
+    if (kind !== 'archive') fail('RUNTIME_SCHEMA_INVALID', 'archive-transaction requires archive semantic_delta.');
+    return validateArchiveDelta(value);
+  }
+  if (operationKind === 'project-status-transaction') {
+    if (kind !== 'project-status') fail('RUNTIME_SCHEMA_INVALID', 'project-status-transaction requires project-status semantic_delta.');
+    return validateProjectStatusDelta(value);
+  }
+  if (operationKind === 'lesson-record-transaction') {
+    if (kind !== 'lesson-record') fail('RUNTIME_SCHEMA_INVALID', 'lesson-record-transaction requires lesson-record semantic_delta.');
+    return validateLessonRecordDelta(value);
+  }
+  if (operationKind === 'inbox-record-transaction') {
+    if (kind !== 'inbox-record') fail('RUNTIME_SCHEMA_INVALID', 'inbox-record-transaction requires inbox-record semantic_delta.');
+    return validateInboxRecordDelta(value);
+  }
+  if (operationKind === 'contract-candidate-commit') {
+    if (kind !== 'knowledge') fail('RUNTIME_SCHEMA_INVALID', 'contract-candidate-commit requires a knowledge semantic_delta.');
+    return validateKnowledgeDelta(value, 'contract');
+  }
+  if (operationKind === 'decision-record-transaction') {
+    if (kind !== 'knowledge') fail('RUNTIME_SCHEMA_INVALID', 'decision-record-transaction requires a knowledge semantic_delta.');
+    return validateKnowledgeDelta(value, 'decision');
+  }
+  if (kind !== 'finding-queue') fail('RUNTIME_SCHEMA_INVALID', 'finding-queue-transaction requires finding-queue semantic_delta.');
+  return record.action === 'admit' ? validateFindingRecord(value, 'semantic_delta') : validateFindingAction(value);
+}
+
+export function validateRuntimeProposal(value: unknown): RuntimeProposal {
+  const proposal = expectRecord(value, 'proposal');
+  expectExactKeys(
+    proposal,
+    ['schema_version', 'kind', 'operation_kind', 'caller', 'mode', 'source_tuple', 'authority_evidence', 'semantic_delta', 'preconditions', 'evidence_refs', 'idempotency_key', 'requested_write_targets'],
+    'proposal',
+  );
+  if (proposal.schema_version !== VNEXT_RUNTIME_SCHEMA_VERSION) fail('RUNTIME_SCHEMA_INVALID', 'proposal.schema_version must be 1.');
+  if (proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_SCHEMA_INVALID', `proposal.kind must be ${VNEXT_RUNTIME_PROPOSAL_KIND}.`);
+  const operationKind = expectEnum(proposal.operation_kind, RUNTIME_OPERATION_KINDS, 'proposal.operation_kind');
+  const caller = expectEnum(proposal.caller, ['execute-step', 'review-change', 'prepare-task', 'task-lifecycle', 'capture-work-item', 'close-task'], 'proposal.caller');
+  const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES, ...CLOSE_TASK_MODES], 'proposal.mode');
+  const sourceTuple = validateSourceTuple(proposal.source_tuple);
+  const authorityEvidence = validateAuthorityEvidence(proposal.authority_evidence);
+  const preconditions = expectStringArray(proposal.preconditions, 'proposal.preconditions', false, 32);
+  const evidenceRefs = validateEvidenceRefs(proposal.evidence_refs, 'proposal.evidence_refs');
+  const idempotencyKey = expectString(proposal.idempotency_key, 'proposal.idempotency_key', SAFE_KEY_PATTERN);
+  const requestedTargets = expectStringArray(proposal.requested_write_targets, 'proposal.requested_write_targets', false, 4)
+    .map((target, index) => normalizeRepoPath(target, `proposal.requested_write_targets[${index}]`));
+  const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
+  const writesTaskBasis = semanticDelta.kind === 'task-state'
+    && ['create-draft', 'update-draft', 'commit-replan', 'commit-scope-amendment', 'record-user-evidence'].includes(semanticDelta.action);
+  const isSuccessor = semanticDelta.kind === 'task-state' && semanticDelta.action === 'create-draft' && semanticDelta.predecessor !== undefined;
+  const targetCount = isSuccessor ? 3 : writesTaskBasis
+    || (operationKind === 'lifecycle-transaction' && mode !== 'supersede')
+    || operationKind === 'archive-transaction'
+    ? 2
+    : 1;
+  if (requestedTargets.length !== targetCount) fail('RUNTIME_PATH_INVALID', `This Runtime proposal must name exactly ${targetCount} exact write target${targetCount === 1 ? '' : 's'}.`);
+  if (writesTaskBasis) {
+    const taskId = semanticDelta.kind === 'task-state'
+      && (semanticDelta.action === 'create-draft' || semanticDelta.action === 'update-draft')
+      ? semanticDelta.task_id
+      : sourceTuple.task_id;
+    const expectedBasisPath = taskBasisRelativePath(sourceTuple.path, taskId);
+    if (requestedTargets[1] !== expectedBasisPath) {
+      fail('RUNTIME_PATH_INVALID', `draft proposal second write target must be the identity-derived task basis ${expectedBasisPath}.`);
+    }
+  }
+  if (operationKind === 'task-state-transaction') {
+    if (caller === 'prepare-task') {
+      if (mode === 'default') {
+        if (semanticDelta.kind !== 'task-state' || !['clear-resume-review-gate', 'create-draft', 'update-draft', 'record-user-evidence', ...CLAIM_EVIDENCE_MIGRATION_ACTIONS].includes(semanticDelta.action)) {
+          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task default mode is bound only to clear-resume-review-gate, create-draft, update-draft, migrate-claim-evidence, or an explicit user-evidence decision.');
+        }
+        if (semanticDelta.kind === 'task-state' && semanticDelta.action === 'migrate-claim-evidence') {
+          const requiredPreconditions = ['current-task-is-active', 'legacy-claim-evidence-state', 'acceptance-bearing-plan'];
+          const missingPreconditions = requiredPreconditions.filter(precondition => !preconditions.includes(precondition));
+          if (missingPreconditions.length > 0) fail('RUNTIME_PRECONDITION_MISSING', `migrate-claim-evidence is missing required preconditions: ${missingPreconditions.join(', ')}.`);
+        }
+      } else if (mode === 'confirm') {
+        if (semanticDelta.kind !== 'task-state' || semanticDelta.action !== 'confirm-draft') {
+          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task confirm mode is bound only to confirm-draft.');
+        }
+      } else if (mode === 'replan') {
+        if (semanticDelta.kind !== 'task-state' || !REPLAN_TASK_STATE_ACTIONS.includes(semanticDelta.action as ReplanTaskStateAction)) {
+          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task replan mode is bound only to the closed replan task-state action set.');
+        }
+      } else if (mode === 'amend-scope') {
+        if (semanticDelta.kind !== 'task-state' || semanticDelta.action !== 'commit-scope-amendment') {
+          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task amend-scope mode is bound only to commit-scope-amendment.');
+        }
+      } else {
+        fail('RUNTIME_MODE_INVALID', 'prepare-task task-state proposals must use default, confirm, replan, or amend-scope mode.');
+      }
+    } else if (caller === 'review-change') {
+      if (mode !== 'default') fail('RUNTIME_MODE_INVALID', 'review-change task-state proposals must use default mode.');
+      if (semanticDelta.kind !== 'task-state' || !['record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'].includes(semanticDelta.action)) {
+        fail('RUNTIME_CALLER_NOT_BOUND', 'review-change is bound only to review results and evidence challenge assessment.');
+      }
+    } else if (caller === 'execute-step') {
+      if (!VNEXT_EXECUTE_STEP_MODES.includes(mode as VNextExecuteStepMode)) fail('RUNTIME_MODE_INVALID', 'execute-step task-state proposals must use default or repair mode.');
+      if (semanticDelta.kind !== 'task-state' || !['step-progress', 'consume-retained-review', 'record-step-preflight', 'extend-preflight', 'retry-step'].includes(semanticDelta.action)) fail('RUNTIME_MODE_INVALID', 'execute-step requires an execution task-state delta.');
+    } else {
+      fail('RUNTIME_CALLER_NOT_BOUND', 'task-state-transaction is not bound to task-lifecycle.');
+    }
+  } else if (operationKind === 'finding-queue-transaction') {
+    if (caller !== 'execute-step' || mode !== 'repair') fail('RUNTIME_CALLER_NOT_BOUND', 'finding-queue-transaction is bound only to execute-step:repair.');
+    if (semanticDelta.kind !== 'finding-queue') fail('RUNTIME_MODE_INVALID', 'repair mode requires a finding-queue proposal.');
+  } else if (operationKind === 'lifecycle-transaction') {
+    if (caller !== 'task-lifecycle' || !LIFECYCLE_MODES.includes(mode as LifecycleMode)) fail('RUNTIME_CALLER_NOT_BOUND', 'lifecycle-transaction is bound only to task-lifecycle lifecycle modes.');
+    if (semanticDelta.kind !== 'lifecycle' || semanticDelta.action !== mode) fail('RUNTIME_MODE_INVALID', 'lifecycle mode and semantic transition must match.');
+  } else if (operationKind === 'inbox-record-transaction') {
+    if (caller !== 'capture-work-item' || mode !== 'default') fail('RUNTIME_CALLER_NOT_BOUND', 'inbox-record-transaction is bound only to capture-work-item:record with default mode.');
+    if (semanticDelta.kind !== 'inbox-record' || semanticDelta.action !== 'record') fail('RUNTIME_MODE_INVALID', 'inbox-record-transaction requires a record inbox semantic_delta.');
+    const missingPreconditions = INBOX_CAPTURE_PRECONDITIONS.filter(precondition => !preconditions.includes(precondition));
+    if (missingPreconditions.length > 0) fail('RUNTIME_PRECONDITION_MISSING', `capture-work-item is missing required preconditions: ${missingPreconditions.join(', ')}.`);
+  } else if (operationKind === 'contract-candidate-commit' || operationKind === 'decision-record-transaction') {
+    if (caller !== 'close-task' || mode !== 'default') fail('RUNTIME_CALLER_NOT_BOUND', `${operationKind} is bound only to close-task default closure.`);
+    if (semanticDelta.kind !== 'knowledge' || semanticDelta.knowledge_kind !== (operationKind === 'contract-candidate-commit' ? 'contract' : 'decision')) {
+      fail('RUNTIME_MODE_INVALID', `${operationKind} requires a matching knowledge semantic_delta.`);
+    }
+    const requiredPreconditions = ['archive-committed', 'knowledge-admission-complete', 'canonical-knowledge-target'];
+    const missingPreconditions = requiredPreconditions.filter(precondition => !preconditions.includes(precondition));
+    if (missingPreconditions.length > 0) fail('RUNTIME_PRECONDITION_MISSING', `${operationKind} is missing required preconditions: ${missingPreconditions.join(', ')}.`);
+  } else {
+    if (caller !== 'close-task' || !CLOSE_TASK_MODES.includes(mode as CloseTaskMode)) {
+      fail('RUNTIME_CALLER_NOT_BOUND', `${operationKind} is bound only to close-task default closure.`);
+    }
+    const expectedKind = operationKind === 'archive-transaction'
+      ? 'archive'
+      : operationKind === 'project-status-transaction'
+        ? 'project-status'
+        : 'lesson-record';
+    if (semanticDelta.kind !== expectedKind) fail('RUNTIME_MODE_INVALID', `${operationKind} requires a ${expectedKind} semantic_delta.`);
+  }
+  const result: RuntimeProposal = {
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: operationKind,
+    caller,
+    mode,
+    source_tuple: sourceTuple,
+    authority_evidence: authorityEvidence,
+    semantic_delta: semanticDelta,
+    preconditions,
+    evidence_refs: evidenceRefs,
+    idempotency_key: idempotencyKey,
+    requested_write_targets: requestedTargets,
+  };
+  const deltaRefs = semanticDelta.kind === 'task-state'
+    ? semanticDelta.evidence_refs
+    : semanticDelta.kind === 'finding-queue'
+      ? semanticDelta.action === 'admit' ? semanticDelta.finding.evidence_refs : semanticDelta.evidence_refs
+      : semanticDelta.evidence_refs;
+  const claimRefs = semanticDelta.kind === 'task-state' && 'claim_evidence' in semanticDelta && semanticDelta.claim_evidence !== undefined
+    ? claimEvidenceRefs(semanticDelta.claim_evidence)
+    : [];
+  const reviewReceiptRefs = semanticDelta.kind === 'task-state'
+    && semanticDelta.action === 'step-progress'
+    && semanticDelta.review_receipt
+    ? semanticDelta.review_receipt.evidence_refs
+    : [];
+  if (![...deltaRefs, ...reviewReceiptRefs, ...claimRefs].every(ref => evidenceRefs.includes(ref))) {
+    fail('RUNTIME_EVIDENCE_INVALID', 'proposal.evidence_refs must cover semantic_delta evidence_refs.');
+  }
+  return result;
+}
+
+function validateFinding(value: unknown, location: string): FindingRecord {
+  const finding = expectRecord(value, location);
+  expectExactKeys(
+    finding,
+    ['fingerprint', 'category', 'owner_task_id', 'scope', 'decision', 'file', 'failure_condition', 'violated_invariant', 'root_cause_status', 'status', 'repair_attempts', 'max_repair_attempts', 'evidence_refs', 'review_cycle_id', 'last_repair_wave_id', 'admitted_at', 'updated_at'],
+    location,
+  );
+  return {
+    fingerprint: expectString(finding.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
+    category: expectText(finding.category, `${location}.category`, 256),
+    owner_task_id: expectString(finding.owner_task_id, `${location}.owner_task_id`),
+    scope: expectEnum(finding.scope, ['admitted'], `${location}.scope`),
+    decision: expectEnum(finding.decision, ['mechanical'], `${location}.decision`),
+    file: normalizeRepoPath(expectString(finding.file, `${location}.file`), `${location}.file`),
+    failure_condition: expectText(finding.failure_condition, `${location}.failure_condition`),
+    violated_invariant: expectText(finding.violated_invariant, `${location}.violated_invariant`, 512),
+    root_cause_status: expectEnum(finding.root_cause_status, ['confirmed', 'bounded'], `${location}.root_cause_status`),
+    status: expectEnum(finding.status, FINDING_STATUSES, `${location}.status`),
+    repair_attempts: expectInteger(finding.repair_attempts, `${location}.repair_attempts`, 0, MAX_REPAIR_ATTEMPTS),
+    max_repair_attempts: expectInteger(finding.max_repair_attempts, `${location}.max_repair_attempts`, 1, MAX_REPAIR_ATTEMPTS),
+    evidence_refs: validateEvidenceRefs(finding.evidence_refs, `${location}.evidence_refs`),
+    review_cycle_id: expectString(finding.review_cycle_id, `${location}.review_cycle_id`, SAFE_KEY_PATTERN),
+    last_repair_wave_id: expectNullableString(finding.last_repair_wave_id, `${location}.last_repair_wave_id`, SAFE_KEY_PATTERN),
+    admitted_at: expectString(finding.admitted_at, `${location}.admitted_at`),
+    updated_at: expectString(finding.updated_at, `${location}.updated_at`),
+  };
+}
+
+function validateReviewCycle(value: unknown, location = 'runtime_state.review_cycle'): ReviewCycleState {
+  const reviewCycle = expectRecord(value, location);
+  expectExactKeys(reviewCycle, [...REVIEW_CYCLE_FIELDS], location);
+  const id = expectString(reviewCycle.id, `${location}.id`, SAFE_KEY_PATTERN);
+  const cyclePhase = expectEnum(reviewCycle.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`);
+  const repairRound = expectInteger(reviewCycle.repair_round, `${location}.repair_round`, 0, MAX_REPAIR_ROUNDS);
+  const countedRepairWaveIds = expectStringArray(reviewCycle.counted_repair_wave_ids, `${location}.counted_repair_wave_ids`, true, MAX_REPAIR_ROUNDS);
+  if (new Set(countedRepairWaveIds).size !== countedRepairWaveIds.length) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.counted_repair_wave_ids must be unique.`);
+  }
+  if (repairRound !== countedRepairWaveIds.length) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.repair_round must equal the number of counted repair waves.`);
+  }
+  const activeRepairWaveId = expectNullableString(reviewCycle.active_repair_wave_id, `${location}.active_repair_wave_id`, SAFE_KEY_PATTERN);
+  if (activeRepairWaveId !== null && !countedRepairWaveIds.includes(activeRepairWaveId)) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.active_repair_wave_id must be one of counted_repair_wave_ids.`);
+  }
+  if (activeRepairWaveId !== null && countedRepairWaveIds[countedRepairWaveIds.length - 1] !== activeRepairWaveId) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.active_repair_wave_id must be the latest counted repair wave.`);
+  }
+  const verificationNewFindingWaveUsed = expectBoolean(reviewCycle.verification_new_finding_wave_used, `${location}.verification_new_finding_wave_used`);
+  const verificationNewFindingWaveId = expectNullableString(reviewCycle.verification_new_finding_wave_id, `${location}.verification_new_finding_wave_id`, SAFE_KEY_PATTERN);
+  if (!verificationNewFindingWaveUsed && verificationNewFindingWaveId !== null) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.verification_new_finding_wave_id must be null before the verification admission wave is used.`);
+  }
+  if (verificationNewFindingWaveId !== null && activeRepairWaveId !== null) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.verification_new_finding_wave_id cannot remain open while a repair wave is active.`);
+  }
+  if (verificationNewFindingWaveUsed && cyclePhase !== 'verification') {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.cycle_phase must be verification after the verification admission wave is used.`);
+  }
+  return {
+    id,
+    cycle_phase: cyclePhase,
+    repair_round: repairRound,
+    counted_repair_wave_ids: countedRepairWaveIds,
+    active_repair_wave_id: activeRepairWaveId,
+    verification_new_finding_wave_used: verificationNewFindingWaveUsed,
+    verification_new_finding_wave_id: verificationNewFindingWaveId,
+  };
+}
+
+function validateArchiveAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): ArchiveAuditLogEntry {
+  const archiveAuditKeys = [
+    'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'task_id', 'task_slug',
+    'document_id', 'from_workflow_status', 'from_lifecycle_state', 'to_workflow_status',
+    'to_lifecycle_state', 'source_revision', 'archive_path', 'archive_revision',
+    'closure_delta_digest', 'authority_evidence', 'evidence_refs', 'lesson_admission', 'knowledge_admissions', 'recorded_at',
+  ] as const;
+  const missingArchiveAuditKeys = archiveAuditKeys.filter(key => key !== 'knowledge_admissions' && !(key in value));
+  const extraArchiveAuditKeys = Object.keys(value).filter(key => !archiveAuditKeys.includes(key as typeof archiveAuditKeys[number]));
+  if (missingArchiveAuditKeys.length > 0 || extraArchiveAuditKeys.length > 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} keys mismatch; missing=[${missingArchiveAuditKeys.join(', ')}], unexpected=[${extraArchiveAuditKeys.join(', ')}].`);
+  }
+  const entryTaskId = expectString(value.task_id, `${location}.task_id`);
+  const entryTaskSlug = expectString(value.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(entryTaskId);
+    validateTaskSlug(entryTaskSlug);
+  } catch (error) {
+    fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug) fail('RUNTIME_STATE_CONFLICT', `${location} identity does not match runtime_state.`);
+  const documentId = expectString(value.document_id, `${location}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `${location}.document_id is invalid.`);
+  const sourceRevision = expectString(value.source_revision, `${location}.source_revision`);
+  const archiveRevision = expectString(value.archive_revision, `${location}.archive_revision`);
+  const closureDeltaDigest = expectString(value.closure_delta_digest, `${location}.closure_delta_digest`);
+  if (!/^[a-f0-9]{64}$/.test(sourceRevision) || !/^[a-f0-9]{64}$/.test(archiveRevision) || !/^[a-f0-9]{64}$/.test(closureDeltaDigest)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} revisions and digest must be SHA-256.`);
+  }
+  const archivePath = normalizeRepoPath(expectString(value.archive_path, `${location}.archive_path`), `${location}.archive_path`);
+  if (!/^TASKS\/TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(archivePath)) {
+    fail('RUNTIME_PATH_INVALID', `${location}.archive_path must be a canonical task archive path.`);
+  }
+  if (value.action !== 'archive' || value.operation_kind !== 'archive-transaction' || value.caller !== 'close-task' || value.mode !== 'default') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} archive audit has an invalid operation binding.`);
+  }
+  if (value.from_workflow_status !== 'active' || value.from_lifecycle_state !== 'active' || value.to_workflow_status !== 'closed' || value.to_lifecycle_state !== 'archived') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} archive audit has an invalid terminal transition.`);
+  }
+  return {
+    action: 'archive',
+    idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    operation_kind: 'archive-transaction',
+    caller: 'close-task',
+    mode: 'default',
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: documentId,
+    from_workflow_status: 'active',
+    from_lifecycle_state: 'active',
+    to_workflow_status: 'closed',
+    to_lifecycle_state: 'archived',
+    source_revision: sourceRevision,
+    archive_path: archivePath,
+    archive_revision: archiveRevision,
+    closure_delta_digest: closureDeltaDigest,
+    authority_evidence: validateAuthorityEvidence(value.authority_evidence),
+    evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`),
+    lesson_admission: validateLessonAdmission(value.lesson_admission, `${location}.lesson_admission`),
+    // vNext schema_version 1 archives predating knowledge promotion do not
+    // have this field. They cannot contain Contract/Decision admissions, so
+    // normalize the historical shape to the empty bundle at read time.
+    knowledge_admissions: value.knowledge_admissions === undefined
+      ? emptyKnowledgeAdmissionBundle()
+      : validateKnowledgeAdmissionBundle(value.knowledge_admissions, `${location}.knowledge_admissions`),
+    recorded_at: expectString(value.recorded_at, `${location}.recorded_at`),
+  };
+}
+
+export function successorSnapshotPath(currentPath: string, documentId: string, revision: string): string {
+  return path.posix.join(path.posix.dirname(currentPath), 'task-history', documentId, `${revision}.successor.md`);
+}
+
+export function validateSuccessorDecision(value: unknown): SuccessorDecision {
+  const d = expectRecord(value, 'successor decision');
+  expectExactKeys(d, ['task_id', 'document_id', 'source_revision', 'basis_revision', 'decision_source', 'decision_text', 'obligations'], 'successor decision');
+  if (!Array.isArray(d.obligations) || d.obligations.length > 256) fail('SUCCESSOR_OBLIGATIONS_INVALID', 'The predecessor obligation map must be bounded.');
+  const obligations = d.obligations.map((raw: unknown) => {
+    const row = expectRecord(raw, 'successor obligation');
+    expectExactKeys(row, ['prior_key', 'disposition', 'successor_claim_id', 'reason'], 'successor obligation');
+    return { prior_key: expectText(row.prior_key, 'prior_key'),
+      disposition: expectEnum(row.disposition, ['carry-forward', 'retired'], 'disposition'),
+      successor_claim_id: row.successor_claim_id === null ? null : expectString(row.successor_claim_id, 'successor_claim_id', CLAIM_ID_PATTERN),
+      reason: expectText(row.reason, 'reason') };
+  });
+  if (new Set(obligations.map(row => row.prior_key)).size !== obligations.length) fail('SUCCESSOR_OBLIGATIONS_INVALID', 'A predecessor obligation must be disposed exactly once.');
+  const taskId = expectText(d.task_id, 'task_id'); validateTaskId(taskId);
+  return { task_id: taskId, document_id: expectString(d.document_id, 'document_id', DOCUMENT_ID_PATTERN),
+    source_revision: expectString(d.source_revision, 'source_revision', SHA256_PATTERN),
+    basis_revision: expectString(d.basis_revision, 'basis_revision', SHA256_PATTERN),
+    decision_source: expectText(d.decision_source, 'decision_source'),
+    decision_text: expectVerbatim(d.decision_text, 'decision_text', 32768), obligations };
+}
+
+export function predecessorObligationKeys(current: CanonicalCurrentTask): string[] {
+  return [...(current.runtimeState.claim_evidence ?? []).flatMap(claim => claim.slots.map(slot => `claim:${claim.claim_id}/slot:${slot.slot_id}`)),
+    ...current.runtimeState.findings.filter(f => !['resolved', 'rejected'].includes(f.status)).map(f => `finding:${f.fingerprint}`)].sort();
+}
+
+function assertSuccessorDecision(root: string, current: CanonicalCurrentTask, delta: Extract<TaskStateDelta, { action: 'create-draft' | 'update-draft' }>): void {
+  const d = delta.predecessor!;
+  if (delta.action !== 'create-draft' || current.runtimeState.workflow_status !== 'superseded' || current.runtimeState.lifecycle_state !== 'active') fail('SUCCESSOR_STATE_INVALID', 'Only an already superseded task can have an explicitly requested successor.');
+  if (d.task_id !== current.runtimeState.task_id || d.document_id !== current.sourceTuple.document_id || d.source_revision !== current.sourceTuple.revision) fail('SUCCESSOR_SOURCE_STALE', 'The successor decision must bind the exact superseded predecessor.');
+  const priorBasis = readCanonicalTaskBasis(root, current);
+  if (priorBasis.revision !== d.basis_revision) fail('SUCCESSOR_SOURCE_STALE', 'The predecessor Task Basis changed.');
+  if (!current.runtimeState.execution_log.some(e => 'action' in e && e.action === 'supersede')) fail('SUCCESSOR_STATE_INVALID', 'A superseded status alone does not establish a retained invalidation.');
+  const statement = [delta.task_basis.original_request, ...delta.task_basis.user_decisions].find(item => item.source === d.decision_source);
+  if (!statement || statement.verbatim !== d.decision_text) fail('SUCCESSOR_AUTHORITY_INVALID', 'Retain the exact user replacement decision in the new Task Basis; do not infer it from supersede.');
+  const expected = predecessorObligationKeys(current);
+  if (digest(expected) !== digest(d.obligations.map(row => row.prior_key).sort())) fail('SUCCESSOR_OBLIGATIONS_INVALID', 'Every old claim slot and open finding needs an explicit carry-forward or retirement decision.');
+  for (const row of d.obligations) {
+    if (row.disposition === 'carry-forward' ? !delta.claim_evidence?.some(c => c.claim_id === row.successor_claim_id) : row.successor_claim_id !== null) fail('SUCCESSOR_OBLIGATIONS_INVALID', 'Carried obligations must name a new claim; retired obligations remain only in predecessor history.');
+  }
+  if (delta.claim_evidence?.some(c => c.slots.some(slot => slot.report || slot.user_decision || slot.prerequisite_receipt || COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition)))) fail('SUCCESSOR_EVIDENCE_INVALID', 'A successor starts with unexecuted obligations; old PASS and waivers never transfer automatically.');
+}
+
+function validateDraftAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): DraftAuditLogEntry {
+  const action = expectEnum(value.action, DRAFT_AUDIT_ACTIONS, `${location}.action`);
+  const requiredKeys = [
+    'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'from_task_id', 'from_task_slug',
+    'from_document_id', 'task_id', 'task_slug', 'document_id', 'from_workflow_status',
+    'from_lifecycle_state', 'to_workflow_status', 'to_lifecycle_state', 'source_revision',
+    'authority_evidence', 'evidence_refs', 'recorded_at',
+  ];
+  const conditionalKeys = action === 'confirm-draft' ? ['draft_revision'] : ['definition_digest', 'claim_evidence_digest', 'predecessor'];
+  const requiredConditionalKeys = action === 'confirm-draft' ? ['draft_revision'] : ['definition_digest'];
+  const extra = Object.keys(value).filter(key => !requiredKeys.includes(key) && !conditionalKeys.includes(key));
+  const missing = [...requiredKeys, ...requiredConditionalKeys].filter(key => !(key in value));
+  if (missing.length > 0 || extra.length > 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} audit keys mismatch; missing=[${missing.join(', ')}], unexpected=[${extra.join(', ')}].`);
+  }
+  const fromTaskId = expectString(value.from_task_id, `${location}.from_task_id`);
+  const fromTaskSlug = expectString(value.from_task_slug, `${location}.from_task_slug`);
+  const entryTaskId = expectString(value.task_id, `${location}.task_id`);
+  const entryTaskSlug = expectString(value.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(fromTaskId);
+    validateTaskSlug(fromTaskSlug);
+    validateTaskId(entryTaskId);
+    validateTaskSlug(entryTaskSlug);
+  } catch (error) {
+    fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug) fail('RUNTIME_STATE_CONFLICT', `${location} target identity does not match runtime_state.`);
+  const fromDocumentId = expectString(value.from_document_id, `${location}.from_document_id`);
+  const documentId = expectString(value.document_id, `${location}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(fromDocumentId) || !DOCUMENT_ID_PATTERN.test(documentId)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.document_id fields are invalid.`);
+  }
+  const fromWorkflowStatus = expectEnum(value.from_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.from_workflow_status`);
+  const fromLifecycleState = expectEnum(value.from_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.from_lifecycle_state`);
+  const toWorkflowStatus = expectEnum(value.to_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.to_workflow_status`);
+  const toLifecycleState = expectEnum(value.to_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.to_lifecycle_state`);
+  try {
+    validateCurrentTaskStatusTuple(fromWorkflowStatus, fromLifecycleState);
+    validateCurrentTaskStatusTuple(toWorkflowStatus, toLifecycleState);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  const sourceRevision = expectString(value.source_revision, `${location}.source_revision`);
+  if (!/^[a-f0-9]{64}$/.test(sourceRevision)) fail('RUNTIME_SCHEMA_INVALID', `${location}.source_revision must be SHA-256.`);
+  const authorityEvidence = validateAuthorityEvidence(value.authority_evidence);
+  const evidenceRefs = validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`);
+  const recordedAt = expectString(value.recorded_at, `${location}.recorded_at`);
+  if (action === 'create-draft' || action === 'update-draft') {
+    if (value.operation_kind !== 'task-state-transaction' || value.caller !== 'prepare-task' || value.mode !== 'default') {
+      fail('RUNTIME_STATE_CONFLICT', `${location} ${action} audit has an invalid operation binding.`);
+    }
+    const expectedFromIdentity = action === 'create-draft'
+      ? (value.predecessor === undefined ? ['closed', 'archived'] : ['superseded', 'active'])
+      : ['draft', 'active'];
+    if (fromWorkflowStatus !== expectedFromIdentity[0] || fromLifecycleState !== expectedFromIdentity[1] || toWorkflowStatus !== 'draft' || toLifecycleState !== 'active') {
+      fail('RUNTIME_STATE_CONFLICT', `${location} ${action} audit has an invalid transition.`);
+    }
+    const definitionDigest = expectString(value.definition_digest, `${location}.definition_digest`);
+    if (!/^[a-f0-9]{64}$/.test(definitionDigest)) fail('RUNTIME_SCHEMA_INVALID', `${location}.definition_digest must be SHA-256.`);
+    const claimEvidenceDigest = value.claim_evidence_digest === undefined
+      ? undefined
+      : expectString(value.claim_evidence_digest, `${location}.claim_evidence_digest`);
+    if (claimEvidenceDigest !== undefined && !/^[a-f0-9]{64}$/.test(claimEvidenceDigest)) fail('RUNTIME_SCHEMA_INVALID', `${location}.claim_evidence_digest must be SHA-256.`);
+    return {
+      action,
+      idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+      operation_kind: 'task-state-transaction',
+      caller: 'prepare-task',
+      mode: 'default',
+      from_task_id: fromTaskId,
+      from_task_slug: fromTaskSlug,
+      from_document_id: fromDocumentId,
+      task_id: entryTaskId,
+      task_slug: entryTaskSlug,
+      document_id: documentId,
+      from_workflow_status: fromWorkflowStatus,
+      from_lifecycle_state: fromLifecycleState,
+      to_workflow_status: 'draft',
+      to_lifecycle_state: 'active',
+      source_revision: sourceRevision,
+      authority_evidence: authorityEvidence,
+      evidence_refs: evidenceRefs,
+      definition_digest: definitionDigest,
+      ...(value.predecessor === undefined ? {} : { predecessor: validateSuccessorDecision(value.predecessor) }),
+      ...(claimEvidenceDigest === undefined ? {} : { claim_evidence_digest: claimEvidenceDigest }),
+      recorded_at: recordedAt,
+    };
+  }
+  if (value.operation_kind !== 'task-state-transaction' || value.caller !== 'prepare-task' || value.mode !== 'confirm') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} confirm-draft audit has an invalid operation binding.`);
+  }
+  if (fromWorkflowStatus !== 'draft' || fromLifecycleState !== 'active' || toWorkflowStatus !== 'active' || toLifecycleState !== 'active') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} confirm-draft audit has an invalid transition.`);
+  }
+  const draftRevision = expectString(value.draft_revision, `${location}.draft_revision`);
+  if (!/^[a-f0-9]{64}$/.test(draftRevision)) fail('RUNTIME_SCHEMA_INVALID', `${location}.draft_revision must be SHA-256.`);
+  return {
+    action: 'confirm-draft',
+    idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'confirm',
+    from_task_id: fromTaskId,
+    from_task_slug: fromTaskSlug,
+    from_document_id: fromDocumentId,
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: documentId,
+    from_workflow_status: 'draft',
+    from_lifecycle_state: 'active',
+    to_workflow_status: 'active',
+    to_lifecycle_state: 'active',
+    source_revision: sourceRevision,
+    authority_evidence: authorityEvidence,
+    evidence_refs: evidenceRefs,
+    draft_revision: draftRevision,
+    recorded_at: recordedAt,
+  };
+}
+
+function validateClaimEvidenceMigrationAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): ClaimEvidenceMigrationAuditLogEntry {
+  expectExactKeys(
+    value,
+    [
+      'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'from_task_id', 'from_task_slug',
+      'from_document_id', 'task_id', 'task_slug', 'document_id', 'from_workflow_status',
+      'from_lifecycle_state', 'to_workflow_status', 'to_lifecycle_state', 'source_revision',
+      'authority_evidence', 'evidence_refs', 'claim_evidence_digest', 'recorded_at',
+    ],
+    location,
+  );
+  if (value.action !== 'migrate-claim-evidence' || value.operation_kind !== 'task-state-transaction' || value.caller !== 'prepare-task' || value.mode !== 'default') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} claim evidence migration audit has an invalid operation binding.`);
+  }
+  const fromTaskId = expectString(value.from_task_id, `${location}.from_task_id`);
+  const fromTaskSlug = expectString(value.from_task_slug, `${location}.from_task_slug`);
+  const entryTaskId = expectString(value.task_id, `${location}.task_id`);
+  const entryTaskSlug = expectString(value.task_slug, `${location}.task_slug`);
+  try {
+    validateTaskId(fromTaskId);
+    validateTaskSlug(fromTaskSlug);
+    validateTaskId(entryTaskId);
+    validateTaskSlug(entryTaskSlug);
+  } catch (error) {
+    fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug) fail('RUNTIME_STATE_CONFLICT', `${location} target identity does not match runtime_state.`);
+  if (fromTaskId !== entryTaskId || fromTaskSlug !== entryTaskSlug) fail('RUNTIME_STATE_CONFLICT', `${location} migration must preserve task identity.`);
+  const fromDocumentId = expectString(value.from_document_id, `${location}.from_document_id`);
+  const documentId = expectString(value.document_id, `${location}.document_id`);
+  if (!DOCUMENT_ID_PATTERN.test(fromDocumentId) || !DOCUMENT_ID_PATTERN.test(documentId)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.document_id fields are invalid.`);
+  }
+  if (fromDocumentId !== documentId) fail('RUNTIME_STATE_CONFLICT', `${location} migration must preserve document_id.`);
+  if (value.from_workflow_status !== 'active' || value.from_lifecycle_state !== 'active' || value.to_workflow_status !== 'active' || value.to_lifecycle_state !== 'active') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} migration must preserve the active + active lifecycle tuple.`);
+  }
+  const sourceRevision = expectString(value.source_revision, `${location}.source_revision`);
+  if (!SHA256_PATTERN.test(sourceRevision)) fail('RUNTIME_SCHEMA_INVALID', `${location}.source_revision must be SHA-256.`);
+  const authorityEvidence = validateAuthorityEvidence(value.authority_evidence);
+  const evidenceRefs = validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`);
+  const claimEvidenceDigest = expectString(value.claim_evidence_digest, `${location}.claim_evidence_digest`);
+  if (!SHA256_PATTERN.test(claimEvidenceDigest)) fail('RUNTIME_SCHEMA_INVALID', `${location}.claim_evidence_digest must be SHA-256.`);
+  return {
+    action: 'migrate-claim-evidence',
+    idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'default',
+    from_task_id: fromTaskId,
+    from_task_slug: fromTaskSlug,
+    from_document_id: fromDocumentId,
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: documentId,
+    from_workflow_status: 'active',
+    from_lifecycle_state: 'active',
+    to_workflow_status: 'active',
+    to_lifecycle_state: 'active',
+    source_revision: sourceRevision,
+    authority_evidence: authorityEvidence,
+    evidence_refs: evidenceRefs,
+    claim_evidence_digest: claimEvidenceDigest,
+    recorded_at: expectString(value.recorded_at, `${location}.recorded_at`),
+  };
+}
+
+function validateExecutionLogEntry(value: unknown, location: string, taskId: string, taskSlug: string): ExecutionLogEntry {
+  const record = expectRecord(value, location);
+  if (record.action === 'migrate-claim-evidence') return validateClaimEvidenceMigrationAuditLogEntry(record, location, taskId, taskSlug);
+  if (DRAFT_AUDIT_ACTIONS.includes(record.action as DraftAuditAction)) return validateDraftAuditLogEntry(record, location, taskId, taskSlug);
+  if (record.action === 'archive') return validateArchiveAuditLogEntry(record, location, taskId, taskSlug);
+  if ('action' in record) {
+    const requiredKeys = [
+      'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'task_id', 'task_slug',
+      'document_id', 'from_workflow_status', 'from_lifecycle_state', 'to_workflow_status',
+      'to_lifecycle_state', 'source_revision', 'authority_evidence', 'evidence_refs', 'recorded_at',
+    ];
+    const optionalKeys = ['partial_diff_disposition', 'invalidation_kind', 'invalidation_reason', 'candidate_digest', 'correction_reason'];
+    const missing = requiredKeys.filter(key => !(key in record));
+    const extra = Object.keys(record).filter(key => !requiredKeys.includes(key) && !optionalKeys.includes(key));
+    if (missing.length > 0 || extra.length > 0) {
+      fail('RUNTIME_SCHEMA_INVALID', `${location} audit keys mismatch; missing=[${missing.join(', ')}], unexpected=[${extra.join(', ')}].`);
+    }
+    const action = expectEnum(record.action, REPLAN_AUDIT_ACTIONS, `${location}.action`);
+    const operationKind = expectEnum(record.operation_kind, ['task-state-transaction', 'lifecycle-transaction'], `${location}.operation_kind`);
+    const caller = expectEnum(record.caller, ['prepare-task', 'task-lifecycle'], `${location}.caller`);
+    const mode = expectString(record.mode, `${location}.mode`);
+    const entryTaskId = expectString(record.task_id, `${location}.task_id`);
+    const entryTaskSlug = expectString(record.task_slug, `${location}.task_slug`);
+    const documentId = expectString(record.document_id, `${location}.document_id`);
+    if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `${location}.document_id is invalid.`);
+    try {
+      validateTaskId(entryTaskId);
+      validateTaskSlug(entryTaskSlug);
+    } catch (error) {
+      fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+    }
+    if (entryTaskId !== taskId || entryTaskSlug !== taskSlug) fail('RUNTIME_STATE_CONFLICT', `${location} identity does not match runtime_state.`);
+    const fromWorkflowStatus = expectEnum(record.from_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.from_workflow_status`);
+    const fromLifecycleState = expectEnum(record.from_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.from_lifecycle_state`);
+    const toWorkflowStatus = expectEnum(record.to_workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, `${location}.to_workflow_status`);
+    const toLifecycleState = expectEnum(record.to_lifecycle_state, TASK_LIFECYCLE_STATES, `${location}.to_lifecycle_state`);
+    try {
+      validateCurrentTaskStatusTuple(fromWorkflowStatus, fromLifecycleState);
+      validateCurrentTaskStatusTuple(toWorkflowStatus, toLifecycleState);
+    } catch (error) {
+      fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+    }
+    const sourceRevision = expectString(record.source_revision, `${location}.source_revision`);
+    if (!/^[a-f0-9]{64}$/.test(sourceRevision)) fail('RUNTIME_SCHEMA_INVALID', `${location}.source_revision must be SHA-256.`);
+    const authorityEvidence = validateAuthorityEvidence(record.authority_evidence);
+    const evidenceRefs = validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`);
+    const recordedAt = expectString(record.recorded_at, `${location}.recorded_at`);
+
+    if (action === 'supersede') {
+      if (record.candidate_digest !== undefined || record.correction_reason !== undefined) fail('RUNTIME_SCHEMA_INVALID', `${location} supersede audit cannot bind a correction candidate.`);
+      if (operationKind !== 'lifecycle-transaction' || caller !== 'task-lifecycle' || mode !== 'supersede') {
+        fail('RUNTIME_STATE_CONFLICT', `${location} supersede audit has an invalid operation binding.`);
+      }
+      if (!['active', 'blocked_by_replan'].includes(fromWorkflowStatus) || fromLifecycleState !== 'active' || toWorkflowStatus !== 'superseded' || toLifecycleState !== 'active') {
+        fail('RUNTIME_STATE_CONFLICT', `${location} supersede audit has an invalid transition.`);
+      }
+      if (record.partial_diff_disposition === undefined || record.invalidation_kind === undefined || record.invalidation_reason === undefined) {
+        fail('RUNTIME_SCHEMA_INVALID', `${location} supersede audit must preserve invalidation and partial-diff evidence.`);
+      }
+      const partialDiffDisposition = validatePartialDiffDisposition(record.partial_diff_disposition, `${location}.partial_diff_disposition`);
+      const invalidationKind = expectEnum(record.invalidation_kind, ['goal', 'scope', 'acceptance'], `${location}.invalidation_kind`);
+      const invalidationReason = expectText(record.invalidation_reason, `${location}.invalidation_reason`);
+      return {
+        action,
+        idempotency_key: expectString(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+        operation_kind: operationKind,
+        caller,
+        mode: 'supersede',
+        task_id: entryTaskId,
+        task_slug: entryTaskSlug,
+        document_id: documentId,
+        from_workflow_status: fromWorkflowStatus,
+        from_lifecycle_state: fromLifecycleState,
+        to_workflow_status: toWorkflowStatus,
+        to_lifecycle_state: toLifecycleState,
+        source_revision: sourceRevision,
+        authority_evidence: authorityEvidence,
+        evidence_refs: evidenceRefs,
+        partial_diff_disposition: partialDiffDisposition,
+        invalidation_kind: invalidationKind,
+        invalidation_reason: invalidationReason,
+        recorded_at: recordedAt,
+      };
+    }
+
+    const scopeAmendment = action === 'commit-scope-amendment';
+    if (operationKind !== 'task-state-transaction' || caller !== 'prepare-task' || mode !== (scopeAmendment ? 'amend-scope' : 'replan')) {
+      fail('RUNTIME_STATE_CONFLICT', `${location} ${scopeAmendment ? 'scope-amendment' : 'replan'} audit has an invalid operation binding.`);
+    }
+    if (record.partial_diff_disposition !== undefined || record.invalidation_kind !== undefined || record.invalidation_reason !== undefined) {
+      fail('RUNTIME_SCHEMA_INVALID', `${location} non-supersede audit must not carry supersede-only evidence.`);
+    }
+    const candidateDigest = record.candidate_digest === undefined ? undefined : expectString(record.candidate_digest, `${location}.candidate_digest`, /^[a-f0-9]{64}$/);
+    if (!['commit-replan', 'commit-scope-amendment'].includes(action) && candidateDigest !== undefined) fail('RUNTIME_SCHEMA_INVALID', `${location} candidate digest belongs only to confirmed replans.`);
+    if (action === 'commit-scope-amendment' && candidateDigest === undefined) fail('RUNTIME_SCHEMA_INVALID', `${location} scope amendment audit must bind a confirmed candidate digest.`);
+    const correctionReason = record.correction_reason === undefined ? undefined : expectText(record.correction_reason, `${location}.correction_reason`, 1024);
+    if ((candidateDigest === undefined) !== (correctionReason === undefined)) fail('RUNTIME_SCHEMA_INVALID', `${location} correction reason must bind an exact candidate digest.`);
+    const expectedTransition = action === 'mark-replan-blocked'
+      ? ['active', 'active', 'blocked_by_replan', 'active']
+      : action === 'clear-replan-block'
+        ? ['blocked_by_replan', 'active', 'active', 'active']
+        : ['superseded', 'active', 'active', 'active'];
+    const activeCorrection = ['commit-replan', 'commit-scope-amendment'].includes(action) && candidateDigest !== undefined
+      && ['active', 'blocked_by_replan'].includes(fromWorkflowStatus) && fromLifecycleState === 'active' && toWorkflowStatus === 'active' && toLifecycleState === 'active';
+    if (!activeCorrection && (fromWorkflowStatus !== expectedTransition[0] || fromLifecycleState !== expectedTransition[1] || toWorkflowStatus !== expectedTransition[2] || toLifecycleState !== expectedTransition[3])) {
+      fail('RUNTIME_STATE_CONFLICT', `${location} replan audit has an invalid transition.`);
+    }
+    return {
+      action,
+      idempotency_key: expectString(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+      operation_kind: operationKind,
+      caller,
+      mode: scopeAmendment ? 'amend-scope' : 'replan',
+      task_id: entryTaskId,
+      task_slug: entryTaskSlug,
+      document_id: documentId,
+      from_workflow_status: fromWorkflowStatus,
+      from_lifecycle_state: fromLifecycleState,
+      to_workflow_status: toWorkflowStatus,
+      to_lifecycle_state: toLifecycleState,
+      source_revision: sourceRevision,
+      authority_evidence: authorityEvidence,
+      evidence_refs: evidenceRefs,
+      ...(candidateDigest === undefined ? {} : { candidate_digest: candidateDigest }),
+      ...(correctionReason === undefined ? {} : { correction_reason: correctionReason }),
+      recorded_at: recordedAt,
+    };
+  }
+
+  const executionLogKeys = [
+    'idempotency_key',
+    'mode',
+    'step_id',
+    'status',
+    'evidence_refs',
+    'note',
+    'repair_fingerprint',
+    'repair_fingerprints',
+    'repair_wave_id',
+    'change_set_id',
+    'checkpoint',
+    'advancement',
+    'next_step_id',
+    'review_receipt',
+    'claim_evidence',
+    'execution_result',
+    'recorded_at',
+  ];
+  const optionalExecutionLogKeys = ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'change_set_id', 'checkpoint', 'advancement', 'next_step_id', 'review_receipt', 'claim_evidence', 'execution_result'];
+  const missingExecutionLogKeys = executionLogKeys.filter(key => !optionalExecutionLogKeys.includes(key) && !(key in record));
+  const extraExecutionLogKeys = Object.keys(record).filter(key => !executionLogKeys.includes(key));
+  if (missingExecutionLogKeys.length > 0 || extraExecutionLogKeys.length > 0) fail('RUNTIME_SCHEMA_INVALID', `${location} keys mismatch; missing=[${missingExecutionLogKeys.join(', ')}], unexpected=[${extraExecutionLogKeys.join(', ')}].`);
+  const result: StepExecutionLogEntry = {
+    idempotency_key: expectString(record.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    mode: expectEnum(record.mode, VNEXT_EXECUTE_STEP_MODES, `${location}.mode`),
+    step_id: expectString(record.step_id, `${location}.step_id`, STEP_ID_PATTERN),
+    status: expectEnum(record.status, STEP_STATUSES, `${location}.status`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+    recorded_at: expectString(record.recorded_at, `${location}.recorded_at`),
+  };
+  if (record.note !== undefined && record.note !== null) result.note = expectText(record.note, `${location}.note`);
+  if (record.repair_fingerprint !== undefined) {
+    result.repair_fingerprint = expectString(record.repair_fingerprint, `${location}.repair_fingerprint`, FINGERPRINT_PATTERN);
+    if (result.mode !== 'repair') fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprint is only valid for repair execution records.`);
+  }
+  if (record.repair_fingerprints !== undefined) {
+    result.repair_fingerprints = expectStringArray(record.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS)
+      .map((fingerprint, index) => expectString(fingerprint, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    if (new Set(result.repair_fingerprints).size !== result.repair_fingerprints.length) fail('RUNTIME_SCHEMA_INVALID', `${location}.repair_fingerprints must be unique.`);
+    if (result.mode !== 'repair') fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprints is only valid for repair execution records.`);
+  }
+  if (record.repair_wave_id !== undefined) result.repair_wave_id = expectString(record.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN);
+  if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined) fail('RUNTIME_STATE_CONFLICT', `${location} must not mix legacy and grouped repair fingerprints.`);
+  if ((result.repair_fingerprints !== undefined) !== (result.repair_wave_id !== undefined)) fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprints and repair_wave_id must appear together.`);
+  if (record.change_set_id !== undefined) result.change_set_id = expectString(record.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN);
+  if (record.checkpoint !== undefined) result.checkpoint = expectEnum(record.checkpoint, ['required', 'not-required'], `${location}.checkpoint`);
+  if (record.advancement !== undefined) result.advancement = expectEnum(record.advancement, STEP_ADVANCEMENT_OUTCOMES, `${location}.advancement`);
+  if (record.next_step_id !== undefined) result.next_step_id = expectNullableString(record.next_step_id, `${location}.next_step_id`, STEP_ID_PATTERN);
+  if (record.review_receipt !== undefined) result.review_receipt = validateStepReviewReceipt(record.review_receipt, `${location}.review_receipt`);
+  if (record.claim_evidence !== undefined) result.claim_evidence = validateClaimEvidence(record.claim_evidence, `${location}.claim_evidence`);
+  if (record.execution_result !== undefined) result.execution_result = validateStepExecutionResult(record.execution_result, `${location}.execution_result`);
+  if (result.review_receipt && result.status !== 'completed') fail('RUNTIME_STATE_CONFLICT', `${location}.review_receipt requires a completed execution record.`);
+  if (result.advancement !== undefined) {
+    if (result.checkpoint === undefined || result.next_step_id === undefined) {
+      fail('RUNTIME_STATE_CONFLICT', `${location}.advancement requires checkpoint and next_step_id.`);
+    }
+    if (result.advancement === 'advanced' && result.next_step_id === null) {
+      fail('RUNTIME_STATE_CONFLICT', `${location}.advanced execution record must name the next step.`);
+    }
+    if (result.advancement !== 'advanced' && result.next_step_id !== null) {
+      fail('RUNTIME_STATE_CONFLICT', `${location}.${result.advancement} execution record must not name a next step.`);
+    }
+  }
+  return result;
+}
+
+function validateEvidenceChallenge(value: unknown, location: string): EvidenceChallenge {
+  const item = expectRecord(value, location);
+  expectExactKeys(item, ['challenge_id', 'claim_id', 'slot_id', 'result_id', 'evidence_ref', 'evidence_sha256', 'reason', 'status', 'source_revision', 'correction_step_id', ...('resolution' in item ? ['resolution'] : [])], location);
+  const resolution = item.resolution === undefined ? undefined : (() => {
+    const value = expectRecord(item.resolution, `${location}.resolution`);
+    expectExactKeys(value, ['kind', 'evidence_ref', 'evidence_sha256', 'reason', 'source_revision'], `${location}.resolution`);
+    if (value.kind !== 'not-substantiated') fail('RUNTIME_SCHEMA_INVALID', `${location}.resolution.kind is invalid.`);
+    return {
+      kind: 'not-substantiated' as const,
+      evidence_ref: normalizeRepoPath(expectString(value.evidence_ref, `${location}.resolution.evidence_ref`), `${location}.resolution.evidence_ref`),
+      evidence_sha256: expectString(value.evidence_sha256, `${location}.resolution.evidence_sha256`, /^[a-f0-9]{64}$/),
+      reason: expectString(value.reason, `${location}.resolution.reason`),
+      source_revision: expectString(value.source_revision, `${location}.resolution.source_revision`, /^[a-f0-9]{64}$/),
+    };
+  })();
+  if (resolution && (item.status !== 'resolved' || item.correction_step_id !== null)) fail('RUNTIME_SCHEMA_INVALID', `${location}.resolution requires a dismissed challenge.`);
+  if (item.status === 'resolved' && item.correction_step_id === null && !resolution) fail('RUNTIME_SCHEMA_INVALID', `${location} needs a correction step or an assessment resolution.`);
+  return {
+    challenge_id: expectString(item.challenge_id, `${location}.challenge_id`, SAFE_KEY_PATTERN),
+    claim_id: expectString(item.claim_id, `${location}.claim_id`, CLAIM_ID_PATTERN),
+    slot_id: expectString(item.slot_id, `${location}.slot_id`, CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+    result_id: expectString(item.result_id, `${location}.result_id`, CLAIM_ID_PATTERN),
+    evidence_ref: normalizeRepoPath(expectString(item.evidence_ref, `${location}.evidence_ref`), `${location}.evidence_ref`),
+    evidence_sha256: expectString(item.evidence_sha256, `${location}.evidence_sha256`, /^[a-f0-9]{64}$/),
+    reason: expectString(item.reason, `${location}.reason`),
+    status: expectEnum(item.status, ['contested', 'invalidated', 'resolved'], `${location}.status`),
+    source_revision: expectString(item.source_revision, `${location}.source_revision`, /^[a-f0-9]{64}$/),
+    correction_step_id: item.correction_step_id === null ? null : expectString(item.correction_step_id, `${location}.correction_step_id`, STEP_ID_PATTERN),
+    ...(resolution ? { resolution } : {}),
+  };
+}
+
+function validateEvidenceCarryForward(value: unknown, location: string): EvidenceCarryForward {
+  const item = expectRecord(value, location);
+  const v2 = item.kind === 'evidence-carry-forward/v2';
+  expectExactKeys(item, ['kind', 'old_source_revision', 'old_plan_revision', 'new_plan_revision', 'claim_id', 'slot_id', 'check_id', 'result_id', 'report_sha256', 'subject_revision', ...(v2 ? ['receiving_source_revision', 'evidence_objects', 'context_revision'] : []), ...['history_operation', 'user_decision_sha256'].filter(key => key in item)], location);
+  if (!v2 && item.kind !== 'evidence-carry-forward/v1') fail('RUNTIME_SCHEMA_INVALID', `${location}.kind is invalid.`);
+  const hash = (key: string) => expectString(item[key], `${location}.${key}`, /^[a-f0-9]{64}$/);
+  if (v2 && (!Array.isArray(item.evidence_objects) || item.evidence_objects.length > 128)) fail('RUNTIME_SCHEMA_INVALID', 'Evidence objects must be bounded.');
+  const objects = v2 ? (item.evidence_objects as unknown[]).map(raw => {
+    const object = expectRecord(raw, 'evidence object');
+    expectExactKeys(object, ['path', 'sha256', 'size'], 'evidence object');
+    if (!Number.isInteger(object.size) || (object.size as number) < 0 || (object.size as number) > 1048576) fail('RUNTIME_SCHEMA_INVALID', 'Evidence object size is invalid.');
+    return { path: normalizeRepoPath(expectString(object.path, 'evidence object.path'), 'evidence object.path'),
+      sha256: expectString(object.sha256, 'evidence object.sha256', /^[a-f0-9]{64}$/), size: object.size as number };
+  }) : undefined;
+  return {
+    kind: v2 ? 'evidence-carry-forward/v2' : 'evidence-carry-forward/v1',
+    ...(v2 ? { receiving_source_revision: hash('receiving_source_revision'), evidence_objects: objects, context_revision: hash('context_revision') } : {}),
+    ...(item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ['confirm-replan', 'replace-validation'], 'history_operation') }),
+    ...(item.user_decision_sha256 === undefined ? {} : { user_decision_sha256: hash('user_decision_sha256') }),
+    old_source_revision: hash('old_source_revision'), old_plan_revision: hash('old_plan_revision'), new_plan_revision: hash('new_plan_revision'),
+    claim_id: expectString(item.claim_id, `${location}.claim_id`, CLAIM_ID_PATTERN),
+    slot_id: expectString(item.slot_id, `${location}.slot_id`, CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+    check_id: expectString(item.check_id, `${location}.check_id`, CLAIM_ID_PATTERN),
+    result_id: expectString(item.result_id, `${location}.result_id`, CLAIM_ID_PATTERN),
+    report_sha256: hash('report_sha256'), subject_revision: hash('subject_revision'),
+  };
+}
+
+export function validateVNextRuntimeState(value: unknown, options: { storeBackedHistory?: boolean } = {}): RuntimeState {
+  const runtime = expectRecord(value, 'runtime_state');
+  const requiredRuntimeStateFields = [
+    'schema_version', 'kind', 'task_id', 'task_slug', 'workflow_status', 'lifecycle_state',
+    'resume_requires_review', 'resume_review_reasons', 'active_step_id', 'active_step_status',
+    'finding_queue_revision', 'review_cycle', 'findings',
+  ];
+  if (!options.storeBackedHistory) requiredRuntimeStateFields.push('execution_log', 'applied_proposals');
+  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'scope_amendment_pending_review_step_id', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids', 'dynamic_review_required', 'dynamic_expansions', 'execution_preflight', 'authority_domain_revision'];
+  if (options.storeBackedHistory) optionalRuntimeStateFields.push('execution_log', 'applied_proposals');
+  const missingRuntimeStateFields = requiredRuntimeStateFields.filter(field => !(field in runtime));
+  const extraRuntimeStateFields = Object.keys(runtime).filter(field => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
+  if (missingRuntimeStateFields.length > 0 || extraRuntimeStateFields.length > 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `runtime_state keys mismatch; missing=[${missingRuntimeStateFields.join(', ')}], unexpected=[${extraRuntimeStateFields.join(', ')}].`);
+  }
+  if (runtime.business_evidence_version !== undefined && runtime.business_evidence_version !== 1) {
+    fail('TASK_SEMANTICS_VERSION_UNSUPPORTED', 'runtime_state.business_evidence_version must be 1 when present.');
+  }
+  if (runtime.task_evolution_version !== undefined && ![1, 2].includes(runtime.task_evolution_version as number)) {
+    fail('TASK_EVOLUTION_VERSION_UNSUPPORTED', 'runtime_state.task_evolution_version must be 1 or 2 when present.');
+  }
+  if (runtime.preservation_source_revision !== undefined && ![1, 2].includes(runtime.task_evolution_version as number)) {
+    fail('RUNTIME_SCHEMA_INVALID', 'preservation_source_revision requires a supported task_evolution_version.');
+  }
+  if (runtime.schema_version !== VNEXT_RUNTIME_SCHEMA_VERSION) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.schema_version must be 1.');
+  if (runtime.kind !== VNEXT_RUNTIME_STATE_KIND) fail('RUNTIME_SCHEMA_INVALID', `runtime_state.kind must be ${VNEXT_RUNTIME_STATE_KIND}.`);
+  const taskId = expectString(runtime.task_id, 'runtime_state.task_id');
+  const taskSlug = expectString(runtime.task_slug, 'runtime_state.task_slug');
+  try {
+    validateTaskId(taskId);
+    validateTaskSlug(taskSlug);
+  } catch (error) {
+    fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const workflowStatus = expectEnum(runtime.workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, 'runtime_state.workflow_status');
+  const lifecycleState = expectEnum(runtime.lifecycle_state, TASK_LIFECYCLE_STATES, 'runtime_state.lifecycle_state');
+  try {
+    validateCurrentTaskStatusTuple(workflowStatus, lifecycleState);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  const resumeRequiresReview = expectBoolean(runtime.resume_requires_review, 'runtime_state.resume_requires_review');
+  const rawResumeReasons = expectStringArray(runtime.resume_review_reasons, 'runtime_state.resume_review_reasons', true, RESUME_REVIEW_REASON_ORDER.length);
+  const resumeReviewReasons = normalizeResumeReviewReasons(rawResumeReasons);
+  if (rawResumeReasons.join('|') !== resumeReviewReasons.join('|')) {
+    fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.resume_review_reasons must use the canonical closed-set order.');
+  }
+  try {
+    validateCurrentTaskResumeGate(lifecycleState, resumeRequiresReview, resumeReviewReasons);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  const activeStepId = expectString(runtime.active_step_id, 'runtime_state.active_step_id', STEP_ID_PATTERN);
+  const activeStepStatus = expectEnum(runtime.active_step_status, STEP_STATUSES, 'runtime_state.active_step_status');
+  const claimEvidenceRequired = runtime.claim_evidence_required === undefined
+    ? runtime.claim_evidence !== undefined
+    : expectBoolean(runtime.claim_evidence_required, 'runtime_state.claim_evidence_required');
+  const claimEvidence = runtime.claim_evidence === undefined
+    ? []
+    : validateClaimEvidence(runtime.claim_evidence, 'runtime_state.claim_evidence');
+  const evidenceChallenges = runtime.evidence_challenges === undefined ? [] : (() => {
+    if (!Array.isArray(runtime.evidence_challenges) || runtime.evidence_challenges.length > 128) fail('RUNTIME_SCHEMA_INVALID', 'evidence_challenges must be a bounded array.');
+    return runtime.evidence_challenges.map((item, index) => validateEvidenceChallenge(item, `runtime_state.evidence_challenges[${index}]`));
+  })();
+  const evidenceCarryForward = runtime.evidence_carry_forward === undefined ? [] : (() => {
+    if (!Array.isArray(runtime.evidence_carry_forward) || runtime.evidence_carry_forward.length > 256) fail('RUNTIME_SCHEMA_INVALID', 'evidence_carry_forward must be a bounded array.');
+    return runtime.evidence_carry_forward.map((item, index) => validateEvidenceCarryForward(item, `runtime_state.evidence_carry_forward[${index}]`));
+  })();
+  const dynamicExpansions = runtime.dynamic_expansions === undefined ? [] : validateDynamicExpansions(runtime.dynamic_expansions);
+  const dynamicReviewRequired = runtime.dynamic_review_required === undefined
+    ? false
+    : expectBoolean(runtime.dynamic_review_required, 'runtime_state.dynamic_review_required');
+  const executionPreflight = runtime.execution_preflight === undefined
+    ? undefined
+    : validateExecutionPreflight(runtime.execution_preflight);
+  if (new Set(evidenceChallenges.map(item => item.challenge_id)).size !== evidenceChallenges.length) fail('RUNTIME_SCHEMA_INVALID', 'evidence_challenges IDs must be unique.');
+  const findingsValue = runtime.findings;
+  if (!Array.isArray(findingsValue) || findingsValue.length > MAX_FINDINGS) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.findings must be an array within the bounded size.');
+  const findings = findingsValue.map((finding, index) => validateFinding(finding, `runtime_state.findings[${index}]`));
+  if (new Set(findings.map(finding => finding.fingerprint)).size !== findings.length) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.findings fingerprints must be unique.');
+  for (const finding of findings) {
+    if (finding.owner_task_id !== taskId) fail('RUNTIME_STATE_CONFLICT', `finding ${finding.fingerprint} is owned by a different task.`);
+    if (finding.repair_attempts > finding.max_repair_attempts) fail('RUNTIME_SCHEMA_INVALID', `finding ${finding.fingerprint} exceeds its declared repair budget.`);
+  }
+  const executionLogValue = runtime.execution_log;
+  if (options.storeBackedHistory && executionLogValue !== undefined) {
+    fail('RUNTIME_STORAGE_COMPACT_INVALID', 'compact CURRENT_TASK must not inline execution_log; use task-read against the committed store.');
+  }
+  if (!options.storeBackedHistory && (!Array.isArray(executionLogValue) || executionLogValue.length > MAX_EXECUTION_LOG)) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.execution_log must be a bounded array.');
+  const executionLog = options.storeBackedHistory ? [] : (executionLogValue as unknown[]).map((entry, index) => validateExecutionLogEntry(entry, `runtime_state.execution_log[${index}]`, taskId, taskSlug));
+  const appliedValue = runtime.applied_proposals;
+  if (options.storeBackedHistory && appliedValue !== undefined) {
+    fail('RUNTIME_STORAGE_COMPACT_INVALID', 'compact CURRENT_TASK must not inline applied_proposals; use task-read against the committed store.');
+  }
+  if (!options.storeBackedHistory && (!Array.isArray(appliedValue) || appliedValue.length > MAX_APPLIED_PROPOSALS)) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.applied_proposals must be a bounded array.');
+  const appliedProposals = options.storeBackedHistory ? [] : (appliedValue as unknown[]).map((entry, index) => {
+    const record = expectRecord(entry, `runtime_state.applied_proposals[${index}]`);
+    expectExactKeys(record, ['idempotency_key', 'operation_kind', 'proposal_digest', 'source_revision'], `runtime_state.applied_proposals[${index}]`);
+    const proposalDigest = expectString(record.proposal_digest, `runtime_state.applied_proposals[${index}].proposal_digest`);
+    if (!/^[a-f0-9]{64}$/.test(proposalDigest)) fail('RUNTIME_SCHEMA_INVALID', `runtime_state.applied_proposals[${index}].proposal_digest must be SHA-256.`);
+    const sourceRevision = expectString(record.source_revision, `runtime_state.applied_proposals[${index}].source_revision`);
+    if (!/^[a-f0-9]{64}$/.test(sourceRevision)) fail('RUNTIME_SCHEMA_INVALID', `runtime_state.applied_proposals[${index}].source_revision must be SHA-256.`);
+    return {
+      idempotency_key: expectString(record.idempotency_key, `runtime_state.applied_proposals[${index}].idempotency_key`, SAFE_KEY_PATTERN),
+      operation_kind: expectEnum(record.operation_kind, RUNTIME_OPERATION_KINDS, `runtime_state.applied_proposals[${index}].operation_kind`),
+      proposal_digest: proposalDigest,
+      source_revision: sourceRevision,
+    };
+  });
+  if (new Set(appliedProposals.map(item => item.idempotency_key)).size !== appliedProposals.length) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.applied_proposals keys must be unique.');
+  const reviewCycle = validateReviewCycle(runtime.review_cycle);
+  const pendingReviewResult = runtime.pending_review_result === undefined || runtime.pending_review_result === null
+    ? null
+    : validatePendingReviewResult(runtime.pending_review_result, 'runtime_state.pending_review_result', true) as PendingReviewResult;
+  const scopeAmendmentPendingReviewStepId = runtime.scope_amendment_pending_review_step_id === undefined
+    ? undefined
+    : expectString(runtime.scope_amendment_pending_review_step_id, 'runtime_state.scope_amendment_pending_review_step_id', STEP_ID_PATTERN);
+  if (pendingReviewResult !== null) {
+    if (pendingReviewResult.step_id !== activeStepId && scopeAmendmentPendingReviewStepId !== pendingReviewResult.step_id) {
+      fail('RUNTIME_STATE_CONFLICT', 'runtime_state.pending_review_result must belong to the active step.');
+    }
+    if (scopeAmendmentPendingReviewStepId !== undefined && scopeAmendmentPendingReviewStepId !== pendingReviewResult.step_id) {
+      fail('RUNTIME_STATE_CONFLICT', 'scope_amendment_pending_review_step_id must identify the retained review step.');
+    }
+    if (pendingReviewResult.cycle_id !== reviewCycle.id) {
+      fail('RUNTIME_STATE_CONFLICT', 'runtime_state.pending_review_result must belong to the current review cycle.');
+    }
+  } else if (scopeAmendmentPendingReviewStepId !== undefined) {
+    fail('RUNTIME_STATE_CONFLICT', 'scope_amendment_pending_review_step_id requires a retained pending review.');
+  }
+  return {
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_STATE_KIND,
+    ...(runtime.evidence_plan_revision === undefined ? {} : { evidence_plan_revision: expectString(runtime.evidence_plan_revision, 'evidence_plan_revision', /^[a-f0-9]{64}$/) }),
+    ...(runtime.business_evidence_version === 1 ? { business_evidence_version: 1 as const } : {}),
+    ...(runtime.task_evolution_version === undefined ? {} : { task_evolution_version: runtime.task_evolution_version as 1 | 2 }),
+    ...(runtime.preservation_source_revision === undefined ? {} : { preservation_source_revision: expectString(runtime.preservation_source_revision, 'preservation_source_revision', /^[a-f0-9]{64}$/) }),
+    task_id: taskId,
+    task_slug: taskSlug,
+    workflow_status: workflowStatus,
+    lifecycle_state: lifecycleState,
+    resume_requires_review: resumeRequiresReview,
+    resume_review_reasons: resumeReviewReasons,
+    active_step_id: activeStepId,
+    active_step_status: activeStepStatus,
+    finding_queue_revision: expectInteger(runtime.finding_queue_revision, 'runtime_state.finding_queue_revision'),
+    review_cycle: reviewCycle,
+    findings,
+    execution_log: executionLog,
+    applied_proposals: appliedProposals,
+    claim_evidence_required: claimEvidenceRequired,
+    claim_evidence: claimEvidence,
+    ...(scopeAmendmentPendingReviewStepId === undefined ? {} : { scope_amendment_pending_review_step_id: scopeAmendmentPendingReviewStepId }),
+    ...(runtime.evidence_challenges === undefined ? {} : { evidence_challenges: evidenceChallenges }),
+    ...(runtime.evidence_carry_forward === undefined ? {} : { evidence_carry_forward: evidenceCarryForward }),
+    ...(runtime.artifact_checkpoint_ids === undefined ? {} : { artifact_checkpoint_ids: expectStringArray(runtime.artifact_checkpoint_ids, 'artifact_checkpoint_ids', true, 256).map(id => expectString(id, 'checkpoint ID', /^[a-f0-9]{64}$/)) }),
+    ...(runtime.dynamic_review_required === undefined ? {} : { dynamic_review_required: dynamicReviewRequired }),
+    ...(runtime.dynamic_expansions === undefined ? {} : { dynamic_expansions: dynamicExpansions }),
+    ...(executionPreflight === undefined ? {} : { execution_preflight: executionPreflight }),
+    ...(runtime.authority_domain_revision === undefined ? {} : { authority_domain_revision: expectString(runtime.authority_domain_revision, 'runtime_state.authority_domain_revision', /^[a-f0-9]{64}$/) }),
+    pending_review_result: pendingReviewResult,
+    ...(runtime.step_attempts === undefined ? {} : {step_attempts:validateStepAttempts(runtime.step_attempts)}),
+    ...(runtime.review_coverage === undefined ? {} : { review_coverage: validateReviewCoverage(runtime.review_coverage) }),
+  };
+}
+
+function replaceTaskInfoField(body: string, label: string, value: string): string {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^-\\s*${escapedLabel}：[^\\r\\n]*$`, 'gm');
+  const matches = body.match(pattern) ?? [];
+  if (matches.length !== 1) fail('RUNTIME_SCHEMA_INVALID', `CURRENT_TASK must contain exactly one task-info field "${label}".`);
+  return body.replace(pattern, `- ${label}：${value}`);
+}
+
+function renderCurrentTaskLifecycleFields(body: string, runtimeState: RuntimeState): string {
+  const headingMatch = /^## 任务信息\s*$/m.exec(body);
+  if (!headingMatch || headingMatch.index === undefined) fail('RUNTIME_SCHEMA_INVALID', 'CURRENT_TASK is missing ## 任务信息.');
+  const sectionStart = headingMatch.index + headingMatch[0].length;
+  const sectionRemainder = body.slice(sectionStart);
+  const nextHeading = /\r?\n##\s/.exec(sectionRemainder);
+  const sectionEnd = nextHeading?.index ?? sectionRemainder.length;
+  const section = sectionRemainder.slice(0, sectionEnd);
+  const nextSection = [
+    ['当前状态', runtimeState.workflow_status],
+    ['生命周期状态', runtimeState.lifecycle_state],
+    ['恢复需审查', runtimeState.resume_requires_review ? 'true' : 'false'],
+    ['恢复审查原因', runtimeState.resume_review_reasons.join(', ')],
+  ] as const;
+  const renderedSection = nextSection.reduce((current, [label, value]) => replaceTaskInfoField(current, label, value), section);
+  return body.slice(0, sectionStart) + renderedSection + body.slice(sectionStart + sectionEnd);
+}
+
+type MarkdownSectionRange = {
+  title: string;
+  level: number;
+  headingStart: number;
+  contentStart: number;
+  contentEnd: number;
+};
+
+type ReplanSectionKey = (typeof REPLAN_REPLACEMENT_FIELDS)[number];
+
+const REPLAN_SECTION_HEADINGS: Record<ReplanSectionKey, readonly string[]> = {
+  background_context: ['背景与上下文', 'Background and Context'],
+  acceptance: ['验收标准', 'Acceptance Criteria'],
+  allowed_scope: ['允许修改范围', 'Allowed Files'],
+  conditional_scope: ['条件修改范围', '条件允许修改范围', 'Conditional Files'],
+  forbidden_scope: ['禁止修改范围', 'Forbidden Files'],
+  affected_contracts: ['受影响的契约', 'Affected Contracts'],
+  confirmed_decisions: ['已确认决策', 'Confirmed Decisions'],
+  open_questions: ['待确认问题', 'Open Questions'],
+  implementation_plan: ['实现方案', 'Implementation Plan'],
+  implementation_steps: ['实施步骤', 'Implementation Steps'],
+  regression_checks: ['回归检查项', 'Regression Checks', 'Validation Checks'],
+  rollback_points: ['回滚点', 'Rollback Points'],
+  design_constraints: ['设计约束', 'Design Constraints'],
+  post_release_validation: ['发布后验证', 'Post-release Validation', 'Post-Release Validation'],
+  propagation_governance: ['传播治理记录', 'Propagation Governance'],
+};
+
+function scanMarkdownSections(body: string): MarkdownSectionRange[] {
+  const headings: Array<{ title: string; level: number; headingStart: number; headingEnd: number }> = [];
+  const headingPattern = /^(#{2,6})[ \t]+(.+?)[ \t]*$/gm;
+  for (const match of body.matchAll(headingPattern)) {
+    const headingStart = match.index ?? 0;
+    const headingEnd = headingStart + match[0].length;
+    headings.push({ title: match[2].trim(), level: match[1].length, headingStart, headingEnd });
+  }
+  return headings.map((heading, index) => {
+    const afterHeading = heading.headingEnd;
+    const contentStart = body.startsWith('\r\n', afterHeading)
+      ? afterHeading + 2
+      : body.startsWith('\n', afterHeading)
+        ? afterHeading + 1
+        : afterHeading;
+    const next = headings.slice(index + 1).find(candidate => candidate.level <= heading.level);
+    return {
+      title: heading.title,
+      level: heading.level,
+      headingStart: heading.headingStart,
+      contentStart,
+      contentEnd: next?.headingStart ?? body.length,
+    };
+  });
+}
+
+function findUniqueMarkdownSection(
+  sections: readonly MarkdownSectionRange[],
+  aliases: readonly string[],
+  level: number,
+  rangeStart = 0,
+  rangeEnd = Number.MAX_SAFE_INTEGER,
+): MarkdownSectionRange | null {
+  const matches = sections.filter(section =>
+    section.level === level
+    && aliases.includes(section.title)
+    && section.headingStart >= rangeStart
+    && section.headingStart < rangeEnd,
+  );
+  if (matches.length > 1) fail('RUNTIME_SECTION_INVALID', `CURRENT_TASK contains duplicate replacement sections: ${aliases.join(' / ')}.`);
+  return matches[0] ?? null;
+}
+
+/**
+ * Read a canonical Markdown section through the Runtime's section grammar.
+ * Bootstrap uses this instead of maintaining a second heading/section parser.
+ */
+export function readCanonicalMarkdownSection(
+  content: string,
+  aliases: readonly string[],
+  level = 2,
+): string | null {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), aliases, level);
+  return section ? content.slice(section.contentStart, section.contentEnd) : null;
+}
+
+export type CanonicalGovernanceFact = {
+  key: string;
+  value: string;
+  source: string;
+  certainty: 'confirmed' | 'inferred' | 'unknown';
+};
+
+const CANONICAL_GOVERNANCE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/u;
+
+function canonicalGovernanceFail(code: string, location: string, message: string): never {
+  fail(code, `${location} ${message}`);
+}
+
+export function normalizeCanonicalGovernanceInlineText(value: string, location: string, code = 'GOVERNANCE_INPUT_INVALID'): string {
+  const normalized = value.trim();
+  if (
+    normalized.length === 0
+    || /[\r\n\0\x01-\x1f\x7f]/u.test(normalized)
+    || /```/u.test(normalized)
+    || /<!--|-->/u.test(normalized)
+    || /^(?:#{1,6}\s|[-*+]\s|>\s)/u.test(normalized)
+    || /^[-*_]{3,}$/u.test(normalized)
+  ) {
+    canonicalGovernanceFail(code, location, 'must be a non-empty single-line Markdown-safe value.');
+  }
+  return normalized;
+}
+
+export function normalizeCanonicalGovernanceKey(value: string, location: string, code = 'GOVERNANCE_INPUT_INVALID'): string {
+  const normalized = value.trim();
+  if (!CANONICAL_GOVERNANCE_KEY_PATTERN.test(normalized)) {
+    canonicalGovernanceFail(code, location, 'must match the canonical key grammar [A-Za-z0-9][A-Za-z0-9._/-]*.');
+  }
+  return normalized;
+}
+
+export function normalizeCanonicalGovernanceFacts(
+  value: readonly unknown[] | undefined,
+  location: string,
+  code = 'GOVERNANCE_INPUT_INVALID',
+): CanonicalGovernanceFact[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) canonicalGovernanceFail(code, location, 'must be an array.');
+  const result = new Map<string, CanonicalGovernanceFact>();
+  for (const [index, raw] of value.entries()) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) canonicalGovernanceFail(code, `${location}[${index}]`, 'must be a fact mapping.');
+    const fact = raw as Record<string, unknown>;
+    if (typeof fact.key !== 'string' || typeof fact.value !== 'string' || typeof fact.source !== 'string' || !['confirmed', 'inferred', 'unknown'].includes(fact.certainty as string)) {
+      canonicalGovernanceFail(code, `${location}[${index}]`, 'has an invalid key, value, source, or certainty.');
+    }
+    const normalized: CanonicalGovernanceFact = {
+      key: normalizeCanonicalGovernanceKey(fact.key as string, `${location}[${index}].key`, code),
+      value: normalizeCanonicalGovernanceInlineText(fact.value as string, `${location}[${index}].value`, code),
+      source: normalizeCanonicalGovernanceInlineText(fact.source as string, `${location}[${index}].source`, code),
+      certainty: fact.certainty as CanonicalGovernanceFact['certainty'],
+    };
+    if (/\s+\(source:\s|\s+\[(?:confirmed|inferred|unknown);\s+source:\s/u.test(normalized.value)) {
+      canonicalGovernanceFail(code, `${location}[${index}].value`, 'contains a reserved fact rendering delimiter.');
+    }
+    const previous = result.get(normalized.key);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(normalized)) {
+      canonicalGovernanceFail(code, `${location}[${index}].key`, `conflicts with another fact for key ${normalized.key}.`);
+    }
+    if (!previous) result.set(normalized.key, normalized);
+  }
+  return [...result.values()];
+}
+
+export function parseCanonicalGovernanceFactLines(lines: readonly string[], location: string): CanonicalGovernanceFact[] {
+  const parsed: CanonicalGovernanceFact[] = [];
+  for (const [index, line] of lines.entries()) {
+    const normalized = line.trim();
+    if (!normalized.startsWith('- ') || normalized === '- none') continue;
+    const confirmed = /^-\s+([^:\r\n]+):\s+(.+?)\s+\(source:\s+(.+)\)$/u.exec(normalized);
+    if (confirmed) {
+      parsed.push({ key: confirmed[1]!, value: confirmed[2]!, source: confirmed[3]!, certainty: 'confirmed' });
+      continue;
+    }
+    const unresolved = /^-\s+([^:\r\n]+):\s+(.+?)\s+\[(confirmed|inferred|unknown);\s+source:\s+(.+)\]$/u.exec(normalized);
+    if (unresolved) {
+      parsed.push({ key: unresolved[1]!, value: unresolved[2]!, source: unresolved[4]!, certainty: unresolved[3] as CanonicalGovernanceFact['certainty'] });
+      continue;
+    }
+    if (normalized.includes(':')) canonicalGovernanceFail('GOVERNANCE_FACT_INVALID', `${location}:${index + 1}`, 'contains an unreadable canonical fact.');
+  }
+  return normalizeCanonicalGovernanceFacts(parsed, location, 'GOVERNANCE_FACT_INVALID');
+}
+
+export function normalizeCanonicalBaselineEntries(
+  value: Record<string, string> | undefined,
+  location: string,
+  code = 'GOVERNANCE_INPUT_INVALID',
+): Record<string, string> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) canonicalGovernanceFail(code, location, 'must be a mapping.');
+  const result: Record<string, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = normalizeCanonicalGovernanceKey(rawKey, `${location}.${rawKey}`, code);
+    if (key === 'none') canonicalGovernanceFail(code, `${location}.${rawKey}`, 'cannot use the reserved empty-baseline placeholder key "none".');
+    if (typeof rawValue !== 'string') canonicalGovernanceFail(code, `${location}.${rawKey}`, 'must have a string value.');
+    const normalizedValue = normalizeCanonicalGovernanceInlineText(rawValue, `${location}.${rawKey}`, code);
+    if (key in result && result[key] !== normalizedValue) canonicalGovernanceFail(code, `${location}.${rawKey}`, `conflicts with another baseline entry for key ${key}.`);
+    result[key] = normalizedValue;
+  }
+  return result;
+}
+
+export function parseCanonicalBaselineKeys(lines: readonly string[], location: string): string[] {
+  const result = new Set<string>();
+  for (const [index, line] of lines.entries()) {
+    const normalized = line.trim();
+    if (!normalized.startsWith('- ')) continue;
+    const rawKey = normalized.slice(2).trim();
+    if (!rawKey || rawKey === 'none') continue;
+    const key = normalizeCanonicalGovernanceKey(rawKey, `${location}:${index + 1}`, 'GOVERNANCE_BASELINE_INVALID');
+    result.add(key);
+  }
+  return [...result].sort((left, right) => left.localeCompare(right));
+}
+
+function resolveReplanSectionRanges(body: string): Partial<Record<ReplanSectionKey, MarkdownSectionRange>> {
+  const sections = scanMarkdownSections(body);
+  const resolved: Partial<Record<ReplanSectionKey, MarkdownSectionRange>> = {};
+  const topAllowed = findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.allowed_scope, 2);
+  const topConditional = findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.conditional_scope, 2);
+  const topForbidden = findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.forbidden_scope, 2);
+  const nestedAllowed = topAllowed
+    ? findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.allowed_scope, 3, topAllowed.contentStart, topAllowed.contentEnd)
+    : null;
+  const nestedConditional = topAllowed
+    ? findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.conditional_scope, 3, topAllowed.contentStart, topAllowed.contentEnd)
+    : null;
+  const nestedConditionalUnderTopSection = topConditional
+    ? findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.conditional_scope, 3, topConditional.contentStart, topConditional.contentEnd)
+    : null;
+  const nestedForbidden = topForbidden
+    ? findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS.forbidden_scope, 3, topForbidden.contentStart, topForbidden.contentEnd)
+    : null;
+
+  if (nestedConditional && !nestedAllowed) {
+    fail('RUNTIME_SECTION_INVALID', 'Conditional scope must have a distinct existing Allowed Files section when both are nested under the scope heading.');
+  }
+  if (nestedAllowed) {
+    resolved.allowed_scope = nestedAllowed;
+    if (nestedConditional) resolved.conditional_scope = nestedConditional;
+    else if (nestedConditionalUnderTopSection) resolved.conditional_scope = nestedConditionalUnderTopSection;
+    else if (topConditional) resolved.conditional_scope = topConditional;
+  } else {
+    if (topAllowed) resolved.allowed_scope = topAllowed;
+    if (nestedConditionalUnderTopSection) resolved.conditional_scope = nestedConditionalUnderTopSection;
+    else if (topConditional) resolved.conditional_scope = topConditional;
+  }
+  if (nestedForbidden) resolved.forbidden_scope = nestedForbidden;
+  else if (topForbidden) resolved.forbidden_scope = topForbidden;
+
+  const nonScopeKeys: ReplanSectionKey[] = [
+    'background_context',
+    'acceptance',
+    'affected_contracts',
+    'confirmed_decisions',
+    'open_questions',
+    'implementation_plan',
+    'implementation_steps',
+    'regression_checks',
+    'rollback_points',
+    'design_constraints',
+    'post_release_validation',
+    'propagation_governance',
+  ];
+  for (const key of nonScopeKeys) {
+    const section = findUniqueMarkdownSection(sections, REPLAN_SECTION_HEADINGS[key], 2);
+    if (section) resolved[key] = section;
+  }
+  return resolved;
+}
+
+function replacementSectionValue(replacement: ReplanReplacementDefinition, key: ReplanSectionKey): string | null {
+  return replacement[key];
+}
+
+function replaceReplanDefinitionSections(body: string, replacement: ReplanReplacementDefinition): string {
+  const ranges = resolveReplanSectionRanges(body);
+  const replacements: Array<{ range: MarkdownSectionRange; content: string }> = [];
+  for (const key of REPLAN_REPLACEMENT_FIELDS) {
+    const value = replacementSectionValue(replacement, key);
+    const range = ranges[key];
+    const optional = key === 'design_constraints' || key === 'post_release_validation' || key === 'propagation_governance';
+    if (!range) {
+      if (!optional || value !== null) fail('RUNTIME_SECTION_INVALID', `CURRENT_TASK is missing the existing replacement section for ${key}.`);
+      continue;
+    }
+    replacements.push({ range, content: value ?? '' });
+  }
+  if (replacement.mutation_authority_version === MUTATION_AUTHORITY_VERSION && replacement.mutation_authority) {
+    const authoritySection = findUniqueMarkdownSection(scanMarkdownSections(body), MUTATION_AUTHORITY_SECTION_ALIASES, 2);
+    if (!authoritySection) fail('RUNTIME_SECTION_INVALID', 'CURRENT_TASK is missing its Mutation Authority section.');
+    replacements.push({ range: authoritySection, content: renderMutationAuthoritySectionContent(replacement.mutation_authority) });
+  }
+  replacements.sort((left, right) => right.range.contentStart - left.range.contentStart);
+  for (let index = 1; index < replacements.length; index += 1) {
+    const previous = replacements[index - 1].range;
+    const current = replacements[index].range;
+    if (current.contentEnd > previous.contentStart) {
+      fail('RUNTIME_SECTION_INVALID', 'Replan replacement sections overlap and cannot be replaced atomically.');
+    }
+  }
+  let nextBody = body;
+  for (const { range, content } of replacements) {
+    const normalized = normalizeReplacementSectionContent(content, `CURRENT_TASK.${range.title}`);
+    const rendered = normalized.length === 0 ? '\n\n' : `\n${normalized}\n\n`;
+    nextBody = nextBody.slice(0, range.contentStart) + rendered + nextBody.slice(range.contentEnd);
+  }
+  return nextBody;
+}
+
+function assertReplanDefinitionSections(body: string, replacement: ReplanReplacementDefinition): void {
+  const ranges = resolveReplanSectionRanges(body);
+  for (const key of REPLAN_REPLACEMENT_FIELDS) {
+    const value = replacementSectionValue(replacement, key);
+    const range = ranges[key];
+    const optional = key === 'design_constraints' || key === 'post_release_validation' || key === 'propagation_governance';
+    if (!range) {
+      if (!optional || value !== null) fail('RUNTIME_REPLAY_INCOMPLETE', `replan replay is missing the replacement section for ${key}.`);
+      continue;
+    }
+    const actual = normalizeReplacementSectionContent(body.slice(range.contentStart, range.contentEnd), `CURRENT_TASK.${range.title}`);
+    const expected = value ?? '';
+    if (actual !== expected) fail('RUNTIME_REPLAY_INCOMPLETE', `replan replay section ${key} no longer matches the committed replacement.`);
+  }
+  const bodyAuthority = parseMutationAuthoritySection(body);
+  const replacementHasAuthority = replacement.mutation_authority_version === MUTATION_AUTHORITY_VERSION
+    && replacement.mutation_authority !== undefined;
+  if (replacementHasAuthority) {
+    if (!bodyAuthority || bodyAuthority.mutation_authority_version !== MUTATION_AUTHORITY_VERSION
+      || !bodyAuthority.mutation_authority
+      || digest(bodyAuthority.mutation_authority) !== digest(replacement.mutation_authority)) {
+      fail('RUNTIME_REPLAY_INCOMPLETE', 'replan replay Mutation Authority section no longer matches the committed replacement.');
+    }
+  } else if (bodyAuthority) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'replan replay unexpectedly contains a Mutation Authority v2 section.');
+  }
+}
+
+function auditList(values: readonly string[]): string {
+  return `[${values.map(value => JSON.stringify(value)).join(', ')}]`;
+}
+
+function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry, includeEmptyKnowledge = true): string {
+  const authorityRefs = audit.authority_evidence.map(item => `${item.kind}:${item.source}:${item.subject}`);
+  const lines = [
+    `- action: ${audit.action}`,
+    `  old_status: ${audit.from_workflow_status}+${audit.from_lifecycle_state}`,
+    `  new_status: ${audit.to_workflow_status}+${audit.to_lifecycle_state}`,
+    `  task_id: ${audit.task_id}`,
+    `  task_slug: ${audit.task_slug}`,
+    `  document_id: ${audit.document_id}`,
+    `  proposal_idempotency_key: ${audit.idempotency_key}`,
+    `  source_revision: ${audit.source_revision}`,
+    `  authority_refs: ${auditList(authorityRefs)}`,
+    `  evidence_refs: ${auditList(audit.evidence_refs)}`,
+  ];
+  if (audit.action === 'archive') {
+    lines.push(`  archive_path: ${audit.archive_path}`);
+    lines.push(`  archive_revision: ${audit.archive_revision}`);
+    lines.push(`  closure_delta_digest: ${audit.closure_delta_digest}`);
+    lines.push('  lesson_admission:');
+    lines.push(`    decision: ${audit.lesson_admission.decision}`);
+    lines.push(`    candidate_refs: ${auditList(audit.lesson_admission.candidate_refs)}`);
+    lines.push(`    evidence_refs: ${auditList(audit.lesson_admission.evidence_refs)}`);
+    if (includeEmptyKnowledge || audit.knowledge_admissions.contracts.length > 0 || audit.knowledge_admissions.decisions.length > 0) {
+      lines.push(`  knowledge_admissions: ${JSON.stringify(audit.knowledge_admissions)}`);
+    }
+  } else if (audit.action === 'migrate-claim-evidence') {
+    const migrationAudit = audit as ClaimEvidenceMigrationAuditLogEntry;
+    lines.push(`  from_task_id: ${migrationAudit.from_task_id}`);
+    lines.push(`  from_task_slug: ${migrationAudit.from_task_slug}`);
+    lines.push(`  from_document_id: ${migrationAudit.from_document_id}`);
+    lines.push(`  claim_evidence_digest: ${migrationAudit.claim_evidence_digest}`);
+  } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action as DraftAuditAction)) {
+    const draftAudit = audit as DraftAuditLogEntry;
+    lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
+    lines.push(`  from_task_slug: ${draftAudit.from_task_slug}`);
+    lines.push(`  from_document_id: ${draftAudit.from_document_id}`);
+    if (draftAudit.definition_digest !== undefined) lines.push(`  definition_digest: ${draftAudit.definition_digest}`);
+    if (draftAudit.draft_revision !== undefined) lines.push(`  draft_revision: ${draftAudit.draft_revision}`);
+  } else {
+    const replanAudit = audit as ReplanAuditLogEntry;
+    if (replanAudit.candidate_digest !== undefined) lines.push(`  candidate_digest: ${replanAudit.candidate_digest}`);
+    if (replanAudit.correction_reason !== undefined) lines.push(`  correction_reason: ${replanAudit.correction_reason}`);
+    if (replanAudit.invalidation_kind !== undefined) lines.push(`  invalidation_kind: ${replanAudit.invalidation_kind}`);
+    if (replanAudit.invalidation_reason !== undefined) lines.push(`  invalidation_reason: ${replanAudit.invalidation_reason}`);
+    if (replanAudit.partial_diff_disposition !== undefined) {
+      lines.push('  partial_diff_disposition:');
+      lines.push(`    reusable: ${auditList(replanAudit.partial_diff_disposition.reusable)}`);
+      lines.push(`    rollback_required: ${auditList(replanAudit.partial_diff_disposition.rollback_required)}`);
+      lines.push(`    stop_propagation: ${auditList(replanAudit.partial_diff_disposition.stop_propagation)}`);
+    }
+  }
+  lines.push(`  recorded_at: ${audit.recorded_at}`);
+  return lines.join('\n');
+}
+
+function appendExecutionAuditToBody(body: string, audit: RuntimeAuditLogEntry): string {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(body), ['执行记录', 'Execution Log'], 2);
+  if (!section) fail('RUNTIME_SECTION_INVALID', 'CURRENT_TASK is missing the required ## 执行记录 audit section.');
+  const existing = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trimEnd();
+  const auditText = renderExecutionAuditRecord(audit);
+  const rendered = `${existing.trim().length > 0 ? `${existing}\n\n` : ''}${auditText}\n\n`;
+  return body.slice(0, section.contentStart) + `\n${rendered}` + body.slice(section.contentEnd);
+}
+
+function compactHistoryPreview(body: string, runtimeState: RuntimeState, audit?: RuntimeAuditLogEntry): string {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(body), ['执行记录', 'Execution Log'], 2);
+  if (!section) fail('RUNTIME_SECTION_INVALID', 'CURRENT_TASK is missing the required ## 执行记录 audit section.');
+  const entries: unknown[] = [...runtimeState.execution_log];
+  if (audit && !entries.some(item => isRecord(item) && item.idempotency_key === audit.idempotency_key)) entries.push(audit);
+  const preview = entries.filter(isRecord).slice(-8).map(item => {
+    const action = typeof item.action === 'string' ? item.action : 'step-execution';
+    const idempotencyKey = typeof item.idempotency_key === 'string' ? item.idempotency_key : 'unknown';
+    const stepId = typeof item.step_id === 'string' ? item.step_id : null;
+    const status = typeof item.status === 'string' ? item.status : null;
+    const recordedAt = typeof item.recorded_at === 'string' ? item.recorded_at : null;
+    return `- ${action} | key=${idempotencyKey}${stepId ? ` | step=${stepId}` : ''}${status ? ` | status=${status}` : ''}${recordedAt ? ` | at=${recordedAt}` : ''}`;
+  });
+  const lines = [
+    '- Store-backed history is retained under task-data; use task-read for exact event, proposal, result, and report reads.',
+    '- This section is a bounded navigation preview only; it is not the Runtime fact source.',
+    ...(preview.length > 0 ? ['', ...preview] : []),
+  ];
+  let rendered = lines.join('\n');
+  if (Buffer.byteLength(rendered, 'utf8') > 8192) {
+    rendered = Buffer.from(rendered, 'utf8').subarray(0, 8192).toString('utf8');
+  }
+  return body.slice(0, section.contentStart) + `\n${rendered}\n\n` + body.slice(section.contentEnd);
+}
+
+function assertExecutionAudit(root: string, current: CanonicalCurrentTask, audit: RuntimeAuditLogEntry): void {
+  if (current.frontmatter.task_store !== undefined) {
+    const history = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent).readExecutionLog();
+    if (!history.some(entry => digest(entry) === digest(audit))) {
+      fail('RUNTIME_REPLAY_INCOMPLETE', `replay is missing the durable task-store audit for ${audit.action}.`);
+    }
+    return;
+  }
+  const body = current.body;
+  const section = findUniqueMarkdownSection(scanMarkdownSections(body), ['执行记录', 'Execution Log'], 2);
+  if (!section) fail('RUNTIME_REPLAY_INCOMPLETE', 'replay is missing the required ## 执行记录 audit section.');
+  const content = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n');
+  const currentAudit = renderExecutionAuditRecord(audit);
+  const historicalAudit = audit.action === 'archive'
+    && audit.knowledge_admissions.contracts.length === 0
+    && audit.knowledge_admissions.decisions.length === 0
+    ? renderExecutionAuditRecord(audit, false)
+    : null;
+  if (!content.includes(currentAudit) && (historicalAudit === null || !content.includes(historicalAudit))) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', `replay is missing the durable body audit for ${audit.action}.`);
+  }
+}
+
+const VNEXT_TASK_BASIS_KIND = 'vnext-task-basis' as const;
+const TASK_BASIS_HEADING_ALIASES = ['任务输入依据', 'Task Basis'] as const;
+
+type TaskBasisArtifact = TaskBasisReference & {
+  filePath: string;
+  content: string;
+  basis: TaskBasis;
+};
+
+function taskBasisRelativePath(currentTaskPath: string, taskId: string): string {
+  try {
+    validateTaskId(taskId);
+  } catch (error) {
+    fail('RUNTIME_IDENTITY_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const directory = path.posix.dirname(normalizeRepoPath(currentTaskPath, 'CURRENT_TASK source path'));
+  return path.posix.join(directory, 'task-basis', `TASK_BASIS-${taskId}.md`);
+}
+
+function taskBasisFilePath(root: string, relativePath: string): string {
+  const resolvedRoot = path.resolve(root);
+  const filePath = path.resolve(resolvedRoot, ...normalizeRepoPath(relativePath, 'task basis path').split('/'));
+  const relative = path.relative(resolvedRoot, filePath).replace(/\\/g, '/');
+  if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) {
+    fail('RUNTIME_PATH_INVALID', `task basis path escapes the target root: ${relativePath}`);
+  }
+  return filePath;
+}
+
+function renderTaskBasisContent(identity: DraftTaskIdentity, basis: TaskBasis): string {
+  const frontmatter = {
+    schema_version: 1,
+    kind: VNEXT_TASK_BASIS_KIND,
+    task_id: identity.task_id,
+    document_id: identity.document_id,
+    original_request: basis.original_request,
+    user_decisions: basis.user_decisions,
+  };
+  return [
+    '---',
+    stringify(frontmatter).trimEnd(),
+    '---',
+    '# vNext TASK_BASIS',
+    '',
+    'This file preserves request evidence for independent draft review.',
+    'It is not a review result and does not replace source-authority or decision-authority policy.',
+    '',
+  ].join('\n');
+}
+
+function materializeTaskBasis(
+  root: string,
+  current: CanonicalCurrentTask,
+  identity: DraftTaskIdentity,
+  basis: TaskBasis,
+): TaskBasisArtifact {
+  const relativePath = taskBasisRelativePath(current.relativePath, identity.task_id);
+  const content = renderTaskBasisContent(identity, basis);
+  return {
+    path: relativePath,
+    filePath: taskBasisFilePath(root, relativePath),
+    revision: sha256(content),
+    content,
+    basis,
+  };
+}
+
+export function readTaskBasisReferenceFromBody(body: string): TaskBasisReference | null {
+  const section = findUniqueMarkdownSection(scanMarkdownSections(body), TASK_BASIS_HEADING_ALIASES, 2);
+  if (!section) return null;
+  const content = body.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trim();
+  const match = /^- path: `([^`]+)`\n- revision: `([a-f0-9]{64})`$/u.exec(content);
+  if (!match) fail('TASK_BASIS_REFERENCE_INVALID', 'CURRENT_TASK task basis reference must contain one exact path and SHA-256 revision.');
+  return {
+    path: normalizeRepoPath(match[1]!, 'CURRENT_TASK task basis path'),
+    revision: match[2]!,
+  };
+}
+
+function renderTaskBasisReference(reference: TaskBasisReference): string {
+  return [`- path: \`${reference.path}\``, `- revision: \`${reference.revision}\``].join('\n');
+}
+
+function replaceTaskBasisReference(body: string, reference: TaskBasisReference): string {
+  const sections = scanMarkdownSections(body);
+  const existing = findUniqueMarkdownSection(sections, TASK_BASIS_HEADING_ALIASES, 2);
+  const rendered = renderTaskBasisReference(reference);
+  if (existing) {
+    return body.slice(0, existing.contentStart) + `\n${rendered}\n\n` + body.slice(existing.contentEnd);
+  }
+  const background = findUniqueMarkdownSection(sections, ['背景与上下文', 'Background and Context'], 2);
+  if (!background) fail('RUNTIME_SECTION_INVALID', 'CURRENT_TASK is missing the background section required to insert its task basis reference.');
+  return body.slice(0, background.headingStart)
+    + `## 任务输入依据\n\n${rendered}\n\n`
+    + body.slice(background.headingStart);
+}
+
+function renderNewDraftBody(
+  identity: DraftTaskIdentity,
+  definition: DraftTaskDefinition,
+  runtimeState: RuntimeState,
+  taskBasisReference: TaskBasisReference,
+): string {
+  const optionalSection = (value: string | null): string => value ?? '';
+  return [
+    '# vNext CURRENT_TASK',
+    '',
+    '## 任务信息',
+    '',
+    `- 任务 ID：${identity.task_id}`,
+    `- 任务标题：${identity.task_title}`,
+    `- 任务 slug：${identity.task_slug}`,
+    `- 当前状态：${runtimeState.workflow_status}`,
+    `- 生命周期状态：${runtimeState.lifecycle_state}`,
+    `- 恢复需审查：${runtimeState.resume_requires_review ? 'true' : 'false'}`,
+    `- 恢复审查原因：${runtimeState.resume_review_reasons.join(', ')}`,
+    '',
+    '## 任务输入依据',
+    '',
+    renderTaskBasisReference(taskBasisReference),
+    '',
+    '## 背景与上下文',
+    '',
+    definition.background_context,
+    '',
+    '## 验收标准',
+    '',
+    definition.acceptance,
+    '',
+    ...(definition.mutation_authority_version === MUTATION_AUTHORITY_VERSION && definition.mutation_authority
+      ? [
+        '## Mutation Authority',
+        '',
+        renderMutationAuthoritySectionContent(definition.mutation_authority),
+        '',
+      ]
+      : []),
+    '## 允许修改范围',

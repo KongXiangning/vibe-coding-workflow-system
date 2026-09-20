@@ -135,7 +135,7 @@ function copyDirectory(sourceRoot: string, targetRoot: string, relativePath: str
 
 function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string; category: 'protocol' | 'schema' | 'skill' | 'runtime' | 'config' | 'generated' }> {
   const skillEntries = ['bootstrap-project', 'prepare-task', 'review-draft', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task', 'validate-change', 'git-commit'];
-  const runtimeSources = ['project-documents.ts', 'file-context.ts', 'file-context-cli.ts', 'rg-tool.ts', 'install-tools.ts', 'install-tools-cli.ts', 'cli.ts', 'current-task.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'migration-provenance.ts', 'migration-preservation.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
+  const runtimeSources = ['project-documents.ts', 'file-context.ts', 'file-context-cli.ts', 'rg-tool.ts', 'install-tools.ts', 'install-tools-cli.ts', 'cli.ts', 'current-task.ts', 'task-context.ts', 'task-store.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'execution-admission.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'migration-provenance.ts', 'migration-preservation.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
   return [
     { source_path: 'runtime/vnext/dist/install-tools.js', target_path: RG_INSTALL_ENTRY, category: 'runtime' },
     { source_path: 'runtime/vnext/support/CONTEXT_API.md', target_path: '.workflow-system/runtime/support/CONTEXT_API.md', category: 'runtime' },
@@ -149,7 +149,7 @@ function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string
     { source_path: 'runtime/vnext/package.json', target_path: '.workflow-system/runtime/package.json', category: 'runtime' },
     { source_path: 'runtime/vnext/package-lock.json', target_path: '.workflow-system/runtime/package-lock.json', category: 'runtime' },
     { source_path: 'runtime/vnext/support/bootstrap/CURRENT_TASK.md.tmpl', target_path: '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl', category: 'runtime' },
-    ...runtimeSources.map(file => ({ source_path: `runtime/vnext/src/${file}`, target_path: `.workflow-system/runtime/src/${file}`, category: 'runtime' as const })),
+    ...[...runtimeSources, 'task-recovery.ts', 'artifact-checkpoints.ts', 'evidence-lineage.ts'].map(file => ({ source_path: `runtime/vnext/src/${file}`, target_path: `.workflow-system/runtime/src/${file}`, category: 'runtime' as const })),
     ...skillEntries.map(entry => ({ source_path: `templates/vnext/skills/${entry}.SKILL.md.tmpl`, target_path: `.agents/skills/${entry}/SKILL.md`, category: 'skill' as const })),
   ];
 }

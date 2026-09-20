@@ -106,25 +106,44 @@ capabilities:
     trigger:
       - product or governance mutation is proposed
     input_contract:
-      - canonical CURRENT_TASK Allowed Files, Conditional Files, and Forbidden Files buckets
+      - mutation_authority_version, when the task explicitly opts into v2
+      - v1 canonical CURRENT_TASK Allowed Files, Conditional Files, and Forbidden Files buckets
+      - v2 task authority envelope of authorized project domains, exact exceptions, and task forbidden targets
+      - v2 planning declarations for every planned target, exact command write, bounded command footprint, and persistent-test path
+      - the canonical project authority-domain map and its revision bound to a confirmed v2 task
       - explicit changed paths or one verified diff target
       - transformation kind, distinguishing localized from inherently-broad mutation
-      - conditional authorizations with exact target, evidence references, and authority
+      - v1 conditional authorizations with exact target, evidence references, and authority
+      - v2 blast-radius assessments for planned-footprint expansions, including evidence refs and self-admit/escalate disposition
       - separate Read / discovery context, which is allowed to be broader but is not write authority
     output_contract:
-      - per-path mutation admission or blocker with Forbidden precedence and default-deny
+      - v1 per-path mutation admission or blocker with Forbidden precedence and default-deny
+      - v2 structural admission that resolves path to exactly one authority domain, applies task forbidden/governance boundaries, and distinguishes planned from self-admitted targets
+      - v2 planning-time proof that every declared mutation is inside an authorized domain or exact exception before a confirmed definition is committed
+      - deterministic subset proof for every v2 command footprint; synthetic probe paths are not evidence of command safety
       - separate read/discovery matches that never become write permission
       - exact admitted paths, excluded targets, and source revision
-      - bounded widening requirement; changed goal, scope, or acceptance routes to supersede/replan
+      - v2 dynamic expansion record with first-touch before-state and risk-selected cumulative review flag
+      - bounded widening requirement; changed goal, scope, or total authority routes to authority amendment, while same-envelope implementation discovery uses extend-preflight
+      - separate persistent-test admission for an absent new test, including a typed P-12 decision even when no authority domain changes
+      - authority-amendment settlement gate that blocks only an admitted preflight without its matching recorded execution result
+      - explicit project-owner domain candidates/confirmation lifecycle and a stable authority-domain revision for active v2 execution
     stop_conditions:
-      - required scope bucket is missing, malformed, duplicated, or ambiguous
-      - target is outside admitted scope
-      - forbidden target is requested
-      - Conditional target lacks an exact authorization with evidence and authority
+      - v1 required scope bucket is missing, malformed, duplicated, or ambiguous
+      - v1 target is outside admitted scope
+      - v2 target is outside the task authority envelope or is unclassified without an exact exception
+      - v2 planned target, command write, command glob, or persistent-test path fails planning-time authority proof
+      - a v2 command footprint cannot be mechanically proven as a subset of one granted domain root
+      - v2 path-to-domain resolution is ambiguous
+      - forbidden or governance target is requested
+      - v1 Conditional target lacks an exact authorization with evidence and authority
+      - v2 in-envelope unplanned target lacks a complete blast-radius assessment or is escalated
+      - an absent new persistent test lacks a complete typed P-12 admission; Runtime must not invent owner, basis, insufficiency, boundary, or failure facts
       - a broad glob is used without an inherently-broad transformation
       - the changed-path diff target is empty, duplicated, invalid, or not explicit
       - read/discovery context is treated as write authority
-      - scope widening lacks authority or the goal, scope, or acceptance changed without supersede/replan
+      - true authority widening lacks explicit user authorization or the goal, acceptance, or task authority changed without the authority-amendment route
+      - a confirmed v2 task observes a changed or missing project authority-domain revision without explicit task authority-domain revalidation
 
   - id: decision-authority-gate
     exposure: internal
@@ -139,6 +158,59 @@ capabilities:
     stop_conditions:
       - user-owned choice is unresolved
       - proposed choice conflicts with a confirmed Contract or Decision
+
+  - id: mutation-authority-policy
+    exposure: internal
+    trigger:
+      - a v2 task selects an authority envelope or evaluates an implementation-footprint expansion
+    input_contract:
+      - project domain map, task authority envelope, exact exceptions, and forbidden targets
+      - planning-time declaration set and the bound project authority-domain revision
+      - planned mutation footprint and actual changed target
+      - Runtime-derived execution phase from the frozen Test Strategy and current-step evidence obligation; candidate-path composition cannot select the phase
+      - blast-radius evidence covering locality, visibility, consumers, contract impact, and regression coverage
+      - read/discovery findings across domains, kept separate from write authority
+    output_contract:
+      - bounded self-admit or escalate disposition for an in-envelope unplanned target
+      - smallest-correct-local-change decision with evidence for any broader shared change
+      - explicit authority-amendment blocker for cross-domain or unclassified writes
+      - planning-time executable-definition proof and deterministic command-footprint subset result
+      - project inventory domain candidates kept non-authorizing until an explicit owner confirmation promotes them to the canonical profile
+      - 'distinct persistent-test admission transition with authority_diff: none for an in-envelope absent test'
+      - distinct runtime errors for missing blast-radius assessment, escalated assessment, and true authority expansion
+      - planned, expanded, and actual footprint material for cumulative review
+      - execution-identity-bound dynamic admissions; historical expansions never become a current-step write grant
+      - clean-review consumption bound to the reviewed execution identity and retained per expansion
+    stop_conditions:
+      - authority ownership cannot be resolved from the project domain map
+      - project domain candidates are treated as a grant without owner confirmation, or a confirmed task's domain-map revision is stale; ordinary correction-replan, P-12 admission, and exact-path amendment must not rebind it
+      - a target is outside the task envelope, explicitly forbidden, or on a governance boundary
+      - the expansion assessment is incomplete, uncertain, or escalated
+      - a broader shared change lacks evidence that the local alternative is incorrect, duplicative, or contract-breaking
+      - a persistent-test admission is incomplete or attempts to use Runtime-generated defaults
+    execution_admission_binding:
+      evaluator: runtime-owned-exact-target-admission/v1
+      applies_to:
+        - ordinary-preflight
+        - same-attempt-extension
+        - repair-preflight
+        - repair-same-attempt-extension
+        - command-footprint-preflight
+        - result-recording-recheck
+      classifications:
+        - planned-admitted
+        - dynamic-self-admitted
+        - persistent-test-admitted
+        - blocked-authority
+        - blocked-assessment
+        - blocked-test-strategy
+        - blocked-persistent-test
+        - blocked-non-executable-policy
+        - blocked-governance
+      identity:
+        stable_execution_id: required_for_new_v2_execution_and_expansion
+        replacement_receipt: required_after_extension
+        retry_budget_effect: none_for_same_attempt_or_repair_wave
 
   - id: adaptive-depth-policy
     exposure: internal
@@ -272,6 +344,8 @@ capabilities:
       - 'global/domain/permanent/schema invariants require confirmed owner_source contract or user authority, shared or critical impact, and existing evidence for an explicit Contract/Decision or user-owned design/contract decision'
       - 'initial/default acceptance and current-task exclusion must not be upgraded into a global/permanent restriction; confirmed current acceptance may control bounded task behavior but does not rewrite future design/baseline semantics unless an explicit contract/design decision changes them'
       - proposed minimum-sufficient evidence type and expected disposition
+      - 'execution selection is claim-bound and frozen: choose the minimum-sufficient whole evidence set by detection, real boundary, and total cost; focused is preferred only when equally effective and no broader independently authorized obligation is lost; target, E2E, and broad regression require explicit scope/breadth reason and allowed basis'
+      - 'business-flow claims retain integration/flow evidence and cannot be completed by accumulated local unit PASS results'
       - 'evidence types may include static proof, existing regression, focused test, integration smoke, browser/session check, visual evidence, real-device evidence, external documentation, release health/canary, and explicit human acceptance'
       - 'evidence-plan decision: whether new evidence is needed, minimum-sufficient type, existing-check reuse, temporary exploration, and failure route'
       - 'prepare-task creates and persists a non-empty canonical CURRENT_TASK.runtime_state.claim_evidence plan with at least one acceptance claim; each claim has stable claim_id/claim_kind and each planned slot has slot_id, minimum_type, disposition, and evidence_refs'
@@ -279,11 +353,28 @@ capabilities:
       - 'existing, reused, and newly-executed slots require evidence_refs; missing, deferred, and blocked slots are not completion evidence'
       - 'counterevidence binds an existing claim/slot/result and a retained file hash; contested conclusions block dependent execution and closure without rewriting historical reports'
       - 'a contested challenge may be dismissed only with a bound, hashed review assessment; dismissal retains the challenge and original report'
-      - 'restricted correction candidates retain original task identity, goal, scope, claims, checks, and later steps; confirmation binds exact candidate, old Task Basis and obligations, and remains caller-reported without trusted host approval'
+      - 'correction-replan-candidate/v2 supports conclusion-correction and execution-recovery with bounded targets, forward-fix/artifact-restore/mixed, complete obligation mapping, immutable executed definitions, new check identities, and revision-bound pending-step changes'
+      - 'scope-amendment-candidate/v1 is an independent additive route: authority expansion consumes caller-reported explicit authorization for exact new paths, while an in-envelope absent persistent test uses the same infrastructure with a complete typed P-12 admission and authority_diff:none; both preserve pending review/findings/obligations/review baseline/budget and never change the legacy correction-replan/v2 permission_change:none semantics'
+      - 'Mutation Authority v2: the task authority envelope is the only hard mutation boundary; planned step targets are guidance, same-envelope expansion requires a bounded blast-radius assessment and risk-selected review (private local/no-consumer/no-contract-impact discovery adds no checkpoint), and cross-domain authority changes require explicit amendment'
+      - 'Mutation Authority v2 distinguishes an existing in-envelope test file from an absent new persistent test; only the latter requires the existing P-12 admission record before creation'
+      - 'compact-v3 CURRENT_TASK is a lossless active projection selecting immutable definition/state roots in the same task aggregate; exact body sections and claim definitions are reused, reports and current review material are referenced, and ordinary result writes do not recopy the full frozen definition into active state'
+      - 'storage compaction never changes task identity, authority, evidence selection, user decisions, findings or budgets; old inline/compact-v2 tasks remain readable, exact legacy preimages are retained, and migration is explicit without a file-size quota or a new lifecycle gate'
+      - 'storage-only migration preserves issued confirmation, execution/repair, review and recovery-candidate bindings through committed exact-preimage lineage; any intervening business transaction remains stale, and physical write/publication/paging revisions are not aliased'
+      - 'compact-v3 reads validate its frozen version-specific projection model against immutable roots, independently of current YAML emission; historical golden bytes remain readable and changed hot fields, summary facts or material remain invalid'
+      - 'validate --summary storage_metrics are read-only observations of physical bytes, normalized logical views and the latest committed event delta; they never persist counters, consume receipts, alter authority or gate progress; unavailable or bounded-out measurements are null with coverage reasons, not zero or inferred history'
+      - 'review coverage stores only path/state/sha256 in canonical CURRENT_TASK; first-touch bytes are immutable raw content-addressed blobs resolved by sha256, and legacy inline preimages are readable and explicitly migrated before canonical compaction'
+      - 'confirmation preserves task identity, original request, acceptance and total authority; binds source, Basis, candidate, evidence admission, restore plan and all old obligations; authorization remains caller-reported'
+      - 'partial correction of multiple challenges against one report retains the original result references; later batches traverse bounded confirmed correction relationships backed by verified source preimages, real results and clean completion snapshots, retaining both selected challenge origins and the reports actually replaced and require fresh evidence and review'
+      - 'recovery problem budgets inherit through confirmed execution targets and replacement step identities, including historical v2 candidates; a new step ID cannot reset retained failures; raw step-progress also requires the durable current admitted attempt'
+      - 'artifact restore success requires a Runtime-persisted candidate-and-attempt-bound completion fact plus exact restored targets; caller-reported passed commands do not satisfy this gate; direct execution receipt publication remains inside the interruption journal; environment retries revalidate exact targets and the immutable original receipt before minting a new attempt-bound v2 receipt, with fresh checks and review still required'
+      - 'route-input separates unrelated input, conclusion counterevidence, execution errors and authority changes; relation assessment is caller-reported and never grants write permission'
+      - 'ingest-evidence stores bounded content-addressed bodies and source coordinates; path references alone do not preserve external evidence bodies'
       - 'only Runtime-derived carry-forward may satisfy an unchanged old report under a new plan; challenged, stale-subject and before-step receipts cannot be silently reused'
       - 'upgrade preserves the old CURRENT_TASK bytes; explicit initialize-preservation saves exact task and Task Basis preimages before adding a version marker, and missing or unknown protection versions cannot authorize task replacement'
-      - 'supersede preserves unfinished obligations but does not authorize a successor; prepare-draft from superseded fails with REPLACEMENT_OUTCOME_UNSUPPORTED until a non-completion replacement outcome exists'
-      - 'execute-step may update only disposition and evidence_refs for an existing plan; it cannot add, remove, or redefine claims or evidence slots'
+      - 'supersede preserves unfinished obligations and never authorizes a successor by itself; ordinary prepare-draft remains blocked, while explicit prepare-successor binds the retained predecessor, verbatim user decision, complete obligation disposition and a fresh draft that still needs ordinary confirmation'
+      - 'ordinary execute-step results preserve the frozen claim/slot/check plan; replace-validation may replace one read-only invocation under unchanged observation, boundary, subjects, validation ownership, exact granularity, selector, authority and retained budgets, without a whole-task replan'
+      - 'record-human-acceptance records an explicit Task Basis user observation for a frozen human check; record-evidence-waiver discharges only an exact user-owned current obligation and its exclusively bound validation labels, rechecked at record and consumption, without rewriting failed/missing reports as PASS; both are caller-reported and cannot authorize administrative realign'
+      - 'user evidence decisions remain source/subject/plan bound and visible in context and archive; raw progress cannot manufacture them, prerequisites and policy/contract obligations are not waived, and required review/findings remain intact'
       - 'legacy CURRENT_TASK documents remain readable but require prepare-task refinement/migration before task-complete or terminal close-task; aggregate command success cannot provide completion compatibility'
       - 'exploratory probe budget: duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule'
       - persistent-test policy, including default non-admission or user no-test deny
@@ -293,6 +384,9 @@ capabilities:
     output_contract:
       - claim-bound minimum-sufficient evidence plan that separates validation from test creation
       - 'durable claim-bound evidence completion state consumed by task-complete and close-task; aggregate command success or free-text notes cannot substitute for a slot disposition and evidence_refs'
+      - 'minimum-sufficient execution selection with an exact due-step planned-command binding; a command PASS never automatically satisfies another claim slot'
+      - 'claim -> slot/check observation and boundary -> independent selection granularity -> structured argv/selector or opaque command invocation -> exact result; opaque cannot claim focused; same-claim local rule and business-flow slots remain independent; new checks obey this invariant in draft, update, confirm, replan and recovery; unchanged confirmed legacy checks remain compatible'
+      - 'focused business-flow cases are valid; target/broad granularity at every boundary requires breadth authority; even focused E2E requires E2E authority; explicit-user binds Task Basis; policy/release bind repository sources; claim bases bind exact current claim and its existing authoritative source without inventing a user decision'
       - 'invariant admission preserves semantic strength: bounded local/temporal mechanical claims remain reversible, while global/domain/permanent claims carry explicit authority and future-design conflict trace'
       - persistent-test not-admitted, admitted, deferred, or rejected decision separate from validation and existing-check reuse
       - 'admitted persistent tests only with an explicit owner, one of acceptance, regression, critical-invariant, or critical-risk, a behavioral or contract boundary assertion, and an expected failure disposition'
@@ -305,6 +399,8 @@ capabilities:
       - 'current acceptance conflicts with a documented future design/baseline and the stronger restriction has no explicit contract/design decision'
       - a proposed persistent test has no authorized owner or authority source
       - evidence is insufficient or unrelated to the claim
+      - 'a draft defaults from a related test file, target, or suite to whole-target validation without a smaller valid selection or an explicit breadth reason and basis'
+      - 'business-flow evidence is replaced by local/unit evidence, or E2E/broad regression lacks its allowed admission basis'
       - 'task-complete or close-task relies on aggregate command success, notes, or model summary instead of the durable claim-bound evidence slots'
       - an exploratory probe lacks a bounded duration, tool/run count, permitted temporary artifact locations, or cleanup/audit rule
       - 'a persistent test lacks an explicit owner, closed admission basis, concrete claim, existing-evidence insufficiency reason, behavioral or contract boundary assertion, or expected failure disposition'
@@ -513,6 +609,8 @@ runtime_operations:
       - review-change
     bound_actions:
       - execute-step:step-progress
+      - execute-step:extend-preflight
+      - execute-step:default:consume-retained-review
       - review-change:default:record-review-result
       - review-change:default:record-evidence-challenge
       - review-change:default:dismiss-evidence-challenge
@@ -523,6 +621,7 @@ runtime_operations:
       - prepare-task:default:migrate-claim-evidence
       - prepare-task:replan:mark-replan-blocked
       - prepare-task:replan:clear-replan-block
+      - prepare-task:amend-scope:commit-scope-amendment
 
   - id: finding-queue-transaction
     status: bound

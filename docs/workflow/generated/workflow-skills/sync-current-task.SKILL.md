@@ -61,6 +61,10 @@ sync_rules:
 
 回写 docs/workflow/CURRENT_TASK.md 的执行状态、验证结果和剩余问题。
 
+## Unified task context protocol
+
+同步前先读取 `validate --summary` 与只读 `task-context`，以当前 definition/state revision、未完成义务、依赖、finding、累计审查和门禁为准。需要旧结果、事件或历史原文时用精确 `task-read` 分页读取；不要从完整 RuntimeState、无界日志或最近 N 条记录自行重建当前事实。读取收据不授予写权限，写入仍必须经过既有 Runtime 提交器与读回。
+
 ## Trigger
 
 每轮实现与验证完成后。

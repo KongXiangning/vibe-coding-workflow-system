@@ -7,6 +7,7 @@ entry_contract:
     - default
     - confirm
     - replan
+    - amend-scope
   intent: Prepare one bounded implementation task without implementing it.
   input_contract:
     required:
@@ -26,6 +27,7 @@ entry_contract:
     - project-context-resolver
     - source-authority-policy
     - scope-guard
+    - mutation-authority-policy
     - decision-authority-gate
     - adaptive-depth-policy
     - evidence-admission-policy
@@ -41,6 +43,27 @@ entry_contract:
 ---
 
 # vNext Skill: prepare-task
+
+## Bounded task context protocol
+
+The compact-v3 CURRENT_TASK file is only an active navigation projection. Read
+exact definition, authority, obligations and reports through the bounded Runtime
+context/read APIs; do not treat summary text as the complete task or hand-edit
+its immutable task-data material. Legacy task compaction uses the existing
+explicit storage-migration route, never task replan or a size-based blocker.
+
+
+
+For an existing task, begin with `validate --summary`, then call the read-only
+`task-context` for the selected entry and mode. Follow every required
+continuation before deciding that the context is complete; use `task-read` for
+exact definitions, prior results, findings, receipts, and history. Use
+`file-context` or `review-read` for source files and diffs. A context/read
+receipt proves only the bound version and returned range, never authorization
+or model comprehension. Reuse a definition only in the same visible session
+with the exact task, document, and `definition_revision`; after compression,
+session change, or revision change, read it again. A compact/store error is a
+blocker, not permission to fall back to an unbounded CURRENT_TASK read.
 
 ## Prepare the task
 
@@ -62,15 +85,157 @@ executable `CURRENT_TASK` draft containing:
 - **Out of scope**
 - necessary resolved **Design decisions**, unresolved user-owned choices, and
   any conflict with existing design
-- **Mutation scope**: Allowed / Conditional / Forbidden
+- **Mutation Authority**: v2 authority envelope (domains / exact exceptions /
+  forbidden) or the legacy Allowed / Conditional / Forbidden scope
 - one explicit **Test Strategy** with mode, selection source, task
   classification, and rationale
-- ordered **Implementation steps** that say what to change, where, and how to
-  validate the result
+- ordered **Implementation steps** that say what to change, the
+  `planned_mutation_targets`, and how to validate the result
 - **Validation plan**
 - **Persistent Tests** explicitly allowed to be created or modified
 
-Use Runtime `file-context` to find/read relevant existing tests, helpers, fixtures and configuration before deciding reuse or new tests. Search results are candidates, not evidence of passing checks; unchanged reused tests need no creation/modification admission. For normal Runtime state inspection use `validate --summary`. Read `.workflow-system/runtime/support/CONTEXT_API.md` for inputs and limits.
+Identify the business failure and required observation below before searching tests. Then use Runtime `file-context` to find/read relevant existing tests, helpers, fixtures and configuration before deciding reuse or new tests. Search results are candidates, not evidence of passing checks; unchanged reused tests need no creation/modification admission. For normal Runtime state inspection use `validate --summary`. Read `.workflow-system/runtime/support/CONTEXT_API.md` for inputs and limits.
+
+### Minimum-sufficient validation selection
+
+Start from the authoritative claim, not the changed-file list or available suite:
+claim → concrete business failure → independently expected observation → necessary
+boundary → smallest effective existing check → justified expansion only if needed.
+For a known defect, identify the wrong observable outcome that must fail; for a new
+behavior, use a counterexample grounded in the requirement or an identified changed
+risk, not an invented catalog of hypothetical failures. Before selecting a candidate,
+read its assertion and fixture/control path, not just its name or prior PASS count.
+Ask: would this check fail for that wrong behavior, for the right reason?
+
+Use **Failure-oriented validation selection** in
+`.workflow-system/runtime/support/CONTEXT_API.md` for oracle, boundary and cost
+selection. Keep the analysis transient; express the result in existing
+`expected_observation`, `required_boundaries` and `selection.selection_reason`, with references
+rather than another copy of the requirement. Do not add a failure-model field,
+per-case approval, mandatory Red run, mutation test, or planning-time execution.
+
+Reuse an effective check first; strengthen an inadequate admitted check rather than
+adding a parallel test that proves the same thing. Retain only checks with a distinct
+required observation or identified regression risk; stop expanding once those are
+covered. Optimize the whole validation set, not minimum granularity per check.
+Preserve independently authorized user/project/release and contract/risk obligations;
+a focused check proving one claim does not cancel them. Compare feasible sets with
+equivalent detection, required boundaries and total setup/execution/maintenance cost,
+including batched selectors. A combined target may be justified by a concrete
+whole-set cost advantage, including its unrelated work, but convenience or one
+startup alone is insufficient. Keep the existing breadth basis/source and record
+the comparison in `selection_reason` / `breadth_reason`; do not invent a new basis.
+Few test declarations or many cases in one test are not cost evidence.
+Static proof or another admitted non-test method may be sufficient; neither a new
+persistent test nor paired local/flow slots is mandatory for every claim.
+A matching test file, target, or suite is only a candidate; it does not make the
+complete target required. For local logic, a key function, or
+a bounded function chain, use a focused unit/function-chain check. When the
+framework supports selectors, prefer exact selectors when they preserve all
+obligations at no greater total cost. A necessary combined or runner-limited target
+must be declared as `target` with its real breadth reason and permitted source;
+do not label it focused by convenience.
+
+For a claim that crosses component, protocol, persistence, process, or real
+business-data boundaries, preserve a `business-flow` slot and choose the
+necessary integration/flow command. A collection of unit PASS results cannot
+substitute for that flow observation. Do not add E2E by default: admit it only
+for a required real end-to-end acceptance boundary, demonstrably insufficient
+lower-cost evidence, project/release policy, or an explicit user request. Do
+not add broad regression by default either. It needs a concrete claim, risk,
+contract, release gate, project policy, or explicit user request; “more safe,”
+“same target,” “previously green,” and “final step” are not reasons.
+
+For every execution check, submit the frozen selection object bound to its one
+claim slot: `granularity` (`focused`, `target`, or `broad-regression`), selector,
+selection reason, and, for target/E2E/broad execution, breadth reason and
+basis plus its exact Task Basis, requirements, Contract, Decision or policy source reference. Bind `check.entry` to the exact planned command of its due step. A
+command PASS never fills another claim slot automatically; each claim needs its
+own matching report and evidence. This is a selection declaration, not a test
+registry or a permission to create tests.
+
+Freeze the chain claim → slot/check required observation → check `boundary`
+→ selection granularity → actual invocation → exact result. Boundary belongs to
+the evidence obligation, never to a new claim: use `local`, `business-flow`, or
+`e2e` on each check. One claim can have a local rule slot and a business-flow
+slot; both observations must be satisfied independently.
+Boundary and granularity are orthogonal. `business-flow` + `focused` selects one
+integration case; `business-flow` + `target` runs an integration target and needs
+an explicit breadth reason and authority. All target/broad execution needs that
+justification regardless of boundary. E2E always needs its allowed authority,
+including focused E2E. Test types are not a unit < integration < E2E hierarchy.
+Do not use legacy `scope`/`claim_scope` for new checks or infer a flow observation
+from broad unit PASS results.
+
+Every new execution check, including update-draft and replan/recovery replacement
+checks, supplies a structured or opaque invocation. Structured invocation uses
+`{kind: structured, argv, selector_arg_index}` (omitted kind remains compatible).
+Its literal argv rendering binds `entry` and the due step's planned command;
+a selector must equal the argv element at that positive index, otherwise the index is null.
+Opaque invocation uses `{kind: opaque, command}` for npm scripts, PowerShell wrappers,
+custom launchers or environment setup, freezing the existing command verbatim.
+Opaque invocation cannot claim focused granularity or a selector: admit its actual
+target/broad granularity with the existing breadth justification. Do not require
+projects to rewrite wrappers into a Runtime CLI grammar.
+Do not declare a file/target as a focused case when unrelated cases also run;
+runner argument semantics and true granularity need review. Unchanged confirmed
+legacy checks remain usable; a new identity must satisfy the whole contract.
+
+Breadth authority is not free text: `explicit-user` references an exact source in
+Task Basis original_request/user_decisions; `project-policy` references an existing
+canonical repository-relative policy file. `release-gate` binds a real canonical
+release/policy source (including E2E), independently of the selected Test Strategy.
+Claim-risk, acceptance-boundary and lower-cost insufficiency reference the current
+claim ID, whose existing authoritative source is an exact Task Basis source or
+canonical repository requirements/Contract/Decision source. Repository sources may
+use a file or file#heading identity; do not manufacture a user decision. Review that the source actually
+authorizes the proposed breadth; existence does not prove its natural-language
+meaning. Never invent a user decision, policy, release gate, or authority source.
+
+## Mutation Authority v2
+
+When the project profile declares `mutation_authority.domains`, select v2
+explicitly by submitting `mutation_authority_version: 2` together with a
+positive `mutation_authority` object. Choose the smallest responsibility
+domains that own the requested change; do not grant a whole project merely
+because its callers or dependencies were read. `exact_exceptions` is for a
+specific user-authorized cross-domain path, and `forbidden` remains explicit
+task-level denial. Read, grep, caller/consumer tracing and root-cause analysis
+may cross domains, but they never become mutation authority.
+
+Do not use the v2 task authority envelope as a predicted file inventory. Each
+implementation step uses `planned_mutation_targets` for initial direction and
+planned-vs-actual review. A same-domain target discovered later may be
+self-admitted only after a bounded blast-radius assessment; it does not need a
+user scope amendment. A target outside the envelope is a hard authority
+decision and must use the explicit `amend-scope` route. If the project has no
+domain map, preserve legacy/v1 semantics; do not silently infer domains or
+upgrade an existing task.
+
+Before accepting a v2 draft, prove the complete executable declaration set:
+every `planned_mutation_targets`, exact `expected_repo_writes`, bounded command
+footprint, and persistent-test path must be inside one selected project domain
+or an exact exception, and must not overlap Forbidden, governance, or
+`unclassified` paths. Planned targets do not need a blast-radius assessment;
+they still need this structural proof. For a command `literal/path/**`, use the
+deterministic pattern-subset relation against the granted domain root. Never
+use a synthetic probe path, and never use an exact exception to authorize a
+directory glob. Resolve these blockers during `prepare-draft`, `update-draft`,
+replan/correction, or confirmation rather than deferring them to execution.
+
+Consume the project-owner-confirmed domain map produced by
+`bootstrap-project` inventory/adoption/realignment. Domain candidates are
+evidence only until explicitly confirmed; this entry does not guess ownership,
+rebuild the map per task, or widen a task because a dependency was read.
+
+For every possible in-envelope expansion, the transient assessment must name
+the exact target (and optional symbol), reason, locality, visibility,
+cross-component consumers, contract impact, evidence references, and either
+`self-admit` or `escalate`. Prefer the smallest correct local change. A shared
+or high-impact change may be self-admitted only when evidence shows the local
+alternative would be incorrect, duplicative, or contract-breaking and
+consumer/regression validation is planned. Uncertain or multiply plausible
+directions remain a user decision.
 
 Read only the context needed to make those decisions. Resolve known scope and
 command blockers before submitting the draft; if a blocker cannot be resolved
@@ -90,11 +255,15 @@ same atomic draft transaction.
 
 Persistent Tests are a closed allowlist and default to `none`. For every listed
 test asset, give its exact repository-relative path and the behavior it proves,
-and add that exact path—not a test-directory glob—to Allowed mutation scope.
-No broader Allowed or Conditional pattern may authorize other persistent-test
+and add that exact path—not a test-directory glob—to the v1 compatibility scope
+projection. No broader scope pattern may authorize other persistent-test
 paths. Do not add tests merely for coverage, robustness, or reviewer preference.
 Later execution may create or modify only the listed tests; existing tests may
-still be run for validation.
+still be run for validation. In v2, an existing test file inside an authorized
+domain is an ordinary in-envelope expansion, but its assessment must cover the
+test oracle, reuse, and boundary. An absent new persistent test still requires
+the complete P-12 owner/claim/basis/insufficiency/assertion-boundary/
+failure-disposition admission before creation.
 
 Classify `test_strategy.mode` as exactly `flexible`, `test-first`,
 `implementation-first`, or `not-applicable`, and record `source` as exactly
@@ -164,9 +333,11 @@ checks that are never persisted as task state:
   stored data, compatibility, or another user-visible contract;
 - a **path-by-step interaction map** covering each planned write, the step that
   creates it, later steps that integrate or validate it, and an in-scope repair
-  route for failures those later steps can expose. Step scopes are permissions
-  for one step, not exclusive file ownership; repeat exact earlier paths in a
-  later scope or reslice the plan when integration may need to revise them.
+  route for failures those later steps can expose. In v1, **Step scopes are permissions**
+  for one step, not exclusive file ownership. In v2,
+  `planned_mutation_targets` are guidance inside the task authority envelope;
+  they are not an independent hard file ACL. Repeat exact earlier paths in a
+  later plan when integration may need to revise them.
 
 Always run a bounded author self-check over those maps before submission. This
 check can repair omissions established by the request or an authoritative
@@ -193,28 +364,92 @@ and linked Task Basis, then use `initialize-preservation` with their exact
 source and Basis revisions. Runtime saves both original files before adding
 the task-evolution marker; it does not rewrite the definition or evidence.
 Do not hand-edit the marker or task history. For a
-recorded challenge to one completed claim result, use Runtime `prepare-replan`
-with its `challenge_id` and a docs-only correction step. Runtime derives a
-candidate that keeps the current task identity, goal, scope, all claims and
-checks, and all original steps; it inserts the correction before the pending
-step. Read the candidate's full obligation map, scope/step diff and carry-forward
+recorded challenge use Runtime `prepare-replan` with bounded `challenge_ids`
+(legacy `challenge_id` is normalized) and an authorized non-executable correction
+step. Use `mode: execution-recovery` for exact historical execution targets,
+with complete `obligation_map` and optional `pending_step_changes`. Paths must
+satisfy original task scope and, for conclusion correction, the project's declared
+non-executable boundary; a directory name or reading list grants no authority.
+Runtime preserves executed definitions and inserts new recovery IDs before pending
+work or at the end of an executed but unclosed task. Read the full obligation map,
+source tuple, scope/step diff, result validity, evidence admission and carry-forward
 proof before requesting a decision. `prepare-replan` leaves `CURRENT_TASK`
 unchanged. An explicit decision for the exact candidate digest, source revision,
 Task Basis revision, obligations digest and permission change is required for
 `confirm-replan`. Supply its receipt and the exact decision source/text; Runtime
 records this as caller-reported authorization, not authenticated approval.
 `discard-replan` retains a discarded marker and does not reactivate a superseded
-task. A changed goal, acceptance, scope, check method or missing old step is
-outside this restricted route. This Runtime currently rejects a successor draft
-from `superseded` with `REPLACEMENT_OUTCOME_UNSUPPORTED`; it has no non-completion
-replacement transition. Supersede alone never approves a new plan or completes
-the old task. Do not edit the
-canonical task, Task Basis or candidate to bypass confirmation.
+task. Changed goals, reduced acceptance or expanded total permissions are outside
+this route. Changed checks require new IDs and explicit replacement references,
+with old required boundaries retained. For existing preflight/dirty/pending-review
+attempts, use `suspend-recovery` with source revision, reason and evidence first;
+retain attempts and cumulative review baseline, then map unfinished obligations.
+Use `artifact-checkpoints` to select a precise baseline. `artifact-restore` or
+`mixed` candidates bind `restore_plan`; prepare and confirm never restore product
+files. See CONTEXT_API.md for the versioned schema. Ordinary `prepare-draft` from
+`superseded` remains closed. Only an explicit user request to replace that task
+may use `prepare-successor`: bind the exact predecessor source and Task Basis,
+retain the verbatim decision, and account for every old slot/open finding as
+carried to a new claim or explicitly retired. Runtime keeps the predecessor
+superseded with its exact unfinished history; it creates a fresh unexecuted draft,
+not a completed old task. Use the normal draft confirmation once for that exact
+new plan. Never infer a replacement request from a bug, review finding or
+supersede alone; do not edit canonical task/Basis files to bypass these routes.
+
+When the user has already explicitly authorized a true v2 authority expansion
+for the current task, use the independent `amend-scope` route. It is reserved
+for paths outside the task envelope, such as Node → Rust/shared protocol; an
+omitted same-domain helper or existing test uses `execute-step`'s internal
+`extend-preflight` instead. Before a v2 authority amendment, settle the
+current execution gate: only a preflighted attempt without its matching
+recorded execution result is outstanding. A ready retry, a recorded blocked or
+repair result, and pending review/findings may be preserved by the amendment;
+the amendment then creates the continuation and fresh preflight. Pass exact
+paths and, for any absent new persistent test, a complete caller-provided
+`persistent_test_admissions` record containing `path`, `proves`, `owner`,
+`owner_source`, `source_ref`, `basis`, `existing_evidence_insufficiency`,
+`assertion_boundary`, and `failure_disposition`; pass the user's original
+decision source and verbatim text only when authority actually expands to
+another domain or exact exception. Runtime computes and verifies its immutable
+candidate internally, preserves old definitions/findings/obligations and
+budget, and retains the existing v1 pending-review preservation behavior. An
+in-envelope P-12-only transition has `authority_diff: none`; it is a real
+admission, not `SCOPE_AMENDMENT_NOT_REQUIRED` or an invented default. The
+candidate digest is only a drift/idempotency guard; the user never constructs a
+receipt. `discard-scope-amendment` cannot discard a committed candidate. If the
+caller has only said “continue” or “repair” without an exact authority decision,
+stop with the concrete missing path/difference and ask for that decision; do
+not invent `authorized_paths`, widen a wildcard, or treat a generic
+continuation request as scope authorization.
 
 Do not implement business code. Once the user confirms the draft,
 `CURRENT_TASK` is the execution authority: later execution must not redesign the
-task, expand its scope, implement later steps early, or change its Persistent
-Tests or Test Strategy. Changing those decisions requires an explicit replan.
+task, expand v1 scope or v2 authority, implement later steps early, or change
+its Persistent Tests or Test Strategy. Same-authority v2 implementation
+discovery is the bounded exception described above and must be assessed and
+reviewed; changing the task authority still requires an explicit amendment.
+
+## Explicit task evidence decisions
+
+When the user states an actual manual observation for a frozen human check, use
+Runtime `record-human-acceptance`. When the user explicitly retires a user-owned
+current evidence obligation and accepts its unverified risk, use
+`record-evidence-waiver`. Bind the exact claim/slot/check, plan and observed subject
+revision from `evidence-context`, and retain the original decision source and
+verbatim text. Include only the exact related planned validation labels the user
+waived in `validation_items`. Use only labels exclusively owned by the frozen
+check's `validation_items`, or a label unambiguously identical to its entry;
+being in the same step is insufficient. Declare descriptive-label ownership
+when preparing the evidence plan, not while recording a waiver. Do not attach
+another slot's or independent policy's validation to a user-owned obligation.
+A generic “continue” is neither observation nor waiver.
+Do not ask for the same decision again or make the user construct a receipt.
+
+Runtime records both as caller-reported, not authenticated. A waiver preserves
+failed/missing reports and does not grant authority over policy, contracts,
+prerequisites, outstanding findings or review gates. Do not turn it into PASS.
+These operations do not redesign Goal, Acceptance, scope or steps and do not
+supersede the task. They do not relax the Trusted Authority Channel for realign.
 
 ## Required result
 
@@ -242,7 +477,7 @@ Submit claim_evidence instead of an acceptance text array. Each stable claim ID
 binds requirement/source_ref and concrete slots with globally task-unique check IDs.
 Each slot has due_step_id, applicability, method/entry/expected observation,
 required real boundaries, permitted substitutes, exact subject_paths and expected
-result. Use distinct rule and flow slots when the confirmed requirement crosses
+result, plus each check's own boundary and execution granularity. Use distinct rule and flow slots when the confirmed requirement crosses
 those boundaries. Do not use planned-validation. New slots start missing with no
 report or imported receipt; Runtime renders Acceptance from acceptance claims.
 

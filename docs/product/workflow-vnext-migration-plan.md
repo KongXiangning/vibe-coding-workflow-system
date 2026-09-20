@@ -2,6 +2,7 @@
 
 - Status: `Target architecture accepted; core daily-semantics freeze accepted`
 - Planning date: `2026-09-02`
+- Legacy-detection boundary amended: `2026-09-19`
 - Target architecture: [workflow-vnext-target-architecture.md](../designs/workflow-vnext-target-architecture.md)
 - Distribution design: [vibe-governance-distribution-installation.md](../designs/vibe-governance-distribution-installation.md)
 - Product rule: Distribution state is `uninstalled`, `legacy`, or `vnext(version)`; a successful target never keeps a legacy/vNext hybrid
@@ -21,7 +22,7 @@ The normal user-facing entry is `npx vibe-governance@latest <command>`;
 `Install != Bootstrap`, so a fresh install ends with governance unbootstrapped
 and directs the user to invoke the `bootstrap-project` Agent Skill.
 
-The old Skill graph, old protocol, and old schema are migration inputs only. They are not a compatibility runtime layer in vNext. Existing projects do not receive a partial vNext surface while they are still running the old workflow.
+The old Skill graph, old protocol, and old schema are inputs only to an explicitly invoked `migrate` operation. They are not a compatibility runtime layer in vNext, and normal vNext entries make no product guarantee to detect old projects or recommend migration; internal safety detection remains permitted. Existing projects do not receive a partial vNext surface while they are still running the old workflow.
 
 The workflow-system source repository is an explicit development exception: it may temporarily retain the old implementation and experimental vNext implementation side by side for development and comparison. This source-repository dual track is not an installed-project product architecture, must not become a target-project compatibility contract, and must not cause old and vNext surfaces to be installed together.
 
@@ -155,18 +156,18 @@ canonical schema/identity and need not retain migration-time bytes. The paired
 Migration state and receipt remain read-only through later Bootstrap realign,
 and may coexist with a later Bootstrap Receipt.
 
-### 3.5 Unsupported schema in vNext
+### 3.5 vNext schema boundary
 
-vNext readers support only the vNext schema. They may perform a schema check, but they do not become long-term version-aware readers and do not parse legacy content.
+vNext readers support only the vNext schema. Their precondition is a project that declares the supported vNext distribution and schema boundary. Old-project detection, classification, and migration guidance are not product goals or acceptance requirements; this does not prohibit internal safety detection, and no legacy content becomes executable input.
 
-When a vNext entry detects an old or unsupported schema:
+When an input declares itself as vNext but carries an invalid or unsupported vNext schema/kind/version:
 
 ```text
-migration-required
+existing vNext schema validation failure
 → stop
 ```
 
-The stop occurs before task execution, governance-state mutation, conversion, or fallback to an old Skill. The user must run the separate Migration Pack against an eligible idle old project.
+The stop occurs before task execution, governance-state mutation, conversion, or fallback to an old Skill. This decision introduces no new error category and does not guarantee whether a migration reminder is emitted. A user who explicitly wants legacy conversion invokes `migrate` and the separate Migration Pack directly.
 
 ### 3.6 Failure boundary
 
@@ -177,7 +178,7 @@ Migration is fail-closed and all-or-nothing with respect to vNext installation:
 - conversion or validation failure leaves the old project unchanged;
 - an incomplete or stale pack cannot install vNext;
 - no partial vNext registry, Agent surface, schema marker, or generated output is promoted;
-- after vNext Distribution installation, an old schema produces `migration-required`, not legacy fallback.
+- after vNext Distribution installation, normal vNext entries provide neither a legacy fallback nor an old-project/migration-reminder contract; only invalid or unsupported self-declared vNext schemas must fail closed.
 
 ## 4. Phase 2 — vNext state-changing workflow
 
@@ -343,7 +344,7 @@ Each later phase must preserve the eight-intent daily surface, adaptive internal
 - old governance documents are converted offline into validated canonical Markdown/YAML documents;
 - conversion does not perform active-state hot migration or invoke vNext Skills to parse the old protocol;
 - vNext Distribution installation contains no old Skill or compatibility surface;
-- an old/unsupported schema in vNext returns `migration-required` and stops.
+- an invalid or unsupported self-declared vNext schema follows the existing schema-validation fail-closed boundary; old-project detection and migration reminders are not vNext Runtime product goals or acceptance requirements.
 
 ### 6.3 Phase 2 and later gates
 

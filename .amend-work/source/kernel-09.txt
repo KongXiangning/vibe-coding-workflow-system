@@ -1,0 +1,389 @@
+    provenance: KnowledgeProvenance;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): ContractCandidateProposal {
+  return createKnowledgeProposal(current, input, 'contract') as ContractCandidateProposal;
+}
+
+export const createContractCandidateCommitProposal = createContractCandidateProposal;
+
+export function createDecisionRecordProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    admission: KnowledgeAdmissionRecord;
+    provenance: KnowledgeProvenance;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): DecisionRecordProposal {
+  return createKnowledgeProposal(current, input, 'decision') as DecisionRecordProposal;
+}
+
+export const createDecisionRecordTransactionProposal = createDecisionRecordProposal;
+
+export function createInboxRecordProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    delta: InboxRecordDelta;
+    idempotency_key: string;
+    authority_evidence: AuthorityEvidence[];
+    evidence_refs: string[];
+  },
+): InboxRecordProposal {
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'inbox-record-transaction',
+    caller: 'capture-work-item',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    authority_evidence: input.authority_evidence,
+    semantic_delta: input.delta,
+    preconditions: ['current-task-is-active', 'relation-proven-unrelated', 'duplicate-check-clear', 'owner-route-resolved'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [input.delta.target_path],
+  }) as InboxRecordProposal;
+}
+
+export const createInboxRecordTransactionProposal = createInboxRecordProposal;
+
+function rootForCurrentTask(current: CanonicalCurrentTask): string {
+  const segments = current.relativePath.split('/').filter(Boolean);
+  return path.resolve(current.filePath, ...segments.map(() => '..'));
+}
+
+function previewDeltaInput(input: unknown): { delta: ArchiveDelta | null; error?: string } {
+  try {
+    const record = expectRecord(input, 'close-task preview input');
+    const candidate = isRecord(record.delta) ? record.delta : record;
+    const delta = validateArchiveDelta(candidate);
+    return { delta };
+  } catch (error) {
+    return { delta: null, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function previewCloseTaskForCurrent(current: CanonicalCurrentTask, input: unknown, root?: string): CloseTaskPreview {
+  const parsed = previewDeltaInput(input);
+  let archivePath = 'TASKS/TASK-unknown-unknown.md';
+  try {
+    archivePath = getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, 'archive');
+  } catch {
+    // The canonical current-task reader normally prevents this; keep preview read-only if it is malformed.
+  }
+  const identity = extractTaskIdentityFromCurrentTask(current.body);
+  const base: CloseTaskPreview = {
+    status: 'blocked',
+    task_identity: { task_id: identity.id, task_slug: identity.slug, document_id: String(current.frontmatter.document_id) },
+    source_tuple: current.sourceTuple,
+    archive_path: archivePath,
+    closure_eligibility: { eligible: false, blockers: parsed.error ? [parsed.error] : [] },
+    delivery_summary: null,
+    lesson_admission: null,
+    knowledge_admissions: emptyKnowledgeAdmissionBundle(),
+    planned_operations: [],
+    governed_mutation_count: 0,
+  };
+  if (!parsed.delta) return base;
+  base.delivery_summary = parsed.delta.delivery_summary;
+  base.lesson_admission = parsed.delta.lesson_admission;
+  base.knowledge_admissions = parsed.delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle();
+  const resolvedRoot = root ?? rootForCurrentTask(current);
+  if (current.runtimeState.workflow_status === 'closed' && current.runtimeState.lifecycle_state === 'archived') {
+    try {
+      const { audit } = matchingArchiveReceipt(resolvedRoot, current);
+      if (digest(parsed.delta) !== audit.closure_delta_digest) fail('ARCHIVE_PROVENANCE_MISMATCH', 'preview closure evidence does not match the committed archive receipt.');
+      if (parsed.delta.lesson_admission.decision !== audit.lesson_admission.decision || parsed.delta.lesson_admission.candidate_refs.join('|') !== audit.lesson_admission.candidate_refs.join('|') || parsed.delta.lesson_admission.evidence_refs.join('|') !== audit.lesson_admission.evidence_refs.join('|')) {
+        fail('ARCHIVE_PROVENANCE_MISMATCH', 'preview lesson admission does not match the committed archive receipt.');
+      }
+      if (digest(parsed.delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle()) !== digest(audit.knowledge_admissions)) {
+        fail('ARCHIVE_PROVENANCE_MISMATCH', 'preview knowledge admission does not match the committed archive receipt.');
+      }
+      base.status = 'reconciliation';
+      base.closure_eligibility = { eligible: true, blockers: [] };
+      base.planned_operations = [
+        ...(parsed.delta.knowledge_admissions?.contracts.some(item => ['admit', 'merge', 'supersede'].includes(item.disposition)) ? ['contract-candidate-commit' as const] : []),
+        ...(parsed.delta.knowledge_admissions?.decisions.some(item => ['admit', 'merge', 'supersede'].includes(item.disposition)) ? ['decision-record-transaction' as const] : []),
+        ...(parsed.delta.lesson_admission.decision === 'admit' ? ['lesson-record-transaction' as const] : []),
+        'project-status-transaction',
+      ];
+      return base;
+    } catch (error) {
+      base.closure_eligibility.blockers.push(error instanceof Error ? error.message : String(error));
+      return base;
+    }
+  }
+  const archiveExists = fs.existsSync(archivePathForTask(resolvedRoot, current).filePath);
+  const blockers = closureEligibilityBlockers(root, current, parsed.delta, archiveExists);
+  base.closure_eligibility = { eligible: blockers.length === 0, blockers };
+  if (blockers.length === 0) {
+    base.status = 'eligible';
+    base.planned_operations = [
+      'archive-transaction',
+      ...(parsed.delta.knowledge_admissions?.contracts.some(item => ['admit', 'merge', 'supersede'].includes(item.disposition)) ? ['contract-candidate-commit' as const] : []),
+      ...(parsed.delta.knowledge_admissions?.decisions.some(item => ['admit', 'merge', 'supersede'].includes(item.disposition)) ? ['decision-record-transaction' as const] : []),
+      ...(parsed.delta.lesson_admission.decision === 'admit' ? ['lesson-record-transaction' as const] : []),
+      'project-status-transaction',
+    ];
+  }
+  return base;
+}
+
+export function previewCloseTask(current: CanonicalCurrentTask, input: unknown): CloseTaskPreview;
+export function previewCloseTask(root: string, input: unknown): CloseTaskPreview;
+export function previewCloseTask(currentOrRoot: CanonicalCurrentTask | string, input: unknown): CloseTaskPreview {
+  if (typeof currentOrRoot === 'string') return previewCloseTaskForCurrent(readCanonicalCurrentTask(currentOrRoot), input, path.resolve(currentOrRoot));
+  return previewCloseTaskForCurrent(currentOrRoot, input);
+}
+
+export const createCloseTaskPreview = previewCloseTask;
+
+export type VNextRuntimeCliArguments = {
+  command: 'validate' | 'validate-contract' | 'apply' | 'scope-check';
+  root: string;
+  proposalFile?: string;
+  dryRun: boolean;
+  changedPaths: string[];
+  pathsFile?: string;
+  pathsStdin: boolean;
+  persistentTestPaths: string[];
+  persistentTestPathsFile?: string;
+  conditionalAuthorizationsFile?: string;
+  transformationKind: MutationTransformationKind;
+  commandAuditFile?: string;
+  commandAuditStdin: boolean;
+  summary: boolean;
+  deep: boolean;
+};
+
+export function parseCli(argv: string[]): VNextRuntimeCliArguments {
+  const [command = 'validate', ...rest] = argv;
+  if (command !== 'validate' && command !== 'validate-contract' && command !== 'apply' && command !== 'scope-check') throw new Error('Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--persistent-test-path <repo-relative>] [--persistent-test-paths-file <path>] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--summary] [--deep] [--dry-run]');
+  let root = process.cwd();
+  let proposalFile: string | undefined;
+  let dryRun = false;
+  const changedPaths: string[] = [];
+  let pathsFile: string | undefined;
+  let pathsStdin = false;
+  const persistentTestPaths: string[] = [];
+  let persistentTestPathsFile: string | undefined;
+  let conditionalAuthorizationsFile: string | undefined;
+  let transformationKind: MutationTransformationKind = 'localized';
+  let commandAuditFile: string | undefined;
+  let commandAuditStdin = false;
+  let summary = false;
+  let deep = false;
+  for (let index = 0; index < rest.length; index += 1) {
+    const arg = rest[index];
+    if (arg === '--root') root = rest[++index] ?? '';
+    else if (arg === '--proposal' || arg === '--proposal-file') proposalFile = rest[++index];
+    else if (arg === '--path') changedPaths.push(rest[++index] ?? '');
+    else if (arg === '--paths-file') pathsFile = rest[++index];
+    else if (arg === '--paths-stdin') pathsStdin = true;
+    else if (arg === '--persistent-test-path') persistentTestPaths.push(rest[++index] ?? '');
+    else if (arg === '--persistent-test-paths-file') persistentTestPathsFile = rest[++index];
+    else if (arg === '--command-audit-file') commandAuditFile = rest[++index];
+    else if (arg === '--command-audit-stdin') commandAuditStdin = true;
+    else if (arg === '--summary' && command === 'validate') summary = true;
+    else if (arg === '--deep' && command === 'validate') deep = true;
+    else if (arg === '--conditional-authorizations-file') conditionalAuthorizationsFile = rest[++index];
+    else if (arg === '--transformation-kind') {
+      const value = rest[++index];
+      if (value !== 'localized' && value !== 'inherently-broad') throw new Error('--transformation-kind must be localized or inherently-broad.');
+      transformationKind = value;
+    }
+    else if (arg === '--dry-run') dryRun = true;
+    else throw new Error(`Unknown argument: ${arg}`);
+  }
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary, deep };
+}
+
+export function resolveExternalProposalFile(root: string, proposalFile: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedProposal = path.resolve(proposalFile);
+  const relative = path.relative(resolvedRoot, resolvedProposal);
+  const insideProject = relative === ''
+    || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  if (insideProject) {
+    fail('PROPOSAL_FILE_INSIDE_PROJECT', 'proposal/helper files must not be created inside the target project; send the proposal on stdin or use an OS-temporary path outside the project.');
+  }
+  return resolvedProposal;
+}
+
+function readCliStringList(filePath: string, label: string): string[] {
+  const content = fs.readFileSync(path.resolve(filePath), 'utf8');
+  if (content.trimStart().startsWith('[')) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      throw new Error(`${label} must be valid JSON or newline-delimited text: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!Array.isArray(parsed) || parsed.some(item => typeof item !== 'string')) throw new Error(`${label} JSON form must be an array of strings.`);
+    return parsed as string[];
+  }
+  return content.split(/\r?\n/u).map(line => line.trim()).filter(Boolean);
+}
+
+function readCliConditionalAuthorizations(filePath: string): ConditionalScopeAuthorization[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
+  } catch (error) {
+    throw new Error(`conditional authorizations file must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return parsed as ConditionalScopeAuthorization[];
+}
+
+function readCliCommandAudit(args: VNextRuntimeCliArguments): CommandMutationAuditInput {
+  if (args.commandAuditFile && args.commandAuditStdin) throw new Error('--command-audit-file and --command-audit-stdin are mutually exclusive.');
+  if (args.changedPaths.length > 0 || args.pathsFile || args.pathsStdin || args.persistentTestPaths.length > 0 || args.persistentTestPathsFile) {
+    throw new Error('command audit input cannot be combined with ordinary path or persistent-test scope input.');
+  }
+  const content = args.commandAuditFile
+    ? fs.readFileSync(path.resolve(args.commandAuditFile), 'utf8')
+    : (() => {
+      if (process.stdin.isTTY) throw new Error('--command-audit-stdin requires a JSON command audit on stdin.');
+      const input = process.stdin.read();
+      if (typeof input !== 'string' && !Buffer.isBuffer(input)) throw new Error('--command-audit-stdin did not receive JSON.');
+      return typeof input === 'string' ? input : input.toString('utf8');
+    })();
+  try {
+    return JSON.parse(content) as CommandMutationAuditInput;
+  } catch (error) {
+    throw new Error(`command audit input must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function readScopeCheckInput(args: VNextRuntimeCliArguments): MutationScopeEvaluationInput {
+  const changedPaths = [...args.changedPaths];
+  if (args.pathsFile) changedPaths.push(...readCliStringList(args.pathsFile, '--paths-file'));
+  if (args.pathsStdin) {
+    if (process.stdin.isTTY) throw new Error('--paths-stdin requires newline-delimited paths on stdin.');
+    const stdinContent = process.stdin.read();
+    if (typeof stdinContent !== 'string' && !Buffer.isBuffer(stdinContent)) throw new Error('--paths-stdin did not receive newline-delimited paths on stdin.');
+    const text = typeof stdinContent === 'string' ? stdinContent : stdinContent.toString('utf8');
+    changedPaths.push(...text.split(/\r?\n/u).map((line: string) => line.trim()).filter(Boolean));
+  }
+  const persistentTestPaths = [...args.persistentTestPaths];
+  if (args.persistentTestPathsFile) {
+    persistentTestPaths.push(...readCliStringList(args.persistentTestPathsFile, '--persistent-test-paths-file'));
+  }
+  return {
+    changed_paths: changedPaths,
+    ...(args.conditionalAuthorizationsFile
+      ? { conditional_authorizations: readCliConditionalAuthorizations(args.conditionalAuthorizationsFile) }
+      : {}),
+    ...(persistentTestPaths.length > 0 ? { persistent_test_paths: persistentTestPaths } : {}),
+    transformation_kind: args.transformationKind,
+  };
+}
+
+function validateInstalledRuntimeForCli(root: string): void {
+  const runtimePackagePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split('/'), 'package.json');
+  if (fs.existsSync(runtimePackagePath)) {
+    validateVNextRuntimeContract(root, true);
+  }
+}
+
+function requireBootstrappedProject(root: string): void {
+  const profilePath = getWorkflowProfilePath(root);
+  if (!fs.existsSync(profilePath)) {
+    fail('BOOTSTRAP_REQUIRED', 'Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.');
+  }
+  let profile: AnyRecord;
+  try {
+    profile = loadProfile(profilePath);
+  } catch (error) {
+    fail('BOOTSTRAP_REQUIRED', 'Project governance profile is unavailable or invalid; invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.');
+  }
+  const currentTaskPath = getWorkflowDocPath(root, profile, 'CURRENT_TASK.md');
+  if (!fs.existsSync(currentTaskPath)) {
+    fail('BOOTSTRAP_REQUIRED', 'Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.');
+  }
+}
+
+export async function runCli(argv: string[] = process.argv.slice(2)): Promise<number> {
+  try {
+    validateRuntimeEnvironment();
+    const args = parseCli(argv);
+    if (args.command === 'validate-contract') {
+      validateInstalledRuntimeForCli(args.root);
+      console.log(JSON.stringify(validateVNextRuntimeContract(args.root), null, 2));
+    } else if (args.command === 'validate') {
+      validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
+      const current = readCanonicalCurrentTask(args.root);
+      const state = current.runtimeState;
+      if (state.business_evidence_version === 1) {
+        const actualPlanRevision = assertEvidencePlan(readDraftDefinitionFromBody(current.body), state.claim_evidence ?? []);
+        if (state.evidence_plan_revision !== actualPlanRevision) {
+          fail('CLAIM_EVIDENCE_STALE', 'canonical evidence plan revision does not match its definitions.');
+        }
+      }
+      const sections = resolveReplanSectionRanges(current.body);
+      const sectionText = (key: 'background_context' | 'affected_contracts') => {
+        const section = sections[key];
+        return section ? current.body.slice(section.contentStart, section.contentEnd).trim() : null;
+      };
+      const documentContext = { project_documents: readProjectDocuments(sectionText('background_context') ?? ''), affected_contracts: sectionText('affected_contracts') };
+      const taskStore = TaskStore.forCurrent(args.root, current);
+      const storageValidation = args.deep
+        ? taskStore.deepValidate()
+        : taskStore.validateCurrentAggregate(current as unknown as import('./task-store').TaskStoreCurrent);
+      const storageInvalid = storageValidation.status === 'invalid';
+      const output = args.summary ? {
+        status: storageInvalid ? 'blocked' : 'success', source_tuple: current.sourceTuple, package_version: VNEXT_RUNTIME_PACKAGE_VERSION,
+        validation_scope: args.deep ? 'aggregate-and-full-history' : 'current-aggregate',
+        storage_validation: storageValidation,
+        storage_metrics: taskStorageMetrics(args.root, current),
+        summary: { ...documentContext, task_id: state.task_id, workflow_status: state.workflow_status, lifecycle_state: state.lifecycle_state,
+          active_step_id: state.active_step_id, active_step_status: state.active_step_status,
+          pending_review_verdict: state.pending_review_result?.verdict ?? null,
+          review_target_revision: state.review_coverage?.target.revision ?? null,
+          pending_review_paths: state.review_coverage?.pending_paths ?? [],
+          evidence_plan_revision: state.evidence_plan_revision ?? null,
+          task_evolution_version: state.task_evolution_version ?? null,
+          preservation_initialization_required: state.task_evolution_version !== 2,
+          pending_replan_candidates: pendingCorrectionCandidates(args.root, current),
+          carried_evidence_slots: (state.evidence_carry_forward ?? []).map(item => ({ claim_id: item.claim_id, slot_id: item.slot_id, old_result_id: item.result_id })),
+          unresolved_evidence_challenges: (state.evidence_challenges ?? []).filter(item => item.status !== 'resolved').map(item => ({ challenge_id: item.challenge_id, claim_id: item.claim_id, slot_id: item.slot_id, result_id: item.result_id, correction_step_id: item.correction_step_id })) },
+      } : { status: 'success', source_tuple: current.sourceTuple, runtime_state: state, ...documentContext, ...(args.deep ? { validation_scope: 'aggregate-and-full-history', storage_validation: storageValidation } : {}) };
+      console.log(JSON.stringify(output, null, 2));
+      if (storageInvalid) return 2;
+    } else if (args.command === 'scope-check') {
+      validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
+      const current = readCanonicalCurrentTask(args.root);
+      const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+      const result = args.commandAuditFile || args.commandAuditStdin
+        ? auditCommandMutation(scope, readCliCommandAudit(args))
+        : evaluateMutationScope(scope, readScopeCheckInput(args));
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === 'blocked') return 2;
+    } else {
+      validateInstalledRuntimeForCli(args.root);
+      requireBootstrappedProject(args.root);
+      const proposalText = args.proposalFile
+        ? fs.readFileSync(resolveExternalProposalFile(args.root, args.proposalFile), 'utf8')
+        : (!process.stdin.isTTY ? fs.readFileSync(0, 'utf8') : '');
+      if (!proposalText.trim()) throw new Error('apply requires a JSON proposal on stdin or via --proposal-file <json-file>.');
+      const proposal = JSON.parse(proposalText) as unknown;
+      const result = applyVNextRuntimeProposal(args.root, proposal, { dryRun: args.dryRun });
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status === 'blocked' || result.status === 'conflict') return 2;
+    }
+    return 0;
+  } catch (error) {
+    if (error instanceof MutationScopeError) {
+      console.error(`${error.code}: ${error.message}`);
+      return error.code === 'MUTATION_SCOPE_BLOCKED' ? 2 : 1;
+    }
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}

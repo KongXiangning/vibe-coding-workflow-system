@@ -1,0 +1,2000 @@
+    return { path: preimage.path, state: preimage.state, sha256: preimage.sha256 };
+  });
+  return { entries, writes };
+}
+
+function reviewPreimageWrite(root: string, entry: ReviewTargetEntry): ReviewPreimageWrite | null {
+  if (entry.state === 'absent') return null;
+  const absolute = path.resolve(root, entry.path);
+  const content = entry.state === 'symlink' ? Buffer.from(fs.readlinkSync(absolute)) : fs.readFileSync(absolute);
+  if (!entry.sha256 || sha256(content) !== entry.sha256) fail('REVIEW_BASE_INVALID', `first-touch baseline hash changed while capturing ${entry.path}.`);
+  return { sha256: entry.sha256, content };
+}
+
+function registerReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverageAdmission {
+  const old = current.runtimeState.review_coverage;
+  if (old && captureReviewTarget(root, old.target.entries.map(e => e.path)).revision !== old.target.revision) fail('REVIEW_TARGET_STALE', 'Unrecorded changes cannot refresh the cumulative review target.');
+  const added = captureReviewTarget(root, paths.filter(p => !old?.base.entries.some(e => e.path === p)));
+  const additions = added.entries.map(entry => ({ entry, write: reviewPreimageWrite(root, entry) }));
+  const normalizedOld = normalizeReviewPreimages(old?.preimages ?? []);
+  const preimages = [...normalizedOld.entries, ...additions.map(({ entry }) => ({ ...entry }))].sort((a,b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const coverage = validateReviewCoverage({change_set_id:old?.change_set_id ?? `change-set-${digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision}).slice(0,32)}`,base:manifest(preimages.map(entry => ({ path: entry.path, state: entry.state, sha256: entry.sha256 }))),target:manifest([...(old?.target.entries ?? []),...added.entries]),preimages,pending_paths:old?.pending_paths ?? [],last_clean_revision:old?.last_clean_revision ?? null});
+  return { coverage, preimageWrites: [...normalizedOld.writes, ...additions.flatMap(({ write }) => write ? [write] : [])] };
+}
+
+/**
+ * Extension is an explicit same-attempt operation.  It may observe an
+ * already-modified initial target, but it captures the newly discovered
+ * target before that target is allowed to be touched.  The ordinary
+ * registration path intentionally remains strict about stale in-flight
+ * changes.
+ */
+function extendReviewCoverage(root: string, current: CanonicalCurrentTask, paths: string[]): ReviewCoverageAdmission {
+  const old = current.runtimeState.review_coverage;
+  if (!old) fail('EXECUTE_PREFLIGHT_REQUIRED', 'extend-preflight requires an existing recorded preflight.');
+  const newPaths = paths.filter(p => !old.base.entries.some(entry => entry.path === p));
+  const added = captureReviewTarget(root, newPaths);
+  const additions = added.entries.map(entry => ({ entry, write: reviewPreimageWrite(root, entry) }));
+  const normalizedOld = normalizeReviewPreimages(old.preimages);
+  const preimages = [...normalizedOld.entries, ...additions.map(({ entry }) => ({ ...entry }))].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  // Existing target entries are the before-state registered by the original
+  // preflight.  They must remain immutable even when the model has already
+  // edited one of those files before discovering the new path.  Only the
+  // newly discovered paths are captured at extension time, before their first
+  // mutation.
+  const target = manifest([...old.target.entries, ...added.entries]);
+  const coverage = validateReviewCoverage({
+    change_set_id: old.change_set_id,
+    base: manifest(preimages.map(entry => ({ path: entry.path, state: entry.state, sha256: entry.sha256 }))),
+    target,
+    preimages,
+    pending_paths: old.pending_paths,
+    last_clean_revision: null,
+  });
+  return { coverage, preimageWrites: [...normalizedOld.writes, ...additions.flatMap(({ write }) => write ? [write] : [])] };
+}
+
+function v2StepPlannedTargets(current: CanonicalCurrentTask): string[] {
+  const step = resolveCanonicalTaskStep(current).current;
+  const raw = step.planned_mutation_targets ?? step.mutation_scope;
+  if (!raw) fail('TASK_STEP_METADATA_INCOMPLETE', `step ${step.id} is missing planned_mutation_targets.`);
+  return raw.split(',').map((value, index) => {
+    const cleaned = value.trim().replace(/^`|`$/gu, '');
+    try {
+      return normalizeAuthorityPath(cleaned, `step ${step.id}.planned_mutation_targets[${index}]`, true);
+    } catch (error) {
+      if (error instanceof MutationAuthorityError) fail(error.code, error.message);
+      throw error;
+    }
+  }).filter(Boolean);
+}
+
+export type CurrentExecutionAdmissionInput = {
+  target_paths: readonly string[];
+  planned_targets?: readonly string[];
+  step_mutation_scope?: readonly string[];
+  assessments?: readonly BlastRadiusAssessment[];
+  phase?: ExecutionAdmissionPhase;
+  mode?: ExecutionAdmissionMode;
+  location?: string;
+};
+
+function executionAdmissionErrorCode(
+  current: CanonicalCurrentTask,
+  evaluation: ExecutionAdmissionEvaluation,
+): string {
+  const decision = evaluation.decisions.find(item => !item.admitted);
+  if (!decision) return 'EXECUTION_ADMISSION_BLOCKED';
+  if (decision.classification === 'blocked-governance') return 'MUTATION_AUTHORITY_GOVERNANCE_BOUNDARY';
+  if (decision.classification === 'blocked-test-strategy') return 'TEST_STRATEGY_SEQUENCE_INVALID';
+  if (decision.classification === 'blocked-persistent-test') return current.mutationAuthority ? 'PERSISTENT_TEST_UNADMITTED' : 'EXECUTE_SCOPE_BLOCKED';
+  if (decision.classification === 'blocked-non-executable-policy') return 'TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION';
+  if (decision.classification === 'blocked-assessment') {
+    return decision.assessment?.disposition === 'escalate'
+      ? 'MUTATION_BLAST_RADIUS_ESCALATION_REQUIRED'
+      : 'MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED';
+  }
+  if (current.mutationAuthority && evaluation.blockers.some(item => item.startsWith('blocked-authority:') && item.includes('requires blast-radius assessment'))) {
+    return 'MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED';
+  }
+  if (current.mutationAuthority && evaluation.blockers.some(item => item.includes('MUTATION_AUTHORITY_EXPANSION_REQUIRED'))) {
+    return 'MUTATION_AUTHORITY_EXPANSION_REQUIRED';
+  }
+  if (current.mutationAuthority
+    && decision.classification === 'blocked-authority'
+    && (decision.reason.startsWith('target belongs to unauthorized domain ')
+      || decision.reason === 'target is unclassified')) {
+    return 'MUTATION_AUTHORITY_EXPANSION_REQUIRED';
+  }
+  return current.mutationAuthority ? 'MUTATION_AUTHORITY_TARGET_BLOCKED' : 'EXECUTE_SCOPE_BLOCKED';
+}
+
+function resolveNewExecutionPhase(
+  current: CanonicalCurrentTask,
+  strategy: TestStrategyExecutionContext,
+  declaredPhase?: TestStrategyExecutionPhase,
+): TestStrategyExecutionPhase {
+  const phase = executionPhaseForCurrentStep(current, strategy);
+  if (declaredPhase !== undefined && declaredPhase !== phase) {
+    fail('EXECUTE_PREFLIGHT_STALE', `preflight execution phase ${declaredPhase} does not match the Runtime-derived phase ${phase}.`);
+  }
+  return phase;
+}
+
+/**
+ * The single Runtime-owned exact-target admission boundary used by every
+ * execute-step entry point.  This function deliberately returns the shared
+ * evaluator result so callers can record dynamic decisions without re-running
+ * a second authority policy.
+ */
+export function evaluateCurrentExecutionTargetAdmissions(
+  root: string,
+  current: CanonicalCurrentTask,
+  input: CurrentExecutionAdmissionInput,
+): ExecutionAdmissionEvaluation {
+  const strategy = resolveTestStrategyExecutionContext(current);
+  const mode = input.mode ?? 'default';
+  const phase = executionPhaseForCurrentStep(current, strategy);
+  if (input.phase !== undefined && input.phase !== phase) {
+    fail('EXECUTE_PREFLIGHT_STALE', `execution phase ${input.phase} does not match the Runtime-derived phase ${phase}.`);
+  }
+  const stepScope = input.step_mutation_scope ?? (() => {
+    const step = resolveCanonicalTaskStep(current).current;
+    return (step.mutation_scope ?? '').split(',').map(value => value.trim().replace(/^`|`$/gu, '')).filter(Boolean);
+  })();
+  const plannedTargets = input.planned_targets ?? (current.mutationAuthority ? v2StepPlannedTargets(current) : stepScope);
+  const activeExecution = current.runtimeState.execution_preflight?.step_id === current.runtimeState.active_step_id
+    && current.runtimeState.execution_preflight.mode === mode
+    ? current.runtimeState.execution_preflight
+    : undefined;
+  const storedAssessments = activeExecution
+    ? currentExecutionDynamicExpansions(current, mode).map(item => item.assessment)
+    : [];
+  const assessments = [...storedAssessments, ...(input.assessments ?? [])]
+    .filter((item, index, values) => values.findIndex(other => other.target.path === item.target.path) === index);
+  let project: ReturnType<typeof readProjectMutationAuthority> = null;
+  if (current.mutationAuthority) {
+    try { project = readProjectMutationAuthority(root); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+    if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 tasks require PROJECT_PROFILE.yaml.mutation_authority.domains.');
+    const currentDomainRevision = projectMutationAuthorityRevision(project);
+    if (!current.runtimeState.authority_domain_revision) {
+      fail('MUTATION_AUTHORITY_DOMAIN_REVISION_REQUIRED', 'v2 execution must bind the project authority domain-map revision before mutation admission.');
+    }
+    if (current.runtimeState.authority_domain_revision !== currentDomainRevision) {
+      fail('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE', 'the project authority domain map changed after this task was confirmed; explicitly revalidate or replan the task before execution.');
+    }
+  }
+  const legacyScope = current.mutationAuthority ? null : parseMutationScope(current.body, current.sourceTuple.revision);
+  const evaluation = evaluateExecutionTargetAdmissions({
+    version: current.mutationAuthority ? 2 : 1,
+    root,
+    project_authority: project,
+    task_authority: current.mutationAuthority,
+    legacy_scope: legacyScope,
+    step_planned_targets: plannedTargets,
+    step_mutation_scope: stepScope,
+    targets: input.target_paths,
+    assessments,
+    persistent_test_paths: strategy.persistent_tests,
+    non_executable_change_paths: phase === 'not-applicable' ? nonExecutableChangePatterns(root) : [],
+    phase,
+    mode,
+    governance_paths: [current.relativePath],
+  });
+  return evaluation;
+}
+
+export function assertExecutionTargetAdmissions(
+  root: string,
+  current: CanonicalCurrentTask,
+  input: CurrentExecutionAdmissionInput,
+): ExecutionAdmissionEvaluation {
+  const evaluation = evaluateCurrentExecutionTargetAdmissions(root, current, input);
+  assertExecutionAdmissionEvaluation(current, evaluation, input.location ?? 'execution target');
+  return evaluation;
+}
+
+function assertExecutionAdmissionEvaluation(
+  current: CanonicalCurrentTask,
+  evaluation: ExecutionAdmissionEvaluation,
+  location: string,
+): void {
+  if (evaluation.status !== 'pass') {
+    fail(executionAdmissionErrorCode(current, evaluation), `${location} was rejected by the unified execution admission evaluator: ${evaluation.blockers.join(' ')}`);
+  }
+}
+
+function assertStepProgressExecutionIdentity(
+  current: CanonicalCurrentTask,
+  delta: TaskStepProgressDelta,
+): void {
+  const active = current.runtimeState.execution_preflight;
+  if (!active) return;
+
+  const executionResult = delta.execution_result;
+  if (executionResult) {
+    if (executionResult.execution_id !== active.execution_id) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'step-progress execution_result must bind the current stable execution identity.');
+    }
+    if (executionResult.change_set_id !== active.change_set_id) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'step-progress execution_result must bind the current execution change set.');
+    }
+    if (active.mode !== (delta.repair_fingerprints || delta.repair_fingerprint ? 'repair' : 'default')) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'step-progress repair mode does not match the current execution identity.');
+    }
+    return;
+  }
+
+  const pendingReview = current.runtimeState.pending_review_result;
+  const pendingExecution = pendingReview
+    ? currentDefinitionExecutionLog(current).find(item => !('action' in item) && item.idempotency_key === pendingReview.execution_id)
+    : undefined;
+  if (!delta.review_receipt || pendingExecution?.execution_result?.execution_id !== active.execution_id) {
+    fail('EXECUTE_PREFLIGHT_REQUIRED', 'v2 step-progress without an execution result must bind the current review execution identity.');
+  }
+}
+
+export function cumulativeReviewExecution(current: CanonicalCurrentTask, execution: StepExecutionLogEntry): StepExecutionLogEntry {
+  const coverage = current.runtimeState.review_coverage;
+  if (!coverage || !execution.execution_result) return execution;
+  return {
+    ...execution,
+    change_set_id: coverage.change_set_id,
+    execution_result: {
+      ...execution.execution_result,
+      change_set_id: coverage.change_set_id,
+      review_base: coverage.base,
+      review_target: coverage.target,
+      change_delta: createReviewChangeDelta(coverage.base, coverage.target),
+    },
+  };
+}
+
+export function validateTestAssessment(value: unknown): TestAssessment {
+  const source = expectRecord(value, 'test_assessment');
+  expectExactKeys(source, ['applicable','reason','evidence_refs','necessity','oracle','boundary','reuse','applicability'], 'test_assessment');
+  if (typeof source.applicable !== 'boolean') fail('REVIEW_ASSESSMENT_REQUIRED', 'applicable must be boolean.');
+  return {applicable:source.applicable,reason:expectText(source.reason,'test_assessment.reason'),evidence_refs:validateEvidenceRefs(source.evidence_refs,'test_assessment.evidence_refs'),necessity:expectText(source.necessity,'test_assessment.necessity'),oracle:expectText(source.oracle,'test_assessment.oracle'),boundary:expectText(source.boundary,'test_assessment.boundary'),reuse:expectText(source.reuse,'test_assessment.reuse'),applicability:expectText(source.applicability,'test_assessment.applicability')};
+}
+
+export function createReviewChangeDelta(base: ReviewTarget, target: ReviewTarget): ReviewChangeDelta {
+  const basePaths = base.entries.map(item => item.path);
+  const targetPaths = target.entries.map(item => item.path);
+  if (digest(basePaths) !== digest(targetPaths)) {
+    fail('REVIEW_TARGET_PATH_CONFLICT', 'review base and target must contain the same canonical path set.');
+  }
+  const entries = base.entries.flatMap((before, index): ReviewChangeDeltaEntry[] => {
+    const after = target.entries[index];
+    if (before.state === after.state && before.sha256 === after.sha256) return [];
+    return [{
+      path: before.path,
+      before_state: before.state,
+      before_sha256: before.sha256,
+      after_state: after.state,
+      after_sha256: after.sha256,
+    }];
+  });
+  return {
+    kind: 'runtime-file-delta/v1',
+    base_revision: base.revision,
+    target_revision: target.revision,
+    entries,
+  };
+}
+
+function parseYamlFrontmatter(content: string, location: string): { frontmatter: AnyRecord; body: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content);
+  if (!match) {
+    fail('MIGRATION_REQUIRED', `${location} is not a vNext CURRENT_TASK document; run the Migration Pack.`);
+  }
+  const document = parseDocument(match[1], { uniqueKeys: true });
+  const diagnostics = [...document.errors, ...document.warnings];
+  if (diagnostics.length > 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} has invalid frontmatter YAML: ${diagnostics.map(item => item.message).join('; ')}`);
+  }
+  const frontmatter = document.toJS();
+  if (!isRecord(frontmatter)) {
+    fail('MIGRATION_REQUIRED', `${location} does not declare a supported vNext CURRENT_TASK schema; run the Migration Pack.`);
+  }
+  return { frontmatter, body: match[2] };
+}
+
+function parseYamlMappingFile(filePath: string): AnyRecord {
+  if (!fs.existsSync(filePath)) fail('RUNTIME_CONTRACT_MISSING', `Runtime contract is missing: ${filePath}`);
+  const document = parseDocument(fs.readFileSync(filePath, 'utf8'), { uniqueKeys: true });
+  const diagnostics = [...document.errors, ...document.warnings];
+  if (diagnostics.length > 0) fail('RUNTIME_CONTRACT_INVALID', `${filePath} has invalid YAML: ${diagnostics.map(item => item.message).join('; ')}`);
+  return expectRecord(document.toJS(), filePath);
+}
+
+
+type RuntimeDistributionContract = {
+  kind: 'project-local-node';
+  package_path: string;
+  entrypoint: string;
+  package_manifest: string;
+  lockfile: string;
+  package_name: string;
+  package_version: string;
+  node_min_version: string;
+};
+
+function validateNodeMinimum(nodeMinVersion: string): void {
+  const match = /^>=([0-9]+)\.([0-9]+)\.([0-9]+)$/.exec(nodeMinVersion);
+  if (!match) fail('RUNTIME_CONTRACT_INVALID', 'runtime_distribution.node_min_version must use >=MAJOR.MINOR.PATCH.');
+  const major = Number(match[1]);
+  if (!Number.isSafeInteger(major) || major < 20) fail('RUNTIME_CONTRACT_INVALID', 'runtime_distribution.node_min_version must require Node 20 or newer.');
+}
+
+export function validateRuntimeEnvironment(nodeVersion = process.versions.node, nodeMinVersion = VNEXT_RUNTIME_NODE_MIN_VERSION): void {
+  const minimumMatch = /^>=([0-9]+)\.([0-9]+)\.([0-9]+)$/.exec(nodeMinVersion);
+  const currentMatch = /^([0-9]+)\.([0-9]+)\.([0-9]+)/.exec(nodeVersion ?? '');
+  if (!minimumMatch || !currentMatch) throw new VNextRuntimeError('RUNTIME_ENV_UNSUPPORTED', 'Unable to determine a supported Node.js version.');
+  const minimum = minimumMatch.slice(1).map(Number);
+  const current = currentMatch.slice(1).map(Number);
+  const belowMinimum = current[0] < minimum[0] ||
+    (current[0] === minimum[0] && current[1] < minimum[1]) ||
+    (current[0] === minimum[0] && current[1] === minimum[1] && current[2] < minimum[2]);
+  if (belowMinimum) {
+    throw new VNextRuntimeError('RUNTIME_ENV_UNSUPPORTED', 'Node.js ' + nodeVersion + ' is below the required minimum ' + nodeMinVersion + '.');
+  }
+}
+
+function readJsonObject(filePath: string, code: string): AnyRecord {
+  if (!fs.existsSync(filePath)) fail(code, 'Required Runtime distribution file is missing: ' + filePath);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    fail(code, filePath + ' is not valid JSON: ' + (error instanceof Error ? error.message : String(error)));
+  }
+  return expectRecord(parsed, filePath);
+}
+
+function resolveRuntimeDistributionDirectory(root: string): { directory: string; installed: boolean } {
+  const resolvedRoot = path.resolve(root);
+  const installedDirectory = path.join(resolvedRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split('/'));
+  if (fs.existsSync(path.join(installedDirectory, 'package.json'))) {
+    return { directory: installedDirectory, installed: true };
+  }
+  return { directory: path.join(resolvedRoot, 'runtime', 'vnext'), installed: false };
+}
+
+export function validateVNextRuntimeDistribution(root: string, contract: RuntimeDistributionContract, requireDependencies = false): VNextRuntimeContractValidationResult['runtime_distribution'] {
+  const { directory } = resolveRuntimeDistributionDirectory(root);
+  const packagePath = path.join(directory, 'package.json');
+  const lockfilePath = path.join(directory, 'package-lock.json');
+  const entrypointPath = path.join(directory, 'dist', 'cli.js');
+  const packageManifest = readJsonObject(packagePath, 'RUNTIME_PACKAGE_INVALID');
+  if (packageManifest.name !== contract.package_name || packageManifest.version !== contract.package_version || packageManifest.private !== true || packageManifest.type !== 'module') {
+    fail('RUNTIME_PACKAGE_INVALID', 'Runtime package.json must declare the contract name, version, private=true, and type=module.');
+  }
+  const engines = expectRecord(packageManifest.engines, 'Runtime package.json.engines');
+  if (engines.node !== contract.node_min_version) fail('RUNTIME_PACKAGE_INVALID', 'Runtime package.json.engines.node does not match runtime_distribution.node_min_version.');
+  const dependencies = expectRecord(packageManifest.dependencies, 'Runtime package.json.dependencies');
+  if (dependencies.yaml !== '2.8.3') fail('RUNTIME_PACKAGE_INVALID', 'Runtime package.json must pin yaml to 2.8.3.');
+  const lockfile = readJsonObject(lockfilePath, 'RUNTIME_PACKAGE_INVALID');
+  if (lockfile.name !== contract.package_name || lockfile.version !== contract.package_version || lockfile.lockfileVersion !== 3) {
+    fail('RUNTIME_PACKAGE_INVALID', 'Runtime package-lock.json identity or lockfileVersion is invalid.');
+  }
+  const lockPackages = expectRecord(lockfile.packages, 'Runtime package-lock.json.packages');
+  const rootLock = expectRecord(lockPackages[''], 'Runtime package-lock.json.packages[""]');
+  if (rootLock.version !== contract.package_version) fail('RUNTIME_PACKAGE_INVALID', 'Runtime package-lock.json root version does not match the Runtime contract.');
+  const yamlLock = expectRecord(lockPackages['node_modules/yaml'], 'Runtime package-lock.json.packages[node_modules/yaml]');
+  if (yamlLock.version !== '2.8.3') fail('RUNTIME_PACKAGE_INVALID', 'Runtime package-lock.json must lock yaml to 2.8.3.');
+  if (!fs.existsSync(entrypointPath) || !fs.statSync(entrypointPath).isFile()) fail('RUNTIME_PACKAGE_INVALID', 'Runtime entrypoint is missing: ' + entrypointPath);
+  const entrypoint = fs.readFileSync(entrypointPath, 'utf8');
+  if (!entrypoint.includes('vnext-runtime-proposal') || !entrypoint.includes('runCli')) fail('RUNTIME_PACKAGE_INVALID', 'Runtime dist/cli.js is not the generated vNext Runtime entrypoint.');
+  if (requireDependencies) {
+    const localYaml = path.join(directory, 'node_modules', 'yaml', 'package.json');
+    const localYamlManifest = readJsonObject(localYaml, 'RUNTIME_DEPENDENCY_MISSING');
+    if (localYamlManifest.version !== '2.8.3') fail('RUNTIME_DEPENDENCY_INVALID', 'Runtime-local yaml dependency does not match package-lock.json.');
+  }
+  return {
+    kind: contract.kind,
+    package_path: contract.package_path,
+    entrypoint: contract.entrypoint,
+    package_version: contract.package_version,
+    node_min_version: contract.node_min_version,
+    package_lock_sha256: sha256(fs.readFileSync(lockfilePath)),
+    entrypoint_sha256: sha256(fs.readFileSync(entrypointPath)),
+  };
+}
+
+function validateRuntimeDistributionContract(value: unknown): RuntimeDistributionContract {
+  const distribution = expectRecord(value, 'Runtime contract.runtime_distribution');
+  expectExactKeys(distribution, ['kind', 'package_path', 'entrypoint', 'package_manifest', 'lockfile', 'package_name', 'package_version', 'node_min_version'], 'Runtime contract.runtime_distribution');
+  const result: RuntimeDistributionContract = {
+    kind: expectEnum(distribution.kind, ['project-local-node'], 'Runtime contract.runtime_distribution.kind'),
+    package_path: normalizeRepoPath(expectString(distribution.package_path, 'Runtime contract.runtime_distribution.package_path'), 'Runtime contract.runtime_distribution.package_path'),
+    entrypoint: normalizeRepoPath(expectString(distribution.entrypoint, 'Runtime contract.runtime_distribution.entrypoint'), 'Runtime contract.runtime_distribution.entrypoint'),
+    package_manifest: normalizeRepoPath(expectString(distribution.package_manifest, 'Runtime contract.runtime_distribution.package_manifest'), 'Runtime contract.runtime_distribution.package_manifest'),
+    lockfile: normalizeRepoPath(expectString(distribution.lockfile, 'Runtime contract.runtime_distribution.lockfile'), 'Runtime contract.runtime_distribution.lockfile'),
+    package_name: expectString(distribution.package_name, 'Runtime contract.runtime_distribution.package_name'),
+    package_version: expectString(distribution.package_version, 'Runtime contract.runtime_distribution.package_version'),
+    node_min_version: expectString(distribution.node_min_version, 'Runtime contract.runtime_distribution.node_min_version'),
+  };
+  if (result.package_path !== VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH || result.entrypoint !== VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH || result.package_manifest !== VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH || result.lockfile !== VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH || result.package_name !== VNEXT_RUNTIME_PACKAGE_NAME || result.package_version !== VNEXT_RUNTIME_PACKAGE_VERSION || result.node_min_version !== VNEXT_RUNTIME_NODE_MIN_VERSION) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime distribution must use the canonical project-local Node package identity.');
+  }
+  validateNodeMinimum(result.node_min_version);
+  return result;
+}
+
+function validateTaskContextContract(value: unknown): void {
+  const context = expectRecord(value, 'Runtime contract.task_context');
+  expectExactKeys(context, ['schema_version', 'kind', 'commands', 'entry_points', 'views', 'projection', 'paging', 'receipts', 'read_only'], 'Runtime contract.task_context');
+  if (context.schema_version !== 1 || context.kind !== 'vnext-task-context-contract' || context.read_only !== true) fail('RUNTIME_CONTRACT_INVALID', 'task_context must be the read-only vNext projection contract.');
+  expectSetEqual(expectStringArray(context.commands, 'Runtime contract.task_context.commands'), ['task-context', 'task-read', 'task-storage-migration', 'task-export'], 'task context commands');
+  expectSetEqual(expectStringArray(context.entry_points, 'Runtime contract.task_context.entry_points'), ['validate --summary', 'task-context', 'task-read', 'review-context', 'review-read', 'preflight-step', 'evidence-context'], 'task context entry points');
+  expectSetEqual(expectStringArray(context.views, 'Runtime contract.task_context.views'), ['overview', 'operation-context', 'history-on-demand'], 'task context views');
+  const projection = expectRecord(context.projection, 'Runtime contract.task_context.projection');
+  expectExactKeys(projection, ['default', 'required_blocks', 'review_requires_cumulative_target', 'forbidden_expansions'], 'Runtime contract.task_context.projection');
+  if (projection.default !== 'task-context' || projection.review_requires_cumulative_target !== true) fail('RUNTIME_CONTRACT_INVALID', 'task_context projection must use the shared bounded projector and cumulative review target.');
+  expectSetEqual(expectStringArray(projection.required_blocks, 'Runtime contract.task_context.projection.required_blocks'), ['current-definition-or-visible-definition-revision', 'current-step', 'mutation-authority', 'unfinished-obligations', 'required-dependencies', 'unknown-dependencies', 'global-gates', 'latest-execution'], 'task context required blocks');
+  expectSetEqual(expectStringArray(projection.forbidden_expansions, 'Runtime contract.task_context.projection.forbidden_expansions'), ['raw-runtime-state', 'unbounded-execution-log', 'unbounded-applied-proposals'], 'task context forbidden expansions');
+  const paging = expectRecord(context.paging, 'Runtime contract.task_context.paging');
+  expectExactKeys(paging, ['unit', 'default_bytes', 'min_bytes', 'max_bytes', 'required_fields', 'stale_binding'], 'Runtime contract.task_context.paging');
+  if (paging.unit !== 'utf8-bytes' || paging.default_bytes !== 16384 || paging.min_bytes !== 256 || paging.max_bytes !== 65536) fail('RUNTIME_CONTRACT_INVALID', 'task_context paging must retain the bounded UTF-8 byte budget.');
+  expectSetEqual(expectStringArray(paging.required_fields, 'Runtime contract.task_context.paging.required_fields'), ['returned', 'total_bytes', 'continuation', 'complete_for_operation'], 'task context paging fields');
+  expectSetEqual(expectStringArray(paging.stale_binding, 'Runtime contract.task_context.paging.stale_binding'), ['source_revision', 'definition_revision', 'state_revision', 'exact_reference'], 'task context stale binding');
+  const receipts = expectRecord(context.receipts, 'Runtime contract.task_context.receipts');
+  expectExactKeys(receipts, ['context', 'read', 'proves', 'not_authority'], 'Runtime contract.task_context.receipts');
+  if (receipts.context !== 'task-context-receipt/v1' || receipts.read !== 'task-read-receipt/v1' || receipts.proves !== 'version-and-return-range-only' || receipts.not_authority !== true) fail('RUNTIME_CONTRACT_INVALID', 'task context receipts must not be treated as execution authority.');
+}
+
+function validateTaskStoreContract(value: unknown): void {
+  const store = expectRecord(value, 'Runtime contract.task_store');
+  expectExactKeys(store, ['schema_version', 'kind', 'root', 'objects', 'events', 'indexes', 'commit_head', 'hot_window', 'full_history', 'dedup_key', 'event_identity', 'migration', 'garbage_collection', 'target_owned_data', 'active_projection', ...(store.diagnostics === undefined ? [] : ['diagnostics'])], 'Runtime contract.task_store');
+  if (store.schema_version !== 1 || store.kind !== 'vnext-task-store-contract' || store.root !== '<workflow_home>/task-data/<document_id>' || store.objects !== 'objects/<sha256>.json' || store.events !== 'events/<sequence>-<sha256>.json' || store.indexes !== 'rebuildable-and-non-authoritative' || store.commit_head !== 'CURRENT_TASK-single-submission-head' || store.hot_window !== 'cache-only' || store.full_history !== 'persistent-and-queryable' || store.dedup_key !== 'schema-object-type-document-id-complete-content' || store.event_identity !== 'sequence-time-cause-and-idempotency-preserved' || store.migration !== 'preview-confirm-commit-with-source-revision' || store.garbage_collection !== 'disabled-in-v1' || store.target_owned_data !== 'task-data-is-never-removed-by-distribution-upgrade') {
+    fail('RUNTIME_CONTRACT_INVALID', 'task_store must retain the content-addressed, append-only aggregate contract.');
+  }
+  const projection = expectRecord(store.active_projection, 'Runtime contract.task_store.active_projection');
+  const expected = { format: ACTIVE_TASK_FORMAT,
+    canonical_roots: 'CURRENT_TASK-definition-state-and-acknowledged-manifest',
+    material: 'immutable-content-addressed-definition-state-reports',
+    history: 'preserve-exact-preimages-events-and-idempotency',
+    legacy: 'read-without-rewrite-and-explicit-storage-migration',
+    admission: 'no-size-quota-or-business-transition',
+    receipt_continuity: 'committed-storage-only-lineage-and-equal-logical-state',
+    wire_compatibility: 'frozen-v3-model-not-current-serializer-bytes' };
+  if (digest(projection) !== digest(expected)) fail('RUNTIME_CONTRACT_INVALID', 'task projection must preserve the canonical aggregate and legacy semantics.');
+  if (store.diagnostics !== undefined && digest(store.diagnostics) !== digest({
+    response: 'validate --summary/storage_metrics', kind: 'task-storage-metrics/v1',
+    read_only: true, authority: 'none', persistence: 'none', incomplete: 'null-with-reason-not-a-gate',
+  })) fail('RUNTIME_CONTRACT_INVALID', 'Storage diagnostics must remain optional read-only observations.');
+}
+
+function validateBootstrapRuntimeContract(value: unknown): string[] {
+  const bootstrap = expectRecord(value, 'vNext Runtime contract.bootstrap_project');
+  expectExactKeys(
+    bootstrap,
+    ['schema_version', 'kind', 'caller', 'modes', 'required_envelope', 'mutation_scope', 'asset_boundary', 'operations', 'recovery', 'read_back'],
+    'vNext Runtime contract.bootstrap_project',
+  );
+  if (bootstrap.schema_version !== 1 || bootstrap.kind !== 'vnext-bootstrap-runtime-contract') {
+    fail('RUNTIME_CONTRACT_INVALID', 'bootstrap_project must declare the vNext bootstrap Runtime contract marker.');
+  }
+  expectSetEqual(expectStringArray(bootstrap.caller, 'Runtime contract.bootstrap_project.caller'), ['bootstrap-project'], 'bootstrap Runtime callers');
+  expectSetEqual(expectStringArray(bootstrap.modes, 'Runtime contract.bootstrap_project.modes'), [...BOOTSTRAP_MODES], 'bootstrap Runtime modes');
+  expectSetEqual(
+    expectStringArray(bootstrap.required_envelope, 'Runtime contract.bootstrap_project.required_envelope'),
+    ['authority_evidence', 'semantic_operations', 'preconditions', 'evidence_refs', 'idempotency_key', 'requested_write_targets', 'requested_directory_targets', 'changed_paths', 'scope_document', 'conditional_authorizations', 'transformation_kind', 'assets'],
+    'bootstrap Runtime proposal envelope',
+  );
+
+  const scope = expectRecord(bootstrap.mutation_scope, 'Runtime contract.bootstrap_project.mutation_scope');
+  expectExactKeys(scope, ['status', 'binding', 'source', 'default_write_policy', 'conditional_expansion_requires', 'read_discovery_is_not_write_authority', 'check_command', 'input', 'output'], 'Runtime contract.bootstrap_project.mutation_scope');
+  if (scope.status !== 'bound' || scope.binding !== 'vnext-runtime-read-only' || scope.source !== 'bootstrap proposal.scope_document' || scope.default_write_policy !== 'deny' || scope.conditional_expansion_requires !== 'evidence-and-authority' || scope.read_discovery_is_not_write_authority !== true || scope.check_command !== 'shared-mutation-scope-evaluator') {
+    fail('RUNTIME_CONTRACT_INVALID', 'bootstrap mutation scope must keep the shared default-deny evaluator boundary.');
+  }
+  const scopeInput = expectRecord(scope.input, 'Runtime contract.bootstrap_project.mutation_scope.input');
+  expectExactKeys(scopeInput, ['required'], 'Runtime contract.bootstrap_project.mutation_scope.input');
+  expectSetEqual(expectStringArray(scopeInput.required, 'Runtime contract.bootstrap_project.mutation_scope.input.required'), ['explicit_changed_paths', 'conditional_authorizations_with_evidence_and_authority', 'transformation_kind'], 'bootstrap mutation scope input');
+  const scopeOutput = expectRecord(scope.output, 'Runtime contract.bootstrap_project.mutation_scope.output');
+  expectExactKeys(scopeOutput, ['required'], 'Runtime contract.bootstrap_project.mutation_scope.output');
+  expectSetEqual(expectStringArray(scopeOutput.required, 'Runtime contract.bootstrap_project.mutation_scope.output.required'), ['per-path-admission-and-blocker', 'source-revision'], 'bootstrap mutation scope output');
+
+  const assetBoundary = expectRecord(bootstrap.asset_boundary, 'Runtime contract.bootstrap_project.asset_boundary');
+  expectExactKeys(assetBoundary, ['allowed_roots', 'forbidden_targets', 'generated_categories'], 'Runtime contract.bootstrap_project.asset_boundary');
+  expectSetEqual(
+    expectStringArray(assetBoundary.allowed_roots, 'Runtime contract.bootstrap_project.asset_boundary.allowed_roots'),
+    ['.workflow-system/PROJECT_PROFILE.yaml', '.workflow-system/vnext/BOOTSTRAP_RECEIPT.json', 'docs/workflow/', 'docs/designs/', 'docs/adoption/', 'AGENTS.md', 'CLAUDE.md'],
+    'bootstrap allowed asset roots',
+  );
+  const forbiddenTargets = expectStringArray(assetBoundary.forbidden_targets, 'Runtime contract.bootstrap_project.asset_boundary.forbidden_targets');
+  for (const required of ['.workflow-system/WORKFLOW_PROTOCOL.md', '.workflow-system/FILE_SCHEMAS.md', '.workflow-system/vnext/SOURCE_CONTRACT.yaml', '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', '.workflow-system/runtime/**', '.agents/skills/**']) {
+    if (!forbiddenTargets.includes(required)) fail('RUNTIME_CONTRACT_INVALID', `bootstrap forbidden target must include ${required}.`);
+  }
+  expectSetEqual(
+    expectStringArray(assetBoundary.generated_categories, 'Runtime contract.bootstrap_project.asset_boundary.generated_categories'),
+    ['config', 'generated', 'governance'],
+    'bootstrap generated asset categories',
+  );
+
+  const operations = bootstrap.operations;
+  if (!Array.isArray(operations) || operations.length !== BOOTSTRAP_OPERATION_KINDS.length) fail('RUNTIME_CONTRACT_INVALID', `bootstrap_project must declare exactly ${BOOTSTRAP_OPERATION_KINDS.length} typed operations.`);
+  const bound: string[] = [];
+  const expectedOperations: Record<string, { source: string[]; writes: string[] }> = {
+    'contract-candidate-commit': { source: ['source-authority evidence', 'existing CONTRACTS.md when present'], writes: ['CONTRACTS.md'] },
+    'decision-record-transaction': { source: ['source-authority evidence', 'existing DECISIONS.md when present'], writes: ['DECISIONS.md'] },
+    'project-status-transaction': { source: ['STATUS.md'], writes: ['STATUS.md'] },
+    'paired-host-guidance-transaction': { source: ['target host guidance'], writes: ['paired host guidance'] },
+  };
+  for (const [index, rawOperation] of operations.entries()) {
+    const operation = expectRecord(rawOperation, `Runtime contract.bootstrap_project.operations[${index}]`);
+    expectExactKeys(operation, ['id', 'status', 'binding', 'operation', 'source_targets', 'write_targets', 'allowed_callers', 'result_states', 'atomic', 'idempotence', 'conflict_policy'], `Runtime contract.bootstrap_project.operations[${index}]`);
+    const id = expectString(operation.id, `Runtime contract.bootstrap_project.operations[${index}].id`);
+    if (!(BOOTSTRAP_OPERATION_KINDS as readonly string[]).includes(id) || bound.includes(id)) fail('RUNTIME_CONTRACT_INVALID', `bootstrap operation ${id} is not in the closed operation set.`);
+    if (operation.status !== 'bound' || operation.binding !== 'vnext-runtime' || operation.operation !== id) fail('RUNTIME_CONTRACT_INVALID', `bootstrap operation ${id} must be bound to vnext-runtime.`);
+    const expected = expectedOperations[id];
+    expectSetEqual(expectStringArray(operation.source_targets, `bootstrap operation ${id}.source_targets`), expected.source, `bootstrap operation ${id}.source_targets`);
+    expectSetEqual(expectStringArray(operation.write_targets, `bootstrap operation ${id}.write_targets`), expected.writes, `bootstrap operation ${id}.write_targets`);
+    expectSetEqual(expectStringArray(operation.allowed_callers, `bootstrap operation ${id}.allowed_callers`), ['bootstrap-project'], `bootstrap operation ${id}.allowed_callers`);
+    expectSetEqual(expectStringArray(operation.result_states, `bootstrap operation ${id}.result_states`), [...RUNTIME_RESULT_STATES], `bootstrap operation ${id}.result_states`);
+    if (operation.atomic !== true || operation.idempotence !== 'fail-closed' || operation.conflict_policy !== 'fail-closed') fail('RUNTIME_CONTRACT_INVALID', `bootstrap operation ${id} must be atomic, fail-closed, and conflict-safe.`);
+    bound.push(id);
+  }
+  expectSetEqual(bound, [...BOOTSTRAP_OPERATION_KINDS], 'bootstrap Runtime bound operations');
+
+  const recovery = expectRecord(bootstrap.recovery, 'Runtime contract.bootstrap_project.recovery');
+  expectExactKeys(recovery, ['marker', 'interrupted', 'rollback'], 'Runtime contract.bootstrap_project.recovery');
+  if (recovery.marker !== '.workflow-system/vnext/BOOTSTRAP_IN_PROGRESS.json' || recovery.interrupted !== 'fail-closed-explicit-recovery' || recovery.rollback !== 'verify-scoped-pre-bootstrap-preimage-before-marker-clear') fail('RUNTIME_CONTRACT_INVALID', 'bootstrap recovery must use the explicit interruption marker and verified scoped rollback boundary.');
+  const readBack = expectRecord(bootstrap.read_back, 'Runtime contract.bootstrap_project.read_back');
+  expectExactKeys(readBack, ['required'], 'Runtime contract.bootstrap_project.read_back');
+  expectSetEqual(expectStringArray(readBack.required, 'Runtime contract.bootstrap_project.read_back.required'), ['asset-checksums', 'project-identity', 'runtime-contract', 'distribution-prerequisite', 'canonical-CURRENT_TASK', 'host-isolation'], 'bootstrap read-back evidence');
+  return bound;
+}
+
+export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
+  const filePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split('/'));
+  const contract = parseYamlMappingFile(filePath);
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'task_context', 'task_store', 'proposal', 'mutation_scope', 'mutation_authority', 'review_coverage_preimages', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
+  if (contract.schema_version !== 1 || contract.kind !== 'vnext-runtime-contract' || contract.phase !== 'Phase 2') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.');
+  }
+  const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
+  const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
+  validateTaskContextContract(contract.task_context);
+  validateTaskStoreContract(contract.task_store);
+  const proposal = expectRecord(contract.proposal, 'Runtime contract.proposal');
+  expectExactKeys(proposal, ['schema_version', 'kind', 'caller', 'operation_kinds', 'source_tuple', 'required_envelope', 'finding_queue_admission', 'finding_queue_repair', 'process_control', 'task_state', 'execute_step', 'review_change', 'prepare_task', 'inbox_record', 'lifecycle', 'close_task', 'lesson_marker'], 'Runtime contract.proposal');
+  if (proposal.schema_version !== 1 || proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime proposal contract has an invalid envelope marker.');
+  expectSetEqual(expectStringArray(proposal.caller, 'Runtime contract.proposal.caller'), ['execute-step', 'review-change', 'prepare-task', 'task-lifecycle', 'capture-work-item', 'close-task'], 'Runtime contract proposal callers');
+  expectSetEqual(expectStringArray(proposal.operation_kinds, 'Runtime contract.proposal.operation_kinds'), [...RUNTIME_OPERATION_KINDS], 'Runtime contract operation kinds');
+  expectSetEqual(
+    expectStringArray(proposal.source_tuple, 'Runtime contract.proposal.source_tuple'),
+    [...RUNTIME_SOURCE_TUPLE_FIELDS],
+    'Runtime contract source tuple',
+  );
+  expectSetEqual(
+    expectStringArray(proposal.required_envelope, 'Runtime contract.proposal.required_envelope'),
+    [...RUNTIME_REQUIRED_ENVELOPE_FIELDS],
+    'Runtime contract proposal envelope',
+  );
+  const findingQueueRepair = expectRecord(proposal.finding_queue_repair, 'Runtime contract.proposal.finding_queue_repair');
+  expectExactKeys(findingQueueRepair, ['required'], 'Runtime contract.proposal.finding_queue_repair');
+  expectSetEqual(
+    expectStringArray(findingQueueRepair.required, 'Runtime contract.proposal.finding_queue_repair.required'),
+    ['review_cycle_id', 'repair_wave_id'],
+    'Runtime contract finding-queue repair fields',
+  );
+  const findingQueueAdmission = expectRecord(proposal.finding_queue_admission, 'Runtime contract.proposal.finding_queue_admission');
+  expectExactKeys(findingQueueAdmission, ['required'], 'Runtime contract.proposal.finding_queue_admission');
+  expectSetEqual(
+    expectStringArray(findingQueueAdmission.required, 'Runtime contract.proposal.finding_queue_admission.required'),
+    ['cycle_phase', 'finding_admission_wave_id'],
+    'Runtime contract finding-queue admission fields',
+  );
+  const processControl = expectRecord(proposal.process_control, 'Runtime process_control');
+  const processSemantics = {
+    user_evidence: 'exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated',
+    waiver: 'user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass',
+    successor: 'explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required',
+    validation_adjustment: 'replace-validation; one-read-only-check; preserve-observation-boundary-subjects-validation-ownership-exact-granularity-selector-authority-and-budgets; no-task-redefinition',
+  };
+  expectExactKeys(processControl, Object.keys(processSemantics), 'Runtime process_control');
+  for (const [key, expected] of Object.entries(processSemantics)) {
+    if (processControl[key] !== expected) fail('RUNTIME_CONTRACT_INVALID', `Runtime process_control.${key} differs from its task-level semantics.`);
+  }
+  const taskStateContract = expectRecord(proposal.task_state, 'Runtime contract.proposal.task_state');
+  expectExactKeys(taskStateContract, ['actions', 'execution_admission', 'retry_step', 'step_progress', 'preflight', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
+  expectSetEqual(
+    expectStringArray(taskStateContract.actions, 'Runtime contract.proposal.task_state.actions'),
+    ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'],
+    'Runtime contract task-state actions',
+  );
+  const executionAdmissionContract = expectRecord(taskStateContract.execution_admission, 'Runtime contract.proposal.task_state.execution_admission');
+  expectExactKeys(executionAdmissionContract, ['evaluator', 'question', 'shared_by', 'classifications', 'mutation_order', 'error_mapping', 'semantic_boundary'], 'Runtime contract.proposal.task_state.execution_admission');
+  if (
+    executionAdmissionContract.evaluator !== 'runtime-owned-exact-target-admission/v1'
+    || executionAdmissionContract.question !== 'current-task-step-phase-target-assessment-may-enter-this-execution'
+    || executionAdmissionContract.semantic_boundary !== 'runtime-owns-structural-checks-agent-owns-blast-radius-judgment'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime execution admission evaluator contract is invalid.');
+  }
+  expectSetEqual(
+    expectStringArray(executionAdmissionContract.shared_by, 'Runtime contract.proposal.task_state.execution_admission.shared_by'),
+    ['record-step-preflight', 'extend-preflight', 'begin-repair', 'repair-extension', 'record-step-result', 'command-footprint-preflight'],
+    'Runtime execution admission shared entry points',
+  );
+  expectSetEqual(
+    expectStringArray(executionAdmissionContract.classifications, 'Runtime contract.proposal.task_state.execution_admission.classifications'),
+    [...EXECUTION_ADMISSION_CLASSIFICATIONS],
+    'Runtime execution admission classifications',
+  );
+  expectSetEqual(
+    expectStringArray(executionAdmissionContract.mutation_order, 'Runtime contract.proposal.task_state.execution_admission.mutation_order'),
+    ['explicit-forbidden-and-governance', 'test-strategy-and-non-executable-policy', 'v1-or-v2-authority', 'assessment-and-persistent-test-admission'],
+    'Runtime execution admission mutation order',
+  );
+  const executionAdmissionErrors = expectRecord(executionAdmissionContract.error_mapping, 'Runtime contract.proposal.task_state.execution_admission.error_mapping');
+  expectExactKeys(executionAdmissionErrors, ['blocked_assessment', 'blocked_escalation', 'blocked_authority'], 'Runtime contract.proposal.task_state.execution_admission.error_mapping');
+  if (executionAdmissionErrors.blocked_assessment !== 'MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED'
+    || executionAdmissionErrors.blocked_escalation !== 'MUTATION_BLAST_RADIUS_ESCALATION_REQUIRED'
+    || executionAdmissionErrors.blocked_authority !== 'MUTATION_AUTHORITY_EXPANSION_REQUIRED') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime execution admission error mapping is invalid.');
+  }
+  const retryContract = expectRecord(taskStateContract.retry_step, 'Runtime contract.proposal.task_state.retry_step');
+  expectExactKeys(retryContract, ['max_attempts','environment_report','same_plan_repair_diagnosis','repair_paths','failure_preservation','result_required'], 'Runtime contract.proposal.task_state.retry_step');
+  if (retryContract.max_attempts !== 3 || retryContract.environment_report !== 'environment-restored/v1' || retryContract.same_plan_repair_diagnosis !== 'same-plan-repair/v1' || retryContract.repair_paths !== 'failed-preflight-subset' || retryContract.failure_preservation !== 'durable-step-attempts' || retryContract.result_required !== 'fresh-preflight-and-execution') fail('RUNTIME_CONTRACT_INVALID','Runtime retry contract must retain bounded same-plan recovery and fresh execution.');
+  const stepProgressContract = expectRecord(taskStateContract.step_progress, 'Runtime contract.proposal.task_state.step_progress');
+  expectExactKeys(stepProgressContract, ['required', 'optional'], 'Runtime contract.proposal.task_state.step_progress');
+  expectSetEqual(
+    expectStringArray(stepProgressContract.required, 'Runtime contract.proposal.task_state.step_progress.required'),
+    ['step_id', 'status', 'evidence_refs'],
+    'Runtime contract task-state required fields',
+  );
+  expectSetEqual(
+    expectStringArray(stepProgressContract.optional, 'Runtime contract.proposal.task_state.step_progress.optional', true),
+    ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'change_set_id', 'review_receipt', 'claim_evidence', 'execution_result'],
+    'Runtime contract task-state optional fields',
+  );
+  const preflightContract = expectRecord(taskStateContract.preflight, 'Runtime contract.proposal.task_state.preflight');
+  expectExactKeys(preflightContract, ['initial', 'extension'], 'Runtime contract.proposal.task_state.preflight');
+  const initialPreflight = expectRecord(preflightContract.initial, 'Runtime contract.proposal.task_state.preflight.initial');
+  expectExactKeys(initialPreflight, ['action', 'planned_footprint', 'in_envelope_unplanned', 'outside_envelope', 'first_touch', 'evaluator', 'execution_identity'], 'Runtime contract.proposal.task_state.preflight.initial');
+  if (initialPreflight.action !== 'record-step-preflight'
+    || initialPreflight.planned_footprint !== 'normal-admission'
+    || initialPreflight.in_envelope_unplanned !== 'blast-radius-assessment-and-self-admit'
+    || initialPreflight.outside_envelope !== 'MUTATION_AUTHORITY_EXPANSION_REQUIRED'
+     || initialPreflight.first_touch !== 'runtime-captured-before-state'
+     || initialPreflight.evaluator !== 'execution-admission'
+     || initialPreflight.execution_identity !== 'stable-per-execution-with-replacement-receipt') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime initial preflight authority semantics are invalid.');
+  }
+  const extensionPreflight = expectRecord(preflightContract.extension, 'Runtime contract.proposal.task_state.preflight.extension');
+  expectExactKeys(extensionPreflight, ['action', 'required', 'optional', 'same_attempt', 'plan_revision_change', 'retry_budget_change', 'continuation', 'replacement_receipt', 'review', 'repair', 'first_touch'], 'Runtime contract.proposal.task_state.preflight.extension');
+  expectSetEqual(
+    expectStringArray(extensionPreflight.required, 'Runtime contract.proposal.task_state.preflight.extension.required'),
+    ['current_preflight_id', 'additional_targets', 'blast_radius_assessments', 'evidence_refs'],
+    'Runtime extend-preflight required fields',
+  );
+  expectSetEqual(
+    expectStringArray(extensionPreflight.optional, 'Runtime contract.proposal.task_state.preflight.extension.optional', true),
+    ['mode', 'execution_id', 'execution_phase', 'repair_wave_id', 'review_id'],
+    'Runtime extend-preflight optional fields',
+  );
+  if (extensionPreflight.action !== 'extend-preflight'
+    || extensionPreflight.same_attempt !== true
+    || extensionPreflight.plan_revision_change !== 'forbidden'
+    || extensionPreflight.retry_budget_change !== 'forbidden'
+    || extensionPreflight.continuation !== 'forbidden'
+    || extensionPreflight.replacement_receipt !== 'required'
+     || extensionPreflight.review !== 'risk-selected-cumulative-review-for-self-admitted-expansion'
+     || extensionPreflight.repair !== 'same-evaluator-same-wave-no-retry-consumption'
+     || extensionPreflight.first_touch !== 'append-only-for-new-targets') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime extend-preflight semantics are invalid.');
+  }
+  const claimEvidenceContract = expectRecord(taskStateContract.claim_evidence, 'Runtime contract.proposal.task_state.claim_evidence');
+  expectExactKeys(claimEvidenceContract, ['stored_in', 'report_binding', 'record_fields', 'slot_fields', 'complete_dispositions', 'incomplete_dispositions', 'execution_selection', 'completion_rule'], 'Runtime contract.proposal.task_state.claim_evidence');
+  if (claimEvidenceContract.stored_in !== 'canonical CURRENT_TASK.runtime_state') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence must be stored in the canonical CURRENT_TASK runtime state.');
+  }
+  if (claimEvidenceContract.report_binding !== 'exact-claim-slot-check-only; command pass never creates or satisfies another slot') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence reports must remain bound to one exact claim/slot/check.');
+  }
+  expectSetEqual(
+    expectStringArray(claimEvidenceContract.record_fields, 'Runtime contract claim evidence record_fields'),
+    ['claim_id', 'claim_kind', 'requirement', 'source_ref', 'slots'],
+    'Runtime claim evidence record fields',
+  );
+  expectSetEqual(
+    expectStringArray(claimEvidenceContract.slot_fields, 'Runtime contract claim evidence slot_fields'),
+    ['slot_id', 'minimum_type', 'disposition', 'evidence_refs', 'due_step_id', 'applicability', 'before_step_id', 'check', 'report', 'prerequisite_receipt', 'user_decision'],
+    'Runtime claim evidence slot fields',
+  );
+  expectSetEqual(
+    expectStringArray(claimEvidenceContract.complete_dispositions, 'Runtime contract claim evidence complete_dispositions'),
+    ['existing', 'reused', 'newly-executed'],
+    'Runtime claim evidence complete dispositions',
+  );
+  expectSetEqual(
+    expectStringArray(claimEvidenceContract.incomplete_dispositions, 'Runtime contract claim evidence incomplete_dispositions'),
+    ['missing', 'deferred', 'blocked'],
+    'Runtime claim evidence incomplete dispositions',
+  );
+  const executionSelection = expectRecord(claimEvidenceContract.execution_selection, 'Runtime contract claim evidence execution_selection');
+  expectExactKeys(executionSelection, ['fields', 'invocation_kinds', 'check_boundaries', 'granularities', 'breadth_bases', 'freshness', 'command_binding', 'business_flow', 'authority_binding', 'e2e_admission', 'broad_admission'], 'Runtime contract claim evidence execution_selection');
+  expectSetEqual(expectStringArray(executionSelection.invocation_kinds, 'Runtime execution invocation kinds'), ['structured', 'opaque'], 'Runtime execution invocation kinds');
+  expectSetEqual(
+    expectStringArray(executionSelection.fields, 'Runtime claim evidence execution selection fields'),
+    ['granularity', 'selector', 'selection_reason', 'breadth_reason', 'breadth_basis', 'breadth_source_ref', 'invocation'],
+    'Runtime claim evidence execution selection fields',
+  );
+  expectSetEqual(
+    expectStringArray(executionSelection.granularities, 'Runtime claim evidence execution granularities'),
+    [...EVIDENCE_EXECUTION_GRANULARITIES],
+    'Runtime claim evidence execution granularities',
+  );
+  expectSetEqual(expectStringArray(executionSelection.check_boundaries, 'Runtime claim evidence check boundaries'), [...EVIDENCE_CHECK_BOUNDARIES], 'Runtime claim evidence check boundaries');
+  expectSetEqual(
+    expectStringArray(executionSelection.breadth_bases, 'Runtime claim evidence execution selection breadth bases'),
+    [...EVIDENCE_EXECUTION_BREADTH_BASES],
+    'Runtime claim evidence execution selection breadth bases',
+  );
+  if (
+    executionSelection.freshness !== 'new-or-changed-check-identity-across-draft-update-confirm-replan-recovery; unchanged-confirmed-legacy-compatible'
+    || executionSelection.command_binding !== 'structured-argv-selector-or-verbatim-opaque-command-equals-entry-and-exact-due-step-planned-command; opaque-cannot-claim-focused'
+    || executionSelection.business_flow !== 'per-check-boundary-independent-of-granularity; same-claim-rule-and-flow-slots; no-test-type-hierarchy'
+    || executionSelection.authority_binding !== 'explicit-user-exact-task-basis; policy-and-release-canonical-repository-source; claim-bases-exact-current-claim-and-its-existing-task-basis-or-repository-source'
+    || executionSelection.e2e_admission !== 'acceptance-boundary-or-low-cost-insufficiency-or-project-policy-or-release-gate-or-explicit-user'
+    || executionSelection.broad_admission !== 'claim-risk-contract-or-project-policy-or-release-gate-or-explicit-user'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime execution selection contract is invalid.');
+  }
+  if (claimEvidenceContract.completion_rule !== CLAIM_EVIDENCE_COMPLETION_RULE) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence completion must require a non-empty frozen plan with an acceptance claim and every planned slot with its evidence_refs.');
+  }
+  const claimEvidenceMigrationContract = expectRecord(taskStateContract.claim_evidence_migration, 'Runtime contract.proposal.task_state.claim_evidence_migration');
+  expectExactKeys(
+    claimEvidenceMigrationContract,
+    ['mode', 'action', 'required', 'from', 'to', 'mutation', 'preserves'],
+    'Runtime contract.proposal.task_state.claim_evidence_migration',
+  );
+  if (claimEvidenceMigrationContract.mode !== 'default' || claimEvidenceMigrationContract.action !== 'migrate-claim-evidence') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence migration must use default/migrate-claim-evidence.');
+  }
+  expectSetEqual(
+    expectStringArray(claimEvidenceMigrationContract.required, 'Runtime contract claim evidence migration required'),
+    ['claim_evidence', 'evidence_refs'],
+    'Runtime contract claim evidence migration required fields',
+  );
+  if (claimEvidenceMigrationContract.from !== 'active + active legacy-or-empty-plan' || claimEvidenceMigrationContract.to !== 'active + active') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence migration transition is invalid.');
+  }
+  if (claimEvidenceMigrationContract.mutation !== 'reconstruct legacy claim/slot/check identities; execution entries must equal existing planned commands at their original due steps; modern selection metadata is not required') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime claim evidence migration mutation boundary is invalid.');
+  }
+  expectSetEqual(
+    expectStringArray(claimEvidenceMigrationContract.preserves, 'Runtime contract claim evidence migration preserves'),
+    ['TASK_ID', 'TASK_SLUG', 'document_id', 'goal', 'scope', 'acceptance', 'implementation steps', 'active step/status', 'execution history', 'findings', 'review state', 'lifecycle tuple'],
+    'Runtime claim evidence migration preserved fields',
+  );
+  expectSetEqual(
+    expectStringArray(taskStateContract.advancement_outcomes, 'Runtime contract.proposal.task_state.advancement_outcomes'),
+    [...STEP_ADVANCEMENT_OUTCOMES],
+    'Runtime contract task-state advancement outcomes',
+  );
+  const reviewReceiptContract = expectRecord(taskStateContract.review_receipt, 'Runtime contract.proposal.task_state.review_receipt');
+  expectExactKeys(reviewReceiptContract, ['required', 'verdict', 'cycle_phase', 'target_verification'], 'Runtime contract.proposal.task_state.review_receipt');
+  expectSetEqual(
+    expectStringArray(reviewReceiptContract.required, 'Runtime contract.proposal.task_state.review_receipt.required'),
+    ['cycle_id', 'cycle_phase', 'change_set_id', 'review_target_revision', 'verdict', 'admitted_fingerprints', 'evidence_refs'],
+    'Runtime contract review receipt required fields',
+  );
+  if (reviewReceiptContract.verdict !== 'clean') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract review receipt verdict must remain clean.');
+  expectSetEqual(
+    expectStringArray(reviewReceiptContract.cycle_phase, 'Runtime contract.proposal.task_state.review_receipt.cycle_phase'),
+    [...REVIEW_CYCLE_PHASES],
+    'Runtime contract review receipt cycle phases',
+  );
+  if (reviewReceiptContract.target_verification !== 'runtime-file-manifest') fail('RUNTIME_CONTRACT_INVALID', 'review receipt target verification must be runtime-file-manifest.');
+  const reviewResultContract = expectRecord(taskStateContract.review_result, 'Runtime contract.proposal.task_state.review_result');
+  expectExactKeys(reviewResultContract, ['stored_in', 'verdicts', 'binds', 'consumed_by', 'test_assessment'], 'Runtime contract.proposal.task_state.review_result');
+  expectSetEqual(expectStringArray(reviewResultContract.test_assessment, 'review_result.test_assessment'), ['applicable','reason','evidence_refs','necessity','oracle','boundary','reuse','applicability'], 'test assessment fields');
+  if (reviewResultContract.stored_in !== 'canonical CURRENT_TASK.runtime_state.pending_review_result') fail('RUNTIME_CONTRACT_INVALID', 'review result must use canonical pending review storage.');
+  expectSetEqual(expectStringArray(reviewResultContract.verdicts, 'Runtime contract review-result verdicts'), [...REVIEW_RESULT_VERDICTS], 'Runtime contract review-result verdicts');
+  expectSetEqual(expectStringArray(reviewResultContract.binds, 'Runtime contract review-result bindings'), ['active_step_id', 'review_cycle_id', 'latest_execution_id', 'change_set_id', 'review_target_revision'], 'Runtime contract review-result bindings');
+  const reviewResultConsumers = expectRecord(reviewResultContract.consumed_by, 'Runtime contract review-result consumers');
+  expectExactKeys(reviewResultConsumers, ['clean', 'findings', 'blocked'], 'Runtime contract review-result consumers');
+  if (reviewResultConsumers.clean !== 'execute-step:complete-reviewed-step' || reviewResultConsumers.findings !== 'execute-step:begin-repair' || reviewResultConsumers.blocked !== 'caller-route') fail('RUNTIME_CONTRACT_INVALID', 'Runtime review-result consumers are invalid.');
+  const draftContract = expectRecord(taskStateContract.draft, 'Runtime contract.proposal.task_state.draft');
+  expectExactKeys(draftContract, ['mode', 'actions', 'identity_required', 'definition_required', 'claim_evidence', 'task_basis', 'create_from', 'update_from', 'target', 'previous_close_reconciliation', 'step_admission', 'preserves'], 'Runtime contract.proposal.task_state.draft');
+  if (draftContract.mode !== 'default') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft mode must remain default.');
+  expectSetEqual(expectStringArray(draftContract.actions, 'Runtime contract.proposal.task_state.draft.actions'), ['create-draft', 'update-draft'], 'Runtime contract task-state draft actions');
+  expectSetEqual(expectStringArray(draftContract.identity_required, 'Runtime contract.proposal.task_state.draft.identity_required'), ['task_id', 'task_slug', 'document_id', 'task_title'], 'Runtime contract task-state draft identity fields');
+  expectSetEqual(expectStringArray(draftContract.definition_required, 'Runtime contract.proposal.task_state.draft.definition_required'), [...REPLAN_REPLACEMENT_FIELDS], 'Runtime contract task-state draft definition fields');
+  if (draftContract.claim_evidence !== DRAFT_CLAIM_EVIDENCE_REQUIREMENT) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime draft claim evidence requirement is invalid.');
+  }
+  const draftTaskBasis = expectRecord(draftContract.task_basis, 'Runtime contract.proposal.task_state.draft.task_basis');
+  expectExactKeys(draftTaskBasis, ['required', 'source_fields', 'storage', 'write_binding', 'review_results_forbidden'], 'Runtime contract.proposal.task_state.draft.task_basis');
+  expectSetEqual(expectStringArray(draftTaskBasis.required, 'Runtime contract draft task basis required fields'), ['original_request', 'user_decisions'], 'Runtime contract draft task basis required fields');
+  expectSetEqual(expectStringArray(draftTaskBasis.source_fields, 'Runtime contract draft task basis source fields'), ['source', 'verbatim'], 'Runtime contract draft task basis source fields');
+  if (draftTaskBasis.storage !== 'identity-derived-linked-document' || draftTaskBasis.write_binding !== 'same-atomic-draft-transaction' || draftTaskBasis.review_results_forbidden !== true) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime draft task basis storage boundary is invalid.');
+  }
+  for (const [field, expected] of [['create_from', 'closed + archived'], ['update_from', 'draft + active'], ['target', 'draft + active']] as const) {
+    if (draftContract[field] !== expected) fail('RUNTIME_CONTRACT_INVALID', `Runtime contract task-state draft ${field} must be ${expected}.`);
+  }
+  const draftReconciliation = expectRecord(draftContract.previous_close_reconciliation, 'Runtime contract.proposal.task_state.draft.previous_close_reconciliation');
+  expectExactKeys(draftReconciliation, ['archive', 'status', 'admitted_lesson'], 'Runtime contract.proposal.task_state.draft.previous_close_reconciliation');
+  if (draftReconciliation.archive !== 'required' || draftReconciliation.status !== 'non-blocking' || draftReconciliation.admitted_lesson !== 'required-or-durable-reuse-proof') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft previous_close_reconciliation requirements are invalid.');
+  }
+  const draftStepAdmission = expectRecord(draftContract.step_admission, 'Runtime contract.proposal.task_state.draft.step_admission');
+  expectExactKeys(draftStepAdmission, ['all_steps_metadata_complete', 'active_step'], 'Runtime contract.proposal.task_state.draft.step_admission');
+  if (draftStepAdmission.all_steps_metadata_complete !== true || draftStepAdmission.active_step !== 'first-admitted-step') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft step_admission requirements are invalid.');
+  }
+  expectSetEqual(
+    expectStringArray(draftContract.preserves, 'Runtime contract.proposal.task_state.draft.preserves'),
+    ['TASK_ID', 'TASK_SLUG', 'document_id on update', 'execution_log', 'applied_proposals', 'canonical provenance'],
+    'Runtime contract task-state draft preserved fields',
+  );
+  const confirmContract = expectRecord(taskStateContract.confirm, 'Runtime contract.proposal.task_state.confirm');
+  expectExactKeys(confirmContract, ['mode', 'action', 'required', 'authority', 'authority_coordinates', 'from', 'to'], 'Runtime contract.proposal.task_state.confirm');
+  if (confirmContract.mode !== 'confirm' || confirmContract.action !== 'confirm-draft') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm must use confirm/confirm-draft.');
+  expectSetEqual(expectStringArray(confirmContract.required, 'Runtime contract.proposal.task_state.confirm.required'), ['task_id', 'task_slug', 'document_id', 'draft_revision', 'evidence_refs'], 'Runtime contract task-state confirm required fields');
+  expectSetEqual(expectStringArray(confirmContract.authority, 'Runtime contract.proposal.task_state.confirm.authority'), ['user-confirmation', 'authorized-caller'], 'Runtime contract task-state confirm authority');
+  const confirmCoords = expectRecord(confirmContract.authority_coordinates, 'Runtime contract.proposal.task_state.confirm.authority_coordinates');
+  expectExactKeys(confirmCoords, ['required', 'exact_draft_revision'], 'Runtime contract.proposal.task_state.confirm.authority_coordinates');
+  expectSetEqual(expectStringArray(confirmCoords.required, 'Runtime contract.proposal.task_state.confirm.authority_coordinates.required'), ['task_id', 'document_id', 'draft_revision'], 'Runtime contract task-state confirm authority coordinates');
+  if (confirmCoords.exact_draft_revision !== true) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm authority_coordinates exact_draft_revision must be true.');
+  if (confirmContract.from !== 'draft + active' || confirmContract.to !== 'active + active') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state confirm transition is invalid.');
+  const executeStepContract = expectRecord(proposal.execute_step, 'Runtime contract.proposal.execute_step');
+  expectExactKeys(executeStepContract, ['semantic_adapter', 'bound_actions'], 'Runtime contract.proposal.execute_step');
+  const executeStepAdapter = expectRecord(executeStepContract.semantic_adapter, 'Runtime contract.proposal.execute_step.semantic_adapter');
+  expectExactKeys(
+    executeStepAdapter,
+    [
+      'input',
+      'commands',
+      'step_source',
+      'scope_enforcement',
+      'command_plan_source',
+      'persistent_tests_enforcement',
+      'test_strategy_execution',
+      'completion_evidence_source',
+      'change_detection',
+      'proposal_file_policy',
+      'advancement_owner',
+      'post_completion_commit_owner',
+      'post_completion_route',
+    ],
+    'Runtime contract.proposal.execute_step.semantic_adapter',
+  );
+  if (executeStepAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime execute-step adapter input must remain stdin-json.');
+  expectSetEqual(
+    expectStringArray(executeStepAdapter.commands, 'Runtime contract.proposal.execute_step.semantic_adapter.commands'),
+    ['preflight-step', 'extend-preflight', 'evidence-context', 'retry-step', 'replace-validation', 'begin-repair', 'record-step-result', 'complete-reviewed-step'],
+    'Runtime contract execute-step adapter commands',
+  );
+  const testStrategyExecution = expectRecord(
+    executeStepAdapter.test_strategy_execution,
+    'Runtime contract.proposal.execute_step.semantic_adapter.test_strategy_execution',
+  );
+  expectExactKeys(
+    testStrategyExecution,
+    ['phase_source', 'legacy_behavior', 'test_first', 'red_evidence', 'non_red_outcome'],
+    'Runtime contract execute-step test-strategy execution',
+  );
+  const testFirstExecution = expectRecord(testStrategyExecution.test_first, 'Runtime contract execute-step test-first execution');
+  expectExactKeys(
+    testFirstExecution,
+    ['first_step_phase', 'later_step_phase', 'first_step_outcome', 'later_step_outcome', 'advancement_gate'],
+    'Runtime contract execute-step test-first execution',
+  );
+  const redEvidence = expectRecord(testStrategyExecution.red_evidence, 'Runtime contract execute-step red evidence');
+  expectExactKeys(
+    redEvidence,
+    ['result_status', 'kind', 'companion_statuses', 'forbidden_statuses', 'acceptance_evidence', 'unexpected_failure_outcome', 'review_checkpoint'],
+    'Runtime contract execute-step red evidence',
+  );
+  expectSetEqual(expectStringArray(redEvidence.companion_statuses, 'Runtime contract execute-step red companion statuses'), ['passed'], 'Runtime contract execute-step red companion statuses');
+  expectSetEqual(expectStringArray(redEvidence.forbidden_statuses, 'Runtime contract execute-step red forbidden statuses'), ['failed', 'blocked', 'not-run'], 'Runtime contract execute-step red forbidden statuses');
+  if (
+    executeStepAdapter.step_source !== 'confirmed-current-task'
+    || executeStepAdapter.scope_enforcement !== 'task-authority-envelope-with-v1-step-compatibility'
+    || executeStepAdapter.command_plan_source !== 'confirmed-current-step'
+    || executeStepAdapter.persistent_tests_enforcement !== 'frozen-section-plus-authority-evaluator-existing-test-distinction'
+    || executeStepAdapter.completion_evidence_source !== 'recorded-step-result-only'
+    || executeStepAdapter.change_detection !== 'runtime-preflight-candidate-before-after-delta'
+    || executeStepAdapter.proposal_file_policy !== 'project-external-only'
+    || executeStepAdapter.advancement_owner !== 'runtime'
+    || executeStepAdapter.post_completion_commit_owner !== 'user-or-explicit-outer-orchestrator'
+    || executeStepAdapter.post_completion_route !== 'git-commit'
+    || testStrategyExecution.phase_source !== 'versioned-frozen-test-strategy-and-current-step-evidence-obligation'
+    || testStrategyExecution.legacy_behavior !== 'read-history-block-unversioned-execution'
+    || testStrategyExecution.non_red_outcome !== 'implemented-with-passed-results-or-bound-reproduction'
+    || testFirstExecution.first_step_phase !== 'test-first'
+    || testFirstExecution.later_step_phase !== 'test-first'
+    || testFirstExecution.first_step_outcome !== 'implemented'
+    || testFirstExecution.later_step_outcome !== 'implemented'
+    || testFirstExecution.advancement_gate !== 'runtime-consumed-bound-prerequisite-evidence'
+    || redEvidence.result_status !== 'expected-failure'
+    || redEvidence.kind !== 'behavior-not-implemented'
+    || redEvidence.acceptance_evidence !== 'forbidden'
+    || redEvidence.unexpected_failure_outcome !== 'blocked'
+    || redEvidence.review_checkpoint !== 'required'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime execute-step adapter semantic boundary is invalid.');
+  }
+  expectSetEqual(
+    expectStringArray(executeStepContract.bound_actions, 'Runtime contract.proposal.execute_step.bound_actions'),
+    ['admit', 'retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'record-repair-attempt', 'resolve'],
+    'Runtime contract execute-step adapter bound actions',
+  );
+  const reviewChangeContract = expectRecord(proposal.review_change, 'Runtime contract.proposal.review_change');
+  expectExactKeys(reviewChangeContract, ['semantic_adapter', 'bound_actions'], 'Runtime contract.proposal.review_change');
+  const reviewChangeAdapter = expectRecord(reviewChangeContract.semantic_adapter, 'Runtime contract.proposal.review_change.semantic_adapter');
+  expectExactKeys(reviewChangeAdapter, ['input', 'commands', 'context_source', 'reviewable_execution', 'change_set', 'review_target', 'result_storage', 'direct_product_writes', 'advancement_owner'], 'Runtime contract.proposal.review_change.semantic_adapter');
+  if (
+    reviewChangeAdapter.input !== 'stdin-json'
+    || reviewChangeAdapter.context_source !== 'latest-recorded-execution'
+    || reviewChangeAdapter.reviewable_execution !== 'implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification'
+    || reviewChangeAdapter.change_set !== 'runtime-owned-stable-id'
+    || reviewChangeAdapter.review_target !== 'runtime-cumulative-before-after-file-delta'
+    || reviewChangeAdapter.result_storage !== 'canonical-pending-review-result'
+    || reviewChangeAdapter.direct_product_writes !== 'deny'
+    || reviewChangeAdapter.advancement_owner !== 'execute-step'
+  ) fail('RUNTIME_CONTRACT_INVALID', 'Runtime review-change adapter semantic boundary is invalid.');
+  expectSetEqual(expectStringArray(reviewChangeAdapter.commands, 'Runtime contract review-change commands'), ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'], 'Runtime contract review-change commands');
+  expectSetEqual(expectStringArray(reviewChangeContract.bound_actions, 'Runtime contract review-change actions'), ['record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'], 'Runtime contract review-change actions');
+  const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
+  expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions', 'scope_amendment_mode', 'scope_amendment_actions', 'direct_replan_result', 'task_history'], 'Runtime contract.proposal.prepare_task');
+  const prepareTaskAdapter = expectRecord(prepareTaskContract.semantic_adapter, 'Runtime contract.proposal.prepare_task.semantic_adapter');
+  expectExactKeys(
+    prepareTaskAdapter,
+    [
+      'input',
+      'commands',
+      'draft_fields',
+      'optional_draft_fields',
+      'task_basis_storage',
+      'decision_partition',
+      'command_footprint_preflight',
+      'confirmation_binding',
+      'resume_review_binding',
+      'replan_entry',
+      'test_strategy',
+      'persistent_tests_storage',
+      'persistent_tests_enforcement',
+      'proposal_file_policy',
+      'internal_action_owners',
+    ],
+    'Runtime contract.proposal.prepare_task.semantic_adapter',
+  );
+  if (prepareTaskAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter input must remain stdin-json.');
+  expectSetEqual(
+    expectStringArray(prepareTaskAdapter.commands, 'Runtime contract.proposal.prepare_task.semantic_adapter.commands'),
+    ['prepare-draft', 'prepare-successor', 'record-human-acceptance', 'record-evidence-waiver', 'confirm-draft', 'clear-resume-review', 'replan', 'prepare-replan', 'confirm-replan', 'discard-replan', 'prepare-scope-amendment', 'discard-scope-amendment', 'initialize-preservation'],
+    'Runtime contract prepare-task adapter commands',
+  );
+  expectSetEqual(
+    expectStringArray(prepareTaskAdapter.draft_fields, 'Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields'),
+    ['task_basis', 'goal', 'acceptance', 'out_of_scope', 'design_decisions', 'mutation_authority_version', 'mutation_authority', 'planned_mutation_targets', 'test_strategy', 'implementation_steps', 'validation_plan', 'persistent_tests'],
+    'Runtime contract prepare-task adapter semantic fields',
+  );
+  expectSetEqual(expectStringArray(prepareTaskAdapter.optional_draft_fields, 'prepare-task optional fields'), ['project_documents', 'affected_contracts'], 'prepare-task optional fields');
+  if (prepareTaskAdapter.task_basis_storage !== 'linked-TASK_BASIS-with-path-and-revision') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter must persist the linked task basis reference.');
+  }
+  const decisionPartition = expectRecord(prepareTaskAdapter.decision_partition, 'Runtime contract.proposal.prepare_task.semantic_adapter.decision_partition');
+  expectExactKeys(decisionPartition, ['decided', 'unresolved'], 'Runtime contract.proposal.prepare_task.semantic_adapter.decision_partition');
+  if (decisionPartition.decided !== 'confirmed_decisions' || decisionPartition.unresolved !== 'open_questions') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter must preserve decided and unresolved design choices separately.');
+  }
+  const commandFootprintPreflight = expectRecord(prepareTaskAdapter.command_footprint_preflight, 'Runtime contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight');
+  expectExactKeys(commandFootprintPreflight, ['source', 'fields', 'evaluator', 'timing'], 'Runtime contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight');
+  if (
+    commandFootprintPreflight.source !== 'implementation_steps[].commands'
+    || commandFootprintPreflight.evaluator !== 'shared-mutation-scope-evaluator-and-v2-authority-evaluator'
+    || commandFootprintPreflight.timing !== 'before-draft-commit'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter command-footprint preflight is not bound to declared step commands before draft commit.');
+  }
+  expectSetEqual(
+    expectStringArray(commandFootprintPreflight.fields, 'Runtime contract.proposal.prepare_task.semantic_adapter.command_footprint_preflight.fields'),
+    ['command', 'expected_repo_writes'],
+    'Runtime prepare-task adapter command-footprint fields',
+  );
+  if (prepareTaskAdapter.persistent_tests_storage !== 'existing-scope-and-regression-sections') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter must map persistent tests into existing canonical sections.');
+  }
+  if (prepareTaskAdapter.confirmation_binding !== 'runtime-issued-draft-receipt-plus-authorized-caller') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task confirmation must bind a Runtime-issued draft receipt to the authorized caller.');
+  }
+  if (prepareTaskAdapter.resume_review_binding !== 'caller-provided-exact-readiness-receipt') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task resume review must consume a caller-provided exact readiness receipt.');
+  }
+  if (prepareTaskAdapter.replan_entry !== 'blocked-pending-confirmed-candidate') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task replan must remain blocked pending a confirmed candidate.');
+  }
+  const testStrategy = expectRecord(prepareTaskAdapter.test_strategy, 'Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy');
+  expectExactKeys(
+    testStrategy,
+    ['storage', 'fields', 'modes', 'sources', 'classifications', 'source_binding', 'precedence', 'ambiguity', 'frozen_by', 'change_after_confirm', 'enforcement', 'ordering_enforcement', 'non_executable_scope'],
+    'Runtime contract.proposal.prepare_task.semantic_adapter.test_strategy',
+  );
+  expectSetEqual(
+    expectStringArray(testStrategy.fields, 'Runtime contract prepare-task test-strategy fields'),
+    ['mode', 'source', 'source_ref', 'task_classification', 'rationale'],
+    'Runtime contract prepare-task test-strategy fields',
+  );
+  expectSetEqual(
+    expectStringArray(testStrategy.modes, 'Runtime contract prepare-task test-strategy modes'),
+    ['flexible', 'test-first', 'implementation-first', 'not-applicable'],
+    'Runtime contract prepare-task test-strategy modes',
+  );
+  expectSetEqual(
+    expectStringArray(testStrategy.sources, 'Runtime contract prepare-task test-strategy sources'),
+    ['explicit-user', 'project-policy', 'inferred-default'],
+    'Runtime contract prepare-task test-strategy sources',
+  );
+  expectSetEqual(
+    expectStringArray(testStrategy.classifications, 'Runtime contract prepare-task test-strategy classifications'),
+    ['contract-clear-behavior', 'exploratory-or-infrastructure', 'non-executable-change'],
+    'Runtime contract prepare-task test-strategy classifications',
+  );
+  const strategySourceBinding = expectRecord(testStrategy.source_binding, 'Runtime contract prepare-task test-strategy source_binding');
+  expectExactKeys(strategySourceBinding, ['explicit-user', 'project-policy', 'inferred-default'], 'Runtime contract prepare-task test-strategy source_binding');
+  const strategyPrecedence = expectStringArray(testStrategy.precedence, 'Runtime contract prepare-task test-strategy precedence');
+  const nonExecutableScope = expectRecord(testStrategy.non_executable_scope, 'Runtime contract prepare-task test-strategy non_executable_scope');
+  expectExactKeys(
+    nonExecutableScope,
+    ['policy_source', 'required_for', 'evaluated_surfaces', 'policy_pattern_grammar', 'relation', 'missing_or_ambiguous', 'historical_active_tasks', 'error_codes'],
+    'Runtime contract prepare-task test-strategy non_executable_scope',
+  );
+  expectSetEqual(
+    expectStringArray(nonExecutableScope.evaluated_surfaces, 'Runtime contract prepare-task test-strategy non-executable evaluated surfaces'),
+    ['task-allowed-scope', 'task-conditional-scope', 'implementation-step-mutation-scope'],
+    'Runtime contract prepare-task test-strategy non-executable evaluated surfaces',
+  );
+  expectSetEqual(
+    expectStringArray(nonExecutableScope.error_codes, 'Runtime contract prepare-task test-strategy non-executable error codes'),
+    ['TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN', 'TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION'],
+    'Runtime contract prepare-task test-strategy non-executable error codes',
+  );
+  if (
+    testStrategy.storage !== 'current-task-regression-checks/test-strategy'
+    || strategySourceBinding['explicit-user'] !== 'exact-task-basis-source-coordinate'
+    || strategySourceBinding['project-policy'] !== 'existing-project-policy-file'
+    || strategySourceBinding['inferred-default'] !== 'prepare-task-default'
+    || strategyPrecedence.join('\0') !== ['explicit-user', 'project-policy', 'inferred-default'].join('\0')
+    || testStrategy.ambiguity !== 'resolve-as-open-question-before-draft-commit'
+    || testStrategy.frozen_by !== 'confirm-draft'
+    || testStrategy.change_after_confirm !== 'replan-only'
+    || testStrategy.enforcement !== 'create-update-confirm-and-replan'
+    || testStrategy.ordering_enforcement !== 'runtime-consumed-before-step-slots'
+    || nonExecutableScope.policy_source !== '.workflow-system/PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths'
+    || nonExecutableScope.required_for !== 'not-applicable'
+    || nonExecutableScope.policy_pattern_grammar !== 'exact-path-or-literal-directory-prefix-globstar'
+    || nonExecutableScope.relation !== 'exact-or-proven-subset'
+    || nonExecutableScope.missing_or_ambiguous !== 'block-not-applicable-only'
+    || nonExecutableScope.historical_active_tasks !== 'not-revalidated'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task test-strategy classification, precedence, or freeze boundary is invalid.');
+  }
+  if (prepareTaskAdapter.persistent_tests_enforcement !== 'frozen-section-plus-authority-evaluator-existing-test-distinction') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task persistent tests must be enforced by the frozen section and scope evaluator.');
+  }
+  if (prepareTaskAdapter.proposal_file_policy !== 'project-external-only') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter proposal files must remain project-external-only.');
+  }
+  const internalActionOwners = expectRecord(prepareTaskAdapter.internal_action_owners, 'Runtime contract.proposal.prepare_task.semantic_adapter.internal_action_owners');
+  expectExactKeys(internalActionOwners, ['migrate-claim-evidence', 'mark-replan-blocked', 'clear-replan-block'], 'Runtime contract.proposal.prepare_task.semantic_adapter.internal_action_owners');
+  if (
+    internalActionOwners['migrate-claim-evidence'] !== 'runtime-compatibility'
+    || internalActionOwners['mark-replan-blocked'] !== 'runtime-convergence'
+    || internalActionOwners['clear-replan-block'] !== 'runtime-convergence'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task internal action ownership is invalid.');
+  }
+  expectSetEqual(
+    expectStringArray(prepareTaskContract.bound_actions, 'Runtime contract.proposal.prepare_task.bound_actions'),
+    ['clear-resume-review-gate', 'record-user-evidence', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, 'mark-replan-blocked', 'clear-replan-block', 'commit-scope-amendment'],
+    'Runtime contract prepare-task bound actions',
+  );
+  if (prepareTaskContract.draft_mode !== 'default' || prepareTaskContract.confirm_mode !== 'confirm') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task draft/confirm modes are invalid.');
+  expectSetEqual(expectStringArray(prepareTaskContract.draft_actions, 'Runtime contract.proposal.prepare_task.draft_actions'), ['create-draft', 'update-draft'], 'Runtime contract prepare-task draft actions');
+  expectSetEqual(expectStringArray(prepareTaskContract.confirm_actions, 'Runtime contract.proposal.prepare_task.confirm_actions'), ['confirm-draft'], 'Runtime contract prepare-task confirm actions');
+  if (prepareTaskContract.migration_mode !== 'default') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task migration_mode must be default.');
+  expectSetEqual(expectStringArray(prepareTaskContract.migration_actions, 'Runtime contract prepare-task migration_actions'), [...CLAIM_EVIDENCE_MIGRATION_ACTIONS], 'Runtime contract prepare-task migration actions');
+  if (prepareTaskContract.replan_mode !== 'replan') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task replan_mode must be replan.');
+  expectSetEqual(
+    expectStringArray(prepareTaskContract.replan_actions, 'Runtime contract.proposal.prepare_task.replan_actions'),
+    [...REPLAN_TASK_STATE_ACTIONS],
+    'Runtime contract prepare-task replan actions',
+  );
+  if (prepareTaskContract.scope_amendment_mode !== 'amend-scope') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task scope_amendment_mode must be amend-scope.');
+  expectSetEqual(expectStringArray(prepareTaskContract.scope_amendment_actions, 'Runtime contract.proposal.prepare_task.scope_amendment_actions'), ['commit-scope-amendment'], 'Runtime contract prepare-task scope amendment actions');
+  if (prepareTaskContract.direct_replan_result !== 'REPLAN_CONFIRMATION_REQUIRED') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must describe the disabled direct replan result.');
+  }
+  const taskHistory = expectRecord(prepareTaskContract.task_history, 'Runtime contract.proposal.prepare_task.task_history');
+  expectExactKeys(taskHistory, ['initialization_preimage', 'supersede_preimage', 'confirmed_replan_preimage', 'correction_candidate', 'scope_amendment_candidate', 'evidence_carry_forward', 'external_evidence', 'interrupted_commit', 'recovery_protocol'], 'Runtime contract.proposal.prepare_task.task_history');
+  if (digest(taskHistory.recovery_protocol) !== digest(TASK_RECOVERY_PROTOCOL)) fail('RUNTIME_CONTRACT_INVALID', 'Recovery protocol must match the versioned Kernel semantics.');
+  if (taskHistory.initialization_preimage !== 'exact-current-task-and-linked-task-basis-before-version-marker'
+    || taskHistory.supersede_preimage !== 'exact-current-task-and-linked-task-basis'
+    || taskHistory.confirmed_replan_preimage !== 'exact-current-task-and-linked-task-basis-before-publish'
+    || taskHistory.correction_candidate !== 'independent-revision-bound-candidate-with-full-old-obligations'
+    || taskHistory.scope_amendment_candidate !== 'independent-versioned-additive-candidate-with-authority-or-typed-persistent-test-admission-runtime-commit-and-preserved-obligations'
+    || taskHistory.evidence_carry_forward !== 'runtime-derived-old-report-and-subject-verified'
+    || taskHistory.external_evidence !== 'references-remain-references-explicit-bounded-content-ingestion'
+    || taskHistory.interrupted_commit !== 'fail-closed-lock-and-hash-recovery') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime task history contract is invalid.');
+  }
+  const inboxRecordContract = expectRecord(proposal.inbox_record, 'Runtime contract.proposal.inbox_record');
+  expectExactKeys(
+    inboxRecordContract,
+    ['mode', 'action', 'required', 'record_fields', 'relation', 'duplicate_check', 'proposed_owner', 'target_pattern', 'provenance_fields'],
+    'Runtime contract.proposal.inbox_record',
+  );
+  if (inboxRecordContract.mode !== 'default' || inboxRecordContract.action !== 'record') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract inbox_record must use mode=default and action=record.');
+  }
+  expectSetEqual(
+    expectStringArray(inboxRecordContract.required, 'Runtime contract.proposal.inbox_record.required'),
+    ['item_slug', 'record', 'relation_evidence_refs', 'duplicate_check', 'proposed_owner', 'target_path', 'evidence_refs'],
+    'Runtime contract inbox record required fields',
+  );
+  expectSetEqual(
+    expectStringArray(inboxRecordContract.record_fields, 'Runtime contract.proposal.inbox_record.record_fields'),
+    ['artifact_kind', 'item_id', 'title', 'type', 'source', 'captured_at', 'relation_to_current_task', 'current_task_id', 'description', 'evidence', 'suggested_next_action', 'status'],
+    'Runtime contract inbox record durable fields',
+  );
+  if (inboxRecordContract.relation !== 'unrelated' || inboxRecordContract.duplicate_check !== 'clear') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract inbox records must be proven unrelated and have duplicate_check=clear.');
+  }
+  expectSetEqual(
+    expectStringArray(inboxRecordContract.proposed_owner, 'Runtime contract.proposal.inbox_record.proposed_owner'),
+    [...INBOX_SUGGESTED_NEXT_ACTIONS],
+    'Runtime contract inbox record owner routes',
+  );
+  if (inboxRecordContract.target_pattern !== 'TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract inbox record target pattern is invalid.');
+  }
+  expectSetEqual(
+    expectStringArray(inboxRecordContract.provenance_fields, 'Runtime contract.proposal.inbox_record.provenance_fields'),
+    ['idempotency_key', 'proposal_digest', 'source_revision', 'source_task_id', 'source_task_slug', 'source_document_id', 'relation_evidence_refs', 'duplicate_check', 'proposed_owner'],
+    'Runtime contract inbox record provenance fields',
+  );
+  const lifecycleContract = expectRecord(proposal.lifecycle, 'Runtime contract.proposal.lifecycle');
+  expectExactKeys(lifecycleContract, ['modes', 'bound_modes', 'proposal_only_modes', 'pause_required', 'interrupt_required', 'resume_required', 'supersede_required'], 'Runtime contract.proposal.lifecycle');
+  expectSetEqual(expectStringArray(lifecycleContract.modes, 'Runtime contract.proposal.lifecycle.modes'), [...LIFECYCLE_MODES], 'Runtime contract lifecycle modes');
+  expectSetEqual(
+    expectStringArray(lifecycleContract.bound_modes, 'Runtime contract.proposal.lifecycle.bound_modes'),
+    [...LIFECYCLE_MODES],
+    'Runtime contract bound lifecycle modes',
+  );
+  expectSetEqual(
+    expectStringArray(lifecycleContract.proposal_only_modes, 'Runtime contract.proposal.lifecycle.proposal_only_modes', true),
+    [],
+    'Runtime contract proposal-only lifecycle modes',
+  );
+  const lifecycleRequiredFields: Record<string, string[]> = {
+    pause_required: ['lifecycle_state', 'suspension_reason', 'task_start_base', 'last_reviewed_checkpoint', 'current_diff_review_target', 'rollback_conditions', 'resume_review_reasons', 'evidence_refs'],
+    interrupt_required: ['lifecycle_state', 'suspension_reason', 'task_start_base', 'last_reviewed_checkpoint', 'current_diff_review_target', 'rollback_conditions', 'resume_review_reasons', 'checkpoint_evidence', 'dirty_attribution', 'environment_state', 'recovery_strategy', 'evidence_refs'],
+    resume_required: ['artifact_kind', 'recovery_package_path', 'recovery_package_revision', 'resume_review_reasons', 'evidence_refs'],
+    supersede_required: ['invalidation_kind', 'invalidation_reason', 'evidence_refs', 'partial_diff_disposition'],
+  };
+  for (const [field, expected] of Object.entries(lifecycleRequiredFields)) {
+    const required = expectRecord(lifecycleContract[field], `Runtime contract.proposal.lifecycle.${field}`);
+    expectExactKeys(required, ['required'], `Runtime contract.proposal.lifecycle.${field}`);
+    expectSetEqual(expectStringArray(required.required, `Runtime contract.proposal.lifecycle.${field}.required`), expected, `Runtime contract lifecycle ${field}`);
+  }
+  const closeTaskContract = expectRecord(proposal.close_task, 'Runtime contract.proposal.close_task');
+  expectExactKeys(closeTaskContract, ['default_mode', 'preview_mode', 'terminal_from', 'terminal_to', 'claim_evidence', 'lesson_admission', 'knowledge_admission'], 'Runtime contract.proposal.close_task');
+  if (closeTaskContract.default_mode !== 'default' || closeTaskContract.preview_mode !== 'preview') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract close-task must reserve default closure and preview read-only semantics.');
+  }
+  expectSetEqual(expectStringArray(closeTaskContract.terminal_from, 'Runtime contract close-task terminal_from'), ['active + active'], 'Runtime contract close-task terminal_from');
+  expectSetEqual(expectStringArray(closeTaskContract.terminal_to, 'Runtime contract close-task terminal_to'), ['closed + archived'], 'Runtime contract close-task terminal_to');
+  expectSetEqual(expectStringArray(closeTaskContract.lesson_admission, 'Runtime contract close-task lesson_admission'), ['admit', 'defer', 'no-op'], 'Runtime contract close-task lesson admission');
+  if (closeTaskContract.claim_evidence !== CLOSE_TASK_CLAIM_EVIDENCE_RULE) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime close-task claim evidence derivation rule is invalid.');
+  }
+  const knowledgeAdmissionContract = expectRecord(closeTaskContract.knowledge_admission, 'Runtime contract.proposal.close_task.knowledge_admission');
+  expectExactKeys(knowledgeAdmissionContract, ['dispositions', 'durable_dispositions', 'candidate_fields', 'implementation_anchors', 'reentry_source'], 'Runtime contract close-task knowledge_admission');
+  expectSetEqual(expectStringArray(knowledgeAdmissionContract.dispositions, 'Runtime contract close-task knowledge dispositions'), ['admit', 'defer', 'merge', 'no-op', 'reject', 'supersede'], 'Runtime contract close-task knowledge dispositions');
+  expectSetEqual(expectStringArray(knowledgeAdmissionContract.durable_dispositions, 'Runtime contract close-task durable knowledge dispositions'), ['admit', 'merge', 'supersede'], 'Runtime contract close-task durable knowledge dispositions');
+  expectSetEqual(expectStringArray(knowledgeAdmissionContract.candidate_fields, 'Runtime contract close-task knowledge candidate fields'), [...KNOWLEDGE_CANDIDATE_KEYS], 'Runtime contract close-task knowledge candidate fields');
+  const anchorContract = expectRecord(knowledgeAdmissionContract.implementation_anchors, 'Runtime contract close-task implementation_anchors');
+  expectExactKeys(anchorContract, ['coverage', 'max_anchors', 'line_number_locators', 'missing_symbol_behavior'], 'Runtime contract close-task implementation_anchors');
+  expectSetEqual(expectStringArray(anchorContract.coverage, 'Runtime contract close-task implementation_anchors.coverage'), ['observed', 'verified-scope'], 'Runtime contract implementation anchor coverage');
+  if (expectInteger(anchorContract.max_anchors, 'Runtime contract close-task implementation_anchors.max_anchors', 0, 5) !== 5 || anchorContract.line_number_locators !== 'forbidden' || anchorContract.missing_symbol_behavior !== 'live-search-fallback') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime implementation anchors must remain bounded hints with live-search fallback.');
+  }
+  if (knowledgeAdmissionContract.reentry_source !== 'canonical-task-archive-admission') fail('RUNTIME_CONTRACT_INVALID', 'Runtime knowledge re-entry must use canonical task archive admission provenance.');
+  const lessonMarkerContract = expectRecord(proposal.lesson_marker, 'Runtime contract.proposal.lesson_marker');
+  expectExactKeys(
+    lessonMarkerContract,
+    ['contract', 'marker_version_field', 'noncanonical_behavior', 'persisted', 'reused'],
+    'Runtime contract.proposal.lesson_marker',
+  );
+  if (
+    lessonMarkerContract.contract !== 'vnext-lesson-marker/canonical-v1'
+    || lessonMarkerContract.marker_version_field !== 'absent'
+    || lessonMarkerContract.noncanonical_behavior !== 'fail-closed'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract lesson marker must expose the canonical closed schema.');
+  }
+  const persistedLessonMarker = expectRecord(lessonMarkerContract.persisted, 'Runtime contract.proposal.lesson_marker.persisted');
+  expectExactKeys(persistedLessonMarker, ['fields', 'disposition'], 'Runtime contract.proposal.lesson_marker.persisted');
+  expectSetEqual(
+    expectStringArray(persistedLessonMarker.fields, 'Runtime contract.proposal.lesson_marker.persisted.fields'),
+    ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs'],
+    'Runtime contract persisted Lesson marker fields',
+  );
+  if (persistedLessonMarker.disposition !== 'omitted') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract persisted Lesson markers must omit disposition.');
+  const reusedLessonMarker = expectRecord(lessonMarkerContract.reused, 'Runtime contract.proposal.lesson_marker.reused');
+  expectExactKeys(reusedLessonMarker, ['fields', 'disposition', 'reused_candidate_fields'], 'Runtime contract.proposal.lesson_marker.reused');
+  expectSetEqual(
+    expectStringArray(reusedLessonMarker.fields, 'Runtime contract.proposal.lesson_marker.reused.fields'),
+    ['task_id', 'task_slug', 'document_id', 'archive_path', 'archive_revision', 'source_revision', 'candidate_ref', 'candidate_digest', 'evidence_refs', 'disposition', 'reused_candidate'],
+    'Runtime contract reused Lesson marker fields',
+  );
+  if (reusedLessonMarker.disposition !== 'reused') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract reused Lesson markers must use disposition=reused.');
+  expectSetEqual(
+    expectStringArray(reusedLessonMarker.reused_candidate_fields, 'Runtime contract.proposal.lesson_marker.reused.reused_candidate_fields'),
+    ['task_id', 'document_id', 'archive_revision', 'candidate_ref'],
+    'Runtime contract reused Lesson candidate identity fields',
+  );
+  const mutationScopeContract = expectRecord(contract.mutation_scope, 'Runtime contract.mutation_scope');
+  expectExactKeys(
+    mutationScopeContract,
+    ['status', 'binding', 'source', 'buckets', 'default_write_policy', 'read_discovery_is_not_write_authority', 'ordinary_write_scope', 'broad_glob_requires', 'conditional_expansion_requires', 'persistent_test_policy', 'changed_goal_scope_acceptance', 'check_command', 'input', 'output', 'command_write_footprint'],
+    'Runtime contract.mutation_scope',
+  );
+  if (
+    mutationScopeContract.status !== 'bound'
+    || mutationScopeContract.binding !== 'vnext-runtime-read-only'
+    || mutationScopeContract.source !== 'CURRENT_TASK.md'
+    || mutationScopeContract.default_write_policy !== 'deny'
+    || mutationScopeContract.read_discovery_is_not_write_authority !== true
+    || mutationScopeContract.ordinary_write_scope !== 'exact-file-or-file-plus-symbol'
+    || mutationScopeContract.broad_glob_requires !== 'inherently-broad-transformation'
+    || mutationScopeContract.conditional_expansion_requires !== 'evidence-and-authority'
+    || mutationScopeContract.changed_goal_scope_acceptance !== 'bounded-correction-amendment-or-supersede-successor'
+    || mutationScopeContract.check_command !== 'scope-check'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime mutation scope contract must keep the frozen default-deny and read/write separation semantics.');
+  }
+  expectSetEqual(
+    expectStringArray(mutationScopeContract.buckets, 'Runtime contract.mutation_scope.buckets'),
+    ['Allowed Files', 'Conditional Files', 'Forbidden Files'],
+    'Runtime mutation scope buckets',
+  );
+  const persistentTestPolicy = expectRecord(mutationScopeContract.persistent_test_policy, 'Runtime contract.mutation_scope.persistent_test_policy');
+  expectExactKeys(persistentTestPolicy, ['source', 'when_present', 'conventional_paths', 'nonconventional_paths', 'legacy_missing_section'], 'Runtime contract.mutation_scope.persistent_test_policy');
+  if (
+    persistentTestPolicy.source !== 'CURRENT_TASK Persistent Tests section'
+    || persistentTestPolicy.when_present !== 'exact-allowlist-default-deny'
+    || persistentTestPolicy.conventional_paths !== 'runtime-classified'
+    || persistentTestPolicy.nonconventional_paths !== 'caller-declared'
+    || persistentTestPolicy.legacy_missing_section !== 'compatibility-unenforced'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime persistent-test mutation policy is invalid.');
+  }
+  const mutationScopeInput = expectRecord(mutationScopeContract.input, 'Runtime contract.mutation_scope.input');
+  expectExactKeys(mutationScopeInput, ['required'], 'Runtime contract.mutation_scope.input');
+  expectSetEqual(
+    expectStringArray(mutationScopeInput.required, 'Runtime contract.mutation_scope.input.required'),
+    ['explicit_changed_paths', 'conditional_authorizations_with_evidence_and_authority', 'transformation_kind'],
+    'Runtime mutation scope input',
+  );
+  const mutationScopeOutput = expectRecord(mutationScopeContract.output, 'Runtime contract.mutation_scope.output');
+  expectExactKeys(mutationScopeOutput, ['required'], 'Runtime contract.mutation_scope.output');
+  expectSetEqual(
+    expectStringArray(mutationScopeOutput.required, 'Runtime contract.mutation_scope.output.required'),
+    ['per-path-admission-and-blocker', 'separate-read-discovery-match', 'source-revision'],
+    'Runtime mutation scope output',
+  );
+  const commandWriteFootprint = expectRecord(mutationScopeContract.command_write_footprint, 'Runtime contract.mutation_scope.command_write_footprint');
+  expectExactKeys(commandWriteFootprint, ['pre_command', 'expected', 'post_command', 'observation_limitations'], 'Runtime contract.mutation_scope.command_write_footprint');
+  if (commandWriteFootprint.pre_command !== 'required') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime command write footprints must be required before a repo-writing command executes.');
+  }
+  const expectedFootprint = expectRecord(commandWriteFootprint.expected, 'Runtime contract.mutation_scope.command_write_footprint.expected');
+  expectExactKeys(expectedFootprint, ['required', 'bounded_kind', 'unbounded_behavior', 'admission'], 'Runtime contract.mutation_scope.command_write_footprint.expected');
+  expectSetEqual(
+    expectStringArray(expectedFootprint.required, 'Runtime contract.mutation_scope.command_write_footprint.expected.required'),
+    ['command', 'kind', 'repository_relative_targets', 'evidence_refs'],
+    'Runtime command expected write footprint fields',
+  );
+  if (expectedFootprint.bounded_kind !== 'bounded' || expectedFootprint.unbounded_behavior !== 'blocked-before-execution' || expectedFootprint.admission !== 'shared-mutation-scope-evaluator') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime command expected write footprint admission is not fail-closed or canonical.');
+  }
+  const postCommandFootprint = expectRecord(commandWriteFootprint.post_command, 'Runtime contract.mutation_scope.command_write_footprint.post_command');
+  expectExactKeys(postCommandFootprint, ['observed_field', 'admission', 'cleanup_behavior'], 'Runtime contract.mutation_scope.command_write_footprint.post_command');
+  if (postCommandFootprint.observed_field !== 'observed_write_paths' || postCommandFootprint.admission !== 'shared-mutation-scope-evaluator' || postCommandFootprint.cleanup_behavior !== 'sticky-blocked-after-unauthorized-observation') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime command observed-write audit must reuse canonical scope judgment and retain unauthorized observations after cleanup.');
+  }
+  expectSetEqual(
+    expectStringArray(commandWriteFootprint.observation_limitations, 'Runtime contract.mutation_scope.command_write_footprint.observation_limitations'),
+    ['no-os-level-transient-write-history-proof'],
+    'Runtime command write observation limitations',
+  );
+  const mutationAuthorityContract = expectRecord(contract.mutation_authority, 'Runtime contract.mutation_authority');
+  expectExactKeys(
+    mutationAuthorityContract,
+    ['version', 'status', 'project_profile', 'project_domain_fields', 'task_fields', 'root_grammar', 'path_resolution', 'ambiguous_domain_behavior', 'unclassified_behavior', 'read_discovery_behavior', 'planned_footprint_behavior', 'in_envelope_expansion', 'forbidden_precedence', 'assessment_fields', 'dynamic_review', 'cross_envelope_error', 'extension_action', 'extension_identity', 'repair_extension', 'test_strategy_dynamic_policy', 'non_executable_dynamic_policy', 'planning_time_authority_proof', 'command_glob_proof', 'domain_map_lifecycle', 'domain_map_revision', 'dynamic_expansion_identity', 'dynamic_review_consumption', 'authority_amendment', 'authority_amendment_execution_gate', 'persistent_test_admission', 'existing_test_behavior', 'new_persistent_test_behavior', 'legacy_behavior'],
+    'Runtime contract.mutation_authority',
+  );
+  if (
+    mutationAuthorityContract.version !== 2
+    || mutationAuthorityContract.status !== 'bound'
+    || mutationAuthorityContract.project_profile !== '.workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains'
+    || mutationAuthorityContract.root_grammar !== 'bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar'
+    || mutationAuthorityContract.path_resolution !== 'path-to-one-domain-or-unclassified'
+    || mutationAuthorityContract.ambiguous_domain_behavior !== 'fail-closed'
+    || mutationAuthorityContract.unclassified_behavior !== 'write-blocked-unless-exact-exception'
+    || mutationAuthorityContract.read_discovery_behavior !== 'allowed-outside-envelope-but-never-write-authority'
+    || mutationAuthorityContract.planned_footprint_behavior !== 'guidance-only-and-not-an-independent-authority-boundary'
+    || mutationAuthorityContract.in_envelope_expansion !== 'blast-radius-assessment-and-self-admit-or-escalate'
+    || mutationAuthorityContract.forbidden_precedence !== 'explicit-forbidden-before-envelope-admission'
+    || mutationAuthorityContract.dynamic_review !== 'risk-selected-cumulative-review-for-self-admitted-expansion'
+    || mutationAuthorityContract.cross_envelope_error !== 'MUTATION_AUTHORITY_EXPANSION_REQUIRED'
+    || mutationAuthorityContract.extension_action !== 'execute-step:extend-preflight'
+    || mutationAuthorityContract.extension_identity !== 'stable-execution-id-with-current-receipt-token'
+    || mutationAuthorityContract.repair_extension !== 'same-execution-admission-evaluator-and-repair-wave'
+    || mutationAuthorityContract.test_strategy_dynamic_policy !== 'every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation'
+    || mutationAuthorityContract.non_executable_dynamic_policy !== 'not-applicable-remains-closed-under-all-target-discovery'
+    || mutationAuthorityContract.authority_amendment !== 'prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission'
+    || mutationAuthorityContract.existing_test_behavior !== 'existing-in-envelope-test-is-ordinary-expansion-with-review'
+    || mutationAuthorityContract.new_persistent_test_behavior !== 'absent-test-requires-p-12-admission'
+    || mutationAuthorityContract.legacy_behavior !== 'missing-or-version-1-retains-v1-exact-step-scope-semantics'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime Mutation Authority v2 contract semantics are invalid.');
+  }
+  expectSetEqual(expectStringArray(mutationAuthorityContract.project_domain_fields, 'Runtime mutation authority project domain fields'), ['id', 'roots'], 'Runtime mutation authority project domain fields');
+  expectSetEqual(expectStringArray(mutationAuthorityContract.task_fields, 'Runtime mutation authority task fields'), ['mutation_authority_version', 'domains', 'exact_exceptions', 'forbidden'], 'Runtime mutation authority task fields');
+  expectSetEqual(expectStringArray(mutationAuthorityContract.assessment_fields, 'Runtime mutation authority assessment fields'), ['target', 'reason', 'blast_radius', 'evidence_refs', 'disposition'], 'Runtime mutation authority assessment fields');
+  const planningProof = expectRecord(mutationAuthorityContract.planning_time_authority_proof, 'Runtime mutation authority planning_time_authority_proof');
+  expectExactKeys(planningProof, ['evaluator', 'declarations', 'admission', 'timing', 'unclassified_behavior'], 'Runtime mutation authority planning_time_authority_proof');
+  if (planningProof.evaluator !== 'runtime-owned-task-definition-authority-proof'
+    || planningProof.admission !== 'authorized-domain-or-exact-exception'
+    || planningProof.timing !== 'before-draft-confirmed-definition-commit'
+    || planningProof.unclassified_behavior !== 'blocked') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime planning-time authority proof semantics are invalid.');
+  }
+  expectSetEqual(expectStringArray(planningProof.declarations, 'Runtime mutation authority planning-time declarations'), ['planned_mutation_targets', 'command_write_footprints', 'persistent_test_paths'], 'Runtime planning-time authority declarations');
+  const commandGlobProof = expectRecord(mutationAuthorityContract.command_glob_proof, 'Runtime mutation authority command_glob_proof');
+  expectExactKeys(commandGlobProof, ['grammar', 'relation', 'synthetic_probe', 'exact_exception'], 'Runtime mutation authority command_glob_proof');
+  if (commandGlobProof.grammar !== 'exact-path-or-literal-directory-prefix-globstar'
+    || commandGlobProof.relation !== 'candidate-pattern-must-be-subset-of-granted-domain-root'
+    || commandGlobProof.synthetic_probe !== 'prohibited'
+    || commandGlobProof.exact_exception !== 'cannot-authorize-directory-glob') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime command glob subset proof semantics are invalid.');
+  }
+  const reviewPreimageContract = expectRecord(contract.review_coverage_preimages, 'Runtime contract.review_coverage_preimages');
+  expectExactKeys(reviewPreimageContract, ['canonical_fields', 'inline_content', 'baseline_storage', 'review_read', 'legacy_inline_compatibility'], 'Runtime contract.review_coverage_preimages');
+  expectSetEqual(expectStringArray(reviewPreimageContract.canonical_fields, 'Runtime review preimage canonical fields'), ['path', 'state', 'sha256'], 'Runtime review preimage canonical fields');
+  if (reviewPreimageContract.inline_content !== 'forbidden-for-new-writes'
+    || reviewPreimageContract.review_read !== 'resolve-by-sha256-read-and-verify; missing-or-corrupt-fails-closed'
+    || reviewPreimageContract.legacy_inline_compatibility !== 'readable-and-migrated-by-decode-verify-persist-strip') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime review preimage inline/storage semantics are invalid.');
+  }
+  const baselineStorage = expectRecord(reviewPreimageContract.baseline_storage, 'Runtime contract.review_coverage_preimages.baseline_storage');
+  expectExactKeys(baselineStorage, ['kind', 'relative_directory', 'filename', 'lookup', 'write_order', 'deduplication'], 'Runtime review preimage baseline storage');
+  if (baselineStorage.kind !== 'immutable-content-addressed-raw-blob'
+    || baselineStorage.relative_directory !== '<workflow_home>/review-preimages'
+    || baselineStorage.filename !== '<sha256>.blob'
+    || baselineStorage.lookup !== 'sha256'
+    || baselineStorage.write_order !== 'persist-and-verify-blob-before-current-task-state-commit'
+    || baselineStorage.deduplication !== 'identical-sha256-reuses-existing-verified-blob') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime review preimage baseline storage semantics are invalid.');
+  }
+  const domainMapLifecycle = expectRecord(mutationAuthorityContract.domain_map_lifecycle, 'Runtime mutation authority domain_map_lifecycle');
+  expectExactKeys(domainMapLifecycle, ['proposal', 'confirmation', 'canonical', 'task_selection'], 'Runtime mutation authority domain_map_lifecycle');
+  if (domainMapLifecycle.proposal !== 'bootstrap-inventory-domain-candidate'
+    || domainMapLifecycle.confirmation !== 'explicit-project-owner-decision'
+    || domainMapLifecycle.canonical !== '.workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains'
+    || domainMapLifecycle.task_selection !== 'select-existing-map-without-rebuild') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime project domain-map lifecycle semantics are invalid.');
+  }
+  const domainMapRevision = expectRecord(mutationAuthorityContract.domain_map_revision, 'Runtime mutation authority domain_map_revision');
+  expectExactKeys(domainMapRevision, ['binding', 'mismatch', 'grant'], 'Runtime mutation authority domain_map_revision');
+  if (domainMapRevision.binding !== 'v2-confirmed-task-runtime-state-authority_domain_revision'
+    || domainMapRevision.mismatch !== 'fail-closed-require-explicit-task-authority-domain-revalidation'
+    || domainMapRevision.grant !== 'never-inherit-changed-project-map') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime project domain-map revision semantics are invalid.');
+  }
+  const dynamicExpansionIdentity = expectRecord(mutationAuthorityContract.dynamic_expansion_identity, 'Runtime mutation authority dynamic expansion identity');
+  expectExactKeys(dynamicExpansionIdentity, ['required', 'active_view', 'historical_records', 'repeated_path_policy'], 'Runtime mutation authority dynamic expansion identity');
+  expectSetEqual(
+    expectStringArray(dynamicExpansionIdentity.required, 'Runtime mutation authority dynamic expansion identity required fields'),
+    ['step_id', 'plan_revision', 'change_set_id', 'execution_id', 'preflight_id', 'mode', 'path', 'domain', 'assessment', 'first_touch_state', 'admitted_at'],
+    'Runtime mutation authority dynamic expansion identity required fields',
+  );
+  if (dynamicExpansionIdentity.active_view !== 'current-active-step-plan-revision-execution-only'
+    || dynamicExpansionIdentity.historical_records !== 'readable-for-audit-but-never-a-current-write-grant'
+    || dynamicExpansionIdentity.repeated_path_policy !== 'same-path-requires-new-assessment-for-a-new-execution-identity') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime dynamic expansion identity semantics are invalid.');
+  }
+  const dynamicReviewConsumption = expectRecord(mutationAuthorityContract.dynamic_review_consumption, 'Runtime mutation authority dynamic review consumption');
+  expectExactKeys(dynamicReviewConsumption, ['binding', 'required', 'historical_records'], 'Runtime mutation authority dynamic review consumption');
+  if (dynamicReviewConsumption.binding !== 'expansion-execution-identity-and-clean-review-id'
+    || dynamicReviewConsumption.required !== 'current-execution-expansions-only'
+    || dynamicReviewConsumption.historical_records !== 'retain-consumed-review-association') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime dynamic review consumption semantics are invalid.');
+  }
+  const authorityAmendmentGate = expectRecord(mutationAuthorityContract.authority_amendment_execution_gate, 'Runtime mutation authority authority amendment execution gate');
+  expectExactKeys(authorityAmendmentGate, ['blocks', 'allows', 'repair_binding'], 'Runtime mutation authority authority amendment execution gate');
+  expectSetEqual(
+    expectStringArray(authorityAmendmentGate.allows, 'Runtime mutation authority authority amendment execution gate allows'),
+    ['ready-attempt', 'settled-blocked-result', 'settled-repair-result', 'pending-review-or-findings-preserved'],
+    'Runtime authority amendment execution gate allowed states',
+  );
+  if (authorityAmendmentGate.blocks !== 'latest-preflighted-attempt-without-recorded-execution-result'
+    || authorityAmendmentGate.repair_binding !== 'current-execution-preflight-and-matching-execution-result') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime authority amendment settlement gate semantics are invalid.');
+  }
+  const persistentTestAdmission = expectRecord(mutationAuthorityContract.persistent_test_admission, 'Runtime mutation authority persistent test admission');
+  expectExactKeys(persistentTestAdmission, ['route', 'authority_diff', 'ordinary_dynamic_behavior', 'required_fields', 'runtime_role'], 'Runtime mutation authority persistent test admission');
+  expectSetEqual(
+    expectStringArray(persistentTestAdmission.required_fields, 'Runtime mutation authority persistent test admission required fields'),
+    ['path', 'proves', 'owner', 'owner_source', 'source_ref', 'basis', 'existing_evidence_insufficiency', 'assertion_boundary', 'failure_disposition'],
+    'Runtime persistent test admission fields',
+  );
+  if (persistentTestAdmission.route !== 'prepare-task:amend-scope'
+    || persistentTestAdmission.authority_diff !== 'none-when-target-is-in-envelope'
+    || persistentTestAdmission.ordinary_dynamic_behavior !== 'blocked-before-state-mutation'
+    || persistentTestAdmission.runtime_role !== 'validate-bind-persist-no-defaults') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime persistent test admission semantics are invalid.');
+  }
+  const canonical = expectRecord(contract.canonical_current_task, 'Runtime contract.canonical_current_task');
+  expectExactKeys(canonical, ['frontmatter', 'runtime_state', 'source_of_truth', 'legacy_schema_behavior'], 'Runtime contract.canonical_current_task');
+  const frontmatter = expectRecord(canonical.frontmatter, 'Runtime contract.canonical_current_task.frontmatter');
+  expectExactKeys(frontmatter, ['schema_version', 'kind', 'required', 'optional'], 'Runtime contract.canonical_current_task.frontmatter');
+  if (frontmatter.schema_version !== 1 || frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract current-task frontmatter marker is invalid.');
+  expectSetEqual(
+    expectStringArray(frontmatter.required, 'Runtime contract.canonical_current_task.frontmatter.required'),
+    ['document_id', 'runtime_state'],
+    'Runtime contract current-task frontmatter',
+  );
+  expectSetEqual(
+    expectStringArray(frontmatter.optional, 'Runtime contract.canonical_current_task.frontmatter.optional', true),
+    ['mutation_authority_version', 'mutation_authority'],
+    'Runtime current-task authority frontmatter fields',
+  );
+  const runtimeState = expectRecord(canonical.runtime_state, 'Runtime contract.canonical_current_task.runtime_state');
+  expectExactKeys(runtimeState, ['schema_version', 'kind', 'fields', 'review_cycle'], 'Runtime contract.canonical_current_task.runtime_state');
+  if (runtimeState.schema_version !== 1 || runtimeState.kind !== VNEXT_RUNTIME_STATE_KIND) fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract runtime-state marker is invalid.');
+  expectSetEqual(
+    expectStringArray(runtimeState.fields, 'Runtime contract.canonical_current_task.runtime_state.fields'),
+    [...RUNTIME_STATE_FIELDS],
+    'Runtime contract runtime-state fields',
+  );
+  const reviewCycleContract = expectRecord(runtimeState.review_cycle, 'Runtime contract.canonical_current_task.runtime_state.review_cycle');
+  expectExactKeys(reviewCycleContract, ['fields', 'repair_round_max', 'same_repair_wave_counts_once', 'verification_new_finding_wave_max'], 'Runtime contract.canonical_current_task.runtime_state.review_cycle');
+  expectSetEqual(
+    expectStringArray(reviewCycleContract.fields, 'Runtime contract.canonical_current_task.runtime_state.review_cycle.fields'),
+    [...REVIEW_CYCLE_FIELDS],
+    'Runtime contract review-cycle fields',
+  );
+  if (expectInteger(reviewCycleContract.repair_round_max, 'Runtime contract review-cycle repair_round_max', 0, MAX_REPAIR_ROUNDS) !== MAX_REPAIR_ROUNDS) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract review-cycle repair_round_max must be 3.');
+  }
+  if (expectBoolean(reviewCycleContract.same_repair_wave_counts_once, 'Runtime contract review-cycle same_repair_wave_counts_once') !== true) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must count each repair wave once per review cycle.');
+  }
+  if (expectInteger(reviewCycleContract.verification_new_finding_wave_max, 'Runtime contract review-cycle verification_new_finding_wave_max', 0, 1) !== 1) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must allow at most one verification new-finding admission wave per review cycle.');
+  }
+  if (canonical.source_of_truth !== 'CURRENT_TASK-head-plus-selected-immutable-roots-one-canonical-aggregate' || canonical.legacy_schema_behavior !== 'migration-required') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must keep the CURRENT_TASK head and its selected immutable roots as one canonical task aggregate and stop on legacy schema.');
+  const concurrency = expectRecord(contract.concurrency, 'Runtime contract.concurrency');
+  expectExactKeys(concurrency, ['model', 'concurrent_state_changing_writers', 'stale_detection'], 'Runtime contract.concurrency');
+  if (
+    concurrency.model !== 'single-authorized-writer'
+    || concurrency.concurrent_state_changing_writers !== 'forbidden'
+    || concurrency.stale_detection !== 'source-revision-and-explicit-recovery-package-revision'
+  ) {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must require a single authorized state-changing writer plus explicit recovery package revision stale detection.');
+  }
+  const operations = contract.operations;
+  if (!Array.isArray(operations) || operations.length !== RUNTIME_OPERATION_KINDS.length) fail('RUNTIME_CONTRACT_INVALID', `Runtime contract must declare exactly the ${RUNTIME_OPERATION_KINDS.length} Phase 2 bound operations.`);
+  const bound: RuntimeOperationKind[] = [];
+  for (const [index, rawOperation] of operations.entries()) {
+    const operation = expectRecord(rawOperation, `Runtime contract.operations[${index}]`);
+    expectExactKeys(operation, ['id', 'status', 'binding', 'operation', 'source_targets', 'write_targets', 'allowed_callers', 'result_states', 'atomic', 'idempotence', 'conflict_policy'], `Runtime contract.operations[${index}]`);
+    const id = expectEnum(operation.id, RUNTIME_OPERATION_KINDS, `Runtime contract.operations[${index}].id`);
+    if (bound.includes(id)) fail('RUNTIME_CONTRACT_INVALID', `Runtime contract operation ${id} is duplicated.`);
+    bound.push(id);
+    if (operation.status !== 'bound' || operation.binding !== 'vnext-runtime') fail('RUNTIME_CONTRACT_INVALID', `Runtime contract operation ${id} must be bound to vnext-runtime.`);
+    if (operation.operation !== id) fail('RUNTIME_CONTRACT_INVALID', `Runtime contract operation ${id} must identify its logical operation.`);
+    const operationContract: Record<RuntimeOperationKind, { source: string[]; writes: string[]; callers: string[] }> = {
+      'task-state-transaction': {
+        source: ['CURRENT_TASK.md', 'task-basis/TASK_BASIS-<TASK_ID>.md'],
+        writes: ['CURRENT_TASK.md', 'task-basis/TASK_BASIS-<TASK_ID>.md'],
+        callers: ['execute-step', 'review-change', 'prepare-task'],
+      },
+      'finding-queue-transaction': {
+        source: ['CURRENT_TASK.md'],
+        writes: ['CURRENT_TASK.md'],
+        callers: ['execute-step'],
+      },
+      'lifecycle-transaction': {
+        source: ['CURRENT_TASK.md', 'TASKS/paused/**', 'TASKS/interrupted/**'],
+        writes: ['CURRENT_TASK.md', 'TASKS/paused/**', 'TASKS/interrupted/**'],
+        callers: ['task-lifecycle'],
+      },
+      'inbox-record-transaction': {
+        source: ['CURRENT_TASK.md', 'TASKS/inbox/**'],
+        writes: ['TASKS/inbox/**'],
+        callers: ['capture-work-item'],
+      },
+      'project-status-transaction': {
+        source: ['CURRENT_TASK.md', 'STATUS.md', 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md'],
+        writes: ['STATUS.md'],
+        callers: ['close-task'],
+      },
+      'archive-transaction': {
+        source: ['CURRENT_TASK.md', 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md'],
+        writes: ['CURRENT_TASK.md', 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md'],
+        callers: ['close-task'],
+      },
+      'lesson-record-transaction': {
+        source: ['CURRENT_TASK.md', 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md', 'LESSONS.md'],
+        writes: ['LESSONS.md'],
+        callers: ['close-task'],
+      },
+      'contract-candidate-commit': {
+        source: ['CURRENT_TASK.md', 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md', 'CONTRACTS.md'],
+        writes: ['CONTRACTS.md'],
+        callers: ['close-task'],
+      },
+      'decision-record-transaction': {
+        source: ['CURRENT_TASK.md', 'TASKS/TASK-<TASK_ID>-<TASK_SLUG>.md', 'DECISIONS.md'],
+        writes: ['DECISIONS.md'],
+        callers: ['close-task'],
+      },
+    };
+    const expectedTargets = operationContract[id];
+    expectSetEqual(
+      expectStringArray(operation.source_targets, `Runtime contract.operations[${index}].source_targets`),
+      expectedTargets.source,
+      `Runtime contract operation ${id}.source_targets`,
+    );
+    expectSetEqual(
+      expectStringArray(operation.write_targets, `Runtime contract.operations[${index}].write_targets`),
+      expectedTargets.writes,
+      `Runtime contract operation ${id}.write_targets`,
+    );
+    expectSetEqual(expectStringArray(operation.allowed_callers, `Runtime contract.operations[${index}].allowed_callers`), expectedTargets.callers, `Runtime contract operation ${id}.allowed_callers`);
+    expectSetEqual(expectStringArray(operation.result_states, `Runtime contract.operations[${index}].result_states`), [...RUNTIME_RESULT_STATES], `Runtime contract operation ${id}.result_states`);
+    if (operation.atomic !== true || operation.idempotence !== 'fail-closed' || operation.conflict_policy !== 'fail-closed') fail('RUNTIME_CONTRACT_INVALID', `Runtime contract operation ${id} must be atomic, fail-closed, and conflict-safe.`);
+  }
+  expectSetEqual(bound, [...RUNTIME_OPERATION_KINDS], 'Runtime contract bound operations');
+  const unbound = expectStringArray(contract.unbound_operations, 'Runtime contract.unbound_operations', true);
+  expectSetEqual(unbound, [], 'Runtime contract unbound operations');
+  const bootstrapOperations = validateBootstrapRuntimeContract(contract.bootstrap_project);
+  return {
+    phase: 'Phase 2',
+    runtime_distribution: distributionIdentity,
+    mutation_scope: { status: 'bound', binding: 'vnext-runtime-read-only', check_command: 'scope-check' },
+    bound_operations: bound,
+    unbound_operations: unbound,
+    bootstrap_operations: bootstrapOperations,
+  };
+}
+
+function validateAuthorityEvidence(value: unknown): AuthorityEvidence[] {
+  if (!Array.isArray(value) || value.length === 0) fail('RUNTIME_AUTHORITY_MISSING', 'authority_evidence must be non-empty.');
+  const result: AuthorityEvidence[] = [];
+  for (const [index, raw] of value.entries()) {
+    const record = expectRecord(raw, `authority_evidence[${index}]`);
+    const kind = expectEnum(record.kind, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission', 'dangerous-operation', 'resume-review', 'user-confirmation', 'authorized-caller'], `authority_evidence[${index}].kind`);
+    const source = normalizeRepoPath(expectString(record.source, `authority_evidence[${index}].source`), `authority_evidence[${index}].source`);
+    const hasDraftBinding = 'draft_revision' in record;
+    const hasSourceBinding = 'source_revision' in record;
+    const hasCoordinateBinding = 'task_id' in record || 'document_id' in record || hasDraftBinding || hasSourceBinding;
+    if (hasDraftBinding && hasSourceBinding) {
+      fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}] cannot bind both draft_revision and source_revision.`);
+    }
+    if (hasCoordinateBinding) {
+      const revisionField = hasSourceBinding ? 'source_revision' : 'draft_revision';
+      const expectedKeys = 'subject' in record
+        ? ['kind', 'source', 'subject', 'task_id', 'document_id', revisionField]
+        : ['kind', 'source', 'task_id', 'document_id', revisionField];
+      expectExactKeys(record, expectedKeys, `authority_evidence[${index}]`);
+      const taskId = expectString(record.task_id, `authority_evidence[${index}].task_id`);
+      try {
+        validateTaskId(taskId);
+      } catch (error) {
+        fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+      }
+      const documentId = expectString(record.document_id, `authority_evidence[${index}].document_id`);
+      if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}].document_id is invalid.`);
+      const authorityRevision = expectString(record[revisionField], `authority_evidence[${index}].${revisionField}`);
+      if (!/^[a-f0-9]{64}$/.test(authorityRevision)) fail('RUNTIME_SCHEMA_INVALID', `authority_evidence[${index}].${revisionField} must be SHA-256.`);
+      result.push({
+        kind,
+        source,
+        subject: 'subject' in record ? expectText(record.subject, `authority_evidence[${index}].subject`, 256) : taskId,
+        task_id: taskId,
+        document_id: documentId,
+        [revisionField]: authorityRevision,
+      });
+    } else {
+      expectExactKeys(record, ['kind', 'source', 'subject'], `authority_evidence[${index}]`);
+      result.push({
+        kind,
+        source,
+        subject: expectText(record.subject, `authority_evidence[${index}].subject`, 256),
+      });
+    }
+  }
+  return result;
+}
+
+function validateSourceTuple(value: unknown): RuntimeSourceTuple {
+  const record = expectRecord(value, 'source_tuple');
+  expectExactKeys(
+    record,
+    ['path', 'revision', 'document_id', 'task_id', 'task_slug', 'workflow_status', 'lifecycle_state', 'active_step_id', 'active_step_status', 'finding_queue_revision', 'resume_requires_review', 'resume_review_reasons'],
+    'source_tuple',
+  );
+  const taskId = expectString(record.task_id, 'source_tuple.task_id');
+  const taskSlug = expectString(record.task_slug, 'source_tuple.task_slug');
+  try {
+    validateTaskId(taskId);
+    validateTaskSlug(taskSlug);
+  } catch (error) {
+    fail('RUNTIME_SCHEMA_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const documentId = expectString(record.document_id, 'source_tuple.document_id');
+  if (!DOCUMENT_ID_PATTERN.test(documentId)) fail('RUNTIME_SCHEMA_INVALID', 'source_tuple.document_id is invalid.');
+  const revision = expectString(record.revision, 'source_tuple.revision');
+  if (!/^[a-f0-9]{64}$/.test(revision)) fail('RUNTIME_SCHEMA_INVALID', 'source_tuple.revision must be SHA-256.');
+  const workflowStatus = expectEnum(record.workflow_status, CURRENT_TASK_WORKFLOW_STATUSES, 'source_tuple.workflow_status');
+  const lifecycleState = expectEnum(record.lifecycle_state, TASK_LIFECYCLE_STATES, 'source_tuple.lifecycle_state');
+  try {
+    validateCurrentTaskStatusTuple(workflowStatus, lifecycleState);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  const resumeRequiresReview = expectBoolean(record.resume_requires_review, 'source_tuple.resume_requires_review');
+  const rawResumeReasons = expectStringArray(record.resume_review_reasons, 'source_tuple.resume_review_reasons', true, RESUME_REVIEW_REASON_ORDER.length);
+  const resumeReviewReasons = normalizeResumeReviewReasons(rawResumeReasons);
+  if (rawResumeReasons.join('|') !== resumeReviewReasons.join('|')) {
+    fail('RUNTIME_SCHEMA_INVALID', 'source_tuple.resume_review_reasons must use the canonical closed-set order.');
+  }
+  try {
+    validateCurrentTaskResumeGate(lifecycleState, resumeRequiresReview, resumeReviewReasons);
+  } catch (error) {
+    fail('RUNTIME_STATE_CONFLICT', error instanceof Error ? error.message : String(error));
+  }
+  if (workflowStatus === 'suspended' && !resumeRequiresReview) {
+    fail('RUNTIME_STATE_CONFLICT', 'suspended CURRENT_TASK state must remain behind a non-empty resume review gate.');
+  }
+  return {
+    path: normalizeRepoPath(expectString(record.path, 'source_tuple.path'), 'source_tuple.path'),
+    revision,
+    document_id: documentId,
+    task_id: taskId,
+    task_slug: taskSlug,
+    workflow_status: workflowStatus,
+    lifecycle_state: lifecycleState,
+    active_step_id: expectString(record.active_step_id, 'source_tuple.active_step_id', STEP_ID_PATTERN),
+    active_step_status: expectEnum(record.active_step_status, STEP_STATUSES, 'source_tuple.active_step_status'),
+    finding_queue_revision: expectInteger(record.finding_queue_revision, 'source_tuple.finding_queue_revision'),
+    resume_requires_review: resumeRequiresReview,
+    resume_review_reasons: resumeReviewReasons,
+  };
+}
+
+function validateEvidenceRefs(value: unknown, location: string): string[] {
+  return expectStringArray(value, location, false, MAX_EVIDENCE_REFS);
+}
+
+function validateExecutionResultPaths(value: unknown, location: string): string[] {
+  const values = expectStringArray(value, location, true, MAX_EXECUTION_RESULT_ITEMS)
+    .map((item, index) => normalizeRepoPath(item, `${location}[${index}]`));
+  if (new Set(values).size !== values.length) fail('RUNTIME_SCHEMA_INVALID', `${location} must not contain duplicates.`);
+  return values;
+}
+
+function validateReviewTarget(value: unknown, location: string): ReviewTarget {
+  const target = expectRecord(value, location);
+  expectExactKeys(target, ['kind', 'revision', 'entries'], location);
+  if (target.kind !== 'runtime-file-manifest/v1') {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.kind must be runtime-file-manifest/v1.`);
+  }
+  if (!Array.isArray(target.entries) || target.entries.length > MAX_EXECUTION_RESULT_ITEMS) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.entries must be a bounded array.`);
+  }
+  const entries = target.entries.map((value, index): ReviewTargetEntry => {
+    const entryLocation = `${location}.entries[${index}]`;
+    const entry = expectRecord(value, entryLocation);
+    expectExactKeys(entry, ['path', 'state', 'sha256'], entryLocation);
+    const state = expectEnum(entry.state, ['file', 'absent', 'symlink'], `${entryLocation}.state`);
+    const entryDigest = entry.sha256 === null ? null : expectString(entry.sha256, `${entryLocation}.sha256`);
+    if ((state === 'absent') !== (entryDigest === null)) {
+      fail('RUNTIME_SCHEMA_INVALID', `${entryLocation}.sha256 must be null exactly when state is absent.`);
+    }
+    if (entryDigest !== null && !/^[a-f0-9]{64}$/u.test(entryDigest)) {
+      fail('RUNTIME_SCHEMA_INVALID', `${entryLocation}.sha256 must be SHA-256.`);
+    }
+    return {
+      path: normalizeRepoPath(expectString(entry.path, `${entryLocation}.path`), `${entryLocation}.path`),
+      state,
+      sha256: entryDigest,
+    };
+  });
+  const sortedPaths = entries.map(item => item.path).sort();
+  if (new Set(sortedPaths).size !== sortedPaths.length || entries.some((item, index) => item.path !== sortedPaths[index])) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.entries must use unique paths in canonical sort order.`);
+  }
+  const revision = expectString(target.revision, `${location}.revision`);
+  if (!/^[a-f0-9]{64}$/u.test(revision) || revision !== digest({ kind: 'runtime-file-manifest/v1', entries })) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.revision does not match its canonical file manifest.`);
+  }
+  return { kind: 'runtime-file-manifest/v1', revision, entries };
+}
+
+export function validateRuntimeReviewTarget(value: unknown, location = 'review_target'): ReviewTarget {
+  return validateReviewTarget(value, location);
+}
+
+function validateReviewChangeDelta(
+  value: unknown,
+  location: string,
+  base: ReviewTarget,
+  target: ReviewTarget,
+): ReviewChangeDelta {
+  const delta = expectRecord(value, location);
+  expectExactKeys(delta, ['kind', 'base_revision', 'target_revision', 'entries'], location);
+  if (delta.kind !== 'runtime-file-delta/v1') {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.kind must be runtime-file-delta/v1.`);
+  }
+  if (!Array.isArray(delta.entries) || delta.entries.length > MAX_EXECUTION_RESULT_ITEMS) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.entries must be a bounded array.`);
+  }
+  const entries = delta.entries.map((value, index): ReviewChangeDeltaEntry => {
+    const entryLocation = `${location}.entries[${index}]`;
+    const entry = expectRecord(value, entryLocation);
+    expectExactKeys(entry, ['path', 'before_state', 'before_sha256', 'after_state', 'after_sha256'], entryLocation);
+    const beforeState = expectEnum(entry.before_state, ['file', 'absent', 'symlink'], `${entryLocation}.before_state`);
+    const afterState = expectEnum(entry.after_state, ['file', 'absent', 'symlink'], `${entryLocation}.after_state`);
+    const beforeDigest = entry.before_sha256 === null ? null : expectString(entry.before_sha256, `${entryLocation}.before_sha256`);
+    const afterDigest = entry.after_sha256 === null ? null : expectString(entry.after_sha256, `${entryLocation}.after_sha256`);
+    if ((beforeState === 'absent') !== (beforeDigest === null) || (afterState === 'absent') !== (afterDigest === null)) {
+      fail('RUNTIME_SCHEMA_INVALID', `${entryLocation} digests must be null exactly for absent states.`);
+    }
+    if ((beforeDigest !== null && !/^[a-f0-9]{64}$/u.test(beforeDigest))
+      || (afterDigest !== null && !/^[a-f0-9]{64}$/u.test(afterDigest))) {
+      fail('RUNTIME_SCHEMA_INVALID', `${entryLocation} digests must be SHA-256.`);
+    }
+    return {
+      path: normalizeRepoPath(expectString(entry.path, `${entryLocation}.path`), `${entryLocation}.path`),
+      before_state: beforeState,
+      before_sha256: beforeDigest,
+      after_state: afterState,
+      after_sha256: afterDigest,
+    };
+  });
+  const baseRevision = expectString(delta.base_revision, `${location}.base_revision`, /^[a-f0-9]{64}$/u);
+  const targetRevision = expectString(delta.target_revision, `${location}.target_revision`, /^[a-f0-9]{64}$/u);
+  const expected = createReviewChangeDelta(base, target);
+  const normalized: ReviewChangeDelta = {
+    kind: 'runtime-file-delta/v1',
+    base_revision: baseRevision,
+    target_revision: targetRevision,
+    entries,
+  };
+  if (digest(normalized) !== digest(expected)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} does not match the canonical before/after manifests.`);
+  }
+  return normalized;
+}
+
+function validateStepExpectedFailureEvidence(value: unknown, location: string): StepExpectedFailureEvidence {
+  const evidence = expectRecord(value, location);
+  expectExactKeys(evidence, ['kind', 'expected_behavior', 'observed_failure_signature'], location);
+  if (evidence.kind !== 'behavior-not-implemented') {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.kind must be behavior-not-implemented.`);
+  }
+  return {
+    kind: 'behavior-not-implemented',
+    expected_behavior: expectText(evidence.expected_behavior, `${location}.expected_behavior`),
+    observed_failure_signature: expectText(evidence.observed_failure_signature, `${location}.observed_failure_signature`),
+  };
+}
+
+function validateStepExecutionResult(value: unknown, location: string): StepExecutionResult {
+  const result = expectRecord(value, location);
+  expectExactKeys(result, [
+    'outcome',
+    'change_set_id',
+    'review_base',
+    'review_target',
+    'change_delta',
+    'actual_changed_paths',
+    'command_results',
+    'validation_results',
+    'acceptance_evidence',
+    'blocker',
+    ...(result.execution_id === undefined ? [] : ['execution_id']),
+    ...(result.attempt_id === undefined ? [] : ['attempt_id']),
+    ...(result.blocker_kind === undefined ? [] : ['blocker_kind']),
+  ], location);
+  const outcome = expectEnum(result.outcome, ['implemented', 'test-red', 'blocked'], `${location}.outcome`);
+  const changeSetId = expectString(result.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN);
+  const reviewBase = validateReviewTarget(result.review_base, `${location}.review_base`);
+  const reviewTarget = validateReviewTarget(result.review_target, `${location}.review_target`);
+  const changeDelta = validateReviewChangeDelta(result.change_delta, `${location}.change_delta`, reviewBase, reviewTarget);
+  const actualChangedPaths = validateExecutionResultPaths(result.actual_changed_paths, `${location}.actual_changed_paths`);
+  if (digest([...actualChangedPaths].sort()) !== digest(changeDelta.entries.map(item => item.path))) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.actual_changed_paths must exactly match the Runtime before/after delta.`);
+  }
+  const commandValues = result.command_results;
+  if (!Array.isArray(commandValues) || commandValues.length > MAX_EXECUTION_RESULT_ITEMS) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.command_results must be a bounded array.`);
+  }
+  const commandResults = commandValues.map((item, index): StepCommandResult => {
+    const itemLocation = `${location}.command_results[${index}]`;
+    const command = expectRecord(item, itemLocation);
+    const status = expectEnum(command.status, STEP_EXECUTION_RESULT_STATUSES, `${itemLocation}.status`);
+    expectExactKeys(
+      command,
+      status === 'expected-failure'
+        ? ['command', 'status', 'observed_repo_writes', 'evidence_refs', 'expected_failure']
+        : ['command', 'status', 'observed_repo_writes', 'evidence_refs', ...(command.waiver_decision_id === undefined ? [] : ['waiver_decision_id'])],
+      itemLocation,
+    );
+    const evidenceRefs = expectStringArray(command.evidence_refs, `${itemLocation}.evidence_refs`, status === 'not-run', MAX_EVIDENCE_REFS);
+    const observedRepoWrites = validateExecutionResultPaths(command.observed_repo_writes, `${itemLocation}.observed_repo_writes`);
+    if (status === 'not-run' && observedRepoWrites.length > 0) {
+      fail('RUNTIME_STATE_CONFLICT', `${itemLocation}.not-run command must not report repository writes.`);
+    }
+    const expectedFailure = status === 'expected-failure'
+      ? validateStepExpectedFailureEvidence(command.expected_failure, `${itemLocation}.expected_failure`)
+      : undefined;
+    return {
+      command: expectText(command.command, `${itemLocation}.command`),
+      ...(command.waiver_decision_id === undefined ? {} : { waiver_decision_id: expectString(command.waiver_decision_id, 'waiver_decision_id', SAFE_KEY_PATTERN) }),
+      status,
+      observed_repo_writes: observedRepoWrites,
+      evidence_refs: evidenceRefs,
+      ...(expectedFailure ? { expected_failure: expectedFailure } : {}),
+    };
+  });
+  if (new Set(commandResults.map(item => item.command)).size !== commandResults.length) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.command_results must not contain duplicate commands.`);
+  }
+  const validationValues = result.validation_results;
+  if (!Array.isArray(validationValues) || validationValues.length > MAX_EXECUTION_RESULT_ITEMS) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.validation_results must be a bounded array.`);
+  }
+  const validationResults = validationValues.map((item, index): StepValidationResult => {
+    const itemLocation = `${location}.validation_results[${index}]`;
+    const validation = expectRecord(item, itemLocation);
+    const status = expectEnum(validation.status, STEP_EXECUTION_RESULT_STATUSES, `${itemLocation}.status`);
+    expectExactKeys(
+      validation,
+      status === 'expected-failure'
+        ? ['validation', 'status', 'evidence_refs', 'expected_failure']
+        : ['validation', 'status', 'evidence_refs', ...(validation.waiver_decision_id === undefined ? [] : ['waiver_decision_id'])],
+      itemLocation,
+    );
+    const expectedFailure = status === 'expected-failure'
+      ? validateStepExpectedFailureEvidence(validation.expected_failure, `${itemLocation}.expected_failure`)
+      : undefined;
+    return {
+      validation: expectText(validation.validation, `${itemLocation}.validation`),
+      ...(validation.waiver_decision_id === undefined ? {} : { waiver_decision_id: expectString(validation.waiver_decision_id, 'waiver_decision_id', SAFE_KEY_PATTERN) }),
+      status,
+      evidence_refs: expectStringArray(validation.evidence_refs, `${itemLocation}.evidence_refs`, status === 'not-run', MAX_EVIDENCE_REFS),
+      ...(expectedFailure ? { expected_failure: expectedFailure } : {}),
+    };
+  });
+  if (new Set(validationResults.map(item => item.validation)).size !== validationResults.length) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.validation_results must not contain duplicate validations.`);
+  }
+  const acceptanceEvidence = Array.isArray(result.acceptance_evidence) && result.acceptance_evidence.every(item => isRecord(item) && 'acceptance' in item)
+    ? result.acceptance_evidence.map(item => {
+      expectExactKeys(item, ['acceptance', 'evidence_refs'], 'historical acceptance evidence');
+      return { acceptance: expectText(item.acceptance, 'acceptance'), evidence_refs: validateEvidenceRefs(item.evidence_refs, 'evidence_refs') };
+    })
+    : validateStepAcceptanceEvidence(result.acceptance_evidence, `${location}.acceptance_evidence`);
+  const blocker = result.blocker === null ? null : expectText(result.blocker, `${location}.blocker`);
+  const statuses = [...commandResults, ...validationResults].map(item => item.status);
+  if (outcome === 'implemented' && (blocker !== null || [...commandResults, ...validationResults].some(item => item.status !== 'passed' && item.status !== 'expected-failure' && !item.waiver_decision_id))) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.implemented requires passing results or exact retained waivers and no blocker.`);
+  }
+  if (outcome === 'blocked' && (blocker === null || !statuses.some(status => status === 'failed' || status === 'blocked'))) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.blocked requires a blocker and at least one failed or blocked result.`);
+  }
+  if (outcome === 'test-red') {
+    if (blocker !== null
+      || acceptanceEvidence.length > 0
+      || !statuses.some(status => status === 'expected-failure')
+      || statuses.some(status => status !== 'passed' && status !== 'expected-failure')) {
+      fail('RUNTIME_STATE_CONFLICT', `${location}.test-red requires expected-failure evidence, permits only passed companion results, forbids acceptance evidence, and has no blocker.`);
+    }
+  }
+  return {
+    ...(result.execution_id === undefined ? {} : {execution_id:expectString(result.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN)}),
+    ...(result.attempt_id === undefined ? {} : {attempt_id:expectString(result.attempt_id, 'execution_result.attempt_id', SAFE_KEY_PATTERN)}),
+    ...(result.blocker_kind === undefined ? {} : {blocker_kind:expectEnum(result.blocker_kind, ['environment','unknown'], 'execution_result.blocker_kind')}),
+    outcome,
+    change_set_id: changeSetId,
+    review_base: reviewBase,
+    review_target: reviewTarget,
+    change_delta: changeDelta,
+    actual_changed_paths: changeDelta.entries.map(item => item.path),
+    command_results: commandResults,
+    validation_results: validationResults,
+    acceptance_evidence: acceptanceEvidence,
+    blocker,
+  };
+}
+
+const CLAIM_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const CLAIM_EVIDENCE_SLOT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const CLAIM_EVIDENCE_TYPE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/;
+const COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS: readonly ClaimEvidenceDisposition[] = ['existing', 'reused', 'newly-executed'];
+
+export function validateStepAcceptanceEvidence(value: unknown, location: string): StepAcceptanceEvidence[] {
+  if (!Array.isArray(value) || value.length > MAX_EXECUTION_RESULT_ITEMS) fail('RUNTIME_SCHEMA_INVALID', `${location} must be a bounded array.`);
+  const results = value.map(raw => {
+    const item = expectRecord(raw, location);
+    expectExactKeys(item, ['claim_id', 'slot_id', 'check_id', 'minimum_type', 'disposition', 'evidence_refs', 'report'], location);
+    return {
+      claim_id: expectString(item.claim_id, 'claim_id', CLAIM_ID_PATTERN),
+      slot_id: expectString(item.slot_id, 'slot_id', CLAIM_ID_PATTERN),
+      check_id: expectString(item.check_id, 'check_id', CLAIM_ID_PATTERN),
+      minimum_type: expectString(item.minimum_type, 'minimum_type', CLAIM_EVIDENCE_TYPE_PATTERN),
+      disposition: expectEnum(item.disposition, CLAIM_EVIDENCE_DISPOSITIONS, 'disposition'),
+      evidence_refs: validateEvidenceRefs(item.evidence_refs, 'evidence_refs'),
+      report: validateEvidenceReport(item.report),
+    };
+  });
+  if (new Set(results.map(item => `${item.claim_id}/${item.slot_id}`)).size !== results.length) fail('CLAIM_EVIDENCE_PLAN_CONFLICT', 'duplicate slot results.');
+  return results;
+}
+
+export function validateEvidenceReport(value: unknown): EvidenceReport {
+  const report = expectRecord(value, 'report');
+  expectExactKeys(report, ['result_id', 'status', 'evidence_plan_revision', 'subject_revision', 'actual_method', 'environment', 'assurance'], 'report');
+  return {
+    result_id: expectString(report.result_id, 'report.result_id', CLAIM_ID_PATTERN),
+    status: expectEnum(report.status, ['passed', 'failed', 'blocked', 'not-run', 'skipped', 'accepted', 'expected-failure'], 'report.status'),
+    evidence_plan_revision: expectString(report.evidence_plan_revision, 'report.evidence_plan_revision', /^[a-f0-9]{64}$/),
+    subject_revision: expectString(report.subject_revision, 'report.subject_revision', /^[a-f0-9]{64}$/),
+    actual_method: expectEnum(report.actual_method, ['execution', 'static', 'human'], 'report.actual_method'),
+    environment: expectText(report.environment, 'report.environment'),
+    assurance: 'caller-reported',
+  };
+}
+
+function evidenceSlotDefinition(slot: ClaimEvidenceSlot) {
+  const { disposition, evidence_refs, report, prerequisite_receipt, user_decision, ...definition } = slot;
+  return definition;
+}
+
+function evidencePlanRevision(definition: DraftTaskDefinition, records: readonly ClaimEvidenceRecord[]): string {
+  return digest({ definition, claims: records.map(record => ({ ...record, slots: record.slots.map(evidenceSlotDefinition).sort((a, b) => a.slot_id.localeCompare(b.slot_id)) })).sort((a, b) => a.claim_id.localeCompare(b.claim_id)) });
+}
+
+function plannedCommandsForEvidence(definition: DraftTaskDefinition): Map<string, Set<string>> {
+  const commands = new Map<string, Set<string>>();
+  for (const step of parseImplementationSteps(definition.implementation_steps)) {
+    const entries = new Set<string>();
+    for (const match of (step.plan_text ?? '').matchAll(/^\s{2,}-\s+planned_command:\s*(.+?)\s*$/gmu)) {
+      entries.add(match[1]!.trim());
+    }
+    commands.set(step.id, entries);
+  }
+  return commands;
+}
+
+export type EvidenceAdmissionContext = {
+  root: string;
+  taskBasis: TaskBasis;
+  previous: readonly ClaimEvidenceRecord[];
+};

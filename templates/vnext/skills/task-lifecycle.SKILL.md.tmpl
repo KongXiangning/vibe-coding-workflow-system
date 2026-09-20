@@ -61,9 +61,27 @@ entry_contract:
 
 # vNext Skill: task-lifecycle
 
+## Recovery history boundary
+
+Same-task recovery uses prepare-task candidates, preserves task/document identity,
+original request, decisions and obligations, and adds new execution facts.
+Do not reopen an archived closed task or use lifecycle switching to bypass a
+freeze, permission boundary, outstanding challenge or recovery publication lock.
+
 ## Intent
 
 Perform one explicit, identity-safe task ownership or lifecycle transition. The lifecycle state and workflow status remain distinct facts, and this entry handles only the requested transition.
+
+## Bounded task context protocol
+
+Read `validate --summary` first, then request `task-context(entry:"task-lifecycle",
+mode)` and follow all required continuations. Use `task-read` for the exact
+current definition, recovery package references, prior lifecycle events, and
+receipts; use `file-context` only for bounded external files. Reuse a definition
+only within the same visible session and exact `definition_revision`. A read
+receipt does not authorize a transition. Any required-page omission, revision
+change, session compression, or compact/store conflict requires rereading or a
+blocker and never an unbounded Markdown fallback.
 
 ## Operating rules
 
@@ -86,4 +104,4 @@ Return one structured `lifecycle_result` containing:
 - at most one `next_route` recommendation, if applicable; it is informational only and must not invoke another public Skill;
 - `terminal_boundary: public-entry-terminal/v1`; after this result, return to the caller and stop. Internal lifecycle capabilities are not public Skill chaining.
 
-No transition is complete merely because a proposal was described. Slice B binds `lifecycle-transaction` for pause, interrupt, the two explicit resume modes, and `supersede`. Supersede only invalidates the old definition. The old one-call replacement remains disabled. A recorded challenge to a completed result can use the separate restricted correction candidate without first superseding the task; it preserves the goal, scope and original later steps. A genuinely changed goal or authority boundary cannot use this correction route; the current Runtime rejects a successor draft from `superseded` until a non-completion replacement outcome is implemented. Do not mark the old task complete to open a draft.
+No transition is complete merely because a proposal was described. Slice B binds `lifecycle-transaction` for pause, interrupt, the two explicit resume modes, and `supersede`. Supersede only invalidates the old definition. The old one-call replacement remains disabled. A recorded challenge to a completed result can use the separate restricted correction candidate without first superseding the task; it preserves the goal, scope and original later steps. A genuinely changed goal or authority boundary cannot use this correction route; ordinary draft creation from `superseded` stays blocked. An explicit later user replacement request can use prepare-task’s internal `prepare-successor`, which retains the predecessor and creates a separately confirmed new identity. This lifecycle invocation must not call it automatically. Do not mark the old task complete to open a draft.

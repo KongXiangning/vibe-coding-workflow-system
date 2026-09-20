@@ -6,9 +6,13 @@
 
 推荐包路径：`docs/designs/vnext-business-evidence/`。若实际位置不同，后续提示词使用实际位置，不要额外复制一份。本文是设计规格；HANDOFF 是本次重构的交接记录，二者都不代替产品 Runtime 的 canonical task state。
 
+> **2026-09-19 E 收敛说明：** 本文保留为业务证据重构的历史实施规格。A–D 已落地后的现行行为以 `workflow-vnext-target-architecture.md`、Runtime/Source Contract、Skill 与 `vnext-design-convergence.md` 为准。特别是：minimum-sufficient 评价完整 evidence set 而非逐 check 强制最窄粒度；合法用户/项目/发布宽验证义务必须保留；scope/验收/目标变化不再统一表述为 same-task `supersede/replan`，应按 bounded correction、`amend-scope` 或显式 fresh successor 分流。
+
 ## 0. 用户目标、原进度与本次纠偏
 
 用户不要求默认严格 TDD。目标是：避免一次简单功能甚至文案修改自动生成大量无价值测试；必要单元测试必须锚定已确认业务要求、契约、缺陷或相关关键风险；需要跨组件完成的业务目标不能靠局部测试全绿冒充可用；适合的业务流程需要实际验证。不是一律少测，也不是一律新增 E2E。
+
+这里的“避免大量无价值测试”同时约束**测试执行范围**，不只约束是否创建新测试。默认目标是最少必要测试：能用一个关键函数/函数链的 focused check 可靠证明局部规则，就不因为同目录、同 target 或同 suite 里还有测试而自动扩大执行；业务正确性依赖跨组件、协议、持久化或真实数据流时，必须选择能覆盖该业务链条的 integration/business-flow evidence，不能用大量局部 PASS 替代；E2E 属于高成本证据，只在验收确实依赖真实用户/系统边界、关键跨层风险，或更低成本证据无法充分证明时准入。测试数量、覆盖数量和“全绿”本身都不是交付目标。
 
 前序实施已完成测试策略治理与 prepare-task 分类，并在当时契约下得到 clean。随后原 Step 3 实现了首步 mandatory Red、expected-failure、Red 后 review；聚焦审查发现单步任务无法完成、blocked 无同计划重试、滚动日志可能淘汰 Red。用户随后明确不走默认严格 TDD，因此本轮是对前序设计的定向修订，不是继续修补完整 TDD 引擎。
 
@@ -103,6 +107,10 @@ Runtime 强制已确认的定义、身份关联、范围、结果结构、版本
 
 一次运行可以支持多个已映射槽位，但不能因共享一条 evidence_ref 就自动满足所有 claim。类型之间不建立“E2E 永远比 unit 高，因此随便替代”的总序。
 
+minimum-sufficient 同时约束 required execution set，而且评价的是**完整 evidence set 的检出力、真实边界与总体成本**，不是逐 check 强制最低 granularity。prepare-task 先确定“为这个 claim 必须观察什么”，再比较能够产生这些观察并保留独立用户/项目/发布义务的最小充分集合；不得默认把整个测试文件、Cargo/Node target、package script、repository regression 或最终 full suite 当成 required evidence。若一个较宽 invocation 以更低总体成本覆盖多个必要观察，或有独立的用户/项目/发布/契约/风险义务，可保留其合法 breadth；这不产生新的 authority 类型，仍需原有 basis/source。为了方便、历史习惯、coverage 偏好或“顺便确认一下”不能单独构成准入理由。
+
+执行型证据优先按实际 claim 边界选择：局部逻辑优先 focused unit/function-chain；跨组件业务语义优先真实 integration/business-flow；E2E 只在真实端到端边界本身属于验收内容或较低成本证据无法建立结论时使用。E2E 的高成本、环境脆弱性和诊断半径必须作为 admission 成本考虑，而不是最终步骤的默认仪式。
+
 ### 3.2 必须落到真实业务计划
 
 同一个验收确实需要规则和流程两类证据时，正常 prepare-task 必须能生成两个不同槽，并在 execute/complete/close 中分别检查。普通纯规则变更可只有一个 focused-test 槽；文档修改可只有静态检查；不强迫每项验收新增两套测试。
@@ -194,7 +202,7 @@ prepare-task 不再给每步硬编码 required；从已确认的风险/逻辑边
 
 retry 不能改变测试期望、跳过检查、修改 scope、清空 findings、沿用已失效 clean review 或直接把 blocked 改 completed。环境状态好转不代表业务已经验证通过。
 
-需要修改代码/fixture 时走已有 admitted execution/repair 权限；需要改变验收或范围才走 supersede/replan。证据不足、预算耗尽或需外部授权时阻断并说明真实后续路线，不伪造 finding 来解锁，不要求为一次临时故障重做整个任务。
+需要修改代码/fixture 时走已有 admitted execution/repair 权限。需要改变义务但不扩大总 authority 的历史结论/执行恢复走 bounded correction；已有明确 additive authority 决定走 `amend-scope`；真正 goal/scope/acceptance 失效可 supersede，而后续替代必须有显式用户请求并通过 fresh successor，而不是统一 whole-task replan。证据不足、预算耗尽或需外部授权时阻断并说明真实后续路线，不伪造 finding 来解锁，不要求为一次临时故障重做整个任务。
 
 ## 7. 最小版本与安全措施
 

@@ -20,6 +20,7 @@ import { checkTargetRoot, normalizeAbsoluteRootPath } from './guard-target-root'
 import {
   getWorkflowHome,
   resolveRoot,
+  validateMutationAuthorityDomains,
   type JsonObject,
 } from './workflow-core';
 import {
@@ -324,6 +325,11 @@ export type PathReference = {
   normalized: string;
   kind: 'repo-relative' | 'external' | 'anchor' | 'unclassified';
   adjusted: boolean;
+};
+
+type PathReferenceContext = {
+  sourcePath: string;
+  repositoryRoot: string;
 };
 
 type CanonicalMarkdownHeader = {
@@ -750,6 +756,13 @@ export function getTargetSnapshot(targetRoot: string): TargetSnapshot {
 }
 
 function getProjectIdentity(profile: JsonObject, targetRoot: string): TargetIdentity {
+  try {
+    // Migration keeps a pre-existing optional v2 map target-owned, but it
+    // must reject malformed/ambiguous domain roots before producing a pack.
+    validateMutationAuthorityDomains(profile, 'PROJECT_PROFILE.yaml');
+  } catch (error) {
+    throw new MigrationPackError('PROFILE_INVALID', error instanceof Error ? error.message : String(error));
+  }
   const project = expectRecord(profile.project, 'PROJECT_PROFILE.yaml.project');
   const projectName = expectString(project.name, 'PROJECT_PROFILE.yaml.project.name');
   const projectSlug = expectString(project.slug, 'PROJECT_PROFILE.yaml.project.slug');
@@ -953,7 +966,7 @@ function assertMigrationDecisionTarget(root: string, target: TargetIdentity, cur
   const content = fs.readFileSync(resolveRepoPath(root, current.path, 'CURRENT_TASK'), 'utf8');
   const id = content.match(/^\s*-\s*(?:\*\*)?任务 ID(?:\*\*)?[：:]\s*(.+?)\s*$/m)?.[1];
   if (id !== decisions.current_task.original_task_id) throw new MigrationPackError('CURRENT_TASK_INVALID', 'Original task ID differs from the completion decision.');
-  if (!/^(?:archived|closed)$|^completed_verified_archived(?:[（( ]|$)/.test(current.workflow_status)) {
+  if (!/^(?:archived|closed)(?:[（( ]|$)|^completed(?:_verified_archived)?(?:[（( ]|$)/.test(current.workflow_status)) {
     throw new MigrationPackError('CURRENT_TASK_NON_IDLE', 'Completion decisions require an explicitly completed historical status.');
   }
   // A completion decision resolves historical format gaps, not active ownership.
@@ -1172,12 +1185,16 @@ export function isFrozenPath(targetRoot: string, relativePath: string): boolean 
   return false;
 }
 
-function extractPathReferences(content: string, packVersion: 1 | 2 | 3 = 3): PathReference[] {
+function extractPathReferences(
+  content: string,
+  packVersion: 1 | 2 | 3 = 3,
+  context?: PathReferenceContext,
+): PathReference[] {
   const candidates = new Map<string, PathReference>();
   const markdownLink = /\]\(([^)]+)\)/g;
   for (const match of content.matchAll(markdownLink)) {
     const value = match[1].trim().replace(/^<|>$/g, '');
-    candidates.set(value, normalizePathReference(value, false, packVersion === 3));
+    candidates.set(value, normalizePathReference(value, false, packVersion === 3, context));
   }
   const inlineCode = /`([^`\n]+)`/g;
   for (const match of content.matchAll(inlineCode)) {
@@ -1190,7 +1207,12 @@ function extractPathReferences(content: string, packVersion: 1 | 2 | 3 = 3): Pat
   return [...candidates.values()].sort((left, right) => left.raw.localeCompare(right.raw));
 }
 
-function normalizePathReference(raw: string, inlineCode = false, allowWindowsLink = false): PathReference {
+function normalizePathReference(
+  raw: string,
+  inlineCode = false,
+  allowWindowsLink = false,
+  context?: PathReferenceContext,
+): PathReference {
   if (/^(?:https?:|mailto:|ftp:)/i.test(raw)) return { raw, normalized: raw, kind: 'external', adjusted: false };
   if (raw.startsWith('#')) return { raw, normalized: raw, kind: 'anchor', adjusted: false };
   // Legacy workflow documents commonly link to slash-prefixed Skill
@@ -1214,10 +1236,29 @@ function normalizePathReference(raw: string, inlineCode = false, allowWindowsLin
     && !/[\0-\x1F\x7F]/.test(normalized) && !normalized.split('/').includes('..')) {
     return { raw, normalized: raw, kind: 'unclassified', adjusted: false };
   }
+  const hasParentTraversal = normalized.split('/').some(part => part === '..');
+  if (
+    !inlineCode &&
+    hasParentTraversal &&
+    context &&
+    isWithinRoot(
+      context.repositoryRoot,
+      path.resolve(
+        path.dirname(path.resolve(context.repositoryRoot, ...context.sourcePath.split('/'))),
+        ...normalized.split('/'),
+      ),
+    )
+  ) {
+    // A Markdown link may legitimately address a sibling document (for
+    // example docs/workflow/ -> docs/designs/).  Prove containment from the
+    // document's directory; do not treat an in-repository ../ link as a
+    // write path or allow it to escape the target root.
+    return { raw, normalized, kind: 'repo-relative', adjusted: normalized !== raw };
+  }
   if (
     normalized.startsWith('/') ||
     /^[A-Za-z]:\//.test(normalized) ||
-    normalized.split('/').some(part => part === '..') ||
+    hasParentTraversal ||
     /[\0-\x1F\x7F]/.test(normalized)
   ) {
     throw new MigrationPackError('UNSAFE_PATH', `unsafe path reference in migrated document: ${raw}`);
@@ -1225,14 +1266,18 @@ function normalizePathReference(raw: string, inlineCode = false, allowWindowsLin
   return { raw, normalized, kind: 'repo-relative', adjusted: normalized !== raw };
 }
 
-function rewritePathReferences(content: string, packVersion: 1 | 2 | 3 = 3): string {
+function rewritePathReferences(
+  content: string,
+  packVersion: 1 | 2 | 3 = 3,
+  context?: PathReferenceContext,
+): string {
   const rewrite = (rawValue: string, inlineCode = false): string => {
     const leading = rawValue.startsWith('<') ? '<' : '';
     const trailing = rawValue.endsWith('>') ? '>' : '';
     const raw = rawValue.slice(leading.length, rawValue.length - trailing.length || undefined);
     // Match the extractor: commands and prose inside code spans are not paths.
     if (inlineCode && (!/[\\/]/.test(raw.trim()) || /\s/.test(raw.trim()))) return rawValue;
-    const reference = normalizePathReference(raw.trim(), inlineCode);
+    const reference = normalizePathReference(raw.trim(), inlineCode, false, context);
     if (reference.kind !== 'repo-relative' || reference.normalized === raw.trim()) return rawValue;
     const leftWhitespace = raw.match(/^\s*/)?.[0] ?? '';
     const rightWhitespace = raw.match(/\s*$/)?.[0] ?? '';
@@ -1299,17 +1344,19 @@ function canonicalizeMarkdownDocument(
   legacySource: TargetSnapshot,
   packVersion: 1 | 2 | 3 = 3,
   context?: AlignmentContext,
+  repositoryRoot?: string,
 ): string {
+  const referenceContext = repositoryRoot ? { sourcePath, repositoryRoot } : undefined;
   const header = canonicalMarkdownHeader(
     kind,
     sourcePath,
     content,
     sourceSha,
-    extractPathReferences(content, packVersion),
+    extractPathReferences(content, packVersion, referenceContext),
     legacyProtocolVersion,
     legacySource,
   );
-  let body = packVersion === 3 ? content : rewritePathReferences(content, packVersion);
+  let body = packVersion === 3 ? content : rewritePathReferences(content, packVersion, referenceContext);
   if (packVersion === 3) {
     header.conversion_rule = 'canonical-verbatim-v2';
     if (isAlignedPath(sourcePath)) {
@@ -1318,7 +1365,7 @@ function canonicalizeMarkdownDocument(
       header.original_backup_path = originalBackupPath(sourcePath, sourceSha);
       body = alignLegacyText(sourcePath, content, context, header.original_backup_path);
       header.heading_index = extractHeadingIndex(body, sourcePath);
-      header.path_references = extractPathReferences(body, 3);
+      header.path_references = extractPathReferences(body, 3, referenceContext);
     }
   }
   return `---\n${stringifyYaml(header).trimEnd()}\n---\n${body}`;
@@ -1332,7 +1379,9 @@ function canonicalizeProjectProfile(
   legacySource: TargetSnapshot,
   packVersion: 1 | 2 | 3 = 3,
   context?: AlignmentContext,
+  repositoryRoot?: string,
 ): string {
+  const referenceContext = repositoryRoot ? { sourcePath, repositoryRoot } : undefined;
   const parsed = parseDocument(content, { uniqueKeys: true });
   const diagnostics = [...parsed.errors, ...parsed.warnings];
   if (diagnostics.length > 0) {
@@ -1354,12 +1403,12 @@ function canonicalizeProjectProfile(
     conversion_rule: packVersion === 3 ? 'canonical-verbatim-v2' : VNEXT_CANONICAL_CONVERSION_RULE,
     original_text_preserved: packVersion !== 3,
     ...(packVersion === 3 ? { original_backup_path: originalBackupPath(sourcePath, sourceSha) } : {}),
-    path_references: extractPathReferences(content),
+    path_references: extractPathReferences(content, 3, referenceContext),
   };
   if (packVersion === 3) {
     if (!context) throw new MigrationPackError('PACK_INVALID', 'Missing alignment context');
     content = alignLegacyText(sourcePath, content, context, originalBackupPath(sourcePath, sourceSha));
-    metadata.path_references = extractPathReferences(content, 3);
+    metadata.path_references = extractPathReferences(content, 3, referenceContext);
   }
   const suffix = stringifyYaml({ vnext_migration: metadata }).trimEnd();
   return `${content.endsWith('\n') ? content : `${content}\n`}\n${suffix}\n`;
@@ -1374,15 +1423,16 @@ function canonicalizeArtifactContent(
   legacySource: TargetSnapshot,
   packVersion: 1 | 2 | 3 = 3,
   context?: AlignmentContext,
+  repositoryRoot?: string,
 ): string {
   if (packVersion === 3 && ['AGENTS.md', 'CLAUDE.md', 'package.json'].includes(sourcePath)) {
     if (!context) throw new MigrationPackError('PACK_INVALID', 'Missing alignment context');
     return alignLegacyText(sourcePath, content, context, originalBackupPath(sourcePath, sourceSha));
   }
   if (kind === 'project-profile') {
-    return canonicalizeProjectProfile(sourcePath, content, sourceSha, legacyProtocolVersion, legacySource, packVersion, context);
+    return canonicalizeProjectProfile(sourcePath, content, sourceSha, legacyProtocolVersion, legacySource, packVersion, context, repositoryRoot);
   }
-  return canonicalizeMarkdownDocument(kind, sourcePath, content, sourceSha, legacyProtocolVersion, legacySource, packVersion, context);
+  return canonicalizeMarkdownDocument(kind, sourcePath, content, sourceSha, legacyProtocolVersion, legacySource, packVersion, context, repositoryRoot);
 }
 
 function parseCanonicalFrontmatter(content: string, location: string): { header: Record<string, unknown>; body: string } {
@@ -1417,6 +1467,7 @@ function validateCanonicalArtifactContent(
   location: string,
   packVersion: 1 | 2 | 3,
   context?: AlignmentContext,
+  repositoryRoot?: string,
 ): void {
   const expectedCanonicalContent = canonicalizeArtifactContent(
     artifact.kind,
@@ -1427,6 +1478,7 @@ function validateCanonicalArtifactContent(
     legacySource,
     packVersion,
     context,
+    repositoryRoot,
   );
   if (canonicalContent !== expectedCanonicalContent) {
     throw new MigrationPackError('PACK_INVALID', `${location} does not match the deterministic canonical conversion.`);
@@ -1434,7 +1486,8 @@ function validateCanonicalArtifactContent(
   if (packVersion === 3) {
     if (artifact.conversion_rule !== 'canonical-verbatim-v2') throw new MigrationPackError('PACK_INVALID', 'Pack v3 requires explicit verbatim/alignment conversion rule');
     if (artifact.target_path !== artifact.source_path) throw new MigrationPackError('PACK_INVALID', 'Pack v3 alignment must keep the exact source path');
-    if (JSON.stringify(artifact.path_references) !== JSON.stringify(extractPathReferences(originalContent, 3))) throw new MigrationPackError('PACK_INVALID', 'Source reference inventory differs from preserved original');
+    const referenceContext = repositoryRoot ? { sourcePath: artifact.source_path, repositoryRoot } : undefined;
+    if (JSON.stringify(artifact.path_references) !== JSON.stringify(extractPathReferences(originalContent, 3, referenceContext))) throw new MigrationPackError('PACK_INVALID', 'Source reference inventory differs from preserved original');
     return; // Exact deterministic content above validates the entire v3 envelope/projection.
   }
   if (artifact.kind === 'project-profile') {
@@ -1471,7 +1524,8 @@ function validateCanonicalArtifactContent(
   });
   const references = validatePathReferenceList(header.path_references, `${location}.path_references`);
   if (JSON.stringify(references) !== JSON.stringify(artifact.path_references)) throw new MigrationPackError('PACK_INVALID', `${location}.path_references do not match the artifact inventory.`);
-  if (parsed.body !== rewritePathReferences(originalContent, packVersion)) throw new MigrationPackError('PACK_INVALID', `${location} does not preserve the original Markdown body apart from deterministic path normalization.`);
+  const referenceContext = repositoryRoot ? { sourcePath: artifact.source_path, repositoryRoot } : undefined;
+  if (parsed.body !== rewritePathReferences(originalContent, packVersion, referenceContext)) throw new MigrationPackError('PACK_INVALID', `${location} does not preserve the original Markdown body apart from deterministic path normalization.`);
   if (JSON.stringify(headingIndex) !== JSON.stringify(extractHeadingIndex(originalContent, artifact.source_path))) throw new MigrationPackError('PACK_INVALID', `${location}.heading_index does not match the preserved Markdown headings.`);
 }
 
@@ -1484,7 +1538,23 @@ function validateLegacyDocument(file: string, content: string): MigrationIssue[]
       // equivalent reference without changing the preserved document body.
       const validationContent = basename === 'WORKFLOW_GUIDE.md'
         ? [...WORKFLOW_DOC_NAMES, 'DOCUMENT_CATALOG.md'].reduce((text, name) => text.replaceAll('`' + name + '`', '`docs/workflow/' + name + '`'), content) : content;
-      validateWorkflowDocContract(basename, validationContent);
+      try {
+        validateWorkflowDocContract(basename, validationContent);
+      } catch (error) {
+        // Pre-vNext DECISIONS.md files may already contain real superseded
+        // decision records without the newer SUPERSEDED-001 placeholder.
+        // Preserve that historical form during migration; this exception is
+        // limited to the legacy document contract and does not weaken vNext
+        // document validation.
+        if (
+          basename !== 'DECISIONS.md' ||
+          !(error instanceof Error) ||
+          !error.message.includes('required snippet "### SUPERSEDED-001:"') ||
+          !/^## 🔁 已演进 \/ 已替代\s*\r?\n(?:\r?\n|\s)*((?:- .+\r?\n?)+)/m.test(validationContent)
+        ) {
+          throw error;
+        }
+      }
     } catch (error) {
       issues.push({ severity: 'error', code: 'DOCUMENT_INVALID', message: error instanceof Error ? error.message : String(error), path: file });
     }
@@ -1510,12 +1580,13 @@ function createArtifact(
   legacySource: TargetSnapshot,
   legacyProtocolVersion: string,
   context: AlignmentContext,
+  repositoryRoot: string,
 ): MigrationArtifact {
   const normalizedSourcePath = normalizeRepoPath(sourcePath, 'artifact.source_path');
   const normalizedTargetPath = normalizeRepoPath(targetPath, 'artifact.target_path');
   const sourceSha = sha256(content);
   const stableId = `artifact-${sha256(`${kind}\0${normalizedSourcePath}\0${sourceSha}`).slice(0, 24)}`;
-  const canonicalContent = canonicalizeArtifactContent(kind, normalizedSourcePath, content, sourceSha, legacyProtocolVersion, legacySource, 3, context);
+  const canonicalContent = canonicalizeArtifactContent(kind, normalizedSourcePath, content, sourceSha, legacyProtocolVersion, legacySource, 3, context, repositoryRoot);
   return {
     stable_id: stableId,
     kind,
@@ -1528,7 +1599,7 @@ function createArtifact(
     source_sha256: sourceSha,
     content_sha256: sha256(canonicalContent),
     byte_length: Buffer.byteLength(canonicalContent, 'utf8'),
-    path_references: extractPathReferences(content),
+    path_references: extractPathReferences(content, 3, { sourcePath: normalizedSourcePath, repositoryRoot }),
     provenance: {
       source_revision: source.revision,
       source_tree_hash: source.tree_hash,
@@ -1721,7 +1792,7 @@ function collectConversionArtifacts(
   const artifacts: MigrationArtifact[] = [];
   const context = alignmentContext(targetRoot);
   for (const p of context.host_files) {
-    artifacts.push(createArtifact('target-owned-preserved', p, p, fs.readFileSync(path.join(targetRoot, p), 'utf8'), source, legacySource, legacyProtocolVersion, context));
+    artifacts.push(createArtifact('target-owned-preserved', p, p, fs.readFileSync(path.join(targetRoot, p), 'utf8'), source, legacySource, legacyProtocolVersion, context, targetRoot));
   }
   const home = getWorkflowHome(profile);
   for (const relativeName of WORKFLOW_DOC_NAMES) {
@@ -1736,7 +1807,7 @@ function collectConversionArtifacts(
     }
     const content = fs.readFileSync(filePath, 'utf8');
     issues.push(...validateLegacyDocument(relativeName, content));
-    artifacts.push(createArtifact('governance-document', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context));
+    artifacts.push(createArtifact('governance-document', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context, targetRoot));
   }
 
   const profileRelativePath = '.workflow-system/PROJECT_PROFILE.yaml';
@@ -1749,7 +1820,7 @@ function collectConversionArtifacts(
   } catch (error) {
     issues.push({ severity: 'error', code: 'DOCUMENT_INVALID', message: error instanceof Error ? error.message : String(error), path: profileRelativePath });
   }
-  artifacts.push(createArtifact('project-profile', profileRelativePath, profileRelativePath, profileContent, source, legacySource, legacyProtocolVersion, context));
+  artifacts.push(createArtifact('project-profile', profileRelativePath, profileRelativePath, profileContent, source, legacySource, legacyProtocolVersion, context, targetRoot));
 
   const tasksDir = path.join(targetRoot, 'TASKS');
   if (fs.existsSync(tasksDir)) {
@@ -1761,11 +1832,11 @@ function collectConversionArtifacts(
       if (/^TASK-[0-9]{3,}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(basename)) {
         const content = fs.readFileSync(filePath, 'utf8');
         issues.push(...validateLegacyDocument(relativePath, content));
-        artifacts.push(createArtifact('task-archive', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context));
+        artifacts.push(createArtifact('task-archive', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context, targetRoot));
       } else if (basename !== 'README.md' && basename !== '.gitkeep') {
         const content = fs.readFileSync(filePath, 'utf8');
         issues.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: 'Unclassified TASKS content is preserved as target-owned content.', path: relativePath });
-        artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context));
+        artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context, targetRoot));
       }
     }
   }
@@ -1785,7 +1856,7 @@ function collectConversionArtifacts(
     if (path.basename(filePath).endsWith('.md')) {
       const content = fs.readFileSync(filePath, 'utf8');
       issues.push({ severity: 'warning', code: 'CONVERSION_ISSUE', message: 'Unclassified workflow document is preserved verbatim; no semantic rewrite was attempted.', path: relativePath });
-      artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context));
+      artifacts.push(createArtifact('target-owned-preserved', relativePath, relativePath, content, source, legacySource, legacyProtocolVersion, context, targetRoot));
     }
   }
   return artifacts.sort((left, right) => left.target_path.localeCompare(right.target_path));
@@ -1933,7 +2004,7 @@ export function createMigrationPack(options: CreatePackOptions): MigrationPackMa
       artifact.source_sha256,
       preflight.legacy_protocol.protocol_version,
       preflight.target_snapshot,
-      3, manifest.alignment_context,
+      3, manifest.alignment_context, targetRoot,
     );
     if (sha256(sourceContent) !== artifact.source_sha256 || sha256(canonicalContent) !== artifact.content_sha256) {
       throw new MigrationPackError('PACK_STALE', `Source changed while writing converted artifact: ${artifact.source_path}`);
@@ -2203,7 +2274,7 @@ function loadAndValidatePack(packDir: string): MigrationPackManifest {
     if (artifact.provenance.source_revision !== source.revision || artifact.provenance.source_tree_hash !== source.tree_hash || artifact.provenance.legacy_source_revision !== legacySource.revision || artifact.provenance.legacy_source_tree_hash !== legacySource.tree_hash) {
       throw new MigrationPackError('PACK_INVALID', `artifact provenance does not bind to the pack source/legacy snapshot: ${artifact.target_path}`);
     }
-    validateCanonicalArtifactContent(artifact, content.toString('utf8'), originalContent.toString('utf8'), legacyProtocol.protocol_version, legacySource, `migration pack.artifacts[${index}]`, raw.schema_version as 1 | 2 | 3, alignment);
+    validateCanonicalArtifactContent(artifact, content.toString('utf8'), originalContent.toString('utf8'), legacyProtocol.protocol_version, legacySource, `migration pack.artifacts[${index}]`, raw.schema_version as 1 | 2 | 3, alignment, target.root_path);
     return artifact;
   });
   const legacySurfaceRaw = expectRecord(raw.legacy_surface, 'migration pack.legacy_surface');
@@ -2312,7 +2383,7 @@ function validateBundleArtifactShape(value: unknown, location: string): VNextBun
 }
 
 const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
-  'prepare-task': ['default', 'confirm', 'replan'],
+  'prepare-task': ['default', 'confirm', 'replan', 'amend-scope'],
   'review-draft': [],
   'review-change': ['default'],
   'execute-step': ['default', 'repair'],
@@ -2535,6 +2606,8 @@ const REQUIRED_RUNTIME_BUNDLE_TARGETS = [
   VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH,
   '.workflow-system/runtime/src/cli.ts',
   '.workflow-system/runtime/src/current-task.ts',
+  '.workflow-system/runtime/src/task-context.ts',
+  '.workflow-system/runtime/src/task-store.ts',
   '.workflow-system/runtime/src/task-state-transaction.ts',
   '.workflow-system/runtime/src/finding-queue-transaction.ts',
   '.workflow-system/runtime/src/kernel.ts',
@@ -2886,6 +2959,8 @@ export function prepareRuntimeDistribution(bundleDir: string, artifacts: readonl
       VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH,
       '.workflow-system/runtime/src/cli.ts',
       '.workflow-system/runtime/src/current-task.ts',
+      '.workflow-system/runtime/src/task-context.ts',
+      '.workflow-system/runtime/src/task-store.ts',
       '.workflow-system/runtime/src/task-state-transaction.ts',
       '.workflow-system/runtime/src/finding-queue-transaction.ts',
       '.workflow-system/runtime/src/kernel.ts',

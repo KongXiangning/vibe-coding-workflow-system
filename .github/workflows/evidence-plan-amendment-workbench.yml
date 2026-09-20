@@ -1,0 +1,123 @@
+name: Evidence plan amendment workbench
+on:
+  push:
+    branches: [codex/evidence-plan-amendment-work-20260920]
+    paths: [.github/workflows/evidence-plan-amendment-workbench.yml]
+permissions:
+  contents: read
+concurrency:
+  group: evidence-plan-amendment-20260920
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      statuses: write
+    env:
+      BASE_SHA: 098710a2f91313450b0aeaf3f94b0136b56a3cf4
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.10
+      - name: Verify transport and apply exact bounded amendment
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/amend-logs"
+          python3 - <<'PY'
+          import pathlib, base64, lzma, hashlib, os
+          patch=lzma.decompress(base64.b64decode(pathlib.Path('.amend-work/patch-1.b64').read_text().strip(),validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='5557f0aa62fd5a21f998b26e02cad0b7e193b3d0859991e3d0e83a1ca28e9f8c'
+          assert len(patch)==62830
+          pathlib.Path(os.environ['RUNNER_TEMP'],'amend-patch.py').write_bytes(patch)
+          if pathlib.Path('.amend-work/fix.py').exists():
+              pathlib.Path(os.environ['RUNNER_TEMP'],'amend-fix.py').write_bytes(pathlib.Path('.amend-work/fix.py').read_bytes())
+          PY
+          git checkout --detach "$BASE_SHA"
+          python3 "$RUNNER_TEMP/amend-patch.py" 2>&1 | tee "$RUNNER_TEMP/amend-logs/patch.log"
+          if test -f "$RUNNER_TEMP/amend-fix.py"; then python3 "$RUNNER_TEMP/amend-fix.py"; fi
+          bun install --frozen-lockfile --ignore-scripts
+      - name: Build and focused behavioral verification
+        run: |
+          set +e
+          rc=0
+          run_group() {
+            name="$1"; shift
+            "$@" > "$RUNNER_TEMP/amend-logs/$name.log" 2>&1
+            result=$?
+            echo "$name=$result" | tee -a "$RUNNER_TEMP/amend-logs/summary.txt"
+            tail -100 "$RUNNER_TEMP/amend-logs/$name.log"
+            if test "$result" -ne 0; then rc=1; fi
+          }
+          run_group runtime-contract bun run validate:vnext-runtime
+          run_group source-contract bun run validate:vnext-source
+          run_group generated bun run gen:all
+          run_group freshness bun run validate:freshness
+          run_group amendment bun test --timeout 120000 test/vnext-runtime.test.ts --test-name-pattern 'evidence-plan amendment'
+          run_group protections bun test --timeout 120000 test/vnext-runtime.test.ts --test-name-pattern 'process-control|S4 retries|scope amendment consumes prior authorization'
+          run_group storage bun test --timeout 120000 test/vnext-task-store.test.ts test/vnext-task-context.test.ts
+          run_group skills bun test --timeout 120000 test/workflow-vnext-source.test.ts --test-name-pattern 'preserves P-12|keeps execute-step focused|requires prepare-task to map'
+          run_group installed bun test --timeout 120000 test/vnext-runtime.test.ts --test-name-pattern 'fixed tgz installed Node CLI supports same-envelope discovery'
+          run_group diff-check git diff --check
+          exit "$rc"
+      - name: Retain exact diagnostic evidence without touching a product branch
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/amend-logs"
+          git diff --stat > "$RUNNER_TEMP/amend-logs/diff-stat.txt"
+          git diff --binary > "$RUNNER_TEMP/amend-logs/candidate.patch"
+          git fetch origin codex/evidence-plan-amendment-work-20260920
+          git worktree add --detach "$RUNNER_TEMP/amend-evidence" FETCH_HEAD
+          dest="$RUNNER_TEMP/amend-evidence/.amend-work/results/$GITHUB_RUN_ID"
+          mkdir -p "$dest"
+          cp "$RUNNER_TEMP/amend-logs/"* "$dest/"
+          cd "$RUNNER_TEMP/amend-evidence"
+          git add -f -- .amend-work/results
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "chore(dev): retain evidence amendment verification $GITHUB_RUN_ID"
+          git push origin HEAD:codex/evidence-plan-amendment-work-20260920
+      - name: Publish verified clean candidate
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -z "$(git status --short -- .github .amend-work VERSION package.json)"
+          git add -A
+          test -z "$(git diff --cached --name-only -- .github .amend-work VERSION package.json)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n\n%s\n' \
+            'feat(vnext): allow same-task evidence plan amendments' \
+            'Add an explicit user-authorized prepare/confirm/discard route for minimum-sufficient evidence selection changes without fabricating challenges or superseding the task. Preserve task identity, goal, acceptance, authority, findings, review/history and budgets; require fresh evidence for changed checks and exact selection-dependent validation descriptions.' \
+            | git commit-tree "$tree" -p "$BASE_SHA")
+          branch='codex/evidence-plan-amendment-vnext'
+          if git ls-remote --exit-code --heads origin "$branch" > "$RUNNER_TEMP/existing-candidate" 2>/dev/null; then
+            existing=$(cut -f1 "$RUNNER_TEMP/existing-candidate")
+            test "$existing" = "$commit"
+          else
+            git push origin "$commit:refs/heads/$branch"
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$commit" \
+            -f state=success \
+            -f context='evidence-plan-amendment/focused-verification' \
+            -f description='Same-task user-authorized evidence amendment and regression protections passed' \
+            -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf 'CANDIDATE_SHA=%s\nTREE_SHA=%s\nBRANCH=%s\n' "$commit" "$tree" "$branch" \
+            | tee "$RUNNER_TEMP/amend-logs/final-candidate.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: evidence-amendment-verification
+          path: ${{ runner.temp }}/amend-logs/
+          retention-days: 7
+          if-no-files-found: warn

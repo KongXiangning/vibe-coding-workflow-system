@@ -146,6 +146,10 @@ external_documentation_gate:
 
 审查当前实现是否真正解决任务目标，并检查代码合理性、鲁棒性和测试充分性。
 
+## Unified task context protocol
+
+先用 `validate --summary` 固定当前身份和状态，再用只读 `task-context` 读取完整当前定义、当前步骤、未完成义务、已记录依赖、未知依赖提示、全局门禁及累计 review target。需要具体报告、事件、历史版本或长正文时使用精确 `task-read` 并完成字节分页；不得返回或依赖完整 RuntimeState、无界 execution log/applied proposals。definition 可仅在同一可见会话精确 revision 匹配时复用，收据只证明返回范围，不证明理解、权限或执行资格。全历史核验必须显式选择 `validate --deep`。
+
 ## Trigger
 
 review-diff 通过后、进入契约验证前。

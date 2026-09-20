@@ -138,7 +138,7 @@ describe('vNext Phase 2 source contract', () => {
     ]);
     expect(result.administrativeEntries).toEqual(['bootstrap-project']);
     expect(result.expertEntries).toEqual(['validate-change', 'git-commit']);
-    expect(result.capabilities).toHaveLength(26);
+    expect(result.capabilities).toHaveLength(27);
     expect(result.runtimeOperations).toEqual([
       'archive-transaction',
       'contract-candidate-commit',
@@ -363,6 +363,121 @@ describe('vNext Phase 2 source contract', () => {
     expect(close).toContain('persistent-test disposition defaults to `persistent_test: false`');
     expect(lifecycle).toContain('preserve each claim\'s identity, owner, certainty, admitted evidence types, and completion state');
     expect(close).toContain('closure does not infer a new test from missing evidence');
+    // Guidance distribution guard only: these assertions do not evaluate an Agent.
+    const prepare = fs.readFileSync(fixtureFile(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'), 'utf8');
+    const draftReview = fs.readFileSync(fixtureFile(ROOT, 'templates/vnext/skills/review-draft.SKILL.md.tmpl'), 'utf8');
+    const support = fs.readFileSync(fixtureFile(ROOT, 'runtime/vnext/support/CONTEXT_API.md'), 'utf8');
+    for (const template of [prepare, draftReview, review]) expect(template).toContain('Failure-oriented validation selection');
+    expect(prepare.indexOf('Identify the business failure')).toBeLessThan(prepare.indexOf('use Runtime `file-context` to find/read'));
+    expect(prepare).toContain('would this check fail for that wrong behavior, for the right reason?');
+    expect(draftReview).toContain('would the wrong behavior still PASS?');
+    expect(draftReview).toContain('absent code or execution reports alone is not a draft finding');
+    expect(execute).toContain('not permission to copy actual output into the oracle');
+    expect(review).toContain('cancellation before entry does not');
+    expect(support).toContain('## Failure-oriented validation selection');
+    expect(support).toContain('not mandatory Red/TDD');
+    expect(support).toContain('not a fresh Agent');
+    // Whole-set guidance is a source contract, not proof of Agent selection quality.
+    expect(prepare).toContain('Optimize the whole validation set, not minimum granularity per check');
+    expect(prepare).toContain('preserve all\nobligations at no greater total cost');
+    expect(draftReview).toContain('Treat unjustified validation breadth');
+    expect(draftReview).toContain('Do not narrow away an explicit obligation');
+    expect(draftReview).toContain('including\nbatched selectors when supported');
+    expect(draftReview).toContain('convenience or one startup alone is not a');
+    expect(draftReview).toContain('not a new cost-advantage authority');
+    expect(draftReview).not.toContain('Treat validation wider than the claim');
+    expect(draftReview).not.toContain('Require narrowing before clean confirmation when an equally effective smaller');
+    expect(draftReview).not.toContain('reject a whole target or suite when an equally effective focused check is');
+    expect(support).toContain('A focused check does not cancel a separately required package regression');
+    expect(support).toContain('cost advantage is not a new authority enum');
+  });
+
+  test('keeps public selection examples generalized and distinct from execution evidence', () => {
+    // Source-only publication boundary: do not ship private task excerpts or treat
+    // explanatory patterns as observed results. This is not a target Runtime schema.
+    const directory = fixtureFile(ROOT, 'docs/ops/validation-selection');
+    expect(fs.existsSync(path.join(directory, 'rollout-incident.json'))).toBe(false);
+    const raw = fs.readFileSync(path.join(directory, 'selection-patterns.json'), 'utf8');
+    const patterns = JSON.parse(raw);
+    expect(Object.keys(patterns).sort()).toEqual(['cases', 'kind', 'limits', 'provenance', 'publication_scope', 'status']);
+    expect(patterns.kind).toBe('generalized-validation-selection-patterns');
+    expect(patterns.status).toBe('illustrative-not-execution-evidence');
+    expect(patterns.publication_scope).toBe('generalized-patterns-only');
+    for (const example of patterns.cases) {
+      expect(Object.keys(example).sort()).toEqual(['failure', 'id', 'insufficient_evidence', 'required_observation']);
+    }
+    expect(raw).not.toMatch(/\b[a-f0-9]{40,64}\b/u);
+    const readme = fs.readFileSync(path.join(directory, 'README.md'), 'utf8');
+    expect(readme).toContain('允许分析资料不等于允许将资料公开');
+    expect(readme).toContain('新提交的删除不清除旧 Git 历史');
+  });
+
+  test('keeps E convergence aligned with implemented A-D boundaries', () => {
+    const target = fs.readFileSync(
+      fixtureFile(ROOT, 'docs/designs/workflow-vnext-target-architecture.md'),
+      'utf8',
+    );
+    const convergence = fs.readFileSync(
+      fixtureFile(ROOT, 'docs/designs/vnext-design-convergence.md'),
+      'utf8',
+    );
+    const protocol = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md'),
+      'utf8',
+    );
+    const schemas = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/bootstrap/FILE_SCHEMAS.md'),
+      'utf8',
+    );
+    const support = fs.readFileSync(
+      fixtureFile(ROOT, 'runtime/vnext/support/CONTEXT_API.md'),
+      'utf8',
+    );
+    const debug = fs.readFileSync(
+      fixtureFile(ROOT, 'templates/vnext/skills/debug-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    const runtimeContract = fs.readFileSync(
+      fixtureFile(ROOT, '.workflow-system/vnext/RUNTIME_CONTRACT.yaml'),
+      'utf8',
+    );
+    const sourceContract = fs.readFileSync(
+      fixtureFile(ROOT, '.workflow-system/vnext/SOURCE_CONTRACT.yaml'),
+      'utf8',
+    );
+
+    expect(target).toContain('### 3.1 A–D implementation convergence status');
+    expect(target).toContain('minimum-sufficient **whole evidence set**');
+    expect(target).toContain('explicit `prepare-successor`');
+    expect(target).toContain('local/private/no-consumer/no-contract-impact self-admission adds no checkpoint');
+    expect(target).toContain('`implemented-dogfood-pending`');
+    expect(target).not.toContain('Every unplanned self-admission sets `dynamic_review_required`');
+    expect(target).not.toContain('its only normal exit is a successful same-task `prepare-task:replan`');
+    expect(target).not.toContain('`review-change:report-only` changes terminal semantics');
+
+    expect(protocol).toContain('`dynamic_review_required` is selected from the assessment');
+    expect(schemas).toContain('local/private/no-consumer/no-contract-impact discovery');
+    expect(support).toContain('An explicit later replacement request uses');
+    expect(debug).toContain('may recommend a fresh successor only when the caller has an explicit replacement request');
+    expect(debug).not.toContain('A task already `superseded` may recommend `prepare-task:replan`');
+    expect(runtimeContract).toContain('changed_goal_scope_acceptance: bounded-correction-amendment-or-supersede-successor');
+    expect(runtimeContract).toContain('source_of_truth: CURRENT_TASK-head-plus-selected-immutable-roots-one-canonical-aggregate');
+    expect(runtimeContract).not.toContain('source_of_truth: same-canonical-CURRENT_TASK-document');
+    expect(sourceContract).toContain('minimum-sufficient whole evidence set by detection, real boundary, and total cost');
+
+    expect(target).toContain('- Date: `2026-09-19`');
+    expect(target).toContain('Concrete command/API syntax is implemented by the current Runtime/Distribution contracts but is intentionally non-normative');
+    expect(target).toContain('Implementation details intentionally non-normative at this architecture layer');
+    expect(target).toContain('including `runtime_state.review_cycle`');
+    expect(target).not.toContain('The exact `CURRENT_TASK` schema extension is deferred to a later protocol task');
+    expect(target).not.toContain('exact CLI/API syntax remains deferred');
+    expect(target).not.toContain('### 16.3 Deferred implementation details');
+
+    expect(convergence).toContain('P-01 — public entry represents intent');
+    expect(convergence).toContain('P-12 — minimum-sufficient evidence');
+    expect(convergence).toContain('Fresh-Agent minimum-sufficient selection');
+    expect(convergence).toContain('Longitudinal task storage growth');
+    expect(fs.existsSync(fixtureFile(ROOT, 'docs/ops/validation-selection/rollout-incident.json'))).toBe(false);
   });
 
   test('requires the execute-step scope guard', () => {

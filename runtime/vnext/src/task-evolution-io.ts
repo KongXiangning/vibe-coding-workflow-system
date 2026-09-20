@@ -25,7 +25,7 @@ export type TaskEvolutionInput = {
   basisPath?: string;
   basisContent?: string;
   nextBasisContent?: string;
-  operation?: 'supersede' | 'confirm-replan' | 'initialize-preservation';
+  operation?: 'supersede' | 'confirm-replan' | 'commit-scope-amendment' | 'confirm-scope-amendment' | 'initialize-preservation' | 'replace-validation';
   evidencePlanRevision?: string | null;
   referencedEvidence?: string[];
 };
@@ -91,7 +91,7 @@ export function taskHistoryLocation(input: TaskEvolutionInput): TaskHistoryLocat
   };
 }
 
-export function assertTaskHistoryForRevision(currentPath: string, documentId: string, taskId: string, sourceRevision: string, operation: 'supersede' | 'confirm-replan' | 'initialize-preservation' = 'supersede'): void {
+export function assertTaskHistoryForRevision(currentPath: string, documentId: string, taskId: string, sourceRevision: string, operation: 'supersede' | 'confirm-replan' | 'commit-scope-amendment' | 'confirm-scope-amendment' | 'initialize-preservation' | 'replace-validation' = 'supersede'): void {
   if (!/^doc-[a-f0-9]+$/u.test(documentId) || !/^[a-f0-9]{64}$/u.test(sourceRevision)) {
     throw new Error('TASK_HISTORY_INVALID: replay identity or revision is invalid.');
   }
@@ -324,4 +324,33 @@ export function commitTaskEvolutionWithHistory(input: TaskEvolutionInput, verify
 
 export function commitSupersedeWithHistory(input: TaskEvolutionInput, verifyNext: (content: string) => void): TaskHistoryLocation {
   return commitTaskEvolutionWithHistory({ ...input, operation: 'supersede' }, verifyNext);
+}
+
+/** Publish a different task identity only after all immutable prerequisites
+ * exist. A crash before the final atomic rename leaves the old task canonical;
+ * a crash after it leaves a complete new draft. Prepared orphan objects confer
+ * no task authority and never overwrite the predecessor or its Task Basis. */
+export function publishPreparedSuccessor(
+  currentPath: string, previousContent: string, nextContent: string,
+  artifacts: readonly { path: string; content: string }[],
+  prepareAggregate: () => void,
+): void {
+  if (fs.readFileSync(currentPath, 'utf8') !== previousContent) {
+    throw new Error('SUCCESSOR_SOURCE_STALE: predecessor changed before publication.');
+  }
+  for (const artifact of artifacts) {
+    if (fs.existsSync(artifact.path)) {
+      if (!fs.lstatSync(artifact.path).isFile() || fs.readFileSync(artifact.path, 'utf8') !== artifact.content) {
+        throw new Error('SUCCESSOR_HISTORY_CONFLICT: immutable prerequisite has different bytes.');
+      }
+      continue;
+    }
+    fs.mkdirSync(path.dirname(artifact.path), { recursive: true });
+    atomicReplace(artifact.path, artifact.content);
+    if (fs.readFileSync(artifact.path, 'utf8') !== artifact.content) throw new Error('SUCCESSOR_READ_BACK_FAILED: prerequisite differs.');
+  }
+  prepareAggregate();
+  if (fs.readFileSync(currentPath, 'utf8') !== previousContent) throw new Error('SUCCESSOR_SOURCE_STALE: predecessor changed while preparing dependencies.');
+  atomicReplace(currentPath, nextContent);
+  if (fs.readFileSync(currentPath, 'utf8') !== nextContent) throw new Error('SUCCESSOR_READ_BACK_FAILED: published draft differs.');
 }

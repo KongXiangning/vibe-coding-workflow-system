@@ -87,6 +87,10 @@ post_release_fields:
 
 将本轮任务归档到 TASKS/，并为下一轮留下清晰入口。
 
+## Unified task context protocol
+
+归档前先用 `validate --summary` 和只读 `task-context` 获取当前定义、全部未完成义务、依赖、累计 review target、finding、恢复门禁与关闭资格。需要旧报告、事件、前像或完整归档闭包时用 `task-read` 精确引用并完成分页；不能以最近 N 条历史、缓存 hash 或读取收据替代事实。全历史核验须显式运行 `validate --deep`，归档仍须 Runtime 提交、原子读回和完整对象闭包。
+
 ## Trigger
 
 任务正式完成并确认可以归档时。

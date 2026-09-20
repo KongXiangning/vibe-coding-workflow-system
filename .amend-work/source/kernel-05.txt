@@ -1,0 +1,2000 @@
+      task_id: candidateIdentity.task_id,
+      task_slug: taskSlug,
+      document_id: candidateIdentity.document_id,
+      archive_path: normalizeRepoPath(expectLessonString(record.archive_path, `${location}.lesson_marker.archive_path`), `${location}.lesson_marker.archive_path`),
+      archive_revision: candidateIdentity.archive_revision,
+      source_revision: sourceRevision,
+      candidate_ref: candidateIdentity.candidate_ref,
+      candidate_digest: candidateDigest,
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.lesson_marker.evidence_refs`),
+    };
+    if (hasDisposition) {
+      if (!isRecord(record.reused_candidate)) {
+        fail('LESSON_INVALID', `${location}.lesson_marker.reused_candidate must be a mapping.`);
+      }
+      const reusedRecord = record.reused_candidate;
+      expectLessonExactKeys(
+        reusedRecord,
+        ['task_id', 'document_id', 'archive_revision', 'candidate_ref'],
+        `${location}.lesson_marker.reused_candidate`,
+      );
+      marker.disposition = 'reused';
+      marker.reused_candidate = validateLessonCandidateKey(reusedRecord, `${location}.lesson_marker.reused_candidate`);
+    }
+    result.push(marker);
+  }
+  return result;
+}
+
+function renderLessonCandidate(candidate: LessonCandidate, archive: ArchiveReceipt): string {
+  return [
+    renderLessonMarker(candidate, archive),
+    `- 场景：${yamlScalar(candidate.scene)}`,
+    `  - 结论：${yamlScalar(candidate.conclusion)}`,
+    `  - 触发信号：${yamlScalar(candidate.trigger)}`,
+    `  - 原因：${yamlScalar(candidate.cause)}`,
+    `  - 应对动作：${yamlScalar(candidate.action)}`,
+    `  - 消费者：${yamlScalar(candidate.consumer)}`,
+    `  - 证据引用：${yamlStringArray(candidate.evidence_refs)}`,
+  ].join('\n');
+}
+
+export type DurableLessonRecord = {
+  marker: LessonMarker;
+  candidate: LessonCandidate;
+};
+
+function countExactOccurrences(content: string, value: string): number {
+  if (value.length === 0) return 0;
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const index = content.indexOf(value, offset);
+    if (index < 0) return count;
+    count += 1;
+    offset = index + value.length;
+  }
+}
+
+function renderLessonMarkerFromData(marker: LessonMarker): string {
+  const data: Record<string, unknown> = {
+    task_id: marker.task_id,
+    task_slug: marker.task_slug,
+    document_id: marker.document_id,
+    archive_path: marker.archive_path,
+    archive_revision: marker.archive_revision,
+    source_revision: marker.source_revision,
+    candidate_ref: marker.candidate_ref,
+    candidate_digest: marker.candidate_digest,
+    evidence_refs: marker.evidence_refs,
+  };
+  if (marker.disposition === 'reused' && marker.reused_candidate) {
+    data.disposition = 'reused';
+    data.reused_candidate = {
+      task_id: marker.reused_candidate.task_id,
+      document_id: marker.reused_candidate.document_id,
+      archive_revision: marker.reused_candidate.archive_revision,
+      candidate_ref: marker.reused_candidate.candidate_ref,
+    };
+  }
+  return `<!-- vNext lesson record: ${JSON.stringify(data)} -->`;
+}
+
+function archiveReceiptFromLessonMarker(marker: LessonMarker): ArchiveReceipt {
+  return {
+    filePath: '',
+    relativePath: marker.archive_path,
+    raw: '',
+    revision: marker.archive_revision,
+    taskId: marker.task_id,
+    taskSlug: marker.task_slug,
+    taskTitle: '',
+    documentId: marker.document_id,
+    sourceRevision: marker.source_revision,
+    archivePath: marker.archive_path,
+    idempotencyKey: 'lesson-marker-replay',
+    closureDeltaDigest: '0'.repeat(64),
+    lessonAdmission: { decision: 'defer', candidate_refs: [], evidence_refs: [] },
+    knowledgeAdmissions: emptyKnowledgeAdmissionBundle(),
+  };
+}
+
+function parseLessonRenderedScalar(raw: string, location: string): string {
+  const value = raw.trim();
+  if (value.startsWith('"')) {
+    try {
+      return expectText(JSON.parse(value), location);
+    } catch (error) {
+      if (error instanceof VNextRuntimeError) throw error;
+      fail('LESSON_INVALID', `${location} is not a valid rendered scalar.`);
+    }
+  }
+  return expectText(value, location);
+}
+
+function readLessonRenderedField(block: string, label: string, indent: string, location: string): string {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`^${indent}-\\s*${escaped}：(.+?)\\s*$`, 'm').exec(block);
+  if (!match) fail('LESSON_INVALID', `${location} is missing the visible ${label} field.`);
+  return parseLessonRenderedScalar(match[1]!, `${location}.${label}`);
+}
+
+function readLessonRenderedEvidenceRefs(block: string, location: string): string[] {
+  const match = /^\s{2}-\s*证据引用：(.+?)\s*$/m.exec(block);
+  if (!match) fail('LESSON_INVALID', `${location} is missing the visible 证据引用 field.`);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[1]!.trim());
+  } catch {
+    fail('LESSON_INVALID', `${location}.evidence_refs is not a JSON array.`);
+  }
+  return validateEvidenceRefs(parsed, `${location}.evidence_refs`);
+}
+
+function readDurableLessonRecord(content: string, marker: LessonMarker, location: string): DurableLessonRecord {
+  const markerText = renderLessonMarkerFromData(marker);
+  if (countExactOccurrences(content, markerText) !== 1) {
+    fail('LESSON_INVALID', `${location} contains a non-canonical or duplicate lesson provenance marker.`);
+  }
+  const markerStart = content.indexOf(markerText);
+  const sections = scanMarkdownSections(content);
+  const categorySection = sections.find(section =>
+    section.level === 2
+    && LESSON_CATEGORIES.includes(section.title as LessonCandidate['category'])
+    && markerStart >= section.contentStart
+    && markerStart < section.contentEnd,
+  );
+  if (!categorySection) fail('LESSON_INVALID', `${location} lesson marker is not inside a canonical lesson category section.`);
+
+  const nextMarker = content.indexOf('<!-- vNext lesson record:', markerStart + markerText.length);
+  const nextSection = sections
+    .filter(section => section.level <= 2 && section.headingStart > markerStart)
+    .map(section => section.headingStart)
+    .sort((left, right) => left - right)[0];
+  const candidateEnd = Math.min(
+    nextMarker < 0 ? content.length : nextMarker,
+    nextSection === undefined ? content.length : nextSection,
+  );
+  const block = content.slice(markerStart, candidateEnd).replace(/\r\n?/g, '\n');
+  const candidate: LessonCandidate = {
+    candidate_ref: marker.candidate_ref,
+    category: categorySection.title as LessonCandidate['category'],
+    scene: readLessonRenderedField(block, '场景', '', `${location}.${marker.candidate_ref}`),
+    conclusion: readLessonRenderedField(block, '结论', '  ', `${location}.${marker.candidate_ref}`),
+    trigger: readLessonRenderedField(block, '触发信号', '  ', `${location}.${marker.candidate_ref}`),
+    cause: readLessonRenderedField(block, '原因', '  ', `${location}.${marker.candidate_ref}`),
+    action: readLessonRenderedField(block, '应对动作', '  ', `${location}.${marker.candidate_ref}`),
+    consumer: readLessonRenderedField(block, '消费者', '  ', `${location}.${marker.candidate_ref}`),
+    evidence_refs: readLessonRenderedEvidenceRefs(block, `${location}.${marker.candidate_ref}`),
+  };
+  if (marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|')) {
+    fail('LESSON_PROVENANCE_MISMATCH', `${location}.${marker.candidate_ref} marker evidence_refs do not match the visible Lesson record.`);
+  }
+  if (lessonCandidateDigest(candidate) !== marker.candidate_digest) {
+    fail('LESSON_PROVENANCE_MISMATCH', `${location}.${marker.candidate_ref} marker digest does not match the visible Lesson record.`);
+  }
+  const archive = archiveReceiptFromLessonMarker(marker);
+  if (countExactOccurrences(content, renderLessonCandidate(candidate, archive)) !== 1) {
+    fail('LESSON_PROVENANCE_MISMATCH', `${location}.${marker.candidate_ref} visible Lesson record drifted from its deterministic rendering.`);
+  }
+  return { marker, candidate };
+}
+
+export function readDurableLessonRecords(content: string, location: string): DurableLessonRecord[] {
+  const markers = readLessonMarkers(content, location);
+  const persistedRecords: DurableLessonRecord[] = [];
+  const reusedMarkers: { marker: LessonMarker; index: number }[] = [];
+
+  for (const [index, marker] of markers.entries()) {
+    if (marker.disposition === 'reused') {
+      reusedMarkers.push({ marker, index });
+    } else {
+      persistedRecords.push(readDurableLessonRecord(content, marker, `${location}.lesson[${index}]`));
+    }
+  }
+
+  const allRecords: DurableLessonRecord[] = [...persistedRecords];
+
+  for (const { marker, index } of reusedMarkers) {
+    const markerText = renderLessonMarkerFromData(marker);
+    if (countExactOccurrences(content, markerText) !== 1) {
+      fail('LESSON_INVALID', `${location}.lesson[${index}] contains a non-canonical or duplicate lesson reuse marker.`);
+    }
+    if (!marker.reused_candidate) {
+      fail('LESSON_INVALID', `${location}.lesson[${index}] reuse marker is missing reused_candidate target.`);
+    }
+    const matchingTargets = persistedRecords.filter(record =>
+      record.marker.task_id === marker.reused_candidate!.task_id
+      && record.marker.document_id === marker.reused_candidate!.document_id
+      && record.marker.archive_revision === marker.reused_candidate!.archive_revision
+      && record.marker.candidate_ref === marker.reused_candidate!.candidate_ref
+    );
+    if (matchingTargets.length !== 1) {
+      fail(
+        'LESSON_PROVENANCE_MISMATCH',
+        `${location}.lesson[${index}] references ${matchingTargets.length === 0 ? 'missing' : 'ambiguous'} persisted candidate target ${marker.reused_candidate.task_id}/${marker.reused_candidate.candidate_ref}.`,
+      );
+    }
+    const target = matchingTargets[0];
+    if (target.marker.candidate_digest !== marker.candidate_digest) {
+      fail(
+        'LESSON_PROVENANCE_MISMATCH',
+        `${location}.lesson[${index}] digest does not match referenced candidate target ${marker.reused_candidate.task_id}/${marker.reused_candidate.candidate_ref}.`,
+      );
+    }
+    allRecords.push({
+      marker,
+      candidate: {
+        ...target.candidate,
+        candidate_ref: marker.candidate_ref,
+        evidence_refs: [...marker.evidence_refs],
+      },
+    });
+  }
+
+  return allRecords;
+}
+
+/**
+ * Validate and preserve the canonical Lessons document for Bootstrap
+ * realignment. Lessons have no Bootstrap-owned projection; their structure is
+ * therefore retained only after the Runtime's category and provenance checks.
+ */
+export function readCanonicalLessonsDocument(content: string, location: string): string {
+  const sections = scanMarkdownSections(content);
+  for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
+    if (!findUniqueMarkdownSection(sections, [heading], 2)) fail('LESSON_INVALID', `${location} is missing the required ## ${heading} section.`);
+  }
+  readDurableLessonRecords(content, location);
+  return content;
+}
+
+function isLegacyBootstrapLessonsDocument(content: string, location: string): boolean {
+  const sections = scanMarkdownSections(content);
+  const topLevelTitles = sections
+    .filter(section => section.level === 2)
+    .map(section => section.title);
+  const isLegacySingleSection = topLevelTitles.length === 1 && topLevelTitles[0] === 'Reusable lessons';
+  const isLegacyPairedSections = topLevelTitles.length === 2 && topLevelTitles.includes('使用规则') && topLevelTitles.includes('Reusable lessons');
+  if (!isLegacySingleSection && !isLegacyPairedSections) return false;
+  readDurableLessonRecords(content, location);
+  return true;
+}
+
+/**
+ * Read a Bootstrap-managed Lessons document while recognizing the minimal
+ * baseline emitted by older realign receipts. Runtime lesson transactions
+ * still call readCanonicalLessonsDocument and therefore retain the full contract.
+ */
+export function readBootstrapLessonsDocument(content: string, location = 'LESSONS.md'): string {
+  if (isLegacyBootstrapLessonsDocument(content, location)) return content;
+  return readCanonicalLessonsDocument(content, location);
+}
+
+/**
+ * Rebuild only the canonical Lessons section structure while retaining each
+ * validated section body, including Runtime durable records and provenance.
+ */
+export function canonicalizeLessonsDocumentForBootstrap(content: string, location = 'LESSONS.md'): string {
+  const sections = scanMarkdownSections(content);
+  const legacy = isLegacyBootstrapLessonsDocument(content, location);
+  if (!legacy) readCanonicalLessonsDocument(content, location);
+  const canonicalSections = new Set<number>();
+  const firstTopLevel = sections
+    .filter(section => section.level === 2)
+    .sort((left, right) => left.headingStart - right.headingStart)[0];
+  const prefix = firstTopLevel
+    ? content.slice(0, firstTopLevel.headingStart).replace(/\r\n?/g, '\n').trimEnd()
+    : '';
+  const output: string[] = [prefix || '# LESSONS.md', ''];
+  if (legacy) {
+    const rules = findUniqueMarkdownSection(sections, ['使用规则'], 2);
+    const reusable = findUniqueMarkdownSection(sections, ['Reusable lessons'], 2);
+    if (!reusable) fail('LESSON_INVALID', `${location} is missing the legacy Bootstrap Lessons section.`);
+    if (rules) canonicalSections.add(rules.headingStart);
+    canonicalSections.add(reusable.headingStart);
+    const rulesBody = rules ? content.slice(rules.contentStart, rules.contentEnd).replace(/\r\n?/g, '\n').trim() : '';
+    output.push('## 使用规则', '', ...(rulesBody.length > 0 ? rulesBody.split('\n') : []), '');
+    for (const heading of LESSON_CATEGORIES) output.push(`## ${heading}`, '', '- none', '');
+    const reusableBody = content.slice(reusable.contentStart, reusable.contentEnd).replace(/\r\n?/g, '\n').trim();
+    output.push('## Reusable lessons', '', ...(reusableBody.length > 0 ? reusableBody.split('\n') : []), '');
+  } else {
+    for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
+      const section = findUniqueMarkdownSection(sections, [heading], 2);
+      if (!section) fail('LESSON_INVALID', `${location} is missing the required ## ${heading} section.`);
+      canonicalSections.add(section.headingStart);
+      const body = content.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trim();
+      output.push(`## ${heading}`, '', ...(body.length > 0 ? body.split('\n') : []), '');
+    }
+  }
+  for (const section of sections.filter(item => item.level === 2).sort((left, right) => left.headingStart - right.headingStart)) {
+    if (canonicalSections.has(section.headingStart)) continue;
+    const preserved = content.slice(section.headingStart, section.contentEnd).replace(/\r\n?/g, '\n').trimEnd();
+    if (preserved.trim().length > 0) output.push(preserved, '');
+  }
+  const next = output.join('\n');
+  readCanonicalLessonsDocument(next, location);
+  return next;
+}
+
+function appendLessonCandidates(content: string, candidates: readonly LessonCandidate[], archive: ArchiveReceipt, location: string): { content: string; candidateCount: number } {
+  const additions = new Map<LessonCandidate['category'], LessonCandidate[]>();
+  for (const candidate of candidates) {
+    const list = additions.get(candidate.category) ?? [];
+    list.push(candidate);
+    additions.set(candidate.category, list);
+  }
+  let nextContent = content;
+  let candidateCount = 0;
+  const ordered = [...additions.entries()].sort((left, right) => left[0].localeCompare(right[0]));
+  for (const [category, categoryCandidates] of ordered) {
+    const sections = scanMarkdownSections(nextContent);
+    const section = findUniqueMarkdownSection(sections, [category], 2);
+    if (!section) fail('LESSON_INVALID', `${location} is missing the required ## ${category} section.`);
+    const rendered = categoryCandidates.map(candidate => renderLessonCandidate(candidate, archive)).join('\n\n');
+    const existing = nextContent.slice(section.contentStart, section.contentEnd).replace(/\r\n?/g, '\n').trimEnd();
+    nextContent = nextContent.slice(0, section.contentStart) + `\n${existing.trim().length > 0 ? `${existing}\n\n` : ''}${rendered}\n` + nextContent.slice(section.contentEnd);
+    candidateCount += categoryCandidates.length;
+  }
+  return { content: nextContent, candidateCount };
+}
+
+function appendLessonReuseMarkers(
+  content: string,
+  reuseMarkers: readonly LessonMarker[],
+  availableRecords: readonly DurableLessonRecord[],
+  location: string,
+): string {
+  let nextContent = content;
+  for (const reuseMarker of reuseMarkers) {
+    if (!reuseMarker.reused_candidate) {
+      fail('LESSON_INVALID', `${location} reuse marker missing reused_candidate coordinates.`);
+    }
+    const matchingTargets = availableRecords.filter(record =>
+      record.marker.task_id === reuseMarker.reused_candidate!.task_id
+      && record.marker.document_id === reuseMarker.reused_candidate!.document_id
+      && record.marker.archive_revision === reuseMarker.reused_candidate!.archive_revision
+      && record.marker.candidate_ref === reuseMarker.reused_candidate!.candidate_ref
+    );
+    if (matchingTargets.length !== 1) {
+      fail(
+        'LESSON_INVALID',
+        `${location} target candidate for reuse ${reuseMarker.reused_candidate.task_id}/${reuseMarker.reused_candidate.candidate_ref} was not uniquely resolved (matches=${matchingTargets.length}).`,
+      );
+    }
+    const targetRecord = matchingTargets[0];
+    if (targetRecord.marker.candidate_digest !== reuseMarker.candidate_digest) {
+      fail(
+        'LESSON_INVALID',
+        `${location} target candidate for reuse ${reuseMarker.reused_candidate.task_id}/${reuseMarker.reused_candidate.candidate_ref} digest mismatched.`,
+      );
+    }
+    const targetArchive = archiveReceiptFromLessonMarker(targetRecord.marker);
+    const targetRendered = renderLessonCandidate(targetRecord.candidate, targetArchive);
+    const targetIndex = nextContent.indexOf(targetRendered);
+    if (targetIndex < 0) {
+      fail('LESSON_INVALID', `${location} could not locate rendered block for candidate ${reuseMarker.reused_candidate.task_id}/${reuseMarker.reused_candidate.candidate_ref}.`);
+    }
+    let insertionIndex = targetIndex + targetRendered.length;
+    while (true) {
+      const rest = nextContent.slice(insertionIndex);
+      const match = /^\r?\n<!-- vNext lesson record: (\{[^\r\n]+\}) -->/.exec(rest);
+      if (!match) break;
+      insertionIndex += match[0].length;
+    }
+    const markerText = renderLessonMarkerFromData(reuseMarker);
+    nextContent = nextContent.slice(0, insertionIndex) + `\n${markerText}` + nextContent.slice(insertionIndex);
+  }
+  return nextContent;
+}
+
+function prepareLessonRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: LessonRecordProposal): LessonRecordTransactionPlan | null {
+  ensureAuthorityKinds(proposal, ['evidence-admission']);
+  const { receipt } = matchingArchiveReceipt(root, current);
+  if (receipt.lessonAdmission.decision !== 'admit') {
+    fail('KNOWLEDGE_ADMISSION_INVALID', 'lesson-record-transaction is allowed only when the durable archive lesson admission is admit.');
+  }
+  const delta = proposal.semantic_delta;
+  const admissionRefs = new Set(receipt.lessonAdmission.candidate_refs);
+  const candidateRefs = new Set(delta.candidates.map(candidate => candidate.candidate_ref));
+  if (admissionRefs.size !== candidateRefs.size || [...admissionRefs].some(ref => !candidateRefs.has(ref))) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', 'lesson-record candidates must exactly match the durable archive lesson admission candidate_refs.');
+  }
+  if (delta.candidates.length !== candidateRefs.size) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', 'lesson-record candidates must not contain duplicate candidate_refs.');
+  }
+  if (!receipt.lessonAdmission.evidence_refs.every(ref => delta.evidence_refs.includes(ref))) {
+    fail('KNOWLEDGE_ADMISSION_INVALID', 'lesson-record evidence_refs must cover the durable archive lesson admission evidence_refs.');
+  }
+  const target = workflowDocPathForRoot(root, 'LESSONS.md');
+  if (!fs.existsSync(target.filePath)) fail('RUNTIME_SOURCE_MISSING', `LESSONS.md is missing: ${target.relativePath}`);
+  const originalLessonsContent = fs.readFileSync(target.filePath, 'utf8');
+  const sections = scanMarkdownSections(originalLessonsContent);
+  for (const heading of LESSON_REQUIRED_SECTION_HEADINGS) {
+    if (!findUniqueMarkdownSection(sections, [heading], 2)) fail('LESSON_INVALID', `LESSONS.md is missing the required ## ${heading} section.`);
+  }
+  const existingRecords = readDurableLessonRecords(originalLessonsContent, target.relativePath);
+
+  const stagedSemanticTargets = new Map<string, ReusedCandidateTarget>();
+  for (const record of existingRecords) {
+    if (record.marker.disposition !== 'reused') {
+      if (!stagedSemanticTargets.has(record.marker.candidate_digest)) {
+        stagedSemanticTargets.set(record.marker.candidate_digest, {
+          task_id: record.marker.task_id,
+          document_id: record.marker.document_id,
+          archive_revision: record.marker.archive_revision,
+          candidate_ref: record.marker.candidate_ref,
+        });
+      }
+    }
+  }
+
+  const newCandidates: LessonCandidate[] = [];
+  const newReuseMarkers: LessonMarker[] = [];
+  for (const candidate of delta.candidates) {
+    const matchingRefs = existingRecords.filter(record => record.marker.candidate_ref === candidate.candidate_ref && record.marker.task_id === receipt.taskId);
+    if (matchingRefs.length > 1) {
+      fail('LESSON_INVALID', `LESSONS contains duplicate durable records for candidate ${candidate.candidate_ref}.`);
+    }
+    if (matchingRefs.length > 0) {
+      for (const existing of matchingRefs) {
+        const marker = existing.marker;
+        if (
+          marker.task_id !== receipt.taskId
+          || marker.task_slug !== receipt.taskSlug
+          || marker.document_id !== receipt.documentId
+          || marker.archive_path !== receipt.relativePath
+          || marker.archive_revision !== receipt.revision
+          || marker.source_revision !== receipt.sourceRevision
+          || marker.candidate_digest !== lessonCandidateDigest(candidate)
+          || marker.evidence_refs.join('|') !== candidate.evidence_refs.join('|')
+          || lessonCandidateDigest(existing.candidate) !== lessonCandidateDigest(candidate)
+        ) {
+          fail('LESSON_PROVENANCE_MISMATCH', `lesson candidate ${candidate.candidate_ref} has conflicting durable provenance.`);
+        }
+      }
+      continue;
+    }
+
+    const candidateDigest = lessonCandidateDigest(candidate);
+    const existingTarget = stagedSemanticTargets.get(candidateDigest);
+    if (existingTarget) {
+      const reuseMarker: LessonMarker = {
+        task_id: receipt.taskId,
+        task_slug: receipt.taskSlug,
+        document_id: receipt.documentId,
+        archive_path: receipt.relativePath,
+        archive_revision: receipt.revision,
+        source_revision: receipt.sourceRevision,
+        candidate_ref: candidate.candidate_ref,
+        candidate_digest: candidateDigest,
+        evidence_refs: [...candidate.evidence_refs],
+        disposition: 'reused',
+        reused_candidate: {
+          task_id: existingTarget.task_id,
+          document_id: existingTarget.document_id,
+          archive_revision: existingTarget.archive_revision,
+          candidate_ref: existingTarget.candidate_ref,
+        },
+      };
+      newReuseMarkers.push(reuseMarker);
+      continue;
+    }
+
+    newCandidates.push(candidate);
+    stagedSemanticTargets.set(candidateDigest, {
+      task_id: receipt.taskId,
+      document_id: receipt.documentId,
+      archive_revision: receipt.revision,
+      candidate_ref: candidate.candidate_ref,
+    });
+  }
+
+  if (newCandidates.length === 0 && newReuseMarkers.length === 0) return null;
+  let nextLessonsContent = originalLessonsContent;
+  let candidateCount = 0;
+  if (newCandidates.length > 0) {
+    const appended = appendLessonCandidates(nextLessonsContent, newCandidates, receipt, target.relativePath);
+    nextLessonsContent = appended.content;
+    candidateCount += appended.candidateCount;
+  }
+  if (newReuseMarkers.length > 0) {
+    const availableRecords: DurableLessonRecord[] = [...existingRecords];
+    for (const candidate of newCandidates) {
+      availableRecords.push({
+        marker: {
+          task_id: receipt.taskId,
+          task_slug: receipt.taskSlug,
+          document_id: receipt.documentId,
+          archive_path: receipt.relativePath,
+          archive_revision: receipt.revision,
+          source_revision: receipt.sourceRevision,
+          candidate_ref: candidate.candidate_ref,
+          candidate_digest: lessonCandidateDigest(candidate),
+          evidence_refs: [...candidate.evidence_refs],
+        },
+        candidate,
+      });
+    }
+    nextLessonsContent = appendLessonReuseMarkers(nextLessonsContent, newReuseMarkers, availableRecords, target.relativePath);
+    candidateCount += newReuseMarkers.length;
+  }
+  return {
+    lessonsFilePath: target.filePath,
+    lessonsRelativePath: target.relativePath,
+    nextLessonsContent,
+    originalLessonsContent,
+    lessonsRevision: sha256(nextLessonsContent),
+    archive: receipt,
+    candidateCount,
+  };
+}
+
+export type DurableKnowledgeRecord = {
+  schema_version: 1;
+  knowledge_kind: 'contract' | 'decision';
+  candidate_id: string;
+  candidate_fingerprint: string;
+  disposition: Extract<KnowledgeAdmissionDisposition, 'admit' | 'merge' | 'supersede'>;
+  matched_knowledge_id: string | null;
+  candidate: KnowledgeCandidate;
+  provenance: KnowledgeProvenance;
+  proposal_idempotency_key: string;
+  proposal_digest: string;
+  semantic_digest: string;
+};
+
+type KnowledgeRecordTransactionPlan = {
+  filePath: string;
+  relativePath: string;
+  nextContent: string;
+  originalContent: string;
+  record: DurableKnowledgeRecord;
+  existing: boolean;
+};
+
+function knowledgeTarget(root: string, knowledgeKind: 'contract' | 'decision'): { filePath: string; relativePath: string } {
+  return workflowDocPathForRoot(root, knowledgeKind === 'contract' ? 'CONTRACTS.md' : 'DECISIONS.md');
+}
+
+function knowledgeSectionTitle(knowledgeKind: 'contract' | 'decision'): string {
+  return knowledgeKind === 'contract' ? 'vNext Contract Records' : 'vNext Decision Records';
+}
+
+function knowledgeMarkerPrefix(knowledgeKind: 'contract' | 'decision'): string {
+  return `<!-- vNext ${knowledgeKind} record:`;
+}
+
+function knowledgeCandidateSemanticDigest(candidate: KnowledgeCandidate): string {
+  return digest({
+    kind: candidate.kind,
+    fingerprint: candidate.fingerprint,
+    statement: candidate.statement,
+    applicability: candidate.applicability,
+    authoritySource: candidate.authoritySource,
+    stability: candidate.stability,
+    supersedes: candidate.supersedes,
+    decisionContext: candidate.decisionContext ?? null,
+  });
+}
+
+function validateDurableKnowledgeRecord(value: unknown, location: string, expectedKind: 'contract' | 'decision'): DurableKnowledgeRecord {
+  const record = expectRecord(value, location);
+  expectExactKeys(
+    record,
+    ['schema_version', 'knowledge_kind', 'candidate_id', 'candidate_fingerprint', 'disposition', 'matched_knowledge_id', 'candidate', 'provenance', 'proposal_idempotency_key', 'proposal_digest', 'semantic_digest'],
+    location,
+  );
+  if (record.schema_version !== 1) fail('KNOWLEDGE_RECORD_INVALID', `${location}.schema_version must be 1.`);
+  const knowledgeKind = expectEnum(record.knowledge_kind, ['contract', 'decision'], `${location}.knowledge_kind`);
+  if (knowledgeKind !== expectedKind) fail('KNOWLEDGE_RECORD_INVALID', `${location}.knowledge_kind must be ${expectedKind}.`);
+  const candidate = validateKnowledgeCandidate(record.candidate, `${location}.candidate`, expectedKind);
+  const candidateId = expectString(record.candidate_id, `${location}.candidate_id`, SAFE_KEY_PATTERN);
+  const candidateFingerprint = expectString(record.candidate_fingerprint, `${location}.candidate_fingerprint`, FINGERPRINT_PATTERN);
+  if (candidateId !== candidate.candidateId || candidateFingerprint !== candidate.fingerprint) fail('KNOWLEDGE_PROVENANCE_MISMATCH', `${location} candidate identity does not match the embedded candidate.`);
+  const disposition = expectEnum(record.disposition, ['admit', 'merge', 'supersede'], `${location}.disposition`);
+  const matchedKnowledgeId = expectNullableString(record.matched_knowledge_id, `${location}.matched_knowledge_id`, SAFE_KEY_PATTERN);
+  if (disposition === 'merge' && matchedKnowledgeId === null) fail('KNOWLEDGE_RECORD_INVALID', `${location}.matched_knowledge_id is required for merge.`);
+  if (disposition === 'supersede' && (matchedKnowledgeId === null || candidate.supersedes !== matchedKnowledgeId)) fail('KNOWLEDGE_RECORD_INVALID', `${location}.supersede predecessor identity is inconsistent.`);
+  if (candidate.authoritySource === 'none') fail('KNOWLEDGE_RECORD_INVALID', `${location} cannot be a durable record without an authority source.`);
+  if (knowledgeKind === 'decision' && !['user', 'accepted-decision'].includes(candidate.authoritySource)) {
+    fail('KNOWLEDGE_RECORD_INVALID', `${location} Decision record requires user or accepted-decision authority.`);
+  }
+  if (candidate.stability !== 'stable' || candidate.conflictSet.length > 0 || candidate.evidenceRefs.length === 0) {
+    fail('KNOWLEDGE_RECORD_INVALID', `${location} durable record must contain stable, conflict-free candidate evidence.`);
+  }
+  const provenance = validateKnowledgeProvenance(record.provenance, `${location}.provenance`);
+  const proposalIdempotencyKey = expectString(record.proposal_idempotency_key, `${location}.proposal_idempotency_key`, SAFE_KEY_PATTERN);
+  const proposalDigest = expectString(record.proposal_digest, `${location}.proposal_digest`);
+  const semanticDigest = expectString(record.semantic_digest, `${location}.semantic_digest`);
+  if (!SHA256_PATTERN.test(proposalDigest) || !SHA256_PATTERN.test(semanticDigest)) fail('KNOWLEDGE_RECORD_INVALID', `${location} proposal and semantic digests must be SHA-256.`);
+  if (semanticDigest !== knowledgeCandidateSemanticDigest(candidate)) fail('KNOWLEDGE_PROVENANCE_MISMATCH', `${location}.semantic_digest does not match the canonical candidate.`);
+  return {
+    schema_version: 1,
+    knowledge_kind: knowledgeKind,
+    candidate_id: candidateId,
+    candidate_fingerprint: candidateFingerprint,
+    disposition,
+    matched_knowledge_id: matchedKnowledgeId,
+    candidate,
+    provenance,
+    proposal_idempotency_key: proposalIdempotencyKey,
+    proposal_digest: proposalDigest,
+    semantic_digest: semanticDigest,
+  };
+}
+
+function renderDurableKnowledgeRecord(record: DurableKnowledgeRecord): string {
+  const label = record.knowledge_kind === 'contract' ? 'Contract' : 'Decision';
+  const candidate = record.candidate;
+  const anchors = candidate.implementation_anchors;
+  return [
+    `### ${label}: ${candidate.candidateId}`,
+    '',
+    `<!-- vNext ${record.knowledge_kind} record: ${JSON.stringify(record)} -->`,
+    '',
+    `- candidate_id: ${yamlScalar(candidate.candidateId)}`,
+    `- fingerprint: ${yamlScalar(candidate.fingerprint)}`,
+    `- disposition: ${record.disposition}`,
+    `- statement: ${yamlScalar(candidate.statement)}`,
+    `- authority_source: ${yamlScalar(candidate.authoritySource)}`,
+    `- applicability: ${JSON.stringify(candidate.applicability)}`,
+    `- evidence_refs: ${JSON.stringify(candidate.evidenceRefs)}`,
+    `- implementation_anchors: ${anchors ? JSON.stringify(anchors) : 'none'}`,
+    `- provenance: ${JSON.stringify(record.provenance)}`,
+    `- proposal_idempotency_key: ${yamlScalar(record.proposal_idempotency_key)}`,
+    '',
+  ].join('\n');
+}
+
+export function readDurableKnowledgeRecords(content: string, location: string, expectedKind: 'contract' | 'decision'): DurableKnowledgeRecord[] {
+  const markers: DurableKnowledgeRecord[] = [];
+  const markerPattern = /<!-- vNext (contract|decision) record: (\{[^\r\n]+\}) -->/g;
+  for (const match of content.matchAll(markerPattern)) {
+    const markerKind = match[1] as 'contract' | 'decision';
+    if (markerKind !== expectedKind) fail('KNOWLEDGE_RECORD_INVALID', `${location} contains a ${markerKind} record in the ${expectedKind} document.`);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[2]!);
+    } catch {
+      fail('KNOWLEDGE_RECORD_INVALID', `${location} contains an invalid vNext knowledge marker.`);
+    }
+    const record = validateDurableKnowledgeRecord(parsed, `${location}.${expectedKind}[${markers.length}]`, expectedKind);
+    const markerText = `<!-- vNext ${expectedKind} record: ${JSON.stringify(record)} -->`;
+    if (countExactOccurrences(content, markerText) !== 1 || countExactOccurrences(content, renderDurableKnowledgeRecord(record)) !== 1) {
+      fail('KNOWLEDGE_PROVENANCE_MISMATCH', `${location}.${expectedKind}[${markers.length}] visible bytes do not match the canonical durable record.`);
+    }
+    const markerStart = content.indexOf(markerText);
+    const section = findUniqueMarkdownSection(scanMarkdownSections(content), [knowledgeSectionTitle(expectedKind)], 2);
+    if (!section || markerStart < section.contentStart || markerStart >= section.contentEnd) {
+      fail('KNOWLEDGE_RECORD_INVALID', `${location}.${expectedKind}[${markers.length}] is outside the canonical knowledge section.`);
+    }
+    markers.push(record);
+  }
+  for (const markerKind of ['contract', 'decision'] as const) {
+    const prefix = knowledgeMarkerPrefix(markerKind);
+    const markerCount = countExactOccurrences(content, prefix);
+    const parsedCount = markers.filter(record => record.knowledge_kind === markerKind).length;
+    if (markerCount !== parsedCount) {
+      fail('KNOWLEDGE_RECORD_INVALID', `${location} contains a malformed or partially unreadable ${markerKind} record marker.`);
+    }
+  }
+  if (content.includes('<!-- vNext contract record:') && expectedKind !== 'contract') fail('KNOWLEDGE_RECORD_INVALID', `${location} contains a Contract record in the wrong target.`);
+  if (content.includes('<!-- vNext decision record:') && expectedKind !== 'decision') fail('KNOWLEDGE_RECORD_INVALID', `${location} contains a Decision record in the wrong target.`);
+  return markers;
+}
+
+/**
+ * Read the complete canonical Runtime knowledge section after validating all
+ * durable records through the Runtime parser. Bootstrap preserves this body
+ * while rebuilding the surrounding workflow-owned document structure.
+ */
+export function readCanonicalDurableKnowledgeSection(
+  content: string,
+  location: string,
+  expectedKind: 'contract' | 'decision',
+): string | null {
+  const records = readDurableKnowledgeRecords(content, location, expectedKind);
+  const section = findUniqueMarkdownSection(scanMarkdownSections(content), [knowledgeSectionTitle(expectedKind)], 2);
+  if (!section) {
+    if (records.length > 0) fail('KNOWLEDGE_RECORD_INVALID', `${location} durable records are missing their canonical knowledge section.`);
+    return null;
+  }
+  return content.slice(section.contentStart, section.contentEnd);
+}
+
+function appendKnowledgeSectionIfMissing(content: string, knowledgeKind: 'contract' | 'decision'): string {
+  const title = knowledgeSectionTitle(knowledgeKind);
+  const sections = scanMarkdownSections(content);
+  const existing = findUniqueMarkdownSection(sections, [title], 2);
+  if (existing) return content;
+  return `${content.trimEnd()}\n\n## ${title}\n\n`;
+}
+
+function replaceDurableKnowledgeRecord(
+  content: string,
+  knowledgeKind: 'contract' | 'decision',
+  previous: DurableKnowledgeRecord,
+  next: DurableKnowledgeRecord,
+): string {
+  const previousText = renderDurableKnowledgeRecord(previous);
+  if (countExactOccurrences(content, previousText) !== 1) {
+    fail('KNOWLEDGE_PROVENANCE_MISMATCH', `canonical ${knowledgeKind} document does not contain exactly one predecessor record for merge.`);
+  }
+  const start = content.indexOf(previousText);
+  if (start < 0) fail('KNOWLEDGE_PROVENANCE_MISMATCH', `canonical ${knowledgeKind} predecessor record cannot be located for merge.`);
+  return `${content.slice(0, start)}${renderDurableKnowledgeRecord(next)}${content.slice(start + previousText.length)}`;
+}
+
+function knowledgeAdmissionMatches(left: KnowledgeAdmissionRecord, right: KnowledgeAdmissionRecord): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function knowledgeProvenanceMatchesArchive(provenance: KnowledgeProvenance, archive: ArchiveReceipt, proposal: KnowledgeProposal): void {
+  const admission = knowledgeAdmissionFromArchive(archive, proposal.semantic_delta.knowledge_kind, proposal.semantic_delta.admission.candidate.candidateId);
+  const admissionEvidenceRefs = [
+    ...admission.candidate.evidenceRefs,
+    ...(admission.candidate.implementation_anchors?.anchors.flatMap(anchor => anchor.evidence_refs) ?? []),
+  ];
+  if (provenance.task_id !== archive.taskId
+    || provenance.task_slug !== archive.taskSlug
+    || provenance.document_id !== archive.documentId
+    || provenance.archive_path !== archive.relativePath
+    || provenance.archive_revision !== archive.revision
+    || provenance.source_revision !== archive.sourceRevision
+    || !admissionEvidenceRefs.every(ref => provenance.evidence_refs.includes(ref))
+    || !provenance.evidence_refs.every(ref => archiveEvidenceRefsForKnowledge(archive).includes(ref))) {
+    fail('KNOWLEDGE_PROVENANCE_MISMATCH', 'knowledge proposal provenance does not match the canonical archive receipt.');
+  }
+  if (!provenance.evidence_refs.every(ref => proposal.evidence_refs.includes(ref))) {
+    fail('RUNTIME_EVIDENCE_INVALID', 'knowledge proposal evidence_refs must cover provenance evidence_refs.');
+  }
+}
+
+function archiveEvidenceRefsForKnowledge(archive: ArchiveReceipt): string[] {
+  return [...new Set([
+    ...archive.lessonAdmission.evidence_refs,
+    ...archive.knowledgeAdmissions.contracts.flatMap(item => [...item.candidate.evidenceRefs, ...(item.candidate.implementation_anchors?.anchors.flatMap(anchor => anchor.evidence_refs) ?? [])]),
+    ...archive.knowledgeAdmissions.decisions.flatMap(item => [...item.candidate.evidenceRefs, ...(item.candidate.implementation_anchors?.anchors.flatMap(anchor => anchor.evidence_refs) ?? [])]),
+  ])];
+}
+
+function durableKnowledgeRecordFromProposal(proposal: KnowledgeProposal, archive: ArchiveReceipt): DurableKnowledgeRecord {
+  const delta = proposal.semantic_delta;
+  knowledgeProvenanceMatchesArchive(delta.provenance, archive, proposal);
+  const admission = delta.admission;
+  return {
+    schema_version: 1,
+    knowledge_kind: delta.knowledge_kind,
+    candidate_id: admission.candidate.candidateId,
+    candidate_fingerprint: admission.candidate.fingerprint,
+    disposition: admission.disposition,
+    matched_knowledge_id: admission.matched_knowledge_id,
+    candidate: admission.candidate,
+    provenance: delta.provenance,
+    proposal_idempotency_key: proposal.idempotency_key,
+    proposal_digest: digest(proposal),
+    semantic_digest: knowledgeCandidateSemanticDigest(admission.candidate),
+  };
+}
+
+function knowledgeAdmissionFromArchive(archive: ArchiveReceipt, knowledgeKind: 'contract' | 'decision', candidateId: string): KnowledgeAdmissionRecord {
+  const admissions = knowledgeKind === 'contract' ? archive.knowledgeAdmissions.contracts : archive.knowledgeAdmissions.decisions;
+  const matches = admissions.filter(item => item.candidate.candidateId === candidateId);
+  if (matches.length !== 1) fail('KNOWLEDGE_PROVENANCE_MISMATCH', `archive does not contain exactly one ${knowledgeKind} admission for ${candidateId}.`);
+  return matches[0]!;
+}
+
+function scanKnowledgeRecords(root: string): DurableKnowledgeRecord[] {
+  const result: DurableKnowledgeRecord[] = [];
+  for (const knowledgeKind of ['contract', 'decision'] as const) {
+    const target = knowledgeTarget(root, knowledgeKind);
+    if (!fs.existsSync(target.filePath)) continue;
+    if (!fs.statSync(target.filePath).isFile()) fail('KNOWLEDGE_RECORD_INVALID', `${target.relativePath} is not a regular file.`);
+    result.push(...readDurableKnowledgeRecords(fs.readFileSync(target.filePath, 'utf8'), target.relativePath, knowledgeKind));
+  }
+  return result;
+}
+
+function inspectKnowledgeRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: KnowledgeProposal): KnowledgeRecordTransactionPlan {
+  const { receipt } = matchingArchiveReceipt(root, current);
+  const delta = proposal.semantic_delta;
+  const archiveAdmission = knowledgeAdmissionFromArchive(receipt, delta.knowledge_kind, delta.admission.candidate.candidateId);
+  if (!knowledgeAdmissionMatches(archiveAdmission, delta.admission)) fail('KNOWLEDGE_PROVENANCE_MISMATCH', 'knowledge proposal admission does not match the archived close-task admission decision.');
+  const expectedRecord = durableKnowledgeRecordFromProposal(proposal, receipt);
+  const target = knowledgeTarget(root, delta.knowledge_kind);
+  if (!fs.existsSync(target.filePath)) fail('RUNTIME_SOURCE_MISSING', `knowledge target is missing: ${target.relativePath}`);
+  const originalContent = fs.readFileSync(target.filePath, 'utf8');
+  const records = readDurableKnowledgeRecords(originalContent, target.relativePath, delta.knowledge_kind);
+  const allRecords = scanKnowledgeRecords(root);
+  const sameIdempotency = allRecords.filter(record => record.proposal_idempotency_key === proposal.idempotency_key);
+  if (sameIdempotency.some(record => JSON.stringify(record) !== JSON.stringify(expectedRecord))) {
+    fail('IDEMPOTENCY_CONFLICT', 'knowledge idempotency key is already durably bound to a different candidate or target.');
+  }
+  const sameIdentity = records.filter(record => record.candidate_id === expectedRecord.candidate_id);
+  if (sameIdentity.length > 1) fail('KNOWLEDGE_RECORD_INVALID', `knowledge target contains duplicate candidate identity ${expectedRecord.candidate_id}.`);
+  if (sameIdentity.length === 1) {
+    const existingRecord = sameIdentity[0]!;
+    if (JSON.stringify(existingRecord) === JSON.stringify(expectedRecord)) {
+      return { filePath: target.filePath, relativePath: target.relativePath, nextContent: originalContent, originalContent, record: expectedRecord, existing: true };
+    }
+    if (expectedRecord.disposition === 'merge' && expectedRecord.matched_knowledge_id === existingRecord.candidate_id) {
+      return {
+        filePath: target.filePath,
+        relativePath: target.relativePath,
+        nextContent: replaceDurableKnowledgeRecord(originalContent, delta.knowledge_kind, existingRecord, expectedRecord),
+        originalContent,
+        record: expectedRecord,
+        existing: false,
+      };
+    }
+    fail('KNOWLEDGE_IDENTITY_CONFLICT', `${target.relativePath} contains different semantic or provenance content for ${expectedRecord.candidate_id}.`);
+  }
+
+  if (expectedRecord.disposition === 'merge') {
+    const predecessor = records.find(record => record.candidate_id === expectedRecord.matched_knowledge_id);
+    if (!predecessor) fail('KNOWLEDGE_ADMISSION_INVALID', `knowledge merge target ${expectedRecord.matched_knowledge_id} is not durably present.`);
+    const semanticMatches = records.filter(record => record.semantic_digest === expectedRecord.semantic_digest);
+    if (semanticMatches.some(record => record.candidate_id !== predecessor.candidate_id)) {
+      fail('KNOWLEDGE_IDENTITY_CONFLICT', 'knowledge merge semantic content already belongs to a different durable item.');
+    }
+    return {
+      filePath: target.filePath,
+      relativePath: target.relativePath,
+      nextContent: replaceDurableKnowledgeRecord(originalContent, delta.knowledge_kind, predecessor, expectedRecord),
+      originalContent,
+      record: expectedRecord,
+      existing: false,
+    };
+  }
+
+  const semanticMatches = records.filter(record => record.semantic_digest === expectedRecord.semantic_digest);
+  if (semanticMatches.length > 0) {
+    return { filePath: target.filePath, relativePath: target.relativePath, nextContent: originalContent, originalContent, record: expectedRecord, existing: true };
+  }
+  if (expectedRecord.disposition === 'supersede') {
+    const predecessor = records.find(record => record.candidate_id === expectedRecord.matched_knowledge_id);
+    if (!predecessor) fail('KNOWLEDGE_ADMISSION_INVALID', `knowledge supersede target ${expectedRecord.matched_knowledge_id} is not durably present.`);
+  }
+  const withSection = appendKnowledgeSectionIfMissing(originalContent, delta.knowledge_kind);
+  return {
+    filePath: target.filePath,
+    relativePath: target.relativePath,
+    nextContent: `${withSection}${renderDurableKnowledgeRecord(expectedRecord)}`,
+    originalContent,
+    record: expectedRecord,
+    existing: false,
+  };
+}
+
+function prepareKnowledgeRecordTransaction(root: string, current: CanonicalCurrentTask, proposal: KnowledgeProposal): KnowledgeRecordTransactionPlan {
+  ensureAuthorityKinds(proposal, ['evidence-admission']);
+  if (current.runtimeState.workflow_status !== 'closed' || current.runtimeState.lifecycle_state !== 'archived') {
+    fail('KNOWLEDGE_ADMISSION_INVALID', 'knowledge promotion requires a closed + archived task.');
+  }
+  return inspectKnowledgeRecordTransaction(root, current, proposal);
+}
+
+function assertRequestedInboxTargets(root: string, current: CanonicalCurrentTask, proposal: InboxRecordProposal): void {
+  if (proposal.source_tuple.path !== current.relativePath) fail('RUNTIME_PATH_INVALID', 'capture proposal source path is not the exact canonical CURRENT_TASK path.');
+  const target = canonicalInboxRecordTarget(root, proposal.semantic_delta);
+  if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== target.relativePath) {
+    fail('RUNTIME_PATH_INVALID', 'capture proposal must name only its exact identity-derived inbox path.');
+  }
+}
+
+function assertRequestedCloseTargets(root: string, current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+  if (proposal.source_tuple.path !== current.relativePath) fail('RUNTIME_PATH_INVALID', 'close-task proposal source path is not the exact canonical CURRENT_TASK path.');
+  if (proposal.operation_kind === 'archive-transaction') {
+    const archive = archivePathForTask(root, current);
+    if (proposal.requested_write_targets.length !== 2 || proposal.requested_write_targets[0] !== current.relativePath || proposal.requested_write_targets[1] !== archive.relativePath) {
+      fail('RUNTIME_PATH_INVALID', 'archive proposal must name CURRENT_TASK and its exact identity-derived archive path.');
+    }
+    return;
+  }
+  const file = proposal.operation_kind === 'project-status-transaction'
+    ? 'STATUS.md'
+    : proposal.operation_kind === 'lesson-record-transaction'
+      ? 'LESSONS.md'
+      : proposal.operation_kind === 'contract-candidate-commit'
+        ? 'CONTRACTS.md'
+        : proposal.operation_kind === 'decision-record-transaction'
+          ? 'DECISIONS.md'
+          : null;
+  if (file === null) fail('RUNTIME_PATH_INVALID', `${proposal.operation_kind} is not a close-task document operation.`);
+  const target = workflowDocPathForRoot(root, file);
+  if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== target.relativePath) {
+    fail('RUNTIME_PATH_INVALID', `${file} proposal must name only its exact canonical path.`);
+  }
+}
+
+function assertPreviousTaskReconciliationComplete(root: string, current: CanonicalCurrentTask, receipt: ArchiveReceipt): void {
+  const knowledgeAdmissions = [
+    ...receipt.knowledgeAdmissions.contracts,
+    ...receipt.knowledgeAdmissions.decisions,
+  ].filter(admission => ['admit', 'merge', 'supersede'].includes(admission.disposition));
+  if (knowledgeAdmissions.length > 0) {
+    for (const admission of knowledgeAdmissions) {
+      const knowledgeKind = admission.candidate.kind;
+      const target = knowledgeTarget(root, knowledgeKind);
+      if (!fs.existsSync(target.filePath)) {
+        fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation is incomplete: ${target.relativePath} does not exist.`);
+      }
+      const records = readDurableKnowledgeRecords(fs.readFileSync(target.filePath, 'utf8'), target.relativePath, knowledgeKind);
+      const exactIdentity = records.find(record => record.candidate_id === admission.candidate.candidateId);
+      const equivalent = records.some(record => record.semantic_digest === knowledgeCandidateSemanticDigest(admission.candidate));
+      if (exactIdentity) {
+        if (JSON.stringify(exactIdentity.candidate) !== JSON.stringify(admission.candidate)
+          || exactIdentity.candidate_fingerprint !== admission.candidate.fingerprint
+          || exactIdentity.semantic_digest !== knowledgeCandidateSemanticDigest(admission.candidate)
+          || exactIdentity.disposition !== admission.disposition
+          || exactIdentity.matched_knowledge_id !== admission.matched_knowledge_id
+          || exactIdentity.provenance.task_id !== receipt.taskId
+          || exactIdentity.provenance.task_slug !== receipt.taskSlug
+          || exactIdentity.provenance.document_id !== receipt.documentId
+          || exactIdentity.provenance.archive_path !== receipt.relativePath
+          || exactIdentity.provenance.archive_revision !== receipt.revision
+          || exactIdentity.provenance.source_revision !== receipt.sourceRevision
+          || !exactIdentity.provenance.evidence_refs.every(ref => archiveEvidenceRefsForKnowledge(receipt).includes(ref))) {
+          fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation provenance conflicts with the canonical archive.`);
+        }
+      } else if (!equivalent) {
+        fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} ${knowledgeKind} candidate ${admission.candidate.candidateId} has not been reconciled.`);
+      }
+    }
+  }
+
+  if (receipt.lessonAdmission.decision === 'admit') {
+    const lessonsTarget = workflowDocPathForRoot(root, 'LESSONS.md');
+    if (!fs.existsSync(lessonsTarget.filePath)) {
+      fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} lesson reconciliation is incomplete: LESSONS.md does not exist.`);
+    }
+    const lessonsContent = fs.readFileSync(lessonsTarget.filePath, 'utf8');
+    const existingRecords = readDurableLessonRecords(lessonsContent, lessonsTarget.relativePath);
+    for (const candidateRef of receipt.lessonAdmission.candidate_refs) {
+      const matching = existingRecords.find(record =>
+        record.marker.candidate_ref === candidateRef
+        && record.marker.task_id === receipt.taskId
+        && record.marker.task_slug === receipt.taskSlug
+        && record.marker.document_id === receipt.documentId
+        && record.marker.archive_path === receipt.relativePath
+        && record.marker.archive_revision === receipt.revision
+        && record.marker.source_revision === receipt.sourceRevision
+      );
+      if (!matching) {
+        fail('PREVIOUS_TASK_RECONCILIATION_INCOMPLETE', `previous task ${current.runtimeState.task_id} lesson candidate ${candidateRef} has not been reconciled.`);
+      }
+    }
+  }
+}
+
+function ensureAuthorityKinds(proposal: RuntimeProposal, required: readonly AuthorityEvidence['kind'][]): void {
+  const kinds = new Set(proposal.authority_evidence.map(item => item.kind));
+  const missing = required.filter(kind => !kinds.has(kind));
+  if (missing.length > 0) fail('RUNTIME_AUTHORITY_MISSING', `proposal is missing authority evidence: ${missing.join(', ')}`);
+}
+
+function compareSourceTuple(expected: RuntimeSourceTuple, actual: RuntimeSourceTuple): string | null {
+  const fields: Array<keyof RuntimeSourceTuple> = [
+    'path',
+    'revision',
+    'document_id',
+    'task_id',
+    'task_slug',
+    'workflow_status',
+    'lifecycle_state',
+    'active_step_id',
+    'active_step_status',
+    'finding_queue_revision',
+    'resume_requires_review',
+    'resume_review_reasons',
+  ];
+  for (const field of fields) {
+    if (field === 'resume_review_reasons') {
+      if (expected[field].join('|') !== actual[field].join('|')) return field;
+    } else if (expected[field] !== actual[field]) {
+      return field;
+    }
+  }
+  return null;
+}
+
+function appendAppliedProposal(
+  current: RuntimeState,
+  proposal: RuntimeProposal,
+  sourceRevision: string,
+): RuntimeState['applied_proposals'] {
+  const next = [
+    ...current.applied_proposals,
+    {
+      idempotency_key: proposal.idempotency_key,
+      operation_kind: proposal.operation_kind,
+      proposal_digest: digest(proposal),
+      source_revision: sourceRevision,
+    },
+  ];
+  return (current as unknown as AnyRecord).__vnext_compact_history === true ? next : next.slice(-MAX_APPLIED_PROPOSALS);
+}
+
+function appendExecutionLogEntry(current: RuntimeState, entry: ExecutionLogEntry): ExecutionLogEntry[] {
+  const next = [...current.execution_log, entry];
+  return (current as unknown as AnyRecord).__vnext_compact_history === true ? next : next.slice(-MAX_EXECUTION_LOG);
+}
+
+/** Change one read-only verification invocation without changing its obligation.
+ * The caller assesses runner equivalence; Runtime freezes all other semantics. */
+export function replaceValidation(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  return withGovernanceWriteLock(root, () => {
+    const input = expectRecord(rawInput, 'replace-validation');
+    expectExactKeys(input, ['source_revision', 'claim_id', 'slot_id', 'replaces_check_id', 'replacement_check', 'reason'], 'replace-validation');
+    const sourceRevision = expectString(input.source_revision, 'source_revision', SHA256_PATTERN);
+    const reason = expectText(input.reason, 'reason');
+    if (!options.dryRun) recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    const key = `replace-validation-${digest({ document: current.sourceTuple.document_id, input }).slice(0, 40)}`;
+    const prior = current.runtimeState.applied_proposals.find(p => p.idempotency_key === key);
+    if (prior) {
+      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, sourceRevision, 'replace-validation');
+      return { status: 'no-op', operation_kind: 'task-state-transaction', idempotency_key: key, target_path: current.relativePath,
+        dry_run: !!options.dryRun, committed: false, message: 'This exact engineering replacement was already committed.',
+        planned_writes: [], governed_mutation_count: 0, read_back_verified: true, evidence_assurance: 'caller-reported' };
+    }
+    if (current.sourceTuple.revision !== sourceRevision) fail('VALIDATION_REPLACEMENT_STALE', 'Read the current step again; the request names an older task revision.');
+    assertBusinessEvidenceVersion(current);
+    const state = current.runtimeState;
+    if (state.workflow_status !== 'active' || state.lifecycle_state !== 'active' || state.resume_requires_review
+      || !['ready', 'blocked'].includes(state.active_step_status) || state.pending_review_result) fail('VALIDATION_REPLACEMENT_STATE_INVALID', 'Replace a verification between attempts, not during execution or pending review.');
+    if ((state.evidence_challenges ?? []).some(c => c.status !== 'resolved')) fail('EVIDENCE_CHALLENGE_UNRESOLVED', 'A challenged obligation needs its existing correction owner, not engineering substitution.');
+    const ledger = state.step_attempts?.[state.active_step_id];
+    if (ledger?.attempts.at(-1)?.status === 'preflighted') fail('EXECUTE_ATTEMPT_OUTSTANDING', 'Record the current attempt before changing its verification.');
+    const claims = copyClaimEvidence(state.claim_evidence ?? []);
+    const claim = claims.find(c => c.claim_id === input.claim_id);
+    const target = claim?.slots.find(s => s.slot_id === input.slot_id);
+    const old = target?.check;
+    if (!claim || !target || !old || old.check_id !== input.replaces_check_id || target.due_step_id !== state.active_step_id
+      || target.applicability !== 'current' || target.user_decision || target.prerequisite_receipt) fail('VALIDATION_REPLACEMENT_TARGET_INVALID', 'Engineering replacement preserves one current-step, unconsumed evidence obligation; it never overrides a user decision or prerequisite.');
+    const replacement = validateClaimEvidence([{ ...claim, slots: [{ ...target, check: input.replacement_check }] }])[0]!.slots[0]!.check!;
+    if ((state.claim_evidence ?? []).some(c => c.slots.some(s => s.check?.check_id === replacement.check_id)) || old.method !== 'execution' || replacement.method !== 'execution') fail('VALIDATION_REPLACEMENT_ID_INVALID', 'An execution replacement requires a new check identity.');
+    const semantics = (check: EvidenceCheck) => ({ method: check.method, boundary: check.boundary, expected_observation: check.expected_observation,
+      expected_result: check.expected_result, subject_paths: check.subject_paths, required_boundaries: check.required_boundaries, allowed_substitutes: check.allowed_substitutes, validation_items: check.validation_items });
+    const oldGranularity = old.selection?.granularity, newGranularity = replacement.selection?.granularity;
+    // Engineering replacement changes how the same check is invoked, not what
+    // it selects. Narrowing a target or rebinding focused E2E also changes that
+    // decision and belongs to the existing planning route.
+    if (digest(semantics(old)) !== digest(semantics(replacement)) || !oldGranularity || oldGranularity !== newGranularity
+      || old.selection?.selector !== replacement.selection?.selector
+      || old.selection?.breadth_basis !== replacement.selection?.breadth_basis
+      || old.selection?.breadth_source_ref !== replacement.selection?.breadth_source_ref) {
+      fail('VALIDATION_REPLACEMENT_WEAKENED', 'Preserve the observation, boundary, subjects, validation ownership, exact granularity, selector and breadth authority. Changed selection needs its explicit planning route.');
+    }
+    const definition = readDraftDefinitionFromBody(current.body);
+    const block = implementationStepBlock(definition, state.active_step_id);
+    if (!block) fail('VALIDATION_REPLACEMENT_TARGET_INVALID', 'The frozen current step is missing.');
+    const lines = block.split('\n');
+    const indices = lines.flatMap((line, i) => line.trim() === `- planned_command: ${old.entry}` ? [i] : []);
+    if (indices.length !== 1 || lines[indices[0]! + 1]?.trim() !== '- expected_repo_writes: none') fail('VALIDATION_REPLACEMENT_WRITES_FORBIDDEN', 'This route only replaces one exact read-only planned check invocation.');
+    if (claims.some(c => c.slots.some(s => s !== target && s.due_step_id === state.active_step_id && s.check?.entry === old.entry))) fail('VALIDATION_REPLACEMENT_SHARED_COMMAND', 'A shared invocation must retain every bound obligation; use a reviewed multi-check correction.');
+    lines[indices[0]!] = lines[indices[0]!]!.replace(old.entry, replacement.entry);
+    const evidenceIndex = lines.findIndex(line => /^\s*- required_evidence:/.test(line));
+    // Explicit validation labels are frozen obligation identities, not shell
+    // invocations. Keep them stable even when their wording includes the old CLI.
+    if (evidenceIndex >= 0 && !old.validation_items?.length) lines[evidenceIndex] = lines[evidenceIndex]!.split(old.entry).join(replacement.entry);
+    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join('\n'));
+    target.check = replacement; target.report = null; target.evidence_refs = []; target.disposition = 'missing';
+    const basis = readCanonicalTaskBasis(root, current);
+    const newPlan = assertEvidencePlan(definition, claims, false, { root, taskBasis: basis.basis, previous: state.claim_evidence ?? [] });
+    const carry: EvidenceCarryForward[] = [];
+    for (const c of claims) for (const slot of c.slots) {
+      if (slot === target || (!slot.report && !slot.user_decision) || !slot.check) continue;
+      const before = state.claim_evidence!.find(x => x.claim_id === c.claim_id)!.slots.find(x => x.slot_id === slot.slot_id)!;
+      if (before.user_decision) {
+        try { carry.push(carryUserEvidenceDecision(root, current, c.claim_id, before, newPlan, 'replace-validation')); }
+        catch { /* Stale user decisions remain retained but do not discharge the new plan. */ }
+        continue;
+      }
+      try { assertEvidenceReportApplicable(root, current, before); }
+      catch { continue; } // Invalid old facts remain invalid and retained, never promoted.
+      const resultId = slot.report!.result_id;
+      const origin = state.evidence_carry_forward?.find(p => p.claim_id === c.claim_id && p.slot_id === slot.slot_id && p.new_plan_revision === state.evidence_plan_revision && p.result_id === resultId);
+      carry.push({ kind: 'evidence-carry-forward/v2', old_source_revision: origin?.old_source_revision ?? sourceRevision,
+        history_operation: origin ? origin.history_operation ?? 'confirm-replan' : 'replace-validation',
+        old_plan_revision: slot.report?.evidence_plan_revision ?? slot.user_decision!.evidence_plan_revision, new_plan_revision: newPlan,
+        receiving_source_revision: sourceRevision, context_revision: recoveryEvidenceContextRevision(root),
+        evidence_objects: slot.user_decision ? [] : describeEvidenceObjects(root, slot.evidence_refs),
+        claim_id: c.claim_id, slot_id: slot.slot_id, check_id: slot.check.check_id, result_id: resultId,
+        report_sha256: digest(slot.report ?? null), subject_revision: slot.report?.subject_revision ?? slot.user_decision!.subject_revision,
+        ...(slot.user_decision ? { user_decision_sha256: digest(slot.user_decision) } : {}) });
+    }
+    const proposal = { schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND, operation_kind: 'task-state-transaction',
+      caller: 'execute-step', mode: 'default', source_tuple: current.sourceTuple,
+      semantic_delta: { kind: 'task-state', action: 'replace-validation', ...input, reason },
+      evidence_refs: [], idempotency_key: key, requested_write_targets: [current.relativePath] } as unknown as RuntimeProposal;
+    const stepAttempts = structuredClone(state.step_attempts ?? {});
+    for (const entry of Object.values(stepAttempts)) entry.evidence_plan_revision = newPlan;
+    if (ledger?.attempts.at(-1)?.status === 'blocked') {
+      if (ledger.attempts.length >= ledger.max_attempts) fail('RETRY_BUDGET_EXHAUSTED', 'Engineering replacement does not reset the existing attempt budget.');
+      stepAttempts[state.active_step_id]!.attempts.push({ attempt_id: `attempt-${digest({ document: current.sourceTuple.document_id, plan: newPlan, step: state.active_step_id, n: ledger.attempts.length + 1 }).slice(0, 40)}`, idempotency_key: key,
+        request_digest: digest(input), status: 'ready', blocker: null, evidence_refs: [...ledger.attempts.at(-1)!.evidence_refs] });
+    }
+    const next: RuntimeState = { ...state, active_step_status: 'ready', claim_evidence: claims, evidence_plan_revision: newPlan,
+      evidence_carry_forward: carry, step_attempts: stepAttempts, applied_proposals: appendAppliedProposal(state, proposal, sourceRevision) };
+    delete next.execution_preflight;
+    const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { replacementDefinition: definition });
+    const nextContent = prepared.content;
+    const historyInput = { currentPath: current.filePath, previousContent: current.raw, nextContent,
+      documentId: current.sourceTuple.document_id, taskId: state.task_id, basisPath: basis.filePath, basisContent: basis.content,
+      operation: 'replace-validation' as const, evidencePlanRevision: state.evidence_plan_revision };
+    const history = taskHistoryLocation(historyInput);
+    const writes = [path.posix.join(path.posix.dirname(current.relativePath), history.relativePath), current.relativePath];
+    if (options.dryRun) return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: key, target_path: current.relativePath,
+      dry_run: true, committed: false, message: 'Equivalent invocation replacement validated; task intent is unchanged.', planned_writes: writes,
+      governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported' };
+    for (const proof of carry) preserveEvidenceObjects(root, current.filePath, proof.evidence_objects ?? []);
+    const staged = stageTaskEvolutionStoreCommit(root, current, nextContent, next, proposal, [{ path: history.path, content: history.content }, { path: current.filePath, content: nextContent }], prepared);
+    try {
+      commitTaskEvolutionWithHistory(historyInput, raw => {
+        const parsed = parseCanonicalCurrentTaskContent(raw, current.filePath, current.relativePath);
+        if (parsed.runtimeState.evidence_plan_revision !== newPlan) fail('VALIDATION_REPLACEMENT_READ_BACK_FAILED', 'Evidence plan read-back differs.');
+      });
+    } catch (error) {
+      if (fs.readFileSync(current.filePath, 'utf8') === current.raw) clearPendingTaskStoreAfterRollback(root, current);
+      throw error;
+    }
+    completeTaskEvolutionStoreCommit(root, current, staged, proposal, { status: 'success', committed: true, operation_kind: 'task-state-transaction', idempotency_key: key });
+    return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: key, target_path: current.relativePath,
+      dry_run: false, committed: true, message: 'One verification invocation replaced; task identity, obligations, history, scope and retry budget preserved.',
+      planned_writes: writes, governed_mutation_count: 2, read_back_verified: true, previous_revision: sourceRevision,
+      resulting_revision: staged.sourceTuple.revision, state: resultState(next), evidence_assurance: 'caller-reported' };
+  });
+}
+
+export function initializeTaskPreservation(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  return withGovernanceWriteLock(root, () => initializeTaskPreservationLocked(root, rawInput, options));
+}
+
+function initializeTaskPreservationLocked(root: string, rawInput: unknown, options: RuntimeApplyOptions): RuntimeResult {
+  const input = expectRecord(rawInput, 'initialize-preservation input');
+  expectExactKeys(input, ['source_revision', 'basis_revision'], 'initialize-preservation input');
+  const sourceRevision = expectString(input.source_revision, 'source_revision', /^[a-f0-9]{64}$/);
+  const basisRevision = expectString(input.basis_revision, 'basis_revision', /^[a-f0-9]{64}$/);
+  if (!options.dryRun) recoverPendingTaskStoreCommit(root);
+  const current = readCanonicalCurrentTask(root);
+  const idempotencyKey = `initialize-preservation-${current.sourceTuple.document_id}`;
+  if (current.runtimeState.task_evolution_version === 2) {
+    if (sourceRevision !== (current.runtimeState.preservation_source_revision ?? current.sourceTuple.revision)) {
+      fail('TASK_EVOLUTION_SOURCE_STALE', 'Preservation replay does not name the initialized source revision.');
+    }
+    const boundBasisRevision = current.runtimeState.preservation_source_revision
+      ? (JSON.parse(fs.readFileSync(path.join(path.dirname(current.filePath), 'task-history', current.sourceTuple.document_id,
+        `${current.runtimeState.preservation_source_revision}.json`), 'utf8')) as { task_basis_revision: string }).task_basis_revision
+      : readCanonicalTaskBasis(root, current).revision;
+    if (basisRevision !== boundBasisRevision) fail('TASK_EVOLUTION_BASIS_STALE', 'Preservation replay does not name the initialized Task Basis revision.');
+    return { status: 'no-op', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+      target_path: current.relativePath, dry_run: options.dryRun === true, committed: false,
+      message: 'This task already uses task-evolution preservation.', planned_writes: [], governed_mutation_count: 0,
+      read_back_verified: true, resulting_revision: current.sourceTuple.revision, evidence_assurance: 'caller-reported' };
+  }
+  if (current.sourceTuple.revision !== sourceRevision) fail('TASK_EVOLUTION_SOURCE_STALE', 'CURRENT_TASK changed after preservation admission.');
+  if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+    fail('TASK_EVOLUTION_STATE_INVALID', 'Preservation initialization requires a confirmed active task.');
+  }
+  const basis = readCanonicalTaskBasis(root, current);
+  if (basis.revision !== basisRevision) fail('TASK_EVOLUTION_BASIS_STALE', 'Task Basis changed after preservation admission.');
+  assertTestStrategySequenceReady(current);
+  const idempotencyProposal = {
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'task-lifecycle',
+    mode: 'default',
+    source_tuple: current.sourceTuple,
+    semantic_delta: { kind: 'task-state', action: 'initialize-preservation', source_revision: sourceRevision, basis_revision: basisRevision },
+    evidence_refs: [],
+    idempotency_key: idempotencyKey,
+    requested_write_targets: [current.relativePath],
+  } as unknown as RuntimeProposal;
+  const nextState: RuntimeState = { ...current.runtimeState, task_evolution_version: 2,
+    preservation_source_revision: current.sourceTuple.revision,
+  };
+  const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState);
+  const nextContent = prepared.content;
+  const preview = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath, prepared);
+  if (preview.body !== current.body || digest({ ...preview.runtimeState, task_evolution_version: undefined, preservation_source_revision: undefined })
+    !== digest({ ...current.runtimeState, task_evolution_version: undefined, preservation_source_revision: undefined })) {
+    fail('TASK_EVOLUTION_INIT_INVALID', 'Initialization must preserve the complete definition and runtime state.');
+  }
+  const history = taskHistoryLocation({ currentPath: current.filePath, previousContent: current.raw, nextContent,
+    documentId: current.sourceTuple.document_id, taskId: current.runtimeState.task_id,
+    basisPath: basis.filePath, basisContent: basis.content, operation: 'initialize-preservation',
+    evidencePlanRevision: current.runtimeState.evidence_plan_revision });
+  const plannedWrites = [path.posix.join(path.posix.dirname(current.relativePath), history.relativePath), current.relativePath];
+  if (options.dryRun) return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+    target_path: current.relativePath, dry_run: true, committed: false, message: 'Preservation initialization is ready without changing the task definition.',
+    planned_writes: plannedWrites, governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported' };
+  let stagedAfter: CanonicalCurrentTask;
+  try {
+    stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, idempotencyProposal, [
+      { path: history.path, content: history.content },
+      { path: current.filePath, content: nextContent },
+    ], prepared);
+  } catch (error) {
+    return buildResult('blocked', idempotencyProposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, {
+      code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED',
+    });
+  }
+  try {
+    commitTaskEvolutionWithHistory({ currentPath: current.filePath, previousContent: current.raw, nextContent,
+      documentId: current.sourceTuple.document_id, taskId: current.runtimeState.task_id,
+      basisPath: basis.filePath, basisContent: basis.content, operation: 'initialize-preservation',
+      evidencePlanRevision: current.runtimeState.evidence_plan_revision }, content => {
+      const parsed = parseCanonicalCurrentTaskContent(content, current.filePath, current.relativePath);
+      if (parsed.body !== current.body || parsed.runtimeState.preservation_source_revision !== sourceRevision
+        || parsed.runtimeState.task_evolution_version !== 2) fail('TASK_EVOLUTION_INIT_INVALID', 'Preservation initialization read-back differs.');
+    });
+  } catch (error) {
+    if (fs.existsSync(current.filePath) && sha256(fs.readFileSync(current.filePath, 'utf8')) === current.sourceTuple.revision) {
+      clearPendingTaskStoreAfterRollback(root, current);
+    }
+    throw error;
+  }
+  const storeResult = {
+    status: 'success',
+    committed: true,
+    operation_kind: 'task-state-transaction',
+    idempotency_key: idempotencyKey,
+    message: 'Original task and Task Basis were preserved; versioned task protection is active.',
+  };
+  try {
+    const manifest = completeTaskEvolutionStoreCommit(root, current, stagedAfter, idempotencyProposal, storeResult);
+    const readBack = readCanonicalCurrentTask(root);
+    return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+      target_path: current.relativePath, dry_run: false, committed: true, previous_revision: sourceRevision,
+      resulting_revision: readBack.sourceTuple.revision, message: storeResult.message,
+      planned_writes: plannedWrites, governed_mutation_count: plannedWrites.length, read_back_verified: true,
+      evidence_assurance: 'caller-reported', task_store: {
+        manifest_path: `${manifest.storage_root}/manifest.json`, source_revision: manifest.head.source_revision,
+        definition_revision: manifest.head.definition_revision, state_revision: manifest.head.state_revision,
+        event_sequence: manifest.head.event_sequence,
+      } };
+  } catch (error) {
+    return { status: 'blocked', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+      target_path: current.relativePath, dry_run: false, committed: true, previous_revision: sourceRevision,
+      resulting_revision: stagedAfter.sourceTuple.revision, message: `Preservation committed but task-store publication needs recovery: ${error instanceof Error ? error.message : String(error)}`,
+      planned_writes: plannedWrites, governed_mutation_count: plannedWrites.length, read_back_verified: false,
+      evidence_assurance: 'caller-reported', code: error instanceof TaskStoreError ? error.code : 'TASK_STORE_COMMIT_FAILED' };
+  }
+}
+
+type CorrectionStepInput = {
+  id: string;
+  description: string;
+  mutation_scope: string[];
+  required_evidence: string[];
+  commands: Array<{ command: string; expected_repo_writes: 'none' | string[] }>;
+};
+
+type RecoveryExecutionTarget = { execution_id: string; reason: string; evidence_ref: string; evidence_sha256: string };
+type RecoveryObligation = { claim_id: string; slot_id: string; due_step_id: string; before_step_id?: string; replaces_check_id?: string; check?: EvidenceCheck };
+type PendingStepRevision = { steps: CorrectionStepInput[]; step_map: Array<{ old_step_id: string; new_step_ids: string[] }> };
+type CorrectionCandidateInput = {
+  challenge_ids: string[];
+  correction_step: CorrectionStepInput;
+  mode: 'conclusion-correction' | 'execution-recovery';
+  strategy: 'forward-fix' | 'artifact-restore' | 'mixed';
+  restore_plan: { checkpoint_id: string; paths: string[] } | null;
+  execution_targets: RecoveryExecutionTarget[];
+  recovery_steps: CorrectionStepInput[];
+  pending_step_changes: PendingStepRevision | null;
+  obligation_map: RecoveryObligation[];
+};
+
+type CorrectionCandidate = {
+  kind: 'correction-replan-candidate/v2';
+  restore_plan: ArtifactRestorePlan | null;
+  source_tuple: RuntimeSourceTuple;
+  evidence_admission: Array<{ claim_id: string; slot_id: string; status: 'reuse' | 'revalidate' | 'contested'; original_result_id: string | null }>;
+  evidence_objects: EvidenceObject[];
+  problem_keys: string[];
+  retained_budget: { review_cycle: ReviewCycleState; step_attempts: RuntimeState['step_attempts'] };
+  result_validity: Array<{ execution_id: string; status: 'affected'; recovery_step_id: string }>;
+  historical_completion_refs: Array<{ execution_id: string; step_id: string; definition_revision: string }>;
+  obligation_map: RecoveryObligation[];
+  task_id: string;
+  document_id: string;
+  source_revision: string;
+  basis_revision: string;
+  old_plan_revision: string;
+  old_obligations: unknown;
+  old_obligations_digest: string;
+  scope_diff: { added_paths: string[]; removed_paths: string[] };
+  command_footprint: Array<{ command: string; expected_repo_writes: 'none' | string[] }>;
+  step_diff: { inserted_step_id: string; inserted_before: string; retained_step_ids: string[] };
+  challenge_digest: string;
+  input: CorrectionCandidateInput;
+  definition: DraftTaskDefinition;
+  claim_evidence: ClaimEvidenceRecord[];
+  carry_forward: EvidenceCarryForward[];
+  new_plan_revision: string;
+  permission_change: 'none';
+};
+
+export type CorrectionCandidateReceipt = {
+  kind: 'correction-replan-candidate-receipt/v2';
+  candidate_digest: string;
+  source_revision: string;
+  basis_revision: string;
+  obligations_digest: string;
+  new_plan_revision: string;
+  permission_change: 'none';
+};
+
+function normalizeCorrectionInput(input: unknown): CorrectionCandidateInput {
+  const value = expectRecord(input, 'prepare-replan input');
+  const extensionKeys = ['mode', 'strategy', 'execution_targets', 'recovery_steps', 'pending_step_changes', 'obligation_map', 'restore_plan'];
+  expectExactKeys(value, [value.challenge_ids === undefined ? 'challenge_id' : 'challenge_ids', 'correction_step', ...extensionKeys.filter(key => key in value)], 'prepare-replan input');
+  const mode = value.mode === undefined ? 'conclusion-correction' : expectEnum(value.mode, ['conclusion-correction', 'execution-recovery'], 'recovery mode');
+  const strategy = value.strategy === undefined ? 'forward-fix' : expectEnum(value.strategy, ['forward-fix', 'artifact-restore', 'mixed'], 'strategy');
+  let restore: CorrectionCandidateInput['restore_plan'] = null;
+  if (value.restore_plan != null) {
+    const item = expectRecord(value.restore_plan, 'restore_plan');
+    expectExactKeys(item, ['checkpoint_id', 'paths'], 'restore_plan');
+    restore = { checkpoint_id: expectString(item.checkpoint_id, 'checkpoint_id', /^[a-f0-9]{64}$/), paths: expectStringArray(item.paths, 'restore paths', false, 128).map(p => normalizeRepoPath(p, 'restore path')) };
+  }
+  if ((strategy === 'forward-fix') !== (restore === null) || (mode === 'conclusion-correction' && strategy !== 'forward-fix')) fail('RECOVERY_STRATEGY_UNSUPPORTED', 'Restore strategies require execution-recovery mode and a verified restore plan.');
+  const challengeIds = value.challenge_ids === undefined
+    ? [expectString(value.challenge_id, 'challenge_id', SAFE_KEY_PATTERN)]
+    : expectStringArray(value.challenge_ids, 'challenge_ids', mode === 'execution-recovery', 16).map(id => expectString(id, 'challenge_id', SAFE_KEY_PATTERN));
+  if (new Set(challengeIds).size !== challengeIds.length) fail('REPLAN_CHALLENGE_REQUIRED', 'Challenge targets must be unique.');
+  const executions = value.execution_targets ?? [];
+  if (!Array.isArray(executions) || executions.length > 16) fail('RECOVERY_TARGET_INVALID', 'Execution targets must be bounded.');
+  const executionTargets = executions.map(raw => {
+    const target = expectRecord(raw, 'execution target');
+    expectExactKeys(target, ['execution_id', 'reason', 'evidence_ref', 'evidence_sha256'], 'execution target');
+    return { execution_id: expectString(target.execution_id, 'execution_id', SAFE_KEY_PATTERN), reason: expectText(target.reason, 'reason', 2048),
+      evidence_ref: normalizeRepoPath(expectString(target.evidence_ref, 'evidence_ref'), 'evidence_ref'),
+      evidence_sha256: expectString(target.evidence_sha256, 'evidence_sha256', /^[a-f0-9]{64}$/) };
+  });
+  if (new Set(executionTargets.map(item => item.execution_id)).size !== executionTargets.length
+    || (mode === 'conclusion-correction' && executionTargets.length) || (!challengeIds.length && !executionTargets.length)) fail('RECOVERY_TARGET_INVALID', 'Recovery needs unique, correctly typed targets.');
+  const recoverySteps = value.recovery_steps ?? [];
+  if (!Array.isArray(recoverySteps) || recoverySteps.length > 15) fail('RECOVERY_STEPS_INVALID', 'At most 16 recovery steps are supported.');
+  const obligations = value.obligation_map ?? [];
+  if (!Array.isArray(obligations) || obligations.length > 128) fail('RECOVERY_OBLIGATION_INVALID', 'Obligation mapping must be bounded.');
+  const obligationMap = obligations.map(raw => {
+    const item = expectRecord(raw, 'obligation');
+    expectExactKeys(item, ['claim_id', 'slot_id', 'due_step_id', ...(item.before_step_id === undefined ? [] : ['before_step_id']), ...(item.check === undefined ? [] : ['check', 'replaces_check_id'])], 'obligation');
+    return { claim_id: expectString(item.claim_id, 'claim_id', CLAIM_ID_PATTERN), slot_id: expectString(item.slot_id, 'slot_id', CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+      due_step_id: expectString(item.due_step_id, 'due_step_id', STEP_ID_PATTERN),
+      ...(item.before_step_id === undefined ? {} : { before_step_id: expectString(item.before_step_id, 'before_step_id', STEP_ID_PATTERN) }),
+      ...(item.check === undefined ? {} : { check: validateEvidenceCheck(item.check, 'replacement check'), replaces_check_id: expectString(item.replaces_check_id, 'replaces_check_id', CLAIM_ID_PATTERN) }) };
+  });
+  let pending: PendingStepRevision | null = null;
+  if (value.pending_step_changes != null) {
+    const item = expectRecord(value.pending_step_changes, 'pending_step_changes');
+    expectExactKeys(item, ['steps', 'step_map'], 'pending_step_changes');
+    if (!Array.isArray(item.steps) || item.steps.length > 32 || !Array.isArray(item.step_map) || item.step_map.length > 32) fail('RECOVERY_PENDING_INVALID', 'Pending plan and mapping must be bounded.');
+    pending = { steps: item.steps.map(normalizeCorrectionStep), step_map: item.step_map.map(raw => {
+      const map = expectRecord(raw, 'step_map entry');
+      expectExactKeys(map, ['old_step_id', 'new_step_ids'], 'step_map entry');
+      return { old_step_id: expectString(map.old_step_id, 'old_step_id', STEP_ID_PATTERN), new_step_ids: expectStringArray(map.new_step_ids, 'new_step_ids', false, 32) };
+    }) };
+  }
+  return { challenge_ids: [...challengeIds].sort(), correction_step: normalizeCorrectionStep(value.correction_step), mode,
+    strategy, restore_plan: restore, execution_targets: executionTargets, recovery_steps: recoverySteps.map(normalizeCorrectionStep),
+    pending_step_changes: pending, obligation_map: obligationMap };
+}
+
+function normalizeCorrectionStep(raw: unknown, options: { allowExistingWildcardScope?: boolean } = {}): CorrectionStepInput {
+  const step = expectRecord(raw, 'correction_step');
+  expectExactKeys(step, ['id', 'description', 'mutation_scope', 'required_evidence', 'commands'], 'correction_step');
+  const id = expectString(step.id, 'correction_step.id', STEP_ID_PATTERN);
+  const description = expectText(step.description, 'correction_step.description', 512);
+  if (/[\r\n]/u.test(description)) fail('REPLAN_CORRECTION_INVALID', 'Correction description must be one line.');
+  const mutationScope = expectStringArray(step.mutation_scope, 'correction_step.mutation_scope', false, 32).map(item => normalizeRepoPath(item, 'correction_step.mutation_scope'));
+  if (mutationScope.some(item => item.includes('*')) && !options.allowExistingWildcardScope) fail('REPLAN_SCOPE_EXPANSION', 'Correction writes require exact authorized non-executable paths.');
+  const requiredEvidence = expectStringArray(step.required_evidence, 'correction_step.required_evidence', false, 32);
+  if (requiredEvidence.some(item => /[\r\n]/u.test(item))) fail('REPLAN_CORRECTION_INVALID', 'Required evidence must use one line per item.');
+  if (!Array.isArray(step.commands) || step.commands.length > 32) fail('REPLAN_CORRECTION_INVALID', 'Correction commands must be a bounded array.');
+  const commands = step.commands.map((raw, index) => {
+    const command = expectRecord(raw, `correction_step.commands[${index}]`);
+    expectExactKeys(command, ['command', 'expected_repo_writes'], `correction_step.commands[${index}]`);
+    const text = expectText(command.command, `correction_step.commands[${index}].command`, 2048);
+    if (/[\r\n]/u.test(text)) fail('REPLAN_CORRECTION_INVALID', 'Command must be one line.');
+    const writes = command.expected_repo_writes === 'none' ? 'none' as const
+      : expectStringArray(command.expected_repo_writes, `correction_step.commands[${index}].expected_repo_writes`, false, 32).map(item => normalizeRepoPath(item, 'expected_repo_writes'));
+    if (writes !== 'none' && writes.some(item => !mutationScope.includes(item)
+      && !(options.allowExistingWildcardScope && mutationScope.some(pattern => pattern.includes('*') && mutationScopePatternMatchesPath(item, pattern))))) {
+      fail('REPLAN_SCOPE_EXPANSION', 'Command writes must be exact members of the correction step scope.');
+    }
+    return { command: text, expected_repo_writes: writes };
+  });
+  return { id, description, mutation_scope: mutationScope, required_evidence: requiredEvidence, commands };
+}
+
+function validateEvidenceCheck(value: unknown, location: string): EvidenceCheck {
+  return validateClaimEvidence([{ claim_id: 'replacement', claim_kind: 'acceptance', slots: [{
+    slot_id: 'replacement', minimum_type: 'focused-test', disposition: 'missing', evidence_refs: [], check: value,
+  }] }], location)[0]!.slots[0]!.check!;
+}
+
+function executedStepIds(current: CanonicalCurrentTask): Set<string> {
+  return new Set([
+    ...current.runtimeState.execution_log.flatMap(item => 'step_id' in item ? [item.step_id] : []),
+    ...Object.entries(current.runtimeState.step_attempts ?? {}).filter(([, ledger]) => ledger.attempts.length).map(([id]) => id),
+  ]);
+}
+
+function revisePendingSteps(current: CanonicalCurrentTask, definition: DraftTaskDefinition, revision: PendingStepRevision, recoverySteps: CorrectionStepInput[]): DraftTaskDefinition {
+  const executed = executedStepIds(current);
+  const oldSteps = parseImplementationSteps(definition.implementation_steps);
+  const pendingIds = oldSteps.filter(step => !executed.has(step.id)).map(step => step.id);
+  const obligations = [...pendingIds];
+  if (current.runtimeState.workflow_status === 'blocked_by_replan' && current.runtimeState.active_step_status !== 'completed' && !obligations.includes(current.runtimeState.active_step_id)) obligations.push(current.runtimeState.active_step_id);
+  if (digest(obligations.sort()) !== digest(revision.step_map.map(item => item.old_step_id).sort())) fail('RECOVERY_OBLIGATION_INVALID', 'Every never-executed step and suspended unfinished attempt requires exactly one replacement mapping.');
+  const nextIds = new Set([...recoverySteps, ...revision.steps].map(step => step.id));
+  if (revision.step_map.some(item => item.new_step_ids.some(id => !nextIds.has(id)))) fail('RECOVERY_OBLIGATION_INVALID', 'Step obligation maps to a missing execution step.');
+  if (revision.steps.some(step => oldSteps.some(old => old.id === step.id))) fail('RECOVERY_STEP_ID_REUSED', 'Changed definitions require new step IDs; executed definitions cannot be overwritten.');
+  const blocks = definition.implementation_steps.split(/(?=^-\s*[A-Za-z0-9][A-Za-z0-9._:-]*\s*[:：])/m);
+  const keepBlocks = blocks.filter(block => !pendingIds.some(id => block.startsWith(`- ${id}:`) || block.startsWith(`- ${id}：`)));
+  const keptPlan = definition.implementation_plan.split('\n').filter(line => !pendingIds.some(id => line.startsWith(`- ${id}:`)));
+  // Recovery insertion below needs one existing executed anchor. Its bytes stay intact.
+  if (!oldSteps.some(step => executed.has(step.id))) fail('RECOVERY_HISTORY_REQUIRED', 'Pending-plan recovery requires retained execution history.');
+  let next = { ...definition, implementation_steps: keepBlocks.join(''), implementation_plan: keptPlan.join('\n') };
+  for (const step of revision.steps) next = insertCorrectionStep(next, parseImplementationSteps(next.implementation_steps).at(-1)!.id, step, true);
+  return next;
+}
+
+function correctionCandidateLocation(current: CanonicalCurrentTask, candidateDigest: string): { filePath: string; relativePath: string } {
+  if (!/^[a-f0-9]{64}$/u.test(candidateDigest)) fail('REPLAN_CANDIDATE_INVALID', 'Candidate digest must be SHA-256.');
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  const filePath = path.join(directory, `${candidateDigest}.json`);
+  return { filePath, relativePath: path.posix.join(path.posix.dirname(current.relativePath), 'task-candidates', current.sourceTuple.document_id, `${candidateDigest}.json`) };
+}
+
+function pendingCorrectionCandidates(root: string, current: CanonicalCurrentTask): Array<{ candidate_digest: string; candidate_path: string; valid: boolean }> {
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  if (!fs.existsSync(directory)) return [];
+  const names = fs.readdirSync(directory).filter(item => /^[a-f0-9]{64}\.json$/u.test(item));
+  if (names.length > 128) fail('REPLAN_CANDIDATE_BUDGET_EXHAUSTED', 'Task has too many retained candidates to summarize safely.');
+  return names.flatMap(name => {
+    const candidateDigest = name.slice(0, -5);
+    const location = correctionCandidateLocation(current, candidateDigest);
+    if (fs.existsSync(`${location.filePath}.discarded`)) return [];
+    try {
+      const value = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as CorrectionCandidate & { candidate_digest: string };
+      if (!taskSourceRevisionMatches(root, current, value.source_revision) || value.document_id !== current.sourceTuple.document_id) return [];
+      const { candidate_digest: _marker, ...payload } = value;
+      return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath,
+        valid: value.candidate_digest === candidateDigest && digest(payload) === candidateDigest }];
+    } catch {
+      return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath, valid: false }];
+    }
+  });
+}
+
+function unconfirmedCorrectionCandidatePaths(current: CanonicalCurrentTask): string[] {
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  if (!fs.existsSync(directory)) return [];
+  const committed = new Set(current.runtimeState.execution_log.flatMap(entry => 'action' in entry && entry.action === 'commit-replan' && entry.candidate_digest ? [`${entry.candidate_digest}.json`] : []));
+  return fs.readdirSync(directory)
+    .filter(name => /^[a-f0-9]{64}\.json$/u.test(name) && !name.endsWith('.scope.json'))
+    .filter(name => !committed.has(name) && !fs.existsSync(path.join(directory, `${name}.discarded`)))
+    .map(name => path.posix.join(path.posix.dirname(current.relativePath), 'task-candidates', current.sourceTuple.document_id, name));
+}
+
+function pendingScopeAmendmentCandidates(current: CanonicalCurrentTask): Array<{ candidate_digest: string; candidate_path: string; valid: boolean }> {
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  if (!fs.existsSync(directory)) return [];
+  const names = fs.readdirSync(directory).filter(item => /^[a-f0-9]{64}\.scope\.json$/u.test(item));
+  if (names.length > 64) fail('SCOPE_AMENDMENT_CANDIDATE_BUDGET_EXHAUSTED', 'Task has too many retained scope-amendment candidates to summarize safely.');
+  const committed = new Set(current.runtimeState.execution_log.flatMap(entry => 'action' in entry && entry.action === 'commit-scope-amendment' && entry.candidate_digest ? [`${entry.candidate_digest}.scope.json`] : []));
+  return names.flatMap(name => {
+    if (committed.has(name) || fs.existsSync(path.join(directory, `${name}.discarded`))) return [];
+    const candidateDigest = name.slice(0, -'.scope.json'.length);
+    const location = scopeAmendmentCandidateLocation(current, candidateDigest);
+    try {
+      const value = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as ScopeAmendmentCandidate & { candidate_digest: string };
+      const { candidate_digest: _marker, ...payload } = value;
+      return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath, valid: value.candidate_digest === candidateDigest && digest(payload) === candidateDigest }];
+    } catch {
+      return [{ candidate_digest: candidateDigest, candidate_path: location.relativePath, valid: false }];
+    }
+  });
+}
+
+function correctionObligations(current: CanonicalCurrentTask): unknown {
+  const definition = readDraftDefinitionFromBody(current.body);
+  const steps = parseImplementationSteps(definition.implementation_steps);
+  return {
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    goal: definition.background_context,
+    acceptance: definition.acceptance,
+    scope: [definition.allowed_scope, definition.conditional_scope, definition.forbidden_scope],
+    steps: steps.map(step => ({ id: step.id, description: step.description, purpose: step.purpose, mutation_scope: step.mutation_scope, required_evidence: step.required_evidence, review_checkpoint: step.review_checkpoint, checkpoint_boundary: step.checkpoint_boundary })),
+    claims: (current.runtimeState.claim_evidence ?? []).map(record => ({ claim_id: record.claim_id, claim_kind: record.claim_kind, requirement: record.requirement, source_ref: record.source_ref, slots: record.slots.map(slot => ({
+      slot_id: slot.slot_id, minimum_type: slot.minimum_type, due_step_id: slot.due_step_id, applicability: slot.applicability,
+      before_step_id: slot.before_step_id, check: slot.check, disposition: slot.disposition,
+      evidence_refs: slot.evidence_refs, report_result_id: slot.report?.result_id ?? null,
+      report_status: slot.report?.status ?? null, report_sha256: slot.report ? digest(slot.report) : null,
+    })) })),
+    findings: current.runtimeState.findings.map(item => ({ fingerprint: item.fingerprint, status: item.status })),
+  };
+}
+
+function insertCorrectionStep(definition: DraftTaskDefinition, activeStepId: string, step: CorrectionStepInput, append = false): DraftTaskDefinition {
+  const oldSteps = parseImplementationSteps(definition.implementation_steps);
+  if (oldSteps.some(item => item.id === step.id)) fail('REPLAN_CORRECTION_INVALID', 'Correction step ID already exists.');
+  const activeIndex = oldSteps.findIndex(item => item.id === activeStepId);
+  if (activeIndex < 0) fail('REPLAN_CORRECTION_INVALID', 'A correction requires an existing active step.');
+  const rendered = [
+    `- ${step.id}: ${step.description}`,
+    `  - purpose: Correct the challenged result ${step.description}`,
+    `  - mutation_scope: ${step.mutation_scope.join(', ')}`,
+    `  - required_evidence: ${step.required_evidence.join('; ')}`,
+    '  - review_checkpoint: required: fresh correction review of the affected audit documents',
+    ...step.commands.flatMap(item => [
+      `  - planned_command: ${item.command}`,
+      `    - expected_repo_writes: ${item.expected_repo_writes === 'none' ? 'none' : item.expected_repo_writes.join(', ')}`,
+      '    - transformation_kind: localized',
+    ]),
+  ].join('\n');
+  const lines = definition.implementation_steps.split('\n');
+  const insertion = lines.findIndex(line => new RegExp(`^-\\s*${activeStepId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[:：]`).test(line));
+  if (insertion < 0) fail('REPLAN_CORRECTION_INVALID', 'The current step must have one explicit top-level definition line.');
+  lines.splice(append ? lines.length : insertion, 0, rendered);
+  const planLines = definition.implementation_plan.split('\n');
+  const planIndex = planLines.findIndex(line => line.startsWith(`- ${activeStepId}:`));
+  if (planIndex < 0) fail('REPLAN_CORRECTION_INVALID', 'The current step must be present in the implementation plan.');
+  planLines.splice(append ? planLines.length : planIndex, 0, `- ${step.id}: ${step.description}`);
+  const next = { ...definition, implementation_steps: lines.join('\n'), implementation_plan: planLines.join('\n') };
+  assertReplacementActiveStep(step.id, next.implementation_steps);
+  return next;
+}
+
+type ScopeAmendmentAuthorization = {
+  decision_source: string;
+  decision_text: string;
+  authorized_paths: string[];
+};
+
+export type PersistentTestAdmission = {
+  path: string;
+  proves: string[];
+  owner: string;
+  owner_source: string;
+  source_ref: string;
+  basis: 'acceptance' | 'regression' | 'critical-invariant' | 'critical-risk';
+  existing_evidence_insufficiency: string;
+  assertion_boundary: string;
+  failure_disposition: string;
+};
+
+type ScopeAmendmentCandidateInput = {
+  added_paths: string[];
+  /** Legacy v1 input; v2 callers must use persistent_test_admissions. */
+  persistent_test_paths?: string[];
+  persistent_test_admissions?: PersistentTestAdmission[];
+  authorization: ScopeAmendmentAuthorization | null;
+  amendment_step: CorrectionStepInput;
+};
+
+type ScopeAmendmentCandidate = {
+  kind: 'scope-amendment-candidate/v1';
+  source_tuple: RuntimeSourceTuple;
+  task_id: string;
+  document_id: string;
+  source_revision: string;
+  basis_revision: string;
+  old_plan_revision: string;
+  old_obligations: unknown;
+  old_obligations_digest: string;
+  retained_budget: { review_cycle: ReviewCycleState; step_attempts: RuntimeState['step_attempts'] };
+  scope_diff: { added_paths: string[]; removed_paths: string[] };
+  step_diff: { inserted_step_id: string; inserted_before: string; retained_step_ids: string[]; scope_paths: string[] };
+  command_footprint: Array<{ command: string; expected_repo_writes: 'none' | string[] }>;
+  continuation: {
+    prior_step_id: string;
+    pending_review_id: string | null;
+    finding_fingerprints: string[];
+    pending_review_preserved: boolean;
+  };
+  workspace_target: ReviewTarget;
+  authorization: (ScopeAmendmentAuthorization & { kind: 'caller-reported-existing-decision'; digest: string }) | null;
+  input: ScopeAmendmentCandidateInput;
+  definition: DraftTaskDefinition;
+  claim_evidence: ClaimEvidenceRecord[];
+  new_plan_revision: string;
+  authority_diff?: {
+    added_exact_exceptions: string[];
+    added_domains: string[];
+  };
+  persistent_test_admission?: {
+    added: PersistentTestAdmission[];
+  };
+  permission_change: 'additive-scope';
+};
+
+export type ScopeAmendmentCandidateReceipt = {
+  kind: 'scope-amendment-candidate-receipt/v1';
+  candidate_digest: string;
+  source_revision: string;
+  basis_revision: string;
+  old_plan_revision: string;
+  new_plan_revision: string;
+  obligations_digest: string;
+  authorization_digest: string;
+  added_paths: string[];
+  permission_change: 'additive-scope';
+  authority_diff?: {
+    added_exact_exceptions: string[];
+    added_domains: string[];
+  };
+  persistent_test_admission?: {
+    added_paths: string[];
+  };
+};
+
+function normalizeScopeAmendmentInput(input: unknown, options: { allowExistingWildcardScope?: boolean } = {}): ScopeAmendmentCandidateInput {
+  const value = expectRecord(input, 'prepare-scope-amendment input');
+  const stepKey = value.amendment_step !== undefined ? 'amendment_step' : value.step !== undefined ? 'step' : null;
+  expectExactKeys(value, [
+    'added_paths',
+    ...(value.persistent_test_paths === undefined ? [] : ['persistent_test_paths']),
+    ...(value.persistent_test_admissions === undefined ? [] : ['persistent_test_admissions']),
+    ...(value.authorization === undefined ? [] : ['authorization']),
+    ...(stepKey ? [stepKey] : []),
+  ], 'prepare-scope-amendment input');
+  if (!stepKey) fail('SCOPE_AMENDMENT_STEP_REQUIRED', 'prepare-scope-amendment requires an amendment step definition.');
+  const addedPaths = expectStringArray(value.added_paths, 'added_paths', false, 64).map(item => normalizeRepoPath(item, 'added_paths'));
+  if (new Set(addedPaths).size !== addedPaths.length || addedPaths.some(item => item.includes('*'))) fail('SCOPE_AMENDMENT_SCOPE_INVALID', 'added_paths must contain unique exact paths and cannot introduce wildcards.');
+  const persistentTestPaths = value.persistent_test_paths !== undefined
+    ? expectStringArray(value.persistent_test_paths, 'persistent_test_paths', true, 64).map(item => normalizeRepoPath(item, 'persistent_test_paths'))
+    : undefined;
+  if ((persistentTestPaths ?? []).some(item => item.includes('*') || !addedPaths.includes(item))) fail('SCOPE_AMENDMENT_SCOPE_INVALID', 'persistent_test_paths must be exact paths contained in added_paths.');
+  const hasPersistentTestAdmissions = value.persistent_test_admissions !== undefined;
+  let persistentTestAdmissions: PersistentTestAdmission[] | undefined;
+  if (hasPersistentTestAdmissions) {
+    if (!Array.isArray(value.persistent_test_admissions) || value.persistent_test_admissions.length > 64) {
+      persistentTestAdmissionError('persistent_test_admissions', 'must be a bounded array.');
+    }
+    persistentTestAdmissions = value.persistent_test_admissions.map((item, index) => normalizePersistentTestAdmission(item, index));
+    if (new Set(persistentTestAdmissions.map(item => item.path)).size !== persistentTestAdmissions.length) {
+      persistentTestAdmissionError('persistent_test_admissions', 'must contain one admission per exact path.');
+    }
+    const missingAdmissionPaths = persistentTestAdmissions.map(item => item.path).filter(item => !addedPaths.includes(item));
+    if (missingAdmissionPaths.length > 0) {
+      persistentTestAdmissionError('persistent_test_admissions', `path(s) must be contained in added_paths: ${missingAdmissionPaths.join(', ')}.`);
+    }
+  }
+  if (persistentTestPaths && persistentTestPaths.length > 0 && persistentTestAdmissions
+    && digest([...persistentTestPaths].sort()) !== digest(persistentTestAdmissions.map(item => item.path).sort())) {
+    fail('PERSISTENT_TEST_ADMISSION_INVALID', 'persistent_test_paths must exactly match persistent_test_admissions paths when both are supplied.');
+  }
+  let authorization: ScopeAmendmentAuthorization | null = null;
+  if (value.authorization !== undefined && value.authorization !== null) {
+    const authorizationValue = expectRecord(value.authorization, 'authorization');
+    expectExactKeys(authorizationValue, ['decision_source', 'decision_text', 'authorized_paths'], 'authorization');
+    if (!Array.isArray(authorizationValue.authorized_paths)) {
+      fail('SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED', `Existing explicit user authorization is required for exact path(s): ${addedPaths.join(', ')}.`);
+    }
+    const authorizedPaths = expectStringArray(authorizationValue.authorized_paths, 'authorization.authorized_paths', false, 128).map(item => normalizeRepoPath(item, 'authorization.authorized_paths'));
+    const missingAuthorizedPaths = addedPaths.filter(item => !authorizedPaths.includes(item));
+    if (new Set(authorizedPaths).size !== authorizedPaths.length || authorizedPaths.some(item => item.includes('*')) || missingAuthorizedPaths.length > 0) {
+      fail('SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED', `Existing explicit user authorization is missing for exact path(s): ${missingAuthorizedPaths.join(', ') || addedPaths.join(', ')}.`);
+    }
+    const decisionSource = expectText(authorizationValue.decision_source, 'authorization.decision_source', 512);
+    if (/[\r\n]/u.test(decisionSource)) fail('SCOPE_AMENDMENT_AUTHORIZATION_INVALID', 'authorization.decision_source must be one line.');
+    const decisionText = expectVerbatim(authorizationValue.decision_text, 'authorization.decision_text', 4096);
+    authorization = { decision_source: decisionSource, decision_text: decisionText, authorized_paths: [...authorizedPaths].sort() };
+  }
+  return {
+    added_paths: [...addedPaths].sort(),
+    ...(persistentTestPaths === undefined ? {} : { persistent_test_paths: [...new Set(persistentTestPaths)].sort() }),
+    ...(persistentTestAdmissions === undefined ? {} : { persistent_test_admissions: persistentTestAdmissions.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0) }),
+    authorization,
+    amendment_step: normalizeCorrectionStep(value[stepKey], options),
+  };
+}
+
+function scopeAmendmentCandidateLocation(current: CanonicalCurrentTask, candidateDigest: string): { filePath: string; relativePath: string } {
+  if (!SHA256_PATTERN.test(candidateDigest)) fail('SCOPE_AMENDMENT_CANDIDATE_INVALID', 'Scope amendment candidate digest must be SHA-256.');
+  const directory = path.join(path.dirname(current.filePath), 'task-candidates', current.sourceTuple.document_id);
+  const filePath = path.join(directory, `${candidateDigest}.scope.json`);
+  return { filePath, relativePath: path.posix.join(path.posix.dirname(current.relativePath), 'task-candidates', current.sourceTuple.document_id, `${candidateDigest}.scope.json`) };
+}
+
+function assertScopeAmendmentHistoryForRevision(current: CanonicalCurrentTask, sourceRevision: string): void {
+  try {
+    assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, sourceRevision, 'commit-scope-amendment');
+  } catch (error) {
+    // vNext releases before the single-route amendment change wrote this
+    // internal history label. Read it for compatibility, but never expose it
+    // as a public command or an authorization mode.
+    try {
+      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, sourceRevision, 'confirm-scope-amendment');
+    } catch {
+      throw error;
+    }
+  }
+}
+
+function scopeAmendmentCandidateReceipt(candidate: ScopeAmendmentCandidate, candidateDigest: string): ScopeAmendmentCandidateReceipt {
+  return {
+    kind: 'scope-amendment-candidate-receipt/v1', candidate_digest: candidateDigest,
+    source_revision: candidate.source_revision, basis_revision: candidate.basis_revision,
+    old_plan_revision: candidate.old_plan_revision, new_plan_revision: candidate.new_plan_revision,
+    obligations_digest: candidate.old_obligations_digest, authorization_digest: candidate.authorization?.digest ?? digest(null),
+    added_paths: [...candidate.input.added_paths], permission_change: 'additive-scope',
+    ...(candidate.authority_diff ? { authority_diff: structuredClone(candidate.authority_diff) } : {}),
+    ...(candidate.persistent_test_admission ? { persistent_test_admission: { added_paths: candidate.persistent_test_admission.added.map(item => item.path) } } : {}),
+  };
+}
+
+function scopeAmendmentRequestMatchesCandidate(input: ScopeAmendmentCandidateInput, candidate: ScopeAmendmentCandidate): boolean {
+  const requestedStep = input.amendment_step;
+  const committedStep = candidate.input.amendment_step;
+  return digest({
+    added_paths: input.added_paths,
+    persistent_test_paths: input.persistent_test_paths ?? null,
+    persistent_test_admissions: input.persistent_test_admissions ?? null,
+    authorization: input.authorization,
+  }) === digest({
+    added_paths: candidate.input.added_paths,
+    persistent_test_paths: candidate.input.persistent_test_paths ?? null,
+    persistent_test_admissions: candidate.input.persistent_test_admissions ?? null,
+    authorization: candidate.input.authorization,
+    })
+    && requestedStep.id === committedStep.id
+    && requestedStep.description === committedStep.description
+    && (requestedStep.required_evidence.length === 0 || digest(requestedStep.required_evidence) === digest(committedStep.required_evidence))
+    // An empty command list is normalized to Runtime's deterministic command
+    // footprint before it is stored in the candidate.
+    && (requestedStep.commands.length === 0 || digest(requestedStep.commands) === digest(committedStep.commands))
+    && requestedStep.mutation_scope.every(item => committedStep.mutation_scope.includes(item));
+}
+
+function appendExactScopePaths(value: string, paths: readonly string[]): string {
+  const existing = value.replace(/\r\n?/gu, '\n').trim();
+  const existingPaths = new Set<string>();
+  for (const line of existing.split('\n')) {
+    const match = /^\s*[-*]\s+`?([^`]+?)`?\s*$/u.exec(line);
+    if (match && match[1] !== 'none') existingPaths.add(match[1].trim());
+  }
+  const additions = paths.filter(item => !existingPaths.has(item)).map(item => `- \`${item}\``);
+  if (additions.length === 0) return existing;
+  if (!existing || /^none\s*$/iu.test(existing)) return additions.join('\n');
+  return `${existing}\n${additions.join('\n')}`;
+}
+
+function persistentTestAdmissionError(location: string, message: string): never {
+  fail('PERSISTENT_TEST_ADMISSION_INVALID', `${location} ${message}`);
+}
+
+function persistentTestAdmissionText(value: unknown, location: string, maxLength = 4096): string {
+  try {
+    return expectText(value, location, maxLength);
+  } catch (error) {
+    persistentTestAdmissionError(location, error instanceof Error ? error.message : 'must be explicit and non-empty.');
+  }
+}
+
+function persistentTestAdmissionStringArray(value: unknown, location: string): string[] {
+  try {
+    return expectStringArray(value, location, false, 64);
+  } catch (error) {
+    persistentTestAdmissionError(location, error instanceof Error ? error.message : 'must be a non-empty bounded array.');
+  }
+}
+
+function normalizePersistentTestAdmission(value: unknown, index: number): PersistentTestAdmission {
+  const location = `persistent_test_admissions[${index}]`;
+  const source = expectRecord(value, location);
+  const required = ['path', 'proves', 'owner', 'owner_source', 'source_ref', 'basis', 'existing_evidence_insufficiency', 'assertion_boundary', 'failure_disposition'] as const;
+  const missing = required.filter(key => !(key in source));
+  const extra = Object.keys(source).filter(key => !(required as readonly string[]).includes(key));
+  if (missing.length > 0 || extra.length > 0) {
+    persistentTestAdmissionError(location, `keys mismatch; missing=[${missing.join(', ')}], unexpected=[${extra.join(', ')}].`);
+  }
+  let targetPath: string;
+  try {
+    targetPath = normalizeRepoPath(source.path, `${location}.path`);
+  } catch (error) {
+    persistentTestAdmissionError(`${location}.path`, error instanceof Error ? error.message : 'must be an exact repository-relative path.');
+  }
+  if (targetPath.includes('*')) persistentTestAdmissionError(`${location}.path`, 'must be an exact path.');
+  const proves = persistentTestAdmissionStringArray(source.proves, `${location}.proves`);
+  const basis = source.basis;
+  if (!['acceptance', 'regression', 'critical-invariant', 'critical-risk'].includes(String(basis))) {
+    persistentTestAdmissionError(`${location}.basis`, 'must be acceptance, regression, critical-invariant, or critical-risk.');
+  }
+  return {
+    path: targetPath,
+    proves,
+    owner: persistentTestAdmissionText(source.owner, `${location}.owner`),
+    owner_source: persistentTestAdmissionText(source.owner_source, `${location}.owner_source`),
+    source_ref: persistentTestAdmissionText(source.source_ref, `${location}.source_ref`),
+    basis: basis as PersistentTestAdmission['basis'],
+    existing_evidence_insufficiency: persistentTestAdmissionText(source.existing_evidence_insufficiency, `${location}.existing_evidence_insufficiency`),
+    assertion_boundary: persistentTestAdmissionText(source.assertion_boundary, `${location}.assertion_boundary`),
+    failure_disposition: persistentTestAdmissionText(source.failure_disposition, `${location}.failure_disposition`),
+  };
+}
+
+function appendPersistentTestAdmissions(regressionChecks: string, admissions: readonly PersistentTestAdmission[]): string {
+  if (admissions.length === 0) return regressionChecks;
+  const normalized = regressionChecks.replace(/\r\n?/gu, '\n');
+  const heading = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
+  const render = (item: PersistentTestAdmission): string[] => [
+    `- \`${item.path}\``,
+    ...item.proves.map(proof => `  - proves: ${proof}`),
+    `  - owner: ${item.owner}`,
+    `  - owner_source: ${item.owner_source}`,
+    `  - source_ref: ${item.source_ref}`,
+    `  - basis: ${item.basis}`,
+    `  - existing_evidence_insufficiency: ${item.existing_evidence_insufficiency}`,
+    `  - assertion_boundary: ${item.assertion_boundary}`,
+    `  - failure_disposition: ${item.failure_disposition}`,
+  ];
+  const additions = admissions.flatMap(render);
+  if (!heading || heading.index === undefined) return `${normalized.trimEnd()}\n\n### Persistent Tests\n\n${additions.join('\n')}\n`;
+  const start = heading.index + heading[0].length;
+  const nextHeading = /\n###\s+/gu.exec(normalized.slice(start));
+  const end = nextHeading ? start + nextHeading.index! : normalized.length;
+  const section = normalized.slice(start, end).trim();
+  const existing = new Set<string>();
+  for (const line of section.split('\n')) {
+    const match = /^\s*[-*]\s+`?([^`]+?)`?\s*$/u.exec(line);
+    if (match && match[1] !== 'none') existing.add(match[1].trim());
+  }
+  const newAdmissions = admissions.filter(item => !existing.has(item.path));
+  if (newAdmissions.length === 0) return normalized;
+  const retained = section.replace(/^\s*-\s+none\s*$/imu, '').trim();
+  const blocks = newAdmissions.flatMap(render);
+  const replacement = `\n\n${[retained, ...blocks].filter(Boolean).join('\n')}\n`;
+  return normalized.slice(0, start) + replacement + normalized.slice(end);
+}
+
+/**
+ * v1 compatibility only.  v2 never calls this helper: a new persistent test
+ * must arrive as a complete typed P-12 admission from the caller.
+ */
+function appendLegacyPersistentTestPaths(regressionChecks: string, paths: readonly string[], claimIds: readonly string[] = ['A1']): string {
+  if (paths.length === 0) return regressionChecks;
+  const normalized = regressionChecks.replace(/\r\n?/gu, '\n');
+  const heading = /(^###\s+(?:Persistent Tests|持久化测试)\s*$)/imu.exec(normalized);
+  const proof = claimIds[0] ?? 'A1';
+  const render = (item: string): string[] => [
+    `- \`${item}\``,
+    `  - proves: ${proof}`,
+    '  - owner: workflow-system',
+    '  - owner_source: task-basis',
+    '  - source_ref: task-basis',
+    '  - basis: regression',
+    '  - existing_evidence_insufficiency: The existing review did not cover the explicitly authorized path.',
+    '  - assertion_boundary: The new path is covered by the amended step and its fresh review.',
+    '  - failure_disposition: block',
+  ];
+  const append = (items: readonly string[]): string[] => items.flatMap(render);
+  if (!heading || heading.index === undefined) return `${normalized.trimEnd()}\n\n### Persistent Tests\n\n${append(paths).join('\n')}\n`;
+  const start = heading.index + heading[0].length;
+  const nextHeading = /\n###\s+/gu.exec(normalized.slice(start));
+  const end = nextHeading ? start + nextHeading.index! : normalized.length;
+  const section = normalized.slice(start, end).trim();
+  const existing = new Set<string>();
+  for (const line of section.split('\n')) {
+    const match = /^\s*[-*]\s+`?([^`]+?)`?\s*$/u.exec(line);
+    if (match && match[1] !== 'none') existing.add(match[1].trim());
+  }
+  const newPaths = paths.filter(item => !existing.has(item));
+  if (newPaths.length === 0) return normalized;
+  const retained = section.replace(/^\s*-\s+none\s*$/imu, '').trim();
+  const replacement = `\n\n${[retained, ...append(newPaths)].filter(Boolean).join('\n')}\n`;
+  return normalized.slice(0, start) + replacement + normalized.slice(end);
+}
+
+function replaceScopeAmendmentStep(definition: DraftTaskDefinition, previousStepId: string, step: CorrectionStepInput, v2 = false): DraftTaskDefinition {
+  const oldSteps = parseImplementationSteps(definition.implementation_steps);
+  if (oldSteps.some(item => item.id === step.id)) fail('SCOPE_AMENDMENT_STEP_INVALID', 'Scope amendment step ID already exists.');
+  const lines = definition.implementation_steps.replace(/\r\n?/gu, '\n').split('\n');
+  const topLevel = new RegExp(`^-\\s*${previousStepId.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\s*[:：]`);
+  const start = lines.findIndex(line => topLevel.test(line));
+  if (start < 0) fail('SCOPE_AMENDMENT_STEP_INVALID', 'The previous active step must have an explicit top-level definition line.');
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^-\s*[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\s*[:：]/u.test(lines[index]!)) { end = index; break; }
+  }
+  const rendered = [
+    `- ${step.id}: ${step.description}`,
+    `  - purpose: Continue the explicitly authorized scope amendment ${step.description}`,
+    `  - ${v2 ? 'planned_mutation_targets' : 'mutation_scope'}: ${step.mutation_scope.join(', ')}`,
+    `  - required_evidence: ${step.required_evidence.join('; ')}`,
+    '  - review_checkpoint: required: fresh review of the amended scope and retained findings',
+    ...step.commands.flatMap(item => [
+      `  - planned_command: ${item.command}`,
+      `    - expected_repo_writes: ${item.expected_repo_writes === 'none' ? 'none' : item.expected_repo_writes.join(', ')}`,
+      '    - transformation_kind: localized',
+    ]),
+  ];
+  // Keep the old step definition byte-for-byte in the new plan. The
+  // continuation is a new step that follows the retained historical step;
+  // Runtime selects it as active while the old execution/review remains an
+  // immutable predecessor rather than being relabelled as completed.
+  lines.splice(end, 0, ...rendered);
+  const planLines = definition.implementation_plan.replace(/\r\n?/gu, '\n').split('\n');
+  const planIndex = planLines.findIndex(line => line.startsWith(`- ${previousStepId}:`));
+  if (planIndex < 0) fail('SCOPE_AMENDMENT_STEP_INVALID', 'The previous active step must be present in the implementation plan.');
+  planLines.splice(planIndex + 1, 0, `- ${step.id}: ${step.description}`);
+  const next = { ...definition, implementation_steps: lines.join('\n'), implementation_plan: planLines.join('\n') };
+  assertReplacementActiveStep(step.id, next.implementation_steps);
+  return next;
+}
+
+function assertScopeAmendmentPathSafe(root: string, current: CanonicalCurrentTask, paths: readonly string[]): void {
+  const legacyScope = current.mutationAuthority ? null : parseMutationScope(current.body);
+  for (const file of paths) {
+    if (file === current.relativePath || file.startsWith('.workflow-system/') || file.startsWith('.git/')
+      || file.startsWith('.agents/') || file.startsWith('.claude/') || file.startsWith('.codex/')
+      || file.startsWith('runtime/vnext/dist/') || file.startsWith('packages/vibe-governance/')
+      || file.startsWith('node_modules/') || file.includes('/task-history/') || file.includes('/task-candidates/') || file.includes('/task-data/')) {
+      fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment cannot authorize governance/runtime path ${file}.`);
+    }
+    const forbidden = current.mutationAuthority
+      ? current.mutationAuthority.forbidden.some(pattern => mutationScopePatternMatchesPath(file, pattern))
+      : legacyScope!.forbidden.some(entry => mutationScopePatternMatchesPath(file, entry.pattern));
+    if (forbidden) {
+      fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path ${file} is already forbidden.`);
+    }
+    const absolute = path.resolve(root, ...file.split('/'));
+    const relative = path.relative(path.resolve(root), absolute).replace(/\\/g, '/');
+    if (relative !== file || relative.startsWith('../') || path.isAbsolute(relative)) fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path escapes the repository: ${file}.`);
+    if (fs.existsSync(absolute)) {
+      const stat = fs.lstatSync(absolute);
+      if (stat.isSymbolicLink() || !stat.isFile()) fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path must be a regular file: ${file}.`);
+      const header = fs.readFileSync(absolute, 'utf8').slice(0, 4096);
+      if (/@frozen|DO NOT MODIFY/iu.test(header)) fail('SCOPE_AMENDMENT_SCOPE_INVALID', `Scope amendment path is frozen: ${file}.`);
+    }
+  }
+}
+
+function executionResultRecordedForPreflight(
+  current: CanonicalCurrentTask,
+  preflight: ExecutionPreflightState,
+  attemptId?: string,
+): boolean {
+  return current.runtimeState.execution_log.some(item => {
+    if ('action' in item || item.step_id !== preflight.step_id || item.mode !== preflight.mode) return false;
+    const result = item.execution_result;
+    return result !== undefined
+      && result.execution_id === preflight.execution_id
+      && result.change_set_id === preflight.change_set_id
+      && (attemptId === undefined || result.attempt_id === attemptId);
+  });
+}
+
+function assertV2AuthorityAmendmentExecutionSettled(current: CanonicalCurrentTask): void {
+  if (!current.mutationAuthority) return;
+  const activePreflight = current.runtimeState.execution_preflight;
+  if (activePreflight
+    && activePreflight.step_id === current.runtimeState.active_step_id
+    && !executionResultRecordedForPreflight(current, activePreflight, activePreflight.mode === 'default'
+      ? current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts.at(-1)?.attempt_id
+      : undefined)) {
+    fail('SCOPE_AMENDMENT_EXECUTION_GATE', 'A v2 authority amendment requires the current preflighted execution to have a matching recorded result first.');
+  }
+  const ledger = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id];
+  const latestAttempt = ledger?.attempts.at(-1);
+  if (latestAttempt?.status !== 'preflighted') return;
+  const recorded = activePreflight
+    && activePreflight.step_id === current.runtimeState.active_step_id
+    && activePreflight.mode === 'default'
+    && executionResultRecordedForPreflight(current, activePreflight, latestAttempt.attempt_id);
+  if (!recorded) {
+    fail('SCOPE_AMENDMENT_EXECUTION_GATE', 'A v2 authority amendment requires the latest preflighted attempt to have a matching recorded result first.');
+  }
+}
+
+function buildScopeAmendmentCandidate(root: string, current: CanonicalCurrentTask, input: ScopeAmendmentCandidateInput): ScopeAmendmentCandidate {
+  assertV2AuthorityDomainRevisionFreshForTransition(root, current, 'Scope amendment');
+  if (!['active', 'blocked_by_replan'].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== 'active') {
+    fail('SCOPE_AMENDMENT_STATE_INVALID', 'Scope amendment requires an active or blocked_by_replan task with an active lifecycle.');

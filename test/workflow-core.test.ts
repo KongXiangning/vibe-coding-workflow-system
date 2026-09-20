@@ -371,6 +371,32 @@ describe('workflow-core', () => {
       };
       expect(() => validateProfilePathSemantics(profile)).toThrow(/unsupported wildcard pattern/);
     });
+
+    test('validates optional Mutation Authority v2 domains without requiring them for legacy profiles', () => {
+      const profile: JsonObject = {
+        boundaries: {
+          forbidden_paths: ['.git/**'],
+        },
+        mutation_authority: {
+          domains: [
+            { id: 'node-rollout', roots: ['packages/node-rollout/**', 'packages/node-rollout-tests/**'] },
+            { id: 'rust-rollout', roots: ['native/codex-rollout-collector/**'] },
+          ],
+        },
+      };
+      expect(() => validateProfilePathSemantics(profile)).not.toThrow();
+      expect(() => validateProfilePathSemantics({
+        mutation_authority: {
+          domains: [
+            { id: 'node', roots: ['packages/**'] },
+            { id: 'protocol', roots: ['packages/protocol/**'] },
+          ],
+        },
+      })).toThrow(/domain roots overlap/);
+      expect(() => validateProfilePathSemantics({
+        mutation_authority: { domains: [{ id: 'node', roots: ['packages/*/src/**'] }] },
+      })).toThrow(/literal \/\*\* prefix/);
+    });
   });
 
   // --- extractHandoff ---

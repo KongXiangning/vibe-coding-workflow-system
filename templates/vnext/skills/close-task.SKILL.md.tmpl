@@ -59,6 +59,14 @@ entry_contract:
 
 # vNext Skill: close-task
 
+## Recovery closure gate
+
+Previously completed and currently valid are distinct. Unresolved challenges,
+unmapped old obligations, incomplete recovery steps, stale evidence and unreviewed
+cumulative changes block closure. Historical reports require verified original
+anchors and current applicability; a plan revision is not new execution evidence.
+Isolated distribution tests never prove a real target project's business acceptance.
+
 An unresolved evidence challenge blocks successful close, even when an old
 report was marked passed and the last ordinary review was clean. Do not mark
 the challenged report clean or silently defer its obligation to obtain closure.
@@ -66,6 +74,18 @@ the challenged report clean or silently defer its obligation to obtain closure.
 ## Intent
 
 Prove closure eligibility and finish one task with a truthful delivery summary. Ordinary closure is the default entry intent; `preview` is the explicit terminal, non-mutating variant.
+
+## Bounded task context protocol
+
+Start with `validate --summary`, then use `task-context(entry:"close-task", mode)`
+and follow all required continuations. Read exact reports, findings, receipts,
+and history through `task-read`; use `file-context`/`review-read` for files and
+diffs. Reuse a definition only for the same visible session and exact
+`definition_revision`. Receipts are read-only version/range evidence, not
+authorization or proof of understanding. Compression, a new session, a
+revision change, a compact-store error, or an incomplete required page requires
+a fresh read or an explicit blocker; it must not trigger an unbounded Markdown
+fallback.
 
 ## Operating rules
 
@@ -107,3 +127,11 @@ signature or provider. Check P-12 owner/source, stable claim binding, necessity,
 existing-evidence insufficiency, oracle independence, weak assertions, and whether
 mock/fixture substitution contradicts the claimed boundary. No same-file AST
 or per-test semantic enforcement is implied.
+
+## Explicit user evidence and risk
+
+Separate verified/manual observations from obligations discharged by explicit
+user waiver. Keep missing/failed test facts and name accepted risks in the delivery
+summary; do not describe waived checks as all-green. Runtime rechecks the exact
+source and subjects and retains the decision in the archive. Existing required
+review, findings, prerequisites and release/rollback gates remain authoritative.

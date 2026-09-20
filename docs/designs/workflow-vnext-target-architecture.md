@@ -2,8 +2,8 @@
 
 - Phase: `Target Architecture`
 - Status: `Accepted final design`
-- Date: `2026-09-08`
-- Behavior impact: `adds an independent read-only draft review entry`
+- Date: `2026-09-19`
+- Behavior impact: `converges the implemented A–E workflow semantics; no new public entry, lifecycle state, or workflow layer`
 - Design references:
   - [`workflow-skill-kmrd-audit.md`](../product/workflow-skill-kmrd-audit.md)
   - [`vibe-governance-distribution-installation.md`](vibe-governance-distribution-installation.md)
@@ -31,16 +31,15 @@ deterministic Runtime transactions
         ↓
 canonical Markdown/YAML knowledge
 
-Legacy migration boundary:
-old idle project
+Optional legacy migration tooling (outside the vNext Runtime contract):
+explicit operator request for an eligible old project
         ↓  one-time offline Migration Pack
 vNext Distribution installed
         ↓
 governance bootstrap remains a separate `bootstrap-project` Agent Skill
-transition
 ```
 
-The target is a smaller user intent surface with fewer model-visible workflow nodes and no loss of boundary, authority, state, evidence, stop, or escalation semantics. The old Skill graph is migration input, not a vNext runtime layer.
+The target is a smaller user intent surface with fewer model-visible workflow nodes and no loss of boundary, authority, state, evidence, stop, or escalation semantics. The old Skill graph may be consumed only by an explicitly invoked Migration Pack; it is outside the vNext Runtime contract and is not a vNext runtime layer.
 
 ## 2. Target architecture boundaries
 
@@ -50,10 +49,10 @@ This target design does not:
 - retain old Skills or compatibility aliases in a vNext Distribution;
 - make Runtime or a vNext Skill perform legacy-document conversion;
 - introduce a second project-truth store beside canonical Markdown/YAML knowledge;
-- let an unsupported schema continue into task execution;
+- let a document that declares itself as vNext but uses an invalid or unsupported vNext schema continue into task execution;
 - define implementation-specific CLI/API syntax in this architecture document.
 
-The old manifest and governance documents are inputs to the one-time Migration Pack only. A vNext manifest/schema is a new contract and must not silently reinterpret an old schema.
+The old manifest and governance documents are inputs only when an operator explicitly invokes the one-time Migration Pack. Normal vNext entries do not promise old-project compatibility, detection, classification, or migration guidance; none of those behaviors is a product goal or acceptance requirement. Implementations may retain internal detection for safety. A vNext manifest/schema is a new contract and must not silently reinterpret old input as vNext.
 
 Distribution and governance are separate concerns. The normative installer,
 manifest ownership, `uninstalled | legacy | vnext(version)` state model, and
@@ -85,9 +84,9 @@ caller-visible reason for existing. A regression or evidence scenario is a
 validation obligation, not an automatic admission of a new persistent
 automated test; any such test remains governed by P-12. If two proposed modes cannot be distinguished by those properties, they are internal dimensions or parameters rather than modes.
 
-### P-03 — Adaptive depth never bypasses mandatory governance
+### P-03 — Adaptive depth removes untriggered governance, never mandatory governance
 
-The model or harness may avoid unnecessary planning prose and optional checks, but every mutating task still evaluates source authority, scope, decision authority, evidence admission, and dangerous-operation eligibility. Conditional gates are selected from explicit triggers and their selection is reported.
+The model or harness may avoid unnecessary planning prose and optional checks, but every mutating task still evaluates source authority, mutation authority, decision authority, evidence admission, and dangerous-operation eligibility. Conditional gates are selected from explicit triggers and their selection is reported. **A fact that was not predicted during planning is not itself a governance trigger.** In Mutation Authority v2, an in-envelope discovery that is assessed as local, private, no-consumer and no-contract-impact may be self-admitted without adding a review checkpoint; shared/public/cross-component/contract-impact or uncertain discoveries retain cumulative review. Engineering-only validation invocation changes may use their bounded replacement route without redefining the evidence obligation. Adaptive depth therefore removes work whose trigger is absent; it never converts a mandatory authority, evidence, lifecycle, review, or repair gate into an optional one.
 
 ### P-04 — Internal dimensions do not form a natural-language BPM graph
 
@@ -105,9 +104,9 @@ prepared draft with that linked request basis and authoritative context;
 `review-change` evaluates one logical implementation diff. Both are read-only,
 neither writes a finding queue, and neither invokes another public entry.
 
-### P-06 — Model proposes; Runtime commits
+### P-06 — Model/user semantic authority must have a bounded execution outlet; Runtime commits
 
-The model and user own semantic judgment and authority. Runtime owns deterministic validation, exact write boundaries, conflict detection, idempotence, atomic commit, and read-back. Runtime cannot promote an unconfirmed proposal into project truth.
+The model and user own semantic judgment and authority. Runtime owns deterministic validation, exact write boundaries, conflict detection, idempotence, atomic commit, and read-back. Runtime cannot promote an unconfirmed proposal into project truth. Semantic authority is not useful if a legitimate decision has no legal transition: the current system therefore has bounded paths for explicit human acceptance, explicit evidence waiver, exact validation-invocation replacement, additive authority amendment, restricted correction/recovery, and an explicitly requested fresh successor after supersede. These paths preserve the original failure/report/history semantics: a waiver is not PASS, a human observation is not automated execution, an engineering replacement cannot change selection, and supersede alone never creates or approves a replacement. Public Skills return recommendations rather than invoking the next public Skill automatically.
 
 For administrative mutations, especially `bootstrap-project:realign`, the
 proposal's `authority_evidence` is not a trust root. Human authority must enter
@@ -118,48 +117,246 @@ trusted provider exists, an Agent may prepare or preview a realign proposal but
 may not autonomously commit a mutating realign. A true unchanged zero-write
 replay may remain idempotent without a new authority.
 
-### P-07 — Canonical governance documents remain the only project truth
+### P-07 — Canonical truth remains singular; Task Store is part of the current-task aggregate, not a second truth
 
-`CURRENT_TASK.md`, `CONTRACTS.md`, `DECISIONS.md`, `STATUS.md`, `LESSONS.md`, task artifacts, Profile, Protocol, and Schema retain their existing authority. Machine-readable objects are ephemeral projections or typed proposals unless a future protocol change explicitly places a field inside an existing canonical source.
+Project-level authority remains in the canonical governance sources: Task Basis, `CONTRACTS.md`, `DECISIONS.md`, `STATUS.md`, `LESSONS.md`, Profile, Protocol, Schema, and other admitted task artifacts. For the active task, canonical truth is one aggregate whose fixed head is `CURRENT_TASK.md` and whose exact immutable definition/state material is selected by that head. The task-data store is therefore not an independently editable database and does not gain semantic authority merely because an object exists.
 
-### P-08 — Legacy understanding belongs only to the one-time Migration Pack
+Under compact-v3, `CURRENT_TASK.md` is the active navigation projection and canonical head. Its exact content-addressed definition/state roots select immutable task material; reports, receipts, decisions, and committed transaction history are retained under the same task-data aggregate. The manifest must acknowledge the same roots/source revision, indexes remain rebuildable and non-authoritative, and prepared/orphan/unreferenced objects are not current task truth. Summary/hot fields are checked projections, not a second editable definition. Task Basis and authoritative project documents continue to provide the source basis for requirements and decisions; storing their references or immutable copies does not transfer that source authority to Task Store.
 
-The vNext runtime is not a compatibility runtime. It does not parse old protocol/schema documents, resolve old Skill names, or execute legacy modes. A separate, one-time Migration Pack is the only legacy-aware component; it converts an idle old project offline before the vNext Distribution is installed. The resulting Distribution contains no old Skills or compatibility aliases.
+Rendering/compaction preserves complete task semantics. Old inline/compact-v2 tasks are not silently replanned or forced to migrate, and explicit storage migration is representation-only. A normal result write references unchanged definition material rather than copying it into the active projection again. Small `CURRENT_TASK.md` size is a representation goal, not an acceptance gate and not a claim that total history, disk usage, or internal hydration cost is constant.
 
-### P-09 — Project knowledge is selected by relevance and admitted by evidence
+### P-08 — Legacy understanding is outside vNext and belongs only to an explicitly invoked Migration Pack
 
-The system does not load all accumulated governance knowledge into every task and does not persist every observation. `project-context-resolver` selects relevant canonical context with source locators, precedence, freshness, and conflicts. `knowledge-admission-policy` admits, merges, supersedes, defers, or rejects candidates for `CONTRACTS`, `DECISIONS`, and `LESSONS` based on authority, stability, novelty, reuse value, and evidence.
+The vNext runtime is not a compatibility runtime. It does not accept old protocol/schema documents, old Skill names, or legacy modes as executable inputs. Detecting or classifying an old project and recommending migration are not Runtime product goals, public guarantees, or acceptance requirements; implementations may retain internal detection for safety. A separate, explicitly invoked one-time Migration Pack is the component that intentionally reads legacy material and converts an eligible idle old project offline before the vNext Distribution is installed. The resulting Distribution contains no old Skills or compatibility aliases.
 
-### P-10 — Legacy migration is idle-only and one-time offline
+### P-09 — Agent-facing context is relevance-selected and bounded; durable knowledge is admitted by evidence
+
+The system does not load all accumulated governance knowledge or the full task history into every model turn and does not persist every observation. `project-context-resolver` selects relevant canonical project context with source locators, precedence, freshness, and conflicts. `task-context` provides an operation-specific bounded projection, while `task-read`, `file-context`, and `review-read` resolve exact material through revision-bound UTF-8 pages and continuations. Required continuation pages must be completed before the caller treats the context as complete; a compact/store conflict is not permission to fall back to an unbounded `CURRENT_TASK` or history read. Definition reuse is limited to the same visible session and exact task/document/definition revision.
+
+`knowledge-admission-policy` separately admits, merges, supersedes, defers, or rejects candidates for `CONTRACTS`, `DECISIONS`, and `LESSONS` based on authority, stability, novelty, reuse value, and evidence. Relevance selection is not deletion: exact committed task material remains retrievable through the aggregate.
+
+This bounded-context claim is deliberately scoped to the model-facing read protocol. It does **not** claim that every internal canonical-reader integrity check, history hydration, or filesystem operation has bounded total cost. Storage diagnostics also have their own bounded scan budgets; those budgets do not prove the canonical reader itself is constant-cost. Internal hydration/performance remains an implementation/measurement concern rather than a reason to add task-size or history-count gates.
+
+### P-10 — Explicit legacy migration is idle-only and one-time offline
 
 Only a legacy project in `idle` state may enter migration. Here idle means no active current task: an explicit hash-bound historical completion decision and verbatim preservation of declared paused files are supported by the one-time Migration Pack (0.18.0); this does not authorize interrupted execution or open current findings. The one-time Migration Pack converts old governance documents offline, validates the converted canonical Markdown/YAML documents, and only then permits installation of the vNext Distribution. A non-idle project is not migrated and is left on the old installation until its state is settled. The pack must preserve authoritative facts, report ambiguity, and never invent completion, ownership, recovery, or evidence.
 
-### P-11 — Unsupported schema fails closed
+### P-11 — Invalid or unsupported vNext schema fails closed
 
-If a vNext entry detects an old or otherwise unsupported protocol/schema, it returns `migration-required` and stops before task execution, state mutation, or partial installation. vNext Skills do not attempt to understand or repair the old protocol.
+A vNext entry is invoked only against a project that declares the supported vNext distribution and schema boundary. If a document declares itself as vNext but its schema, kind, or version is invalid or unsupported, the entry follows the existing schema-validation boundary and fails closed before task execution or state mutation. This decision introduces no new error category. The architecture does not require a compatibility verdict or migration reminder for an old workflow-system project, and it does not prohibit internal safety detection.
 
-### P-12 — Evidence-first admission determines validation and persistent tests
+### P-12 — Evidence-first selection targets the minimum-sufficient **whole evidence set**, not metadata completeness or minimum granularity
 
-Validation of a business claim, reuse or execution of an existing test/check, and creation of a new persistent automated test are separate decisions. A claim that needs validation does not automatically require a new test; the claim selects the minimum-sufficient evidence. Persistent tests are not admitted by default. A new persistent test requires an explicit owner, a claim it proves, a reason existing evidence is insufficient, and one closed admission basis: `acceptance`, `regression`, `critical-invariant`, or `critical-risk`. This principle refines P-03, P-05, P-06, and P-09 without introducing a Test Skill, registry, or state machine.
+Validation of a business claim, reuse or execution of an existing test/check, and creation of a new persistent automated test are separate decisions. A claim that needs validation does not automatically require a new test. The model/reviewer first derives the business failure or distinguishing observation from authoritative requirements, selects an independent expected result and the boundary where correctness is actually observable, and then chooses the minimum-sufficient **set** of evidence. Test count, coverage count, target-wide pass count, and “the whole suite is green” are not success criteria by themselves.
 
-### P-13 — Mutation scope controls writes, not understanding
+Minimum-sufficient applies to total execution breadth and cost, not to forcing every individual invocation to the narrowest available selector. If one broader invocation covers several required observations more cheaply while preserving their real boundaries, or if an explicit user/project/release/contract/risk obligation independently requires that breadth, the broader invocation may be the correct set member. Conversely, a target, broad regression, or E2E run is not admitted merely because it exists, shares a directory, is easy to invoke, ran historically, or adds generic confidence. The applicable breadth authority and source remain explicit; cost advantage is a selection reason, not a new authority type.
 
-`Allowed`, `Conditional`, and `Forbidden` scope describe the mutation boundary. Read / discovery context may be broader when needed to understand the problem, trace callers and consumers, or establish root cause. Ordinary write scope is as narrow as evidence permits—normally an exact file and, when known, symbol / responsibility. A directory glob is reserved for inherently broad transformations. Scope expands only through a satisfied Conditional condition or evidence-proven bounded propagation; a changed goal, scope, or acceptance is a supersede / replan decision.
+When executable tests are useful, focused unit/function-chain checks often provide low-cost evidence for localized rules, real business-flow/integration checks are required when correctness depends on component/persistence/protocol/data-flow boundaries, and E2E is used only when the actual user/system boundary is itself necessary or lower-cost evidence cannot establish the claim. These are evidence choices, not a mandatory ladder: focused is not automatically better than target, E2E is not automatically stronger, and many passing local checks cannot substitute for a missing business-flow observation. Persistent tests are not admitted by default; a new persistent test still requires an explicit owner, a claim it proves, existing-evidence insufficiency, an assertion boundary, failure disposition, and one closed admission basis.
 
-P-13 covers every repo-local write, including tracked, untracked, ignored,
-generated, build, cache, temporary, and helper output. `.gitignore` is not a
-scope exemption. Before a known write-capable command executes, its bounded
-`expected_write_footprint` is admitted through the canonical mutation-scope
+The Runtime enforces what it can know deterministically: claim/slot/check identity, required observation/boundary/granularity/invocation binding, breadth authority, result identity/status, evidence applicability, and completion rules. It does **not** prove that an oracle expresses the correct business semantics or that the selected set is semantically minimal. `prepare-task`, `review-draft`, and `review-change` carry the failure-oriented selection/review behavior; known-defect calibration can verify that selected checks detect specific historical failures. Fresh-Agent selection effectiveness across real target projects remains a dogfood question, not a Runtime guarantee.
+
+### P-13 — Mutation authority controls writes, not understanding
+
+Mutation Authority v2 separates the hard task boundary from implementation
+planning. A v2 task explicitly carries `mutation_authority_version: 2` and a
+positive `authority_envelope` represented by authorized project domains,
+`exact_exceptions`, and task-specific `forbidden` targets. Project domains are
+stable mutation-ownership boundaries, not a dependency graph:
+
+```yaml
+mutation_authority:
+  domains:
+    - id: node-rollout
+      roots:
+        - packages/node-rollout/**
+        - packages/node-rollout-tests/**
+    - id: rust-rollout
+      roots:
+        - native/codex-rollout-collector/**
+```
+
+Domain IDs are unique. Roots are bounded repository-relative exact paths or
+literal `/**` prefixes; cross-domain overlap, traversal, arbitrary globs,
+absolute roots, and ambiguous path resolution fail closed. A path that maps
+to no domain is `unclassified`; it is not ordinary self-admission material.
+Read/discovery may cross any domain to inspect callers, consumers, contracts,
+or root cause, but read access never becomes write authority. A write outside
+the task envelope is a hard `MUTATION_AUTHORITY_EXPANSION_REQUIRED` decision,
+not a generic v1 scope failure.
+
+Each v2 implementation step carries `planned_mutation_targets`. These targets
+are guidance for initial direction and planned-vs-actual review; they are not a
+second hard writable-file allowlist. A target outside that planned footprint
+but inside the task envelope may be admitted when the coding model first
+records a blast-radius assessment containing:
+
+```yaml
+target: {path: src/internal/state.ts, symbol: normalizeState}
+reason: <why the target is needed>
+blast_radius:
+  locality: local | elevated | high
+  visibility: private | shared | public | unknown
+  cross_component_consumers: none | present | unknown
+  contract_impact: none | possible | known
+evidence_refs: [<evidence>]
+disposition: self-admit | escalate
+```
+
+The Agent owns the semantic judgment; Runtime owns path/domain resolution,
+explicit Forbidden and governance boundaries, assessment structure and
+binding, first-touch before-state, cumulative audit and review coverage. The
+Runtime does not claim to decide whether a shared function is business-correct
+and does not use caller-count thresholds. Prefer the smallest correct local
+change. A broader shared implementation change needs evidence that the local
+alternative would be incorrect, duplicative, or contract-breaking, plus
+consumer/regression validation. Uncertain or multiply plausible directions
+escalate to the user; a high-risk change can still be self-admitted when the
+evidence is sufficient.
+
+Every unplanned self-admission is retained in the execution-scoped expansion record, but review depth is selected from the recorded assessment rather than from “unplanned” alone. A local/private/no-consumer/no-contract-impact self-admission adds no checkpoint by itself; elevated, shared/public, cross-component, contract-impact, uncertain, or escalated material retains cumulative review. If discovery occurs after another path in the same attempt has been touched, `execute-step:extend-preflight` captures the new target's before-state and returns a replacement receipt regardless of review depth. It keeps task, step, attempt and plan identity; it does not consume retry budget, create a continuation, or revise the plan. The latest receipt must feed `record-step-result`. Existing test files inside the envelope follow ordinary assessed expansion and still require oracle/reuse/boundary judgment. An absent new persistent test remains separately blocked until the full P-12 admission is recorded.
+
+Each durable dynamic expansion also records its `step_id`, `plan_revision`,
+`change_set_id`, stable `execution_id`, admitting `preflight_id`, and execution
+mode. The authority evaluator consumes only expansions matching the current
+active step, plan revision, change set, and execution identity. A historical
+expansion remains available to audit and review context but cannot authorize a
+later step, continuation, or repair wave; the same path therefore receives a
+new assessment when it is discovered by a new execution. The persisted
+`dynamic_review_required` value is a compatibility projection of the current
+execution's unconsumed expansions. A clean review marks only the expansions
+bound to that reviewed execution and retains the review id on those records.
+
+All execution entry points use one Runtime-owned exact-target admission
+evaluator. `preflight-step`, `extend-preflight`, `begin-repair`, repair
+extension, command-footprint preflight, and the result re-check pass the same
+task authority envelope, current step, execution phase, persistent-test state,
+and governance boundaries to that evaluator. Its result distinguishes planned,
+dynamic self-admitted, persistent-test-admitted, authority, assessment,
+test-strategy, non-executable-policy, persistent-test, and governance blocks;
+an adapter may not substitute a second path policy after state mutation begins.
+The evaluator checks structure only: blast-radius truth remains a bounded
+coding-model judgment and is retained as evidence.
+
+Every new v2 execution has a stable `execution_id`; an extension changes only
+the current receipt token and appends new target preimages. Repair uses the
+same execution identity and repair wave, so a same-envelope helper discovered
+after the first repair edit can use the same extension without a continuation
+or retry-budget consumption. Dynamic-expansion records bind the target to the
+step, mode, execution identity, and receipt token. Admission failures are
+validated before the extension transaction can change Runtime state.
+
+Test-strategy phase restrictions apply to initial and replacement preflights
+equally. Runtime derives a `test-first` Red admission constraint only from the
+current step's frozen, unconsumed before-step expected-failure obligation;
+candidate filenames and mixed candidate composition cannot change that phase.
+Red admits only exact frozen Persistent Tests, including non-typical test
+paths, while the receipt's required outcome remains `implemented` and the
+expected-failure evidence carries the reproduction proof. A `not-applicable`
+task remains closed under discovery: every later target must still match the
+project profile's bounded `non_executable_change_paths`, not merely the
+original planned targets.
+
+#### Step 3 design closure — authority transition and persistent-test admission
+
+Task authority expansion and persistent-test creation are separate typed
+decisions. The authority amendment gate blocks only an execution that has
+already been admitted by preflight but has not yet recorded the matching
+execution result. A `ready` retry, a blocked result, a settled repair result,
+and pending review or findings may proceed through amendment; preservation of
+those obligations remains part of the existing immutable continuation
+contract. Repair uses the real repair execution identity and its matching
+result record, not `active_step_status` or the mere presence of pending review
+as a proxy for an outstanding execution.
+
+The existing scope-amendment candidate remains immutable after its
+`commit-scope-amendment` audit. Discard checks the committed candidate digest
+before creating a discard marker, so history and recovery remain usable.
+
+An absent new persistent test inside an already authorized domain does not
+expand authority, but it is not an ordinary dynamic file admission and is not
+a no-op. It takes the explicit prepare-task amendment infrastructure with
+`authority_diff: none` and a complete caller-provided P-12 record: path,
+stable claim IDs, owner and owner source, source reference, closed basis,
+existing-evidence insufficiency, assertion boundary, and failure disposition.
+Runtime validates, binds, and persists these facts; it never fills defaults.
+Ordinary dynamic admission stays blocked until this transition succeeds.
+Existing test files continue through ordinary assessed expansion, with review
+of oracle, reuse, and boundary impact.
+
+#### Step 4 design closure — planning-time executability and domain lifecycle
+
+Mutation Authority v2 also has a planning-time definition boundary. Before a
+draft is committed as confirmed, `prepare-draft`, `update-draft`, replan or
+correction, and `confirm-draft` must prove the complete declaration set:
+`planned_mutation_targets`, every exact command write, every bounded command
+footprint, and every persistent-test path. Each declaration must be inside an
+authorized project domain or an exact exception, and must not be Forbidden,
+governance-owned, ambiguous, or `unclassified`. Planned targets need no
+blast-radius assessment because they are planning facts; the proof is
+structural executability, not a second step ACL.
+
+The v2 command grammar is deliberately bounded to exact paths and literal
+`literal/path/**` directory-prefix patterns. Runtime proves the candidate
+pattern is a subset of one granted domain root directly from the path
+relationship. A narrow subdirectory glob is valid under its domain root; a
+broader glob is not; an exact exception can authorize one exact path but never
+proves a directory-wide glob. Synthetic probe paths are not evidence.
+
+Project ownership is established once through the administrative lifecycle.
+`bootstrap-project` inventory observes structure and proposes
+`authority_domain_candidates` with basis and evidence. A project owner then
+confirms the selected IDs and roots in `greenfield`, `adopt`, or `realign`, and
+only that decision promotes the map into `PROJECT_PROFILE.yaml`. A simple
+project may confirm one broad application domain, but neither Runtime nor
+`prepare-task` may silently infer it or rebuild the map for every task. Existing
+confirmed maps are preserved.
+
+The canonical map has a stable revision/digest. A confirmed v2 task stores that
+revision in Runtime state; every execution admission compares it with the
+current profile. A missing or changed revision fails closed and requires
+explicit task authority-domain revalidation. Ordinary correction-replan,
+P-12 admission, and exact-path amendment do not rebind the task revision. The
+active task never inherits a newly widened project grant. The resulting planning/lifecycle acceptance
+cases are: E16–E18 for definition and command proof, E19 for candidate then
+owner confirmation, and E20 for stale-map rejection.
+
+Legacy tasks with a missing or version-1 authority marker retain the existing
+`Allowed` / `Conditional` / `Forbidden` plus step-hard-scope semantics. v1 is
+not silently converted into a domain map. True authority changes (for example
+Node → Rust or a new cross-domain exact exception) use the existing immutable
+scope-amendment candidate and continuation route; same-domain implementation
+discovery does not.
+
+P-13 still covers every repo-local write, including tracked, untracked,
+ignored, generated, build, cache, temporary, and helper output. `.gitignore`
+is not a scope exemption. Before a known write-capable command executes, its
+bounded `expected_write_footprint` is admitted through the canonical v1/v2
 evaluator; an unbounded footprint is blocked before execution. Afterward,
-caller-supplied `observed_write_paths` are evaluated by that same evaluator,
-and an unauthorized observation remains blocked even if cleanup removes the
-file. A final Git diff is evidence only, not the write oracle. Without an
+caller-supplied `observed_write_paths` are evaluated by the same structural
+guard, and an unauthorized observation remains blocked even if cleanup removes
+the file. A final Git diff is evidence only, not the write oracle. Without an
 OS-level filesystem monitor, the Runtime does not claim complete proof of
 transient create/delete history.
 
 ### P-14 — One task, admitted steps, and risk-based review checkpoints
 
-A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each step executes only after admission of its bounded mutation scope and required evidence. Review is placed at logical or risk boundaries rather than after every step; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.
+A `TASK` is one coherent business intent. It is decomposed into independently verifiable implementation `STEP`s without creating independent tasks merely for complexity, context, or review convenience. Each v1 step executes only after admission of its bounded mutation scope; each v2 step executes inside the task authority envelope with its planned footprint as guidance, and both require the declared evidence. Review is placed at logical or risk boundaries rather than after every step; v2 self-admitted footprint expansion adds cumulative review when the retained assessment shows shared/public/cross-component/contract impact; private local discovery with no consumers or contract impact adds no checkpoint, while old records retain their original review obligation; repair always returns through verification of the same logical diff and admitted finding. Step advancement is a durable typed Runtime state transition after required evidence and any required checkpoint / dynamic review / repair convergence, never a Skill-side edit of `CURRENT_TASK.md` and never a new public `advance-step` or checkpoint mode.
+
+### 3.1 A–D implementation convergence status
+
+The principles above are normative, but implementation confidence is not uniform. The E-stage convergence review distinguishes structural implementation from real-world efficacy:
+
+| Principle | Current implementation status | Remaining limit |
+|---|---|---|
+| P-01 public intent surface | `aligned-with-known-limit`: eight daily intent entries; administrative/expert entries remain separate; internal Runtime actions do not become public stages | real-user invocation/friction reduction still needs target-project dogfood |
+| P-03 adaptive depth | `aligned`: low-risk same-envelope discovery and bounded engineering adjustments avoid unnecessary review/replan while mandatory triggers remain | future dogfood may reveal additional over-governance, but no size/count shortcut is used |
+| P-06 semantic authority outlet | `aligned`: explicit human acceptance/waiver, bounded correction, authority amendment, validation replacement, and explicit fresh successor have legal Runtime paths | human/provider identity remains caller-reported where no trusted provider exists |
+| P-07 canonical truth | `aligned`: compact-v3 head + selected immutable material form one aggregate; indexes/summary/orphans are not independent authority | total retained history still grows and is not automatically garbage-collected |
+| P-09 bounded context | `aligned-with-known-limit`: model-facing context/read APIs are paged and revision-bound | internal canonical hydration/validation cost is not proven bounded |
+| P-12 minimum-sufficient evidence | `implemented-dogfood-pending`: structural binding and failure-oriented Skill guidance are implemented; known defects have detection calibration | fresh-Agent selection quality and aggregate cost effectiveness require real dogfood |
+| P-13 Mutation Authority v2 | `aligned`: domain envelope is hard authority; planned targets are guidance; in-envelope discovery is assessed; cross-envelope writes require amendment | v1 projects remain on their legacy exact-scope semantics until explicitly migrated/adopted |
+
+The detailed evidence and superseded-rule ledger live in [`vnext-design-convergence.md`](vnext-design-convergence.md). A status of `implemented-dogfood-pending` must not be rewritten as a product-effect PASS merely because the schema and source guards are green.
 
 ## 4. Recommended exposure model
 
@@ -169,10 +366,10 @@ The recommended surface distinguishes discoverability from callability. The exac
 
 | Entry | User intent | Explicit target modes | Important boundary |
 |---|---|---|---|
-| `prepare-task` | Turn a request or existing task into an executable, bounded intent | `confirm`, `replan`; ordinary preparation/refinement is the default entry intent | Review, scope, classification, planning, decomposition, and draft formation are adaptive internal dimensions; `confirm` is the explicit authority boundary |
+| `prepare-task` | Turn a request or existing task into an executable, bounded intent or apply one explicit bounded task decision | `confirm`, `replan`, `amend-scope`; ordinary preparation/refinement is the default entry intent | `replan` is restricted correction/recovery, not a general same-task replacement; `amend-scope` consumes an already explicit additive authority decision; explicit successor preparation remains an internal action under the same entry and creates a fresh draft identity after supersede |
 | `review-draft` | Independently compare one prepared draft with its original request and authoritative project context | none | Reads the identity/revision-bound Task Basis linked by `CURRENT_TASK` (exact caller-supplied source only for legacy fallback); returns a portable `clean`, `findings`, or `needs-user` result with zero Runtime or repository writes |
 | `execute-step` | Implement the admitted current step | `repair`; ordinary implementation is the default entry intent | `repair` requires an admitted finding or confirmed root cause; governance state writes use Runtime proposals |
-| `review-change` | Produce one unified read-only verdict for one diff target | `report-only`; ordinary review is the default entry intent | `discovery` and `verification` are review-cycle phases, not public modes |
+| `review-change` | Produce one unified read-only verdict for one diff target or record bounded counterevidence | default only | Every invocation is terminal/read-only with respect to product/governance files; `discovery` and `verification` are review-cycle phases, not public modes |
 | `debug-task` | Establish root cause and select an authorized recovery route | `investigate-only`, `resolve` | Debug does not write product code; `resolve` may macro-route to `execute-step:repair` after proof and authority |
 | `task-lifecycle` | Perform an explicit ownership/lifecycle transition | `pause`, `interrupt`, `resume-paused`, `resume-interrupted`, `supersede` | Each mode has distinct source tuple, recovery evidence, mutation, and rollback semantics |
 | `capture-work-item` | Record work proven unrelated to the active task | none (internal Runtime action: `record`) | Remains record-only; the bound Runtime writes at most one canonical inbox record and cannot promote, switch, or mutate the active task |
@@ -189,6 +386,7 @@ The recommended surface distinguishes discoverability from callability. The exac
 | Entry | Intended caller | Target shape | Boundary |
 |---|---|---|---|
 | `validate-change` | CI, harness, expert user, or an internal evidence request | One read-only entry with an evidence request; QA type is selected by evidence policy rather than public stage modes | It is callable but need not be promoted as a normal daily Skill; it never owns the whole protocol/project validation model |
+| `git-commit` | Expert user, harness, or caller acting on an explicit intended change set | One local commit action; no public modes | It stages only caller-authorized paths, never edits file contents, rewrites history, switches branches, or pushes; it is not a workflow progression stage |
 
 ### 4.4 Internal system service
 
@@ -206,16 +404,18 @@ is demonstrated; it must not be introduced for architecture symmetry alone.
 
 ### 4.5 Version boundary
 
-Pure vNext has no compatibility surface for the old Skills. The old names are understood only by the one-time Migration Pack while it converts an idle old project. After vNext installation, an old Skill name or old protocol/schema is not a callable route; schema detection returns `migration-required` and stops.
+Pure vNext has no compatibility surface for the old Skills. The old names are intentionally consumed only by an explicitly invoked one-time Migration Pack while it converts an eligible idle old project. After vNext installation, an old Skill name or old protocol/schema is not a callable route. Normal vNext entries provide no guaranteed legacy-detection or migration-reminder contract; inputs that declare an invalid or unsupported vNext schema continue to use the existing schema-validation fail-closed behavior.
 
 ## 5. Mode admission decisions
 
 ### 5.1 Modes retained by the target proposal
 
-- `prepare-task:replan` changes the authority and history contract of an already prepared task.
+- `prepare-task:replan` is a restricted, revision-bound correction/recovery route. It preserves total task authority, uses immutable candidates plus explicit confirmation, and is not the general replacement path for an invalidated task.
+- `prepare-task:amend-scope` consumes an already explicit additive authority decision (or a complete in-envelope persistent-test admission with no authority diff) and preserves prior obligations/review/budget.
+- `prepare-successor` is an internal prepare-task action, not a public mode: after a retained supersede and explicit replacement request it creates a fresh unexecuted draft identity with complete old-obligation disposition and ordinary confirmation.
 - `review-draft` has no modes; its separate public identity is justified by a different target, linked request-evidence input, zero-write authority, and terminal review result. Prior review output is never request authority.
 - `execute-step:repair` requires an admitted finding or confirmed root cause and consumes a repair budget.
-- `review-change:report-only` changes terminal semantics and forbids executable follow-up.
+- `review-change` has no report-only public mode in the current source contract; the entry itself is read-only and terminal, and any next route is only a recommendation to the caller.
 - `debug-task:investigate-only` and `debug-task:resolve` express different user intent and follow-up authority; neither lets the debug entry edit product code directly.
 - lifecycle modes retain different source tuples and recovery contracts.
 - `prepare-task:confirm` changes the authority and terminal semantics of a durable ordinary-task draft; it is not a new daily entry.
@@ -243,34 +443,36 @@ Ordinary preparation, implementation, review, capture, validation, and closure a
 | `validate-change:regression` | expert evidence request selected by evidence policy |
 | `debug-task:orchestrate` | removed from target execution model |
 | `debug-task:repair` | `execute-step:repair` after confirmed root cause |
-| `task-lifecycle:replan` | `prepare-task:replan` |
+| `task-lifecycle:replan` | no one-call alias; map only to the supported bounded correction/recovery route when its preconditions are provable, otherwise preserve the invalidated predecessor and require an explicit fresh successor request |
 | all `sync-state:*` modes | typed Runtime operation kinds |
 | `close-task:close` | default `close-task` intent |
 | `close-task:summary` / `archive` | internal closure capabilities and Runtime proposal handlers |
 
 The Migration Pack may validate the old exact mode set while converting legacy documents, but vNext validation applies only the target mode-admission policy. No vNext Skill or Runtime handler interprets the old stage graph.
 
-### 5.3 Slice B design freeze — task-definition invalidation and replacement
+### 5.3 Slice B convergence — invalidation, restricted correction, and explicit successor
 
-Slice B freezes a same-task identity model. `TASK_ID`, `TASK_SLUG`, and document identity are immutable across supersede/replan. Supersede applies to the current frozen task definition; it does not create a new task or silently choose a new goal, scope, or acceptance.
+The current implementation no longer treats supersede as the first half of a general same-task replacement. `TASK_ID`, `TASK_SLUG`, and `document_id` remain immutable for ordinary draft refinement and restricted same-task correction, while an explicitly requested successor after a genuine supersede receives a **fresh** task/document identity. Supersede only invalidates execution authority and preserves unfinished obligations/history; it never supplies replacement task facts.
 
-`blocked_by_replan + active` means execution is unsafe but the evidence, authority, or user-owned decision needed to invalidate the definition is incomplete. It is a non-active owner, so `execute-step`, pause, and interrupt are forbidden; the old definition is not yet formally invalidated. It may return to `active + active` only when authoritative evidence proves the definition remains valid, or move to `superseded + active` when invalidation is confirmed.
+`blocked_by_replan + active` remains a non-active owner used when continuation is unsafe and the required evidence/decision is unresolved. It may clear back to `active + active` when authoritative evidence proves the original definition remains valid, or it may be superseded when invalidation is confirmed. `superseded + active` is also a non-active owner and cannot execute, pause, interrupt, or be overwritten by ordinary `prepare-draft`.
 
-`superseded + active` means the old definition is formally invalidated by sufficient authority and evidence. It is a non-active owner, so `execute-step`, pause, and interrupt are forbidden, and it can never be restored as execution authority. Its only normal exit is a successful same-task `prepare-task:replan` commit.
+The old one-call `replan` and direct caller-provided `commit-replan` are closed. Same-task correction uses the versioned `correction-replan/v2` candidate/receipt flow: `prepare-replan` records bounded challenge/recovery targets and leaves `CURRENT_TASK` unchanged; `confirm-replan` requires the exact candidate and explicit caller-reported decision before Runtime internally commits the typed replacement. It preserves task identity, total authority, executed definitions/history, prior obligations and review/budget lineage. It cannot silently change goal, permission scope, arbitrary claims/check methods, or completed history. A superseded task may use this restricted route only for the specifically supported acceptance-result correction with explicit `reactivate_superseded` authority; goal/scope invalidation cannot be repaired by that escape hatch.
 
-The legal transition matrix is:
+A genuine replacement after supersede uses the separate `prepare-successor` action only when the user explicitly requests replacement. The caller binds the exact predecessor source/Basis plus every old slot/open finding as carry-forward or retired with reason. Runtime retains the old task as superseded, prepares a new Task Basis and aggregate with fresh task/document identity, and publishes an unexecuted `draft + active`. The successor receives no inherited PASS, waiver, preflight, or completion; it must pass normal `confirm-draft`. Exact interrupted publication may retry/adopt identical prepared artifacts, but different bytes or identities conflict.
+
+Authority expansion is independent of both routes. A v2 path outside the task envelope uses `prepare-task:amend-scope` after explicit additive authorization; a low-risk path already inside the envelope uses assessed `extend-preflight`; an engineering-only read-only validation launcher change uses `replace-validation`. None of these are reasons to supersede or rewrite the whole task.
+
+The legal high-level transitions are therefore:
 
 | From | Action | To | Required semantic condition |
 |---|---|---|---|
-| `active + active` | `mark-replan-blocked` | `blocked_by_replan + active` | continuation is unsafe and replan authority/evidence/decision is incomplete |
-| `blocked_by_replan + active` | `clear-replan-block` | `active + active` | new authoritative evidence proves the original definition remains valid |
-| `active + active` | `supersede` | `superseded + active` | goal, scope, or acceptance is formally invalidated |
-| `blocked_by_replan + active` | `supersede` | `superseded + active` | invalidation becomes confirmed |
-| `superseded + active` | `commit-replan` | `active + active` | closed replacement definition passes Runtime validation and commit |
+| `active + active` | `mark-replan-blocked` | `blocked_by_replan + active` | continuation is unsafe and the bounded recovery/invalidation decision is incomplete |
+| `blocked_by_replan + active` | `clear-replan-block` | `active + active` | authoritative evidence proves the original definition remains valid |
+| `active + active` or `blocked_by_replan + active` | `supersede` | `superseded + active` | goal, scope, or acceptance is formally invalidated |
+| eligible active/blocked task | `prepare-replan` → `confirm-replan` | `active + active` with bounded correction/recovery step(s) | exact challenge/recovery candidate, unchanged total authority, explicit confirmation |
+| eligible superseded task | restricted `confirm-replan` | `active + active` | acceptance-result invalidation only, exact candidate, explicit `reactivate_superseded`; goal/scope invalidation is excluded |
+| `superseded + active` | explicit `prepare-successor` | predecessor stays superseded; new identity is `draft + active` | explicit replacement request + complete old-obligation disposition; new draft still needs normal confirmation |
 
-`task-lifecycle:supersede` owns the invalidation decision and emits only a typed SupersedeDelta: invalidation kind, reason, evidence references, and partial-diff disposition. It removes execution authority from the old definition, but does not write replacement task facts. `prepare-task:replan` owns context resolution, authority handling, bounded definition formation, and typed ReplanDelta creation. These are two transactions; a blocked replan never rolls back a successful supersede.
-
-Replan is a closed task-definition section replacement. It may replace only the existing sections for context/background, acceptance, Allowed/Conditional/Forbidden scope, affected contracts, decisions/open questions, implementation plan/steps, validation/regression, rollback/recovery, conditional design/release validation, and triggered propagation governance. It must preserve identity, execution history, prior invalidation evidence, partial-diff provenance/disposition, historical findings, applied-proposal/audit history, and other canonical provenance. Old findings retain history but do not inherit repair authority; a still-relevant finding requires fresh finding admission.
 
 ### 5.4 Slice C design freeze — ordinary new-task draft and explicit confirmation
 
@@ -387,7 +589,7 @@ These evaluations always occur for a mutating task, though a low-risk case may r
 | review after a repair | review-convergence verification policy |
 | closure request | closure eligibility and remaining-risk preservation |
 | candidate durable contract / decision / lesson | knowledge admission, deduplication, merge/supersede, applicability, and provenance |
-| installed-version or state-schema mismatch | vNext version gate; return `migration-required` and stop before task execution |
+| declared vNext installed-version or state-schema mismatch | existing vNext version/schema gate; fail closed before task execution |
 
 ### 6.3 Risk profiles are evidence budgets, not workflow stages
 
@@ -416,8 +618,8 @@ prepare-task
 execute-step(current admitted step)
   → read wider context when needed, write only admitted scope
   → minimum-sufficient evidence
-      ├─ no checkpoint → durable advancement to the next admitted step
-      └─ checkpoint / final review → review-change
+      ├─ no required checkpoint and no expansion whose assessment requires review → durable advancement to the next admitted step
+      └─ required checkpoint / final review / risk-selected elevated-or-uncertain v2 expansion → review-change
           ├─ clean → durable advancement
           └─ admitted finding → execute-step:repair
                                 → review-change verification
@@ -495,13 +697,14 @@ Review never writes code or governance state. `governed_mutation_count` covers p
 
 ### 7.4 Review checkpoint policy
 
-`review-change` is invoked at a required review checkpoint, at final review when
-the task policy requires it, or for repair verification. It is not invoked merely
-because a step exists. Checkpoints are favored for contract / API, data model /
-schema, IPC / protocol, lifecycle / ownership / state-machine, security /
-permission, destructive or high-risk, release / rollback, major UI behavior,
-broad propagation, and task-specific critical-invariant boundaries. Low-risk
-mechanical steps may continue after minimum evidence without a full review.
+`review-change` is invoked at a required review checkpoint, for a v2 dynamic
+footprint expansion, at final review when the task policy requires it, or for
+repair verification. It is not invoked merely because a step exists. Checkpoints
+are favored for contract / API, data model / schema, IPC / protocol, lifecycle /
+ownership / state-machine, security / permission, destructive or high-risk,
+release / rollback, major UI behavior, broad propagation, and task-specific
+critical-invariant boundaries. Low-risk mechanical steps may continue after
+minimum evidence without a full review when no expansion whose retained assessment requires dynamic review is pending. A local/private/no-consumer/no-contract-impact self-admission does not add a checkpoint merely because it was discovered after planning.
 
 This policy changes review timing, not the read-only boundary or the existing
 `discovery` / `verification` cycle phases. In particular, repair verification
@@ -563,7 +766,7 @@ discovery
        ├─ same fingerprint persists    → increment repair attempt
        ├─ strong new blocker           → finding admission
        ├─ unknown root cause            → debug-task
-       └─ user/scope/contract decision  → ask-user / replan
+       └─ user/scope/contract decision  → ask-user / amend-scope / successor / bounded correction as applicable
 ```
 
 The target default is at most **two repair attempts per fingerprint**, at most **three total repair rounds per review cycle**, and at most **one new-finding admission wave during verification**. A repair round is one authorized patch batch followed by verification; multiple already-admitted findings may share a round when their scope and evidence remain separable. Exhausting any applicable budget produces `needs-debug`, `needs-user`, or `blocked`; it never silently starts a new discovery cycle. The existing three-hypothesis root-cause stop rule remains a separate investigation budget.
@@ -572,7 +775,7 @@ Each review invocation terminates with one observable verdict from `clean`, `fin
 
 ### 8.6 Persistence boundary
 
-Review-cycle state may remain ephemeral only while no cross-turn or cross-session handoff occurs. Before repair, pause, interruption, delegation, or session end, the logical diff target, cycle phase, admitted fingerprints, attempt counters, remaining budget, and evidence revision must be proposed into the existing canonical task/finding records through Runtime. Conversation memory and a facade-local cache are not authority. The exact `CURRENT_TASK` schema extension is deferred to a later protocol task; no parallel review database is allowed.
+Review-cycle state may remain ephemeral only while no cross-turn or cross-session handoff occurs. Before repair, pause, interruption, delegation, or session end, the logical diff target, cycle phase, admitted fingerprints, attempt counters, remaining budget, and evidence revision must be proposed into the existing canonical task/finding records through Runtime. Conversation memory and a facade-local cache are not authority. The current Runtime persists this durable boundary in the existing canonical task/finding/review state, including `runtime_state.review_cycle`; no parallel review database or future shadow task schema is required.
 
 ## 9. Evidence admission policy
 
@@ -603,7 +806,7 @@ The evidence planner decides:
 - whether an existing test/check can be reused;
 - whether a new persistent test is allowed;
 - whether evidence is temporary exploration rather than a product contract;
-- which failure routes to repair, debug, replan, or user decision.
+- which failure routes to repair, debug, bounded correction, authority amendment, successor preparation, or user decision.
 
 Validation and new persistent-test creation remain separate outputs. A docs-only
 or governance-only wording change defaults to zero new persistent tests.
@@ -796,24 +999,24 @@ full-repository scan.
 
 ### 10.3 Version gate
 
-`project-context-resolver` may inspect only the canonical schema supported by vNext. If it encounters an old or unsupported protocol/schema, resolution returns `migration-required`; the vNext caller stops and does not convert, repair, or mutate the legacy documents. Knowledge conversion belongs to the offline Migration Pack and is complete before vNext is installed.
+`project-context-resolver` may inspect only the canonical schema supported by vNext. A document that declares an invalid or unsupported vNext schema follows the existing schema-validation boundary and the caller stops without repair or mutation. Old workflow-system compatibility, classification, and migration guidance are outside this resolver's product guarantees and acceptance requirements; internal safety detection remains permitted. Knowledge conversion, when explicitly requested, belongs to the offline Migration Pack and is complete before vNext is installed.
 
 ## 11. One-time Migration Pack and schema boundary
 
 ### 11.1 vNext version boundary
 
-Pure vNext supports only the vNext protocol, File Schema, installation schema, and canonical project-document schema. vNext Skills do not understand the old protocol: they do not parse legacy schemas, resolve legacy Skill names, execute legacy modes, or convert old documents. The Migration Pack is the only component allowed to read the old contract.
+Pure vNext supports only the vNext protocol, File Schema, installation schema, and canonical project-document schema. vNext Skills do not accept the old protocol as executable input: they do not use legacy schemas, legacy Skill names, or legacy modes to authorize execution or convert old documents. Identifying old input or recommending migration is not a Runtime product guarantee or acceptance requirement. The explicitly invoked Migration Pack is the component that intentionally reads the old contract.
 
-> **vNext Skills do not understand the old protocol.**
+> **vNext Skills do not provide a compatibility contract for the old protocol; legacy detection or migration guidance is not a product requirement.**
 
-If a vNext entry detects an old or unsupported schema, the result is:
+If an input declares itself as vNext but carries an invalid or unsupported vNext schema, the result is:
 
 ```text
-migration-required
+existing vNext schema validation failure
 → stop
 ```
 
-The stop occurs before task execution, governance-state mutation, or any attempt to repair or reinterpret the old document.
+The stop occurs before task execution or governance-state mutation. This rule adds no new error category. Old-project identification and migration guidance are not guaranteed by this path; an operator who explicitly wants legacy conversion invokes the separate Migration Pack directly.
 
 The durable Lesson marker follows the same fail-closed canonical boundary.
 `vnext-lesson-marker/canonical-v1` is the first supported durable Lesson marker
@@ -925,7 +1128,7 @@ The pack is fail-closed and all-or-nothing with respect to vNext installation:
 - non-idle or ambiguous old state stops migration before conversion is accepted;
 - conversion or validation failure leaves the old installation and source documents unchanged;
 - vNext installation is forbidden when the pack is incomplete, stale, conflicting, or not bound to the target root and source revision;
-- a vNext process that finds an old/unsupported schema returns `migration-required` and stops; it does not fall back to an old Skill;
+- a document that declares an invalid or unsupported vNext schema follows the existing schema-validation fail-closed boundary; normal vNext processes do not fall back to an old Skill and make no product promise about legacy detection or migration guidance;
 - no partial vNext Agent surface, registry state, schema marker, or generated output may be promoted as a successful installation;
 - Distribution state is classified only as `uninstalled`, `legacy`, or `vnext(version)`; `pure vNext` is descriptive surface terminology, not a project state;
 - `.agents/skills/<skill-name>/SKILL.md` is the canonical vNext Skill surface; `.codex/skills/`, `.claude/skills/`, and `.factory/skills/` remain legacy/source compatibility only.
@@ -946,7 +1149,7 @@ The pack is fail-closed and all-or-nothing with respect to vNext installation:
 | review evidence request | `validate-change` expert call | the evidence plan names the claim and validation remains read-only |
 | closure intent with satisfied gates | `close-task` Runtime proposals | acceptance, evidence, release, and remaining-risk rules pass |
 
-An “automatic” route is execution permission, not merely a recommendation. If user intent did not authorize end-to-end work, or the next route changes user-owned authority, the system reports the recommended route and stops. A separate `debug-task` invocation is terminal and reports a route rather than automatically entering another public Skill: a confirmed same-plan blocked check may recommend ordinary `execute-step` recovery; admitted review findings may recommend `execute-step:repair`; an already superseded definition may recommend `prepare-task:replan`. `blocked_by_replan` requires a readiness or invalidation decision and cannot execute. Only confirmed goal, scope, or acceptance invalidation permits `task-lifecycle:supersede` before replan. A failed Runtime retry or an ordinary test/code error does not establish that invalidation.
+An “automatic” route is execution permission, not merely a recommendation. If user intent did not authorize end-to-end work, or the next route changes user-owned authority, the system reports the recommended route and stops. A separate `debug-task` invocation is terminal and reports a route rather than automatically entering another public Skill: a confirmed same-plan blocked check may recommend ordinary `execute-step` recovery; admitted review findings may recommend `execute-step:repair`; a real additive authority decision may recommend `prepare-task:amend-scope`; a superseded task may recommend a fresh successor only after an explicit replacement request. `blocked_by_replan` requires the bounded readiness/correction/invalidation decision and cannot execute. Only confirmed goal, scope, or acceptance invalidation permits `task-lifecycle:supersede`; supersede itself never authorizes replacement. A failed Runtime retry or an ordinary test/code error does not establish invalidation.
 
 ### 12.2 Forbidden handoff patterns
 
@@ -959,8 +1162,10 @@ An “automatic” route is execution permission, not merely a recommendation. I
 - `draft + active` entering `execute-step` without a successful `prepare-task:confirm` Runtime commit;
 - draft refinement changing identity, creating a second current task, or silently confirming;
 - `superseded` or `blocked_by_replan` entering `execute-step`, pause, or interrupt;
-- restoring `superseded` directly to `active` without a successful `commit-replan`;
-- changing task identity during replan or silently creating replacement task facts during supersede;
+- restoring `superseded` directly to `active` except through the explicitly supported, confirmed acceptance-result correction path;
+- using general same-task replan to overwrite a genuinely invalidated superseded task;
+- creating a successor without an explicit replacement request, complete predecessor-obligation disposition, fresh identity, and ordinary draft confirmation;
+- silently creating replacement task facts during supersede;
 - optional sync categories being invoked as a user-visible checklist.
 
 ## 13. Runtime transaction architecture
@@ -1015,59 +1220,20 @@ proposal:
 - The kernel stores no durable shadow state; idempotency and conflicts derive from canonical sources and proposal identity.
 - Partial writes and success-shaped failure are forbidden.
 
-The exact command/API syntax remains deferred until this architecture is confirmed.
+Concrete command/API syntax is implemented by the current Runtime/Distribution contracts but is intentionally non-normative at this architecture layer.
 
-### 13.3 Slice B transaction actions and proposal boundaries
+### 13.3 Current task-evolution actions and proposal boundaries
 
-The task-state transaction catalog contains the closed actions
-`mark-replan-blocked`, `clear-replan-block`, and `commit-replan`. These actions
-were contract-only before Slice B binding and are now implemented in the
-source-repository Runtime; they do not authorize arbitrary active-task
-rewriting. All three are called only by `prepare-task` in `replan` mode.
-`supersede` remains a `task-lifecycle` caller of `lifecycle-transaction`.
+The task-state transaction catalog still contains `mark-replan-blocked`, `clear-replan-block`, and an internal `commit-replan` action for durable compatibility and typed publication. **Direct** caller-provided `commit-replan` is rejected with `REPLAN_CONFIRMATION_REQUIRED`; the supported same-task path is the versioned `prepare-replan` candidate followed by exact `confirm-replan`. Runtime derives the internal commit from the inspected candidate/receipt and explicit decision. This preserves the existing typed transaction/audit format without reopening a generic active-task editor.
 
-The minimum SupersedeDelta shape is:
+`correction-replan/v2` is intentionally permission-preserving. It binds the old source/Basis/plan, complete obligation mapping, challenge or recovery targets, any bounded pending-step replacement, evidence objects and optional artifact restore plan. It uses new identities for replacement checks/steps, retains executed definitions and history, and cannot widen total authority. Candidate preparation is non-mutating; confirmation revalidates the exact current source and candidate before atomic publication.
 
-```yaml
-semantic_delta:
-  kind: lifecycle
-  action: supersede
-  invalidation_kind: goal | scope | acceptance
-  invalidation_reason: <text>
-  evidence_refs: []
-  partial_diff_disposition:
-    reusable: []
-    rollback_required: []
-    stop_propagation: []
-```
+`prepare-task:amend-scope` uses a separate `scope-amendment-candidate/v1` path for explicit additive authority (or an in-envelope absent persistent-test admission with `authority_diff:none`). It preserves pending review/findings/obligations/review baseline and used budgets instead of reusing correction-replan as a generic scope editor.
 
-ReplanDelta uses the following intentionally shallow closed shape:
+`task-lifecycle:supersede` remains a lifecycle transaction that records invalidation and removes execution authority only. Fresh replacement is published by the dedicated `prepare-successor` path with a new task/document identity and retained predecessor snapshot/Basis/history. It is not represented as an internal `commit-replan` on the old task.
 
-```yaml
-semantic_delta:
-  kind: task-state
-  action: commit-replan
-  replacement_definition:
-    background_context: <existing-section-content>
-    acceptance: <existing-section-content>
-    allowed_scope: <existing-section-content>
-    conditional_scope: <existing-section-content>
-    forbidden_scope: <existing-section-content>
-    affected_contracts: <existing-section-content>
-    confirmed_decisions: <existing-section-content>
-    open_questions: <existing-section-content>
-    implementation_plan: <existing-section-content>
-    implementation_steps: <existing-section-content>
-    regression_checks: <existing-section-content>
-    rollback_points: <existing-section-content>
-    design_constraints: <existing-section-content-or-null>
-    post_release_validation: <existing-section-content-or-null>
-    propagation_governance: <existing-section-content-or-null>
-  active_step_id: <replacement-step-id>
-  evidence_refs: []
-```
+The current boundaries intentionally separate four different intents: same-plan execution recovery, same-task conclusion correction, additive authority amendment, and fresh replacement after invalidation. A generic Markdown patch, arbitrary same-task replacement, or “supersede then overwrite” transaction is forbidden.
 
-The replacement carries the unchanged task identity and source revision. On successful commit, Runtime sets `active_step_id` from the replacement, sets `active_step_status: ready`, marks admitted/in-progress findings deferred and non-actionable, preserves resolved/rejected/already-deferred findings as history, resets `review_cycle` to its initial no-active-cycle baseline, clears `resume_requires_review` and `resume_review_reasons`, and preserves `execution_log` and `applied_proposals`. Arbitrary Markdown heading/path patches, a new task-definition store, a durable replan object, and a second state source are forbidden. Runtime validates the closed schema, source tuple, identity, transition, authority marker, exact section boundary, and atomic read-back; semantic goal/scope/acceptance and disposition decisions remain with the model/user authority layer.
 
 ### 13.4 Slice C task-state actions and proposal boundaries
 
@@ -1121,7 +1287,7 @@ The following cases define the target behavior:
 | `TA-21` | Idle legacy project enters migration | a one-time Migration Pack converts old governance documents offline, validates the complete pack, and then permits vNext Distribution installation |
 | `TA-22` | Legacy project is active, paused, interrupted, unresolved, or ambiguous | migration stops as non-idle; old installation/documents remain unchanged and no vNext surface is installed |
 | `TA-23` | Offline conversion encounters old task/finding/lifecycle records that are not idle | the pack does not select, resume, close, or guess; conversion is rejected until the old project is idle |
-| `TA-24` | A vNext entry detects an old or unsupported schema | result is `migration-required` → stop; no legacy parsing, task execution, or mutation occurs |
+| `TA-24` | A document declares itself as vNext but its schema/kind/version is invalid or unsupported | existing vNext schema validation fails closed; no task execution or mutation occurs and no new error category is required |
 | `TA-25` | Converted documents contain target-owned fields or managed drift | valid facts are preserved and drift/ambiguity is reported; conversion never overwrites target-owned content to mimic a fresh install |
 | `TA-26` | Offline conversion or pack validation is interrupted | old source documents remain unchanged, the pack is incomplete, and vNext Distribution installation is forbidden |
 | `TA-27` | A completed Migration Pack is presented again | the system does not perform a second conversion or create a partial installation; replay is bound to the original source and target identity |
@@ -1131,7 +1297,7 @@ The following cases define the target behavior:
 | `TA-31` | Validation changes a governed sandbox file or escapes into the live workspace | result is `blocked`, the exact unexpected paths and governed mutation count are reported, and disposable cleanup still runs |
 | `TA-32` | Validation command grammar, command revision, context revision, target identity, or diff target is unsafe/stale | subprocess does not execute and the mismatch is reported as a blocker; external-documentation and approval evidence also remain outside subprocess authority |
 | `TA-33` | A vNext project contains only supported canonical Markdown/YAML schemas | the resolver and entries execute against those schemas without any legacy compatibility branch |
-| `TA-34` | A vNext component attempts to fall back to an old Skill or reinterpret an old document | the attempt fails closed with `migration-required` and no governed mutation |
+| `TA-34` | A vNext component attempts to fall back to an old Skill or reinterpret old input as vNext | the attempt is outside the vNext contract and cannot authorize a governed mutation; no compatibility route or migration reminder is provided |
 | `TA-35` | An acceptance claim is sufficiently proved by an existing build, smoke, persisted-state, or other real evidence | the claim is validated without creating a persistent test; test creation is not inferred from code mutation |
 | `TA-36` | Root-cause discovery needs callers, consumers, types, and configuration outside the proposed write set | broad read / discovery is allowed while mutation remains limited to the admitted file / symbol scope |
 | `TA-37` | A multi-step task has two low-risk steps followed by a contract or lifecycle boundary | the first steps advance on minimum evidence, the boundary triggers review, and no full review is forced after every step |
@@ -1141,6 +1307,18 @@ The following cases define the target behavior:
 | `TA-41` | A stale or unauthorized `prepare-task:confirm` is presented | Runtime returns `conflict`/`blocked`, performs no write, and does not auto-confirm the draft |
 | `TA-42` | A confirmed draft is executed and later closed, then another request is prepared | the first archive remains byte-stable and immutable; the next draft receives a new identity with no dual current owner |
 | `TA-43` | An active vNext Virtual Project captures a proven-unrelated work item | exactly one identity-derived inbox record is committed; exact replay is byte-identical no-op; stale, non-unrelated, unresolved, colliding, or failed transactions write nothing and leave task state unchanged |
+| `TA-44` | A v2 draft declares a planned target outside its selected domain | `prepare-draft`/`update-draft`/replan/confirm definition admission fails before Runtime state mutation with a planning-authority blocker |
+| `TA-45` | A planned command declares an over-broad or unprovable glob | definition admission uses deterministic pattern-subset proof and blocks before commit; an exact exception cannot authorize a directory glob |
+| `TA-46` | Inventory observes ownership boundaries | `bootstrap-project` emits non-authorizing domain candidates; only explicit project-owner confirmation promotes the selected map to `PROJECT_PROFILE.yaml` |
+| `TA-47` | An active v2 task encounters a changed project domain map | the bound domain-map revision mismatch fails closed and requires explicit task authority-domain revalidation; ordinary correction-replan, P-12 admission, and exact-path amendment do not rebind it |
+| `TA-48` | A bounded command glob is a strict subset of its selected domain root | planning-time proof succeeds and the v2 definition can be confirmed |
+| `TA-49` | A private/local/no-consumer/no-contract-impact helper is discovered inside a v2 task envelope | the target is assessed and self-admitted without a new dynamic review checkpoint; exact preflight/before-state and audit still apply |
+| `TA-50` | A shared/public/cross-component/contract-impact or uncertain in-envelope target is discovered | self-admission, when otherwise allowed, retains cumulative review; low-risk behavior is not generalized to elevated expansion |
+| `TA-51` | An explicitly superseded task receives a later explicit replacement request | predecessor remains superseded with unfinished history; `prepare-successor` creates a fresh `draft + active` identity with complete obligation disposition and no inherited PASS/waiver; normal confirmation is still required |
+| `TA-52` | An execution check needs only an equivalent read-only launcher adjustment | `replace-validation` may change invocation mechanics while preserving observation, boundary, subjects, validation ownership, exact granularity/selector/breadth authority and budgets; selection change uses the planning route |
+| `TA-53` | A user explicitly accepts a human observation or an unverified risk for one eligible obligation | human acceptance records accepted evidence for the frozen human check; waiver preserves failed/missing/not-run truth and applies only to its exact owned obligation; neither bypasses review/policy/prerequisites |
+| `TA-54` | compact-v3 CURRENT_TASK is small while retained task history is large | the active projection remains a canonical head selecting immutable roots; no size gate or claim of bounded total storage/internal hydration is introduced |
+| `TA-55` | a validation plan has both a focused check and an independently required release regression | minimum-sufficient is evaluated over the whole required evidence set; the authorized release obligation is preserved rather than rejected merely because a focused selector exists |
 
 ## 15. Success measures
 
@@ -1164,7 +1342,9 @@ Hard requirements:
 - only an old project in `idle` state may enter the one-time Migration Pack flow;
 - converted canonical Markdown/YAML documents are validated before vNext Distribution installation;
 - old Skills, aliases, and compatibility routes are absent from the vNext Distribution;
-- old or unsupported schemas return `migration-required` and stop.
+- invalid or unsupported schemas that declare themselves as vNext follow the existing schema-validation fail-closed boundary; old-project detection and migration reminders are not Runtime product goals or acceptance requirements.
+
+Implementation conformance and real-world effect are reported separately. Green source/contract tests establish structural behavior, not user-friction reduction, bounded internal hydration, storage-growth optimization, or fresh-Agent evidence-selection efficacy. Those effect claims require retained target-project dogfood/metrics.
 
 Soft improvement measures:
 
@@ -1196,7 +1376,7 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 - A task loads all Contracts/Decisions/Lessons without relevance tracing, or silently drops required context to fit a token budget.
 - A model observation or one-off workaround becomes a Contract, Decision, or Lesson without authority/evidence/deduplication.
 - A legacy migration accepts a non-idle old project, guesses unfinished-state facts, or converts old documents inside a vNext Skill.
-- A vNext entry continues after detecting an old/unsupported schema instead of returning `migration-required` and stopping.
+- A vNext entry continues after existing schema validation rejects an invalid or unsupported self-declared vNext schema.
 - Different models or harnesses change authority, stop, owner, or mutation verdicts rather than only cost, wording, or turn count.
 - Validation runs through a shell, accepts a stale/unregistered command, writes a governed path, or reports success after an unexpected live/sandbox diff.
 
@@ -1210,7 +1390,7 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 4. `review-convergence-policy` and `evidence-admission-policy` become first-class internal capabilities.
 5. Draft review and change review are distinct read-only targets; finding admission remains separate.
 6. Runtime uses a common transaction kernel plus exact typed handlers and canonical sources only.
-7. The old protocol is read only by a one-time Migration Pack; vNext has an explicit schema boundary and does not interpret legacy documents.
+7. The old protocol is intentionally read for conversion only when an operator explicitly invokes the one-time Migration Pack; vNext has an explicit schema boundary, provides no legacy compatibility contract, and does not require classification or migration guidance from normal Runtime entries.
 8. `project-context-resolver` performs relevance/precedence/conflict-aware retrieval; `knowledge-admission-policy` governs durable Contract/Decision/Lesson growth.
 9. Only an `idle` old project may migrate: offline document conversion happens once, then the vNext Distribution is installed and old Skills no longer exist.
 10. Ordinary independent requests first create a durable `draft + active` task through `prepare-task` and may be refined in place; only explicit `prepare-task:confirm` grants `active + active` execution authority.
@@ -1226,16 +1406,33 @@ No numeric public-entry target or prompt-reduction percentage may weaken a hard 
 6. A coherent task owns a small set of admitted steps; review checkpoints are risk-based, while repair verification remains mandatory.
 7. The guarded macro transitions in §12.1 may execute automatically only under an authorized end-to-end request and must stop at user-owned authority changes.
 8. Draft creation/refinement remain in the existing `task-state-transaction`; draft confirmation is the only explicit status promotion and adds no public daily entry.
-9. The common Runtime transaction kernel plus exact typed handlers direction is accepted; exact CLI/API syntax remains deferred.
+9. The common Runtime transaction kernel plus exact typed handlers direction is accepted; concrete CLI/API syntax is implementation-specific and governed by the current Runtime/Distribution contracts rather than frozen by this architecture.
 
-### 16.3 Deferred implementation details
+### 16.3 Implementation details intentionally non-normative at this architecture layer
+
+The current product already has concrete implementations for several items below. They are deliberately not frozen as Target Architecture invariants and may evolve through their owning Runtime/Distribution/protocol contracts without changing the architectural principles above:
 
 - Runtime command/API syntax and implementation language details;
-- target manifest schema/file layout;
+- concrete Runtime/Distribution manifest schema and file layout;
 - project-context index/cache implementation and canonical knowledge-document schema details;
 - Migration Pack command/package syntax, conversion report layout, and version-number allocation;
 - registry and host discoverability mechanics;
 
 ## 17. Decision outcome
 
-The accepted target is a vNext architecture with eight daily intents, adaptive internal capabilities, independent read-only draft and change review, Review Convergence, Evidence Admission, `project-context-resolver`, `knowledge-admission-policy`, a shared Runtime transaction kernel, and Markdown/YAML canonical knowledge. Migration is idle-only and one-time: the Migration Pack performs offline conversion of old governance documents, after which the vNext Distribution is installed and old Skills are absent. vNext Skills do not understand the old protocol; an old or unsupported schema returns `migration-required` and stops.
+The accepted target is a vNext architecture with eight daily intents, adaptive internal capabilities, independent read-only draft and change review, Review Convergence, Evidence Admission, `project-context-resolver`, `knowledge-admission-policy`, a shared Runtime transaction kernel, and Markdown/YAML canonical knowledge. When explicitly requested, legacy migration is idle-only and one-time: the separate Migration Pack performs offline conversion of old governance documents, after which the vNext Distribution is installed and old Skills are absent. Normal vNext Skills provide no legacy compatibility, detection, classification, or migration-guidance guarantee; internal safety detection remains permitted. Inputs that declare an invalid or unsupported vNext schema continue to use the existing schema-validation fail-closed boundary, with no new error category introduced by this decision.
+
+## Task-level process-control refinement (2026-09-18)
+
+A valid explicit user decision needs a legal task-level route, but never becomes a
+fabricated test result or retrospective task completion. Runtime records ordinary
+manual acceptance and narrowly scoped user-owned evidence waivers as caller-reported
+source/subject-bound facts. This is not the trusted administrative realign channel.
+Unverified accepted risk remains visible in context, results and archive.
+
+Routine implementation discovery and equivalent validation invocation changes
+preserve the current task's intent and obligations. Neither a local bug nor a
+review finding nor a launcher correction authorizes whole-task redesign.
+Supersede only records genuine invalidation; an explicitly requested successor
+gets a new identity and ordinary confirmation, with all predecessor obligations
+carried or explicitly retired and the old unfinished outcome preserved.

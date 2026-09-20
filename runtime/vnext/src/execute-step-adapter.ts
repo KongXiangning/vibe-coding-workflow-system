@@ -11,6 +11,9 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  taskSourceRevisionMatches,
+  executeConfirmedArtifactRestore,
+  listArtifactCheckpoints,
   GovernanceTransactionKernel,
   MAX_REPAIR_ATTEMPTS,
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
@@ -18,30 +21,41 @@ import {
   applyVNextRuntimeProposal,
   assertTestStrategySequenceReady,
   assertOrdinaryPreflight,
+  assertExecutionTargetAdmissions,
   assertBusinessEvidenceVersion,
+  assertExecutionResultWaivers,
+  replaceValidation,
   createStepPreflightProposal,
+  createStepExtendPreflightProposal,
   createStepRetryProposal,
   type StepRepairDiagnosis,
   nextStepAttemptId,
   evaluateClaimEvidence,
+  hasRemainingCorrectionTargets,
   validateStepAcceptanceEvidence,
   type StepAcceptanceEvidence,
   captureReviewTarget,
+  createReviewTargetManifest,
   createFindingQueueProposal,
   createReviewChangeDelta,
   currentDefinitionExecutionLog,
   reviewCycleForNextStep,
   cumulativeReviewExecution,
   createTaskStateProposal,
+  createRetainedReviewConsumptionProposal,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
   resolveTestStrategyExecutionContext,
+  executionPhaseForCurrentStep,
+  currentExecutionDynamicExpansions,
+  dynamicReviewRequiredForCurrentExecution,
   validateRuntimeEnvironment,
   validateRuntimeReviewTarget,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
   type CanonicalCurrentTask,
   type ClaimEvidenceRecord,
+  type EvidenceExecutionSelection,
   type RuntimeApplyOptions,
   type RuntimeResult,
   type ReviewTarget,
@@ -60,12 +74,26 @@ import {
   parseMutationScope,
   type MutationTransformationKind,
 } from './mutation-scope';
+import {
+  MutationAuthorityError,
+  normalizeBlastRadiusAssessments,
+  evaluateTaskMutationAuthorityPlan,
+  mutationAuthorityPlanBlockerCode,
+  readProjectMutationAuthority,
+  type BlastRadiusAssessment,
+} from './mutation-authority';
 import { resolveTaskStep, type TaskStepDefinition } from './task-steps';
+import { taskContextReferenceForCurrent, type TaskContextReference } from './task-context';
+import { contextInput, integer } from './file-context';
 
 export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'preflight-step',
+  'extend-preflight',
+  'apply-artifact-restore',
+  'artifact-checkpoints',
   'evidence-context',
   'retry-step',
+  'replace-validation',
   'begin-repair',
   'record-step-result',
   'complete-reviewed-step',
@@ -82,6 +110,7 @@ type PlannedCommand = {
 };
 type StepPlan = {
   step: TaskStepDefinition;
+  planned_mutation_targets: string[];
   mutation_scope: string[];
   validation: string[];
   commands: PlannedCommand[];
@@ -89,6 +118,8 @@ type StepPlan = {
 
 export type ExecuteStepPreflightReceipt = {
   kind: 'execute-step-preflight/v1';
+  preflight_id?: string;
+  execution_id?: string;
   attempt_id?: string;
   task_id: string;
   document_id: string;
@@ -102,10 +133,13 @@ export type ExecuteStepPreflightReceipt = {
   repair_fingerprint: string | null;
   change_set_id: string;
   review_base: ReviewTarget;
+  mutation_authority_version?: 2;
 };
 
 export type ExecuteStepRepairPreflightReceipt = {
   kind: 'execute-step-repair-preflight/v1';
+  preflight_id?: string;
+  execution_id?: string;
   task_id: string;
   document_id: string;
   source_revision: string;
@@ -127,13 +161,14 @@ type AnyExecuteStepPreflightReceipt = ExecuteStepPreflightReceipt | ExecuteStepR
 
 export type ExecuteStepPreflightResult = {
   status: 'pass';
-  operation_kind: 'execute-step-preflight';
+  operation_kind: 'execute-step-preflight' | 'execute-step-preflight-extension';
   committed: boolean;
   read_back_verified: true;
   current_step: {
     id: string;
     description: string;
     purpose: string;
+    planned_mutation_targets: string[];
     mutation_scope: string[];
     commands: PlannedCommand[];
     validation: string[];
@@ -143,6 +178,7 @@ export type ExecuteStepPreflightResult = {
     required_outcome: TestStrategyExecutionContext['required_outcome'];
     persistent_tests: string[];
   };
+  context_projection: TaskContextReference;
   receipt: ExecuteStepPreflightReceipt;
 };
 
@@ -152,7 +188,7 @@ export type ExecuteStepRepairPreflightResult = Omit<ExecuteStepPreflightResult, 
 };
 
 export type ExecuteStepEvidenceContext = {
-  status: 'pass';
+  status: 'pass' | 'partial';
   operation_kind: 'execute-step-evidence-context';
   committed: false;
   task_id: string;
@@ -163,9 +199,28 @@ export type ExecuteStepEvidenceContext = {
     claim_id: string;
     slot_id: string;
     check_id: string;
+    boundary: string | null;
+    user_decision: import('./kernel').UserEvidenceDecision | null;
+    frozen_invocation: string;
+    validation_items: string[];
     subject_revision: string;
-    subject_snapshot: ReturnType<typeof captureReviewTarget>;
+    execution_selection: EvidenceExecutionSelection | null;
+    subject_snapshot: {
+      kind: string;
+      revision: string;
+      entry_count: number;
+      entries_omitted: true;
+    };
   }>;
+  returned_check_count: number;
+  total_check_count: number;
+  unexpanded_check_ids: string[];
+  unexpanded_check_count: number;
+  unexpanded_check_ids_truncated: boolean;
+  complete_for_operation: boolean;
+  continuation: { kind: 'execute-step-evidence-page/v1'; source_revision: string; evidence_plan_revision: string; offset: number } | null;
+  subject_snapshots_read: 'Use task-context/task-read for the exact frozen subject entries.';
+  context_projection: TaskContextReference;
 };
 
 export type ExecuteStepAdapterResult = RuntimeResult | ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult | ExecuteStepEvidenceContext;
@@ -174,6 +229,20 @@ const MAX_ITEMS = 256;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const SAFE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+
+function subjectSnapshotSummary(snapshot: ReturnType<typeof captureReviewTarget>): {
+  kind: string;
+  revision: string;
+  entry_count: number;
+  entries_omitted: true;
+} {
+  return {
+    kind: snapshot.kind,
+    revision: snapshot.revision,
+    entry_count: snapshot.entries.length,
+    entries_omitted: true,
+  };
+}
 
 function fail(code: string, message: string): never {
   throw new VNextRuntimeError(code, message);
@@ -343,6 +412,7 @@ function currentStepPlan(current: CanonicalCurrentTask): StepPlan {
   }
   return {
     step: resolution.current,
+    planned_mutation_targets: parseScopeList(resolution.current.planned_mutation_targets ?? resolution.current.mutation_scope, `step ${resolution.current.id} planned_mutation_targets`),
     mutation_scope: parseScopeList(resolution.current.mutation_scope, `step ${resolution.current.id} mutation_scope`),
     validation: parseValidationList(resolution.current.required_evidence, `step ${resolution.current.id} required_evidence`),
     commands: parsePlannedCommands(current, resolution.current.id),
@@ -357,21 +427,62 @@ function stepAdmitsFootprintTarget(target: string, stepScope: readonly string[])
   return target.includes('*') ? stepScope.includes(target) : stepAdmitsExactPath(target, stepScope);
 }
 
-function assertPathsAdmitted(current: CanonicalCurrentTask, stepPlan: StepPlan, paths: readonly string[], location: string): void {
-  if (paths.length === 0) return;
-  const scopeResult = evaluateMutationScope(parseMutationScope(current.body, current.sourceTuple.revision), {
-    changed_paths: [...paths],
-  });
-  if (scopeResult.status !== 'pass') {
-    fail('EXECUTE_SCOPE_BLOCKED', `${location} is outside confirmed task scope: ${scopeResult.blockers.join(' ')}`);
-  }
-  const outsideStep = paths.filter(file => !stepAdmitsExactPath(file, stepPlan.mutation_scope));
-  if (outsideStep.length > 0) {
-    fail('EXECUTE_STEP_SCOPE_BLOCKED', `${location} is outside current step scope: ${outsideStep.join(', ')}.`);
-  }
+function authorityAssessments(current: CanonicalCurrentTask): BlastRadiusAssessment[] {
+  return currentExecutionDynamicExpansions(current).map(item => item.assessment);
 }
 
-function assertCommandPlansAdmitted(current: CanonicalCurrentTask, stepPlan: StepPlan): void {
+function assertPathsAdmitted(
+  current: CanonicalCurrentTask,
+  stepPlan: StepPlan,
+  paths: readonly string[],
+  location: string,
+  root: string,
+  assessments: readonly BlastRadiusAssessment[] = [],
+  mode: 'default' | 'repair' = 'default',
+  phase?: TestStrategyExecutionContext['phase'],
+  plannedTargets: readonly string[] = stepPlan.planned_mutation_targets,
+): void {
+  if (paths.length === 0) return;
+  assertExecutionTargetAdmissions(root, current, {
+    target_paths: paths,
+    planned_targets: plannedTargets,
+    step_mutation_scope: stepPlan.mutation_scope,
+    assessments,
+    mode,
+    phase,
+    location,
+  });
+}
+
+function assertCommandPlansAdmitted(
+  root: string,
+  current: CanonicalCurrentTask,
+  stepPlan: StepPlan,
+  assessments: readonly BlastRadiusAssessment[] = [],
+  phase?: TestStrategyExecutionContext['phase'],
+  mode: 'default' | 'repair' = 'default',
+): void {
+  if (current.mutationAuthority) {
+    const project = (() => {
+      try { return readProjectMutationAuthority(root); }
+      catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
+    })();
+    if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 command footprints require PROJECT_PROFILE.yaml.mutation_authority.domains.');
+    const commandWrites = stepPlan.commands.flatMap(command => command.expected_repo_writes === 'none' ? [] : command.expected_repo_writes);
+    const evaluation = evaluateTaskMutationAuthorityPlan({
+      project,
+      task: current.mutationAuthority,
+      planned_targets: [],
+      command_write_targets: commandWrites,
+      persistent_test_paths: [],
+    });
+    const blocked = evaluation.decisions.find(item => !item.admitted);
+    if (blocked) {
+      const command = stepPlan.commands.find(item => item.expected_repo_writes !== 'none' && item.expected_repo_writes.includes(blocked.path));
+      fail(mutationAuthorityPlanBlockerCode(blocked), `planned command${command ? ` "${command.command}"` : ''} is outside the v2 authority envelope: ${evaluation.blockers.join(' ')}`);
+    }
+    return;
+  }
   const scope = parseMutationScope(current.body, current.sourceTuple.revision);
   for (const command of stepPlan.commands) {
     if (command.expected_repo_writes === 'none') continue;
@@ -406,6 +517,7 @@ function assertExactCommandWritesCovered(stepPlan: StepPlan, candidatePaths: rea
 function stepPlanRevision(stepPlan: StepPlan): string {
   return digest({
     step: stepPlan.step,
+    planned_mutation_targets: stepPlan.planned_mutation_targets,
     mutation_scope: stepPlan.mutation_scope,
     validation: stepPlan.validation,
     commands: stepPlan.commands,
@@ -441,6 +553,8 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
   if (source.kind === 'execute-step-repair-preflight/v1') {
     exactKeys(source, [
       'kind',
+      ...(source.preflight_id === undefined ? [] : ['preflight_id']),
+      ...(source.execution_id === undefined ? [] : ['execution_id']),
       'task_id',
       'document_id',
       'source_revision',
@@ -463,6 +577,8 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     if (!SHA256_PATTERN.test(sourceRevision) || !SHA256_PATTERN.test(planRevision)) fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight receipt revisions must be SHA-256 values.');
     return {
       kind: 'execute-step-repair-preflight/v1',
+      ...(source.preflight_id === undefined ? {} : { preflight_id: text(source.preflight_id, 'preflight_receipt.preflight_id', 128) }),
+      ...(source.execution_id === undefined ? {} : { execution_id: text(source.execution_id, 'preflight_receipt.execution_id', 128) }),
       task_id: text(source.task_id, 'preflight_receipt.task_id', 128),
       document_id: text(source.document_id, 'preflight_receipt.document_id', 128),
       source_revision: sourceRevision,
@@ -482,6 +598,8 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
   }
   exactKeys(source, [
     'kind',
+    ...(source.preflight_id === undefined ? [] : ['preflight_id']),
+    ...(source.execution_id === undefined ? [] : ['execution_id']),
     'task_id',
     'document_id',
     'source_revision',
@@ -495,6 +613,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     'change_set_id',
     'review_base',
     ...(source.attempt_id === undefined ? [] : ['attempt_id']),
+    ...(source.mutation_authority_version === undefined ? [] : ['mutation_authority_version']),
   ], 'preflight_receipt');
   if (source.kind !== 'execute-step-preflight/v1') {
     fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.kind must be execute-step-preflight/v1.');
@@ -510,6 +629,8 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
   }
   return {
     kind: source.kind,
+    ...(source.preflight_id === undefined ? {} : { preflight_id: text(source.preflight_id, 'preflight_receipt.preflight_id', 128) }),
+    ...(source.execution_id === undefined ? {} : { execution_id: text(source.execution_id, 'preflight_receipt.execution_id', 128) }),
     ...(source.attempt_id === undefined ? {} : { attempt_id: text(source.attempt_id, 'preflight_receipt.attempt_id', 128) }),
     task_id: text(source.task_id, 'preflight_receipt.task_id', 128),
     document_id: text(source.document_id, 'preflight_receipt.document_id', 128),
@@ -523,14 +644,15 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     repair_fingerprint: nullableText(source.repair_fingerprint, 'preflight_receipt.repair_fingerprint', 128),
     change_set_id: text(source.change_set_id, 'preflight_receipt.change_set_id', 128),
     review_base: validateRuntimeReviewTarget(source.review_base, 'preflight_receipt.review_base'),
+    ...(source.mutation_authority_version === undefined ? {} : source.mutation_authority_version === 2 ? { mutation_authority_version: 2 as const } : fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.mutation_authority_version must be 2.')),
   };
 }
 
-function assertCurrentReceipt(current: CanonicalCurrentTask, stepPlan: StepPlan, receipt: AnyExecuteStepPreflightReceipt): void {
+function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepPlan: StepPlan, receipt: AnyExecuteStepPreflightReceipt): void {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
     fail('EXECUTE_PREFLIGHT_IDENTITY_CONFLICT', 'preflight receipt does not identify the current task document.');
   }
-  if (receipt.source_revision !== current.sourceTuple.revision) {
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision)) {
     const expectedRepairBookkeeping = receipt.kind === 'execute-step-repair-preflight/v1'
       && current.runtimeState.pending_review_result?.review_id === receipt.review_id
       && receipt.repair_fingerprints.every(fingerprint => {
@@ -545,16 +667,49 @@ function assertCurrentReceipt(current: CanonicalCurrentTask, stepPlan: StepPlan,
     fail('EXECUTE_PREFLIGHT_STALE', 'the active step or its executable plan changed after preflight.');
   }
   const strategy = resolveTestStrategyExecutionContext(current);
-  if (receipt.test_strategy_mode !== strategy.mode || receipt.execution_phase !== strategy.phase) {
+  const activePreflight = current.runtimeState.execution_preflight;
+  const expectedPhase = activePreflight?.step_id === receipt.step_id
+    ? activePreflight.execution_phase
+    : executionPhaseForCurrentStep(current, strategy);
+  if (receipt.test_strategy_mode !== strategy.mode || receipt.execution_phase !== expectedPhase) {
     fail('EXECUTE_PREFLIGHT_STALE', 'the frozen test strategy or current execution phase changed after preflight.');
+  }
+  if (activePreflight?.step_id === receipt.step_id) {
+    if (activePreflight.mode !== receipt.mode
+      || activePreflight.plan_revision !== receipt.plan_revision
+      || ((current.mutationAuthority || receipt.mode === 'repair') && receipt.execution_id !== activePreflight.execution_id)
+      || (receipt.execution_id !== undefined && activePreflight.execution_id !== receipt.execution_id)
+      || (digest(activePreflight.candidate_paths) !== digest(receipt.candidate_paths))
+      || (receipt.preflight_id !== undefined && activePreflight.preflight_id !== receipt.preflight_id)) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'the preflight receipt does not bind the current Runtime execution identity.');
+    }
+    if (receipt.mode === 'repair'
+      && activePreflight.review_target_paths !== null
+      && digest(activePreflight.review_target_paths) !== digest(receipt.review_target_paths)) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'the repair receipt does not bind the Runtime-recorded reviewed target paths.');
+    }
+    if (receipt.mode === 'repair'
+      && (activePreflight.review_id !== receipt.review_id
+        || activePreflight.repair_wave_id !== receipt.repair_wave_id
+        || activePreflight.change_set_id !== receipt.change_set_id)) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'the repair receipt does not bind the current Runtime repair identity.');
+    }
   }
   if (receipt.kind === 'execute-step-repair-preflight/v1') {
     if (current.runtimeState.pending_review_result?.review_id !== receipt.review_id
       || current.runtimeState.pending_review_result.change_set_id !== receipt.change_set_id) {
       fail('EXECUTE_PREFLIGHT_STALE', 'the repair review or Runtime-owned change set changed after preflight.');
     }
-  } else if (receipt.change_set_id !== changeSetId(current, receipt.step_id)) {
-    fail('EXECUTE_PREFLIGHT_STALE', 'the Runtime-owned change set identity changed after preflight.');
+  } else {
+    if (current.mutationAuthority) {
+      const latestAttempt = current.runtimeState.step_attempts?.[receipt.step_id]?.attempts.at(-1);
+      if (!receipt.preflight_id || !latestAttempt || latestAttempt.idempotency_key !== receipt.preflight_id) {
+        fail('EXECUTE_PREFLIGHT_STALE', 'the ordinary preflight receipt is no longer the latest receipt; use the replacement receipt returned by extend-preflight.');
+      }
+    }
+    if (receipt.change_set_id !== changeSetId(current, receipt.step_id)) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'the Runtime-owned change set identity changed after preflight.');
+    }
   }
 }
 
@@ -566,26 +721,12 @@ function repairWaveId(reviewId: string, fingerprints: readonly string[]): string
   return `repair-wave-${digest({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
 }
 
-function assertTestStrategyCandidatePaths(
-  strategy: TestStrategyExecutionContext,
-  candidatePaths: readonly string[],
-): void {
-  if (strategy.phase !== 'red') return;
-  const missingTests = strategy.persistent_tests.filter(testPath => !candidatePaths.includes(testPath));
-  const nonTestPaths = candidatePaths.filter(candidate => !strategy.persistent_tests.includes(candidate));
-  if (missingTests.length > 0 || nonTestPaths.length > 0) {
-    fail(
-      'TEST_STRATEGY_SEQUENCE_INVALID',
-      `test-first Red preflight must cover every frozen persistent test and no product path; missing=[${missingTests.join(', ')}], non_test=[${nonTestPaths.join(', ')}].`,
-    );
-  }
-}
-
 function currentStepResult(stepPlan: StepPlan, strategy: TestStrategyExecutionContext): ExecuteStepPreflightResult['current_step'] {
   return {
     id: stepPlan.step.id,
     description: stepPlan.step.description,
     purpose: stepPlan.step.purpose!,
+    planned_mutation_targets: stepPlan.planned_mutation_targets,
     mutation_scope: stepPlan.mutation_scope,
     commands: stepPlan.commands,
     validation: stepPlan.validation,
@@ -603,15 +744,24 @@ export function beginRepair(
   options: RuntimeApplyOptions = {},
 ): ExecuteStepRepairPreflightResult {
   const source = record(input, 'begin-repair input');
-  exactKeys(source, ['candidate_paths'], 'begin-repair input');
+  exactKeys(source, ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments'])], 'begin-repair input');
   const candidatePaths = pathList(source.candidate_paths, 'candidate_paths', false);
+  let assessments: BlastRadiusAssessment[] = [];
+  if (source.blast_radius_assessments !== undefined) {
+    try { assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error)); }
+  }
   let current = readCanonicalCurrentTask(root);
   assertExecutableTask(current);
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== 'findings') {
     fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires the current durable review result to contain findings.');
   }
-  const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
+  const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item
+    ? item
+    : current.runtimeState.scope_amendment_pending_review_step_id !== undefined && item.idempotency_key === pending.execution_id
+      ? item
+      : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
     !('action' in item) && item.idempotency_key === pending.execution_id,
   );
   if (!reviewedExecution?.execution_result
@@ -622,9 +772,9 @@ export function beginRepair(
   const stepPlan = currentStepPlan(current);
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
-  assertTestStrategyCandidatePaths(strategy, candidatePaths);
-  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths');
-  assertCommandPlansAdmitted(current, stepPlan);
+  const phase = executionPhaseForCurrentStep(current, strategy);
+  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'repair', phase);
+  assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'repair');
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
 
   const admissionWaveId = findingAdmissionWaveId(pending.review_id);
@@ -700,8 +850,24 @@ export function beginRepair(
     ...reviewedExecution.execution_result.review_target.entries.map(item => item.path),
     ...candidatePaths,
   ])];
+  const preflightProposal = createStepPreflightProposal(current, candidatePaths, assessments, {
+    mode: 'repair',
+    plan_revision: stepPlanRevision(stepPlan),
+    execution_phase: phase,
+    repair_fingerprints: fingerprints,
+    repair_wave_id: waveId,
+    review_id: pending.review_id,
+    review_target_paths: reviewedExecution.execution_result.review_target.entries.map(item => item.path),
+    change_set_id: pending.change_set_id,
+  });
+  const preflightResult = verifyReadBack(root, applyVNextRuntimeProposal(root, preflightProposal, options), options);
+  if (preflightResult.status !== 'success' && preflightResult.status !== 'no-op') fail('PREFLIGHT_BLOCKED', preflightResult.message);
+  if (!options.dryRun) current = readCanonicalCurrentTask(root);
+  const executionPreflight = current.runtimeState.execution_preflight;
   const receipt: ExecuteStepRepairPreflightReceipt = {
     kind: 'execute-step-repair-preflight/v1',
+    ...(executionPreflight?.preflight_id ? { preflight_id: executionPreflight.preflight_id } : { preflight_id: preflightProposal.idempotency_key }),
+    ...(executionPreflight?.execution_id ? { execution_id: executionPreflight.execution_id } : {}),
     task_id: current.runtimeState.task_id,
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
@@ -709,21 +875,22 @@ export function beginRepair(
     plan_revision: stepPlanRevision(stepPlan),
     mode: 'repair',
     test_strategy_mode: strategy.mode,
-    execution_phase: strategy.phase,
-    candidate_paths: candidatePaths,
-    repair_fingerprints: fingerprints,
-    repair_wave_id: waveId,
-    change_set_id: pending.change_set_id,
-    review_target_paths: reviewedExecution.execution_result.review_target.entries.map(item => item.path),
-    review_id: pending.review_id,
+    execution_phase: executionPreflight?.execution_phase ?? phase,
+    candidate_paths: executionPreflight?.candidate_paths ?? candidatePaths,
+    repair_fingerprints: executionPreflight?.repair_fingerprints ?? fingerprints,
+    repair_wave_id: executionPreflight?.repair_wave_id ?? waveId,
+    change_set_id: executionPreflight?.change_set_id ?? pending.change_set_id,
+    review_target_paths: executionPreflight?.review_target_paths ?? reviewedExecution.execution_result.review_target.entries.map(item => item.path),
+    review_id: executionPreflight?.review_id ?? pending.review_id,
     review_base: captureReviewTarget(root, reviewTargetPaths),
   };
   return {
     status: 'pass',
     operation_kind: 'execute-step-repair-preflight',
-    committed: false,
-    read_back_verified: true,
-    current_step: currentStepResult(stepPlan, strategy),
+    committed: preflightResult.committed,
+    read_back_verified: options.dryRun ? true : preflightResult.read_back_verified,
+    current_step: currentStepResult(stepPlan, { ...strategy, phase: receipt.execution_phase }),
+    context_projection: taskContextReferenceForCurrent(root, current, 'preflight-step', 'repair'),
     receipt,
   };
 }
@@ -745,24 +912,57 @@ export function retryStep(root: string, input: unknown, options: RuntimeApplyOpt
 // Read current declared subjects after running a check, without refreshing any
 // stored report, prerequisite, review baseline or execution permission.
 export function evidenceContext(root: string, input: unknown): ExecuteStepEvidenceContext {
-  exactKeys(record(input, 'evidence-context input'), [], 'evidence-context input');
+  const source = contextInput(input, ['offset', 'limit', 'continuation']);
   const current = readCanonicalCurrentTask(root);
   assertExecutableTask(current);
   assertBusinessEvidenceVersion(current);
-  const checks = (current.runtimeState.claim_evidence ?? []).flatMap(claim => claim.slots.map(slot => {
+  const allChecks = (current.runtimeState.claim_evidence ?? []).flatMap(claim => claim.slots.map(slot => {
     if (!slot.check) fail('CLAIM_EVIDENCE_PLAN_REQUIRED', 'A frozen check is required.');
     const snapshot = captureReviewTarget(root, slot.check.subject_paths);
     return {
       claim_id: claim.claim_id,
       slot_id: slot.slot_id,
       check_id: slot.check.check_id,
+      boundary: slot.check.boundary ?? null,
+      user_decision: slot.user_decision ? { ...slot.user_decision } : null,
+      frozen_invocation: slot.check.entry,
+      validation_items: [...(slot.check.validation_items ?? [])],
+      minimum_type: slot.minimum_type,
+      execution_selection: slot.check.selection ? { ...slot.check.selection } : null,
       subject_revision: snapshot.revision,
-      subject_snapshot: snapshot,
+      subject_snapshot: subjectSnapshotSummary(snapshot),
     };
   }));
-  if (!current.runtimeState.evidence_plan_revision || !checks.length) fail('CLAIM_EVIDENCE_PLAN_REQUIRED', 'A frozen evidence plan is required.');
+  if (!current.runtimeState.evidence_plan_revision || !allChecks.length) fail('CLAIM_EVIDENCE_PLAN_REQUIRED', 'A frozen evidence plan is required.');
+  const continuationValue = source.continuation;
+  let continuation: { kind: 'execute-step-evidence-page/v1'; source_revision: string; evidence_plan_revision: string; offset: number } | null = null;
+  if (continuationValue !== undefined) {
+    let parsed: unknown = continuationValue;
+    if (typeof continuationValue === 'string') {
+      try { parsed = JSON.parse(continuationValue) as unknown; } catch { fail('EVIDENCE_CONTEXT_CONTINUATION_INVALID', 'continuation is not valid JSON.'); }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail('EVIDENCE_CONTEXT_CONTINUATION_INVALID', 'continuation must be an object.');
+    const cursor = parsed as Record<string, unknown>;
+    if (cursor.kind !== 'execute-step-evidence-page/v1' || cursor.source_revision !== current.sourceTuple.revision
+      || cursor.evidence_plan_revision !== current.runtimeState.evidence_plan_revision
+      || !Number.isSafeInteger(cursor.offset) || Number(cursor.offset) < 0) {
+      fail('EVIDENCE_CONTEXT_STALE', 'source or evidence-plan revision changed; start a fresh evidence-context read.');
+    }
+    continuation = {
+      kind: 'execute-step-evidence-page/v1',
+      source_revision: current.sourceTuple.revision,
+      evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+      offset: Number(cursor.offset),
+    };
+  }
+  const offset = continuation?.offset ?? integer(source.offset, 0, 0, allChecks.length);
+  const limit = integer(source.limit, 64, 1, 64);
+  if (offset > allChecks.length) fail('EVIDENCE_CONTEXT_CONTINUATION_INVALID', 'offset is outside the declared check set.');
+  const checks = allChecks.slice(offset, offset + limit);
+  const nextOffset = offset + checks.length;
+  const complete = nextOffset >= allChecks.length;
   return {
-    status: 'pass',
+    status: complete ? 'pass' : 'partial',
     operation_kind: 'execute-step-evidence-context',
     committed: false,
     task_id: current.runtimeState.task_id,
@@ -770,38 +970,86 @@ export function evidenceContext(root: string, input: unknown): ExecuteStepEviden
     evidence_plan_revision: current.runtimeState.evidence_plan_revision,
     evidence_assurance: 'caller-reported',
     checks,
+    returned_check_count: checks.length,
+    total_check_count: allChecks.length,
+    unexpanded_check_ids: complete ? [] : allChecks.slice(nextOffset, nextOffset + 64).map(item => item.check_id),
+    unexpanded_check_count: Math.max(0, allChecks.length - nextOffset),
+    unexpanded_check_ids_truncated: allChecks.length - nextOffset > 64,
+    complete_for_operation: complete,
+    continuation: complete ? null : {
+      kind: 'execute-step-evidence-page/v1',
+      source_revision: current.sourceTuple.revision,
+      evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+      offset: nextOffset,
+    },
+    subject_snapshots_read: 'Use task-context/task-read for the exact frozen subject entries.',
+    context_projection: taskContextReferenceForCurrent(root, current, 'evidence-context', 'default'),
   };
 }
 
 export function preflightStep(root: string, input: unknown): ExecuteStepPreflightResult {
   const source = record(input, 'preflight-step input');
-  exactKeys(source, ['candidate_paths'], 'preflight-step input');
+  const currentForInput = readCanonicalCurrentTask(root);
+  exactKeys(source, currentForInput.mutationAuthority
+    ? ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments'])]
+    : ['candidate_paths'], 'preflight-step input');
   const candidatePaths = pathList(source.candidate_paths, 'candidate_paths', true);
+  let assessments: BlastRadiusAssessment[] = [];
+  if (currentForInput.mutationAuthority && source.blast_radius_assessments !== undefined) {
+    try { assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error)); }
+  }
 
-  let current = readCanonicalCurrentTask(root);
+  let current = currentForInput;
   assertOrdinaryPreflight(current, root);
   assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
-  assertTestStrategyCandidatePaths(strategy, candidatePaths);
-  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths');
-  assertCommandPlansAdmitted(current, stepPlan);
+  const phase = executionPhaseForCurrentStep(current, strategy);
+  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'default', phase);
+  assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'default');
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
 
   let committed = false;
+  let preflightId: string | undefined;
   const coverage = current.runtimeState.review_coverage;
   const hasPrerequisites = current.runtimeState.claim_evidence?.some(claim => claim.slots.some(slot => slot.before_step_id === stepPlan.step.id && !slot.prerequisite_receipt));
   if (coverage && !hasPrerequisites && captureReviewTarget(root, coverage.target.entries.map(entry => entry.path)).revision !== coverage.target.revision) fail('REVIEW_TARGET_STALE', 'Unrecorded changes cannot refresh the cumulative baseline.');
-  if (!coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready') {
-    const registration = applyVNextRuntimeProposal(root, createStepPreflightProposal(current, candidatePaths));
+  const activePreflightMatchesStep = current.runtimeState.execution_preflight?.step_id === stepPlan.step.id;
+  if (current.mutationAuthority && activePreflightMatchesStep
+    && digest(current.runtimeState.execution_preflight!.candidate_paths) !== digest(candidatePaths)) {
+    fail('EXECUTE_PREFLIGHT_STALE', 'the active v2 preflight already owns a different target set; use extend-preflight for additional targets.');
+  }
+  if (!current.runtimeState.step_attempts?.[stepPlan.step.id] || !coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready' || (current.mutationAuthority && !activePreflightMatchesStep)) {
+  const proposal = createStepPreflightProposal(
+    current,
+    candidatePaths,
+    assessments,
+    current.mutationAuthority
+      ? {
+        plan_revision: stepPlanRevision(stepPlan),
+        execution_phase: phase,
+        change_set_id: changeSetId(current, stepPlan.step.id),
+      }
+      : {},
+  );
+    preflightId = proposal.idempotency_key;
+    const registration = applyVNextRuntimeProposal(root, proposal);
     if (!['success', 'no-op'].includes(registration.status)) fail('PREFLIGHT_BLOCKED', registration.message);
     committed = registration.committed;
     current = readCanonicalCurrentTask(root);
   }
+  if (!preflightId) preflightId = current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.idempotency_key;
+  const executionPreflight = current.runtimeState.execution_preflight;
+  const activeStrategy = executionPreflight?.step_id === stepPlan.step.id
+    ? { ...strategy, phase: executionPreflight.execution_phase }
+    : { ...strategy, phase };
   const receipt: ExecuteStepPreflightReceipt = {
     kind: 'execute-step-preflight/v1',
-    attempt_id:nextStepAttemptId(current),
+    ...(preflightId ? { preflight_id: preflightId } : {}),
+    ...(executionPreflight ? { execution_id: executionPreflight.execution_id } : {}),
+    attempt_id: nextStepAttemptId(current),
     task_id: current.runtimeState.task_id,
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
@@ -809,20 +1057,146 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     plan_revision: stepPlanRevision(stepPlan),
     mode: 'default',
     test_strategy_mode: strategy.mode,
-    execution_phase: strategy.phase,
+    execution_phase: activeStrategy.phase,
     candidate_paths: candidatePaths,
     repair_fingerprint: null,
     change_set_id: changeSetId(current, stepPlan.step.id),
     review_base: captureReviewTarget(root, candidatePaths),
+    ...(current.mutationAuthority ? { mutation_authority_version: 2 as const } : {}),
   };
   return {
     status: 'pass',
     operation_kind: 'execute-step-preflight',
     committed,
     read_back_verified: true,
-    current_step: currentStepResult(stepPlan, strategy),
+    current_step: currentStepResult(stepPlan, activeStrategy),
+    context_projection: taskContextReferenceForCurrent(root, current, 'preflight-step', 'default'),
     receipt,
   };
+}
+
+/**
+ * Admit newly discovered same-envelope paths without creating a continuation
+ * or consuming another attempt.  The replacement receipt is the only receipt
+ * accepted by the subsequent result operation.
+ */
+export function extendPreflight(
+  root: string,
+  input: unknown,
+  options: RuntimeApplyOptions = {},
+): ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult {
+  const source = record(input, 'extend-preflight input');
+  exactKeys(source, ['current_preflight_receipt', 'additional_targets', 'blast_radius_assessments', 'evidence_refs'], 'extend-preflight input');
+  const receipt = normalizePreflightReceipt(source.current_preflight_receipt);
+  if (receipt.mode !== 'default' && receipt.mode !== 'repair') {
+    fail('EXECUTE_PREFLIGHT_IDENTITY_CONFLICT', 'extend-preflight requires a current ordinary or repair preflight receipt.');
+  }
+  const current = readCanonicalCurrentTask(root);
+  if (!current.mutationAuthority) fail('MUTATION_AUTHORITY_VERSION_REQUIRED', 'extend-preflight is available only for Mutation Authority v2 tasks.');
+  if (receipt.mode === 'default') assertOrdinaryPreflight(current, root);
+  else assertExecutableTask(current);
+  const stepPlan = currentStepPlan(current);
+  assertCurrentReceipt(root, current, stepPlan, receipt);
+  const additionalTargets = pathList(source.additional_targets, 'additional_targets', false);
+  if (additionalTargets.some(target => receipt.candidate_paths.includes(target))) {
+    fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', 'additional_targets must not repeat an already preflighted path.');
+  }
+  let assessments: BlastRadiusAssessment[];
+  try { assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments); }
+  catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error)); }
+  const evidenceRefs = textList(source.evidence_refs, 'evidence_refs', false);
+  const candidatePaths = [...receipt.candidate_paths, ...additionalTargets];
+  assertTestStrategySequenceReady(current, resolveTestStrategyExecutionContext(current));
+  assertPathsAdmitted(current, stepPlan, candidatePaths, 'additional_targets', root, assessments, receipt.mode, receipt.execution_phase);
+  assertCommandPlansAdmitted(root, current, stepPlan, assessments, receipt.execution_phase, receipt.mode);
+  const currentPreflightId = receipt.preflight_id ?? receipt.attempt_id;
+  if (!currentPreflightId) fail('EXECUTE_PREFLIGHT_IDENTITY_CONFLICT', 'current_preflight_receipt must bind a preflight id.');
+  const proposal = createStepExtendPreflightProposal(current, {
+    step_id: stepPlan.step.id,
+    current_preflight_id: currentPreflightId,
+    additional_targets: additionalTargets,
+    blast_radius_assessments: assessments,
+    evidence_refs: evidenceRefs,
+    mode: receipt.mode,
+    ...(receipt.execution_id === undefined ? {} : { execution_id: receipt.execution_id }),
+    execution_phase: receipt.execution_phase,
+  });
+  // The execution receipt carries a baseline for this execution's candidate
+  // set.  Preserve the prior receipt baseline and capture only newly admitted
+  // paths now; cumulative review coverage remains a separate projection.
+  const extensionReviewBase = createReviewTargetManifest([
+    ...receipt.review_base.entries,
+    ...captureReviewTarget(root, additionalTargets).entries,
+  ]);
+  const result = applyVNextRuntimeProposal(root, proposal, options);
+  if (!['success', 'no-op'].includes(result.status)) fail('PREFLIGHT_BLOCKED', result.message);
+  const next = options.dryRun ? current : readCanonicalCurrentTask(root);
+  const coverage = next.runtimeState.review_coverage;
+  const nextBase = coverage?.base ?? captureReviewTarget(root, candidatePaths);
+  const active = next.runtimeState.execution_preflight;
+  const nextStrategy = resolveTestStrategyExecutionContext(next);
+  const activeStrategy = active
+    ? { ...nextStrategy, phase: active.execution_phase }
+    : { ...nextStrategy, phase: receipt.execution_phase };
+  if (receipt.mode === 'repair') {
+    const repairReceipt: ExecuteStepRepairPreflightReceipt = {
+      kind: 'execute-step-repair-preflight/v1',
+      ...(active?.preflight_id ? { preflight_id: active.preflight_id } : { preflight_id: proposal.idempotency_key }),
+      ...(active?.execution_id ? { execution_id: active.execution_id } : receipt.execution_id ? { execution_id: receipt.execution_id } : {}),
+      task_id: next.runtimeState.task_id,
+      document_id: next.sourceTuple.document_id,
+      source_revision: next.sourceTuple.revision,
+      step_id: stepPlan.step.id,
+      plan_revision: active?.plan_revision ?? stepPlanRevision(stepPlan),
+      mode: 'repair',
+      test_strategy_mode: activeStrategy.mode,
+      execution_phase: active?.execution_phase ?? receipt.execution_phase,
+      candidate_paths: active?.candidate_paths ?? candidatePaths,
+      repair_fingerprints: active?.repair_fingerprints ?? receipt.repair_fingerprints,
+      repair_wave_id: active?.repair_wave_id ?? receipt.repair_wave_id,
+      change_set_id: active?.change_set_id ?? receipt.change_set_id,
+      review_target_paths: active?.review_target_paths ?? receipt.review_target_paths,
+      review_id: active?.review_id ?? receipt.review_id,
+      review_base: coverage?.target ?? nextBase,
+    };
+    return {
+      status: 'pass',
+      operation_kind: 'execute-step-repair-preflight',
+      committed: result.committed,
+      read_back_verified: options.dryRun ? true : result.read_back_verified,
+      current_step: currentStepResult(stepPlan, activeStrategy),
+      context_projection: taskContextReferenceForCurrent(root, next, 'preflight-step', 'repair'),
+      receipt: repairReceipt,
+    };
+  }
+  const ordinaryResult: ExecuteStepPreflightResult = {
+    status: 'pass',
+    operation_kind: 'execute-step-preflight-extension',
+    committed: result.committed,
+    read_back_verified: options.dryRun ? true : result.read_back_verified,
+    current_step: currentStepResult(stepPlan, activeStrategy),
+    context_projection: taskContextReferenceForCurrent(root, next, 'preflight-step', 'default'),
+    receipt: {
+      kind: 'execute-step-preflight/v1',
+      ...(active?.preflight_id ? { preflight_id: active.preflight_id } : { preflight_id: proposal.idempotency_key }),
+      ...(active?.execution_id ? { execution_id: active.execution_id } : receipt.execution_id ? { execution_id: receipt.execution_id } : {}),
+      ...(receipt.attempt_id ? { attempt_id: receipt.attempt_id } : {}),
+      task_id: next.runtimeState.task_id,
+      document_id: next.sourceTuple.document_id,
+      source_revision: next.sourceTuple.revision,
+      step_id: stepPlan.step.id,
+      plan_revision: active?.plan_revision ?? stepPlanRevision(stepPlan),
+      mode: 'default',
+      test_strategy_mode: activeStrategy.mode,
+      execution_phase: active?.execution_phase ?? receipt.execution_phase,
+      candidate_paths: active?.candidate_paths ?? candidatePaths,
+      repair_fingerprint: null,
+      change_set_id: active?.change_set_id ?? coverage?.change_set_id ?? changeSetId(next, stepPlan.step.id),
+      review_base: extensionReviewBase,
+      mutation_authority_version: 2,
+    },
+  };
+  return ordinaryResult;
 }
 
 type CommandResult = {
@@ -831,12 +1205,14 @@ type CommandResult = {
   observed_repo_writes: string[];
   evidence_refs: string[];
   expected_failure?: StepExpectedFailureEvidence;
+  waiver_decision_id?: string;
 };
 type ValidationResult = {
   validation: string;
   status: StepExecutionResultStatus;
   evidence_refs: string[];
   expected_failure?: StepExpectedFailureEvidence;
+  waiver_decision_id?: string;
 };
 type AcceptanceEvidence = StepAcceptanceEvidence;
 
@@ -872,7 +1248,7 @@ function normalizeCommandResults(value: unknown): CommandResult[] {
       source,
       status === 'expected-failure'
         ? ['command', 'status', 'observed_repo_writes', 'evidence_refs', 'expected_failure']
-        : ['command', 'status', 'observed_repo_writes', 'evidence_refs'],
+        : ['command', 'status', 'observed_repo_writes', 'evidence_refs', ...(source.waiver_decision_id === undefined ? [] : ['waiver_decision_id'])],
       location,
     );
     const observedRepoWrites = pathList(source.observed_repo_writes, `${location}.observed_repo_writes`, true);
@@ -881,6 +1257,7 @@ function normalizeCommandResults(value: unknown): CommandResult[] {
     }
     return {
       command: text(source.command, `${location}.command`),
+      ...(source.waiver_decision_id === undefined ? {} : { waiver_decision_id: text(source.waiver_decision_id, 'waiver_decision_id') }),
       status,
       observed_repo_writes: observedRepoWrites,
       evidence_refs: textList(source.evidence_refs, `${location}.evidence_refs`, status === 'not-run'),
@@ -907,11 +1284,12 @@ function normalizeValidationResults(value: unknown): ValidationResult[] {
       source,
       status === 'expected-failure'
         ? ['validation', 'status', 'evidence_refs', 'expected_failure']
-        : ['validation', 'status', 'evidence_refs'],
+        : ['validation', 'status', 'evidence_refs', ...(source.waiver_decision_id === undefined ? [] : ['waiver_decision_id'])],
       location,
     );
     return {
       validation: text(source.validation, `${location}.validation`),
+      ...(source.waiver_decision_id === undefined ? {} : { waiver_decision_id: text(source.waiver_decision_id, 'waiver_decision_id') }),
       status,
       evidence_refs: textList(source.evidence_refs, `${location}.evidence_refs`, status === 'not-run'),
       ...(status === 'expected-failure'
@@ -964,14 +1342,30 @@ function assertObservedWithinExpected(command: PlannedCommand, observed: readonl
   }
 }
 
-function assertCommandResults(current: CanonicalCurrentTask, stepPlan: StepPlan, results: CommandResult[]): void {
+function assertCommandResults(
+  root: string,
+  current: CanonicalCurrentTask,
+  stepPlan: StepPlan,
+  results: CommandResult[],
+  phase: TestStrategyExecutionContext['phase'],
+  mode: 'default' | 'repair',
+): void {
   assertExactResultSet(results.map(item => item.command), stepPlan.commands.map(item => item.command), 'command_results');
+  if (current.mutationAuthority) {
+    for (const result of results) {
+      if (result.status === 'not-run') continue;
+      const planned = stepPlan.commands.find(item => item.command === result.command)!;
+      assertObservedWithinExpected(planned, result.observed_repo_writes);
+      assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`, root, [], mode, phase);
+    }
+    return;
+  }
   const scope = parseMutationScope(current.body, current.sourceTuple.revision);
   for (const result of results) {
     const planned = stepPlan.commands.find(item => item.command === result.command)!;
     if (result.status === 'not-run') continue;
     assertObservedWithinExpected(planned, result.observed_repo_writes);
-    assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`);
+    assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`, root, [], mode, phase);
     if (planned.expected_repo_writes === 'none') continue;
     const audit = auditCommandMutation(scope, {
       command: planned.command,
@@ -1154,19 +1548,19 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   }
   assertExecutableTask(current);
   let stepPlan = currentStepPlan(current);
-  assertCurrentReceipt(current, stepPlan, receipt);
+  assertCurrentReceipt(root, current, stepPlan, receipt);
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
-  assertTestStrategyCandidatePaths(strategy, receipt.candidate_paths);
-  assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, 'preflight_receipt.candidate_paths');
-  assertPathsAdmitted(current, stepPlan, actualChangedPaths, 'actual_changed_paths');
-  assertCommandResults(current, stepPlan, commandResults);
+  assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, 'preflight_receipt.candidate_paths', root, [], receipt.mode, receipt.execution_phase);
+  assertPathsAdmitted(current, stepPlan, actualChangedPaths, 'actual_changed_paths', root, [], receipt.mode, receipt.execution_phase);
+  assertCommandResults(root, current, stepPlan, commandResults, receipt.execution_phase, receipt.mode);
   assertValidationResults(stepPlan, validationResults);
-  if (outcome === 'implemented' && commandResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure')) {
-    fail('EXECUTE_RESULT_BLOCKED', 'implemented requires every planned command to pass.');
+  assertExecutionResultWaivers(root, current, stepPlan.step.id, { command_results: commandResults, validation_results: validationResults });
+  if (outcome === 'implemented' && commandResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure' && !item.waiver_decision_id)) {
+    fail('EXECUTE_RESULT_BLOCKED', 'implemented requires passing commands or exact user-waived validation commands.');
   }
-  if (outcome === 'implemented' && validationResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure')) {
-    fail('EXECUTE_RESULT_BLOCKED', 'implemented requires every planned validation to pass.');
+  if (outcome === 'implemented' && validationResults.some(item => item.status !== 'passed' && item.status !== 'expected-failure' && !item.waiver_decision_id)) {
+    fail('EXECUTE_RESULT_BLOCKED', 'implemented requires passing validation or exact user-waived validation; never report a waiver as PASS.');
   }
   if (outcome === 'test-red') {
     const resultStatuses = [...commandResults, ...validationResults].map(item => item.status);
@@ -1181,9 +1575,6 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
       fail('TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN', 'test-red evidence cannot satisfy final acceptance claims before implementation reaches Green.');
     }
   }
-  if (strategy.phase === 'red' && outcome === 'implemented') {
-    fail('TEST_STRATEGY_SEQUENCE_INVALID', 'the first test-first step cannot report implemented; it must establish test-red or report a truthful blocker.');
-  }
   if (outcome === 'blocked' && note === null) {
     fail('EXECUTE_RESULT_BLOCKED', 'blocked requires a concise blocker in note.');
   }
@@ -1193,14 +1584,20 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
 
   if (receipt.kind === 'execute-step-repair-preflight/v1') {
     const pending = current.runtimeState.pending_review_result;
-    const priorExecution = pending && current.runtimeState.execution_log.map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
+    const priorExecution = pending && currentDefinitionExecutionLog(current).find((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.idempotency_key === pending.execution_id,
     );
+    const activePreflight = current.runtimeState.execution_preflight;
+    const priorTargetPaths = activePreflight?.mode === 'repair'
+      ? activePreflight.review_target_paths
+      : priorExecution
+        ? cumulativeReviewExecution(current, priorExecution).execution_result?.review_target.entries.map(item => item.path)
+        : undefined;
     if (!pending || !priorExecution?.execution_result
       || pending.review_id !== receipt.review_id
       || pending.change_set_id !== receipt.change_set_id
       || priorExecution.execution_result.change_set_id !== receipt.change_set_id
-      || digest(priorExecution.execution_result.review_target.entries.map(item => item.path)) !== digest(receipt.review_target_paths)) {
+      || (priorTargetPaths !== null && priorTargetPaths !== undefined && digest(priorTargetPaths) !== digest(receipt.review_target_paths))) {
       fail('REVIEW_TARGET_CONFLICT', 'repair result no longer binds the Runtime-recorded reviewed change set.');
     }
   }
@@ -1208,6 +1605,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   const evidenceRefs = allEvidenceRefs(commandResults, validationResults, acceptanceEvidence);
   const claimEvidence = updateClaimEvidence(current, acceptanceEvidence);
   const executionResult: StepExecutionResult = {
+    ...(receipt.execution_id ? { execution_id: receipt.execution_id } : {}),
     ...(receipt.kind === 'execute-step-preflight/v1' && receipt.attempt_id ? {attempt_id:receipt.attempt_id} : {}),
     ...(source.blocker_kind === undefined ? {} : {blocker_kind:source.blocker_kind as 'environment' | 'unknown'}),
     outcome,
@@ -1242,7 +1640,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
 
   let status: 'blocked' | 'completed' | 'in-progress';
   if (outcome === 'blocked') status = 'blocked';
-  else if (receipt.mode === 'repair' || stepPlan.step.review_checkpoint === 'not-required') status = 'completed';
+  else if (receipt.mode === 'repair' || (stepPlan.step.review_checkpoint === 'not-required' && !dynamicReviewRequiredForCurrentExecution(current))) status = 'completed';
   else status = 'in-progress';
   const proposal = createTaskStateProposal(current, {
     mode: receipt.mode,
@@ -1335,7 +1733,11 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     if (pending.verdict !== 'clean') {
       fail('CLEAN_REVIEW_REQUIRED', `complete-reviewed-step requires clean; current review verdict is ${pending.verdict}.`);
     }
-    const reviewedExecution = currentDefinitionExecutionLog(current).map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
+    const reviewedExecution = currentDefinitionExecutionLog(current).map(item => 'action' in item
+      ? item
+      : current.runtimeState.scope_amendment_pending_review_step_id === pending.step_id && item.idempotency_key === pending.execution_id
+        ? item
+        : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.idempotency_key === pending.execution_id,
     );
     if (!reviewedExecution?.execution_result
@@ -1371,16 +1773,29 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
     return semanticNoOp(current, resultKey, 'This exact reviewed-step completion was already committed.', options);
   }
   assertExecutableTask(current);
-  if (current.runtimeState.active_step_id !== stepId) {
-    fail('ACTIVE_STEP_CONFLICT', `complete-reviewed-step targets ${stepId}, but the current active step is ${current.runtimeState.active_step_id}.`);
-  }
-  const stepPlan = currentStepPlan(current);
   const priorExecution = currentDefinitionExecutionLog(current).some(item =>
     !('action' in item)
     && item.step_id === stepId
     && item.idempotency_key.startsWith('execute-step-result-'),
   );
   if (!priorExecution) fail('EXECUTE_RESULT_REQUIRED', 'complete-reviewed-step requires a prior semantic record-step-result for this step.');
+  const retainedReview = current.runtimeState.active_step_id !== stepId
+    && current.runtimeState.scope_amendment_pending_review_step_id === stepId;
+  if (current.runtimeState.active_step_id !== stepId && !retainedReview) {
+    fail('ACTIVE_STEP_CONFLICT', `complete-reviewed-step targets ${stepId}, but the current active step is ${current.runtimeState.active_step_id}.`);
+  }
+  if (retainedReview) {
+    assertExecutableTask(current);
+    const proposal = createRetainedReviewConsumptionProposal(current, {
+      step_id: stepId,
+      review_receipt: reviewReceipt,
+      evidence_refs: [...reviewReceipt.evidence_refs],
+      idempotency_key: resultKey,
+      authority_evidence: authority(current, ['active-task-owner', 'scope-admission', 'evidence-admission']),
+    });
+    return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+  }
+  const stepPlan = currentStepPlan(current);
   if (reviewReceipt.cycle_id !== current.runtimeState.review_cycle.id) {
     fail('REVIEW_CYCLE_CONFLICT', 'review receipt does not belong to the current Runtime review cycle.');
   }
@@ -1412,7 +1827,9 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
   }
   const claimEvidence = current.runtimeState.claim_evidence;
   const resolution = resolveTaskStep(current.body, stepId);
-  if (resolution.next === null && (!claimEvidence || !evaluateClaimEvidence(claimEvidence, { root, current }).validation_complete)) {
+  const finalEvidenceContext = hasRemainingCorrectionTargets(current, stepId)
+    ? { root, current, due_step_id: stepId } : { root, current };
+  if (resolution.next === null && (!claimEvidence || !evaluateClaimEvidence(claimEvidence, finalEvidenceContext).validation_complete)) {
     fail('CLAIM_EVIDENCE_INCOMPLETE', 'the final step cannot complete until every frozen acceptance-evidence slot has evidence.');
   }
 
@@ -1498,8 +1915,27 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
       case 'preflight-step':
         result = preflightStep(args.root, input);
         break;
+      case 'extend-preflight':
+        result = extendPreflight(args.root, input, { dryRun: args.dryRun });
+        break;
+      case 'artifact-checkpoints':
+        exactKeys(record(input, 'artifact-checkpoints'), [], 'artifact-checkpoints');
+        result = listArtifactCheckpoints(args.root);
+        break;
+      case 'apply-artifact-restore': {
+        const source = record(input, 'apply-artifact-restore');
+        exactKeys(source, ['preflight_receipt'], 'apply-artifact-restore');
+        const receipt = normalizePreflightReceipt(source.preflight_receipt);
+        const current = readCanonicalCurrentTask(args.root);
+        assertCurrentReceipt(root, current, currentStepPlan(current), receipt);
+        result = executeConfirmedArtifactRestore(args.root, current.sourceTuple.revision, receipt.step_id, receipt.candidate_paths, args.dryRun);
+        break;
+      }
       case 'evidence-context':
         result = evidenceContext(args.root, input);
+        break;
+      case 'replace-validation':
+        result = replaceValidation(args.root, input, { dryRun: args.dryRun });
         break;
       case 'retry-step':
         result = retryStep(args.root,input,{dryRun:args.dryRun});

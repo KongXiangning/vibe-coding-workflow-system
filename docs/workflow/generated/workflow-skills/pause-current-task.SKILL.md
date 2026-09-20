@@ -112,6 +112,10 @@ transaction_markers:
 
 将当前 active task 安全暂停为 paused suspended package，并保留可恢复的完整任务快照。
 
+## Unified task context protocol
+
+暂停前先用 `validate --summary` 和只读 `task-context` 固定当前身份、状态、完整定义、未完成义务、依赖、累计审查与恢复门禁。恢复包、前像和历史事件用精确 `task-read` 引用并跟完 UTF-8 字节分页；不得从最近 N 条日志或缓存 hash 推断缺失事实。读取收据不授予生命周期写权限；多文件事务仍须由 Runtime 提交器和读回完成。
+
 ## Trigger
 
 当前任务需要暂时让出 active ownership，但后续仍可能恢复时。

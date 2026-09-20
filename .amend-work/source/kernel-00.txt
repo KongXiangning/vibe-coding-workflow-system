@@ -1,0 +1,2000 @@
+
+/**
+ * Pure-vNext state-changing Runtime slice.
+ *
+ * Phase 2 binds the execute-step task/finding slice plus lifecycle, replan,
+ * and close-task transactions. The Runtime accepts typed proposals,
+ * validates the canonical source tuple and exact write targets, renders
+ * canonical Markdown/YAML in memory, commits an atomic file set, and reads
+ * the result back before reporting success.
+ */
+
+import { readProjectDocuments } from './project-documents';
+import { taskStorageMetrics } from './task-storage-metrics';
+import { TASK_RECOVERY_PROTOCOL } from './task-recovery';
+import { describeEvidenceObjects, preserveEvidenceObjects, verifyEvidenceObject, safeRepositoryFile, type EvidenceObject } from './evidence-lineage';
+import { captureArtifactImages, saveArtifactCheckpoint, prepareArtifactRestore, applyArtifactRestore, assertNoArtifactPublication, type ArtifactRestorePlan } from './artifact-checkpoints';
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import { ACTIVE_TASK_FORMAT, prepareTaskProjection, expandTaskProjection, persistTaskProjection, type PreparedTaskContent } from './task-projection';
+import * as path from 'path';
+import { parseDocument, stringify } from 'yaml';
+import {
+  executeWrites,
+  assertGovernanceReadable,
+  withGovernanceWriteLock,
+  getWorkflowDocPath,
+  getWorkflowProfilePath,
+  loadProfile,
+  governanceWriteLockIsHeld,
+} from './runtime-io';
+import { assertTaskHistoryForRevision, commitSupersedeWithHistory, commitTaskEvolutionWithHistory,
+  publishPreparedSuccessor, recoverTaskEvolution, taskHistoryLocation } from './task-evolution-io';
+import { TaskStore, TaskStoreError, readStorageMigrationLineage, migrationSemanticModel, taskStorePaths, type TaskStoreManifest, type TaskStorePendingWrite } from './task-store';
+import {
+  CURRENT_TASK_WORKFLOW_STATUSES,
+  RESUME_REVIEW_REASON_ORDER,
+  TASK_LIFECYCLE_STATES,
+  getTaskArtifactPath,
+  extractCurrentTaskStateFromCurrentTask,
+  extractTaskIdentityFromCurrentTask,
+  normalizeResumeReviewReasons,
+  parseBooleanField,
+  validateTaskId,
+  validateTaskSlug,
+  validateCurrentTaskResumeGate,
+  validateCurrentTaskStatusTuple,
+  type CurrentTaskWorkflowStatus,
+  type ResumeReviewReason,
+  type TaskArtifactKind,
+  type TaskLifecycleState,
+} from './task-identity';
+import {
+  auditCommandMutation,
+  evaluateMutationScope,
+  MutationScopeError,
+  mutationScopePatternIsSubset,
+  mutationScopePatternMatchesPath,
+  isLikelyPersistentTestPath,
+  nonExecutableChangePatternIsBounded,
+  parseMutationScope,
+  type CommandMutationAuditInput,
+  type ConditionalScopeAuthorization,
+  type MutationScopeEvaluationInput,
+  type MutationTransformationKind,
+} from './mutation-scope';
+import {
+  parseImplementationSteps,
+  resolveTaskStep,
+  TaskStepDefinitionError,
+  type TaskStepCheckpointPolicy,
+  type TaskStepDefinition,
+  type TaskStepResolution,
+} from './task-steps';
+import {
+  MUTATION_AUTHORITY_VERSION,
+  MutationAuthorityError,
+  authorityDomainForPath,
+  evaluateMutationAuthority,
+  requiresDynamicReview,
+  normalizeBlastRadiusAssessments,
+  normalizeAuthorityPath,
+  normalizeTaskMutationAuthority,
+  evaluateTaskMutationAuthorityPlan,
+  mutationAuthorityPlanBlockerCode,
+  projectMutationAuthorityRevision,
+  readProjectMutationAuthority,
+  validateTaskMutationAuthority,
+  type BlastRadiusAssessment,
+  type TaskMutationAuthority,
+} from './mutation-authority';
+import {
+  EXECUTION_ADMISSION_CLASSIFICATIONS,
+  evaluateExecutionTargetAdmissions,
+  type ExecutionAdmissionEvaluation,
+  type ExecutionAdmissionMode,
+  type ExecutionAdmissionPhase,
+} from './execution-admission';
+import {
+  decodeLegacyReviewPreimage,
+  persistReviewPreimageWrites,
+  type ReviewPreimageWrite,
+  ReviewPreimageStoreError,
+} from './review-preimage-store';
+import {
+  BOOTSTRAP_MODES,
+  BOOTSTRAP_OPERATION_KINDS,
+  type BootstrapMode,
+} from './bootstrap';
+import {
+  STATUS_SECTION_KEYS,
+  STATUS_SECTIONS,
+  type StatusSectionKey,
+} from './status-schema';
+import type {
+  ImplementationAnchors,
+  KnowledgeCandidate,
+  KnowledgeAdmissionDisposition,
+} from '../../../scripts/project-context-resolver';
+
+export * from './mutation-scope';
+export * from './mutation-authority';
+export * from './execution-admission';
+export * from './status-schema';
+
+export const VNEXT_RUNTIME_SCHEMA_VERSION = 1 as const;
+export const VNEXT_RUNTIME_PROPOSAL_KIND = 'vnext-runtime-proposal' as const;
+export const VNEXT_CURRENT_TASK_KIND = 'vnext-current-task' as const;
+export const VNEXT_RUNTIME_STATE_KIND = 'vnext-current-task-runtime-state' as const;
+export const VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH = '.workflow-system/vnext/RUNTIME_CONTRACT.yaml';
+export const VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH = '.workflow-system/runtime';
+export const VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH = '.workflow-system/runtime/dist/cli.js';
+export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/runtime/package.json';
+export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
+export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
+export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.2';
+
+export const RUNTIME_OPERATION_KINDS = [
+  'task-state-transaction',
+  'finding-queue-transaction',
+  'lifecycle-transaction',
+  'inbox-record-transaction',
+  'project-status-transaction',
+  'archive-transaction',
+  'lesson-record-transaction',
+  'contract-candidate-commit',
+  'decision-record-transaction',
+] as const;
+export type RuntimeOperationKind = (typeof RUNTIME_OPERATION_KINDS)[number];
+
+const RUNTIME_SOURCE_TUPLE_FIELDS = [
+  'path',
+  'revision',
+  'document_id',
+  'task_id',
+  'task_slug',
+  'workflow_status',
+  'lifecycle_state',
+  'active_step_id',
+  'active_step_status',
+  'finding_queue_revision',
+  'resume_requires_review',
+  'resume_review_reasons',
+] as const;
+const RUNTIME_REQUIRED_ENVELOPE_FIELDS = [
+  'authority_evidence',
+  'semantic_delta',
+  'preconditions',
+  'evidence_refs',
+  'idempotency_key',
+  'requested_write_targets',
+] as const;
+const RUNTIME_STATE_FIELDS = [
+  'business_evidence_version',
+  'evidence_plan_revision',
+  'task_evolution_version',
+  'preservation_source_revision',
+  'task_id',
+  'task_slug',
+  'workflow_status',
+  'lifecycle_state',
+  'resume_requires_review',
+  'resume_review_reasons',
+  'active_step_id',
+  'active_step_status',
+  'finding_queue_revision',
+  'review_cycle',
+  'findings',
+  'execution_log',
+  'applied_proposals',
+  'claim_evidence_required',
+  'claim_evidence',
+  'pending_review_result',
+  'review_coverage',
+  'step_attempts',
+  'evidence_challenges',
+  'evidence_carry_forward',
+  'artifact_checkpoint_ids',
+  'dynamic_review_required',
+  'dynamic_expansions',
+  'execution_preflight',
+  'authority_domain_revision',
+] as const;
+const REVIEW_CYCLE_FIELDS = [
+  'id',
+  'cycle_phase',
+  'repair_round',
+  'counted_repair_wave_ids',
+  'active_repair_wave_id',
+  'verification_new_finding_wave_used',
+  'verification_new_finding_wave_id',
+] as const;
+
+export const RUNTIME_RESULT_STATES = ['success', 'no-op', 'conflict', 'blocked'] as const;
+export type RuntimeResultState = (typeof RUNTIME_RESULT_STATES)[number];
+
+export const VNEXT_EXECUTE_STEP_MODES = ['default', 'repair'] as const;
+export type VNextExecuteStepMode = (typeof VNEXT_EXECUTE_STEP_MODES)[number];
+export const PREPARE_TASK_MODES = ['default', 'confirm', 'replan', 'amend-scope'] as const;
+export type PrepareTaskMode = (typeof PREPARE_TASK_MODES)[number];
+
+export const LIFECYCLE_MODES = ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'] as const;
+export type LifecycleMode = (typeof LIFECYCLE_MODES)[number];
+export const CLOSE_TASK_MODES = ['default'] as const;
+export type CloseTaskMode = (typeof CLOSE_TASK_MODES)[number];
+
+export const INBOX_ITEM_TYPES = ['requirement', 'idea', 'bug', 'chore', 'question'] as const;
+export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number];
+export const INBOX_ITEM_SOURCES = ['user', 'implementation', 'review', 'regression', 'root_cause', 'other'] as const;
+export type InboxItemSource = (typeof INBOX_ITEM_SOURCES)[number];
+export const INBOX_SUGGESTED_NEXT_ACTIONS = ['triage_later', 'ask_user'] as const;
+export type InboxSuggestedNextAction = (typeof INBOX_SUGGESTED_NEXT_ACTIONS)[number];
+
+export const REVIEW_CYCLE_PHASES = ['discovery', 'verification'] as const;
+export type ReviewCyclePhase = (typeof REVIEW_CYCLE_PHASES)[number];
+
+export const STEP_STATUSES = ['ready', 'in-progress', 'completed', 'blocked'] as const;
+export type StepStatus = (typeof STEP_STATUSES)[number];
+
+export const STEP_EXECUTION_RESULT_STATUSES = ['passed', 'expected-failure', 'failed', 'blocked', 'not-run'] as const;
+export type StepExecutionResultStatus = (typeof STEP_EXECUTION_RESULT_STATUSES)[number];
+
+export const FINDING_STATUSES = ['admitted', 'in-progress', 'resolved', 'deferred', 'rejected'] as const;
+export type FindingStatus = (typeof FINDING_STATUSES)[number];
+
+export const REPLAN_TASK_STATE_ACTIONS = ['mark-replan-blocked', 'clear-replan-block', 'commit-replan'] as const;
+export type ReplanTaskStateAction = (typeof REPLAN_TASK_STATE_ACTIONS)[number];
+
+export const DRAFT_TASK_STATE_ACTIONS = ['create-draft', 'update-draft', 'confirm-draft'] as const;
+export type DraftTaskStateAction = (typeof DRAFT_TASK_STATE_ACTIONS)[number];
+
+export const CLAIM_EVIDENCE_MIGRATION_ACTIONS = ['migrate-claim-evidence'] as const;
+export type ClaimEvidenceMigrationAction = (typeof CLAIM_EVIDENCE_MIGRATION_ACTIONS)[number];
+
+export const REVIEW_TASK_STATE_ACTIONS = ['record-review-result'] as const;
+export type ReviewTaskStateAction = (typeof REVIEW_TASK_STATE_ACTIONS)[number];
+
+export const DRAFT_AUDIT_ACTIONS = ['create-draft', 'update-draft', 'confirm-draft'] as const;
+export type DraftAuditAction = (typeof DRAFT_AUDIT_ACTIONS)[number];
+
+export const REPLAN_AUDIT_ACTIONS = [
+  'supersede',
+  'mark-replan-blocked',
+  'clear-replan-block',
+  'commit-replan',
+  'commit-scope-amendment',
+] as const;
+export type ReplanAuditAction = (typeof REPLAN_AUDIT_ACTIONS)[number];
+
+export const FINDING_ACTIONS = ['admit', 'record-repair-attempt', 'resolve', 'defer', 'reject'] as const;
+export type FindingAction = (typeof FINDING_ACTIONS)[number];
+
+export const STEP_ADVANCEMENT_OUTCOMES = [
+  'not-applicable',
+  'repair-awaiting-verification',
+  'advanced',
+  'task-complete',
+] as const;
+export type StepAdvancementOutcome = (typeof STEP_ADVANCEMENT_OUTCOMES)[number];
+
+const DOCUMENT_ID_PATTERN = /^doc-[a-f0-9]{24}$/;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const SAFE_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
+const FINGERPRINT_PATTERN = /^[a-z0-9][a-z0-9._:-]{2,127}$/;
+const STEP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const MAX_TEXT_LENGTH = 4000;
+const MAX_EVIDENCE_REFS = 32;
+const MAX_FINDINGS = 256;
+const MAX_APPLIED_PROPOSALS = 256;
+const MAX_EXECUTION_LOG = 256;
+const MAX_EXECUTION_RESULT_ITEMS = 256;
+const MAX_CLAIM_EVIDENCE_RECORDS = 256;
+const MAX_CLAIM_EVIDENCE_SLOTS = 32;
+const MAX_REPLAN_SECTION_CONTENT_LENGTH = 32768;
+export const MAX_REPAIR_ROUNDS = 3;
+const CLAIM_EVIDENCE_COMPLETION_RULE = 'non-empty acceptance-bearing frozen plan; due slots require bound successful reports or exact applicable user waivers; waivers never imply PASS; close checks all slots and consumed prerequisites';
+const DRAFT_CLAIM_EVIDENCE_REQUIREMENT = 'required-and-non-empty-for-new-or-refined-drafts; must-include-an-acceptance-claim; legacy-documents-remain-readable-but-require-migration-before-terminal-completion';
+const CLOSE_TASK_CLAIM_EVIDENCE_RULE = 'derive acceptance_satisfied and validation_complete from the non-empty frozen CURRENT_TASK claim_evidence plan; require an acceptance claim; aggregate command success is insufficient';
+export const MAX_REPAIR_ATTEMPTS = 2;
+const CURRENT_TASK_RELATIVE_FALLBACK = 'docs/workflow/CURRENT_TASK.md';
+const INBOX_RECORD_ITEM_ID_PATTERN = /^(\d{8})-([a-z0-9]{4,})$/;
+const INBOX_RECORD_PATH_PATTERN = /^TASKS\/inbox\/INBOX-(\d{8})-([a-z0-9]{4,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
+const INBOX_RECORD_PROVENANCE_MARKER = '<!-- vNext inbox record:';
+const MAX_INBOX_TEXT_LENGTH = 32768;
+const INBOX_CAPTURE_PRECONDITIONS = [
+  'current-task-is-active',
+  'relation-proven-unrelated',
+  'duplicate-check-clear',
+  'owner-route-resolved',
+] as const;
+
+type AnyRecord = Record<string, unknown>;
+
+export type AuthorityEvidence = {
+  kind: 'active-task-owner' | 'scope-admission' | 'finding-admission' | 'evidence-admission' | 'dangerous-operation' | 'resume-review' | 'user-confirmation' | 'authorized-caller';
+  source: string;
+  subject: string;
+  task_id?: string;
+  document_id?: string;
+  draft_revision?: string;
+  source_revision?: string;
+};
+
+export type RuntimeSourceTuple = {
+  path: string;
+  revision: string;
+  document_id: string;
+  task_id: string;
+  task_slug: string;
+  workflow_status: CurrentTaskWorkflowStatus;
+  lifecycle_state: TaskLifecycleState;
+  active_step_id: string;
+  active_step_status: StepStatus;
+  finding_queue_revision: number;
+  resume_requires_review: boolean;
+  resume_review_reasons: ResumeReviewReason[];
+};
+
+export type PartialDiffDisposition = {
+  reusable: string[];
+  rollback_required: string[];
+  stop_propagation: string[];
+};
+
+export type ReplanReplacementDefinition = {
+  background_context: string;
+  acceptance: string;
+  allowed_scope: string;
+  conditional_scope: string;
+  forbidden_scope: string;
+  affected_contracts: string;
+  confirmed_decisions: string;
+  open_questions: string;
+  implementation_plan: string;
+  implementation_steps: string;
+  regression_checks: string;
+  rollback_points: string;
+  design_constraints: string | null;
+  post_release_validation: string | null;
+  propagation_governance: string | null;
+  mutation_authority_version?: typeof MUTATION_AUTHORITY_VERSION;
+  mutation_authority?: TaskMutationAuthority;
+};
+
+export type DraftTaskDefinition = ReplanReplacementDefinition;
+
+export const TEST_STRATEGY_MODES = [
+  'flexible',
+  'test-first',
+  'implementation-first',
+  'not-applicable',
+] as const;
+export type TestStrategyMode = (typeof TEST_STRATEGY_MODES)[number];
+
+export const TEST_STRATEGY_SOURCES = [
+  'explicit-user',
+  'project-policy',
+  'inferred-default',
+] as const;
+export type TestStrategySource = (typeof TEST_STRATEGY_SOURCES)[number];
+
+export const TEST_STRATEGY_CLASSIFICATIONS = [
+  'contract-clear-behavior',
+  'exploratory-or-infrastructure',
+  'non-executable-change',
+] as const;
+export type TestStrategyClassification = (typeof TEST_STRATEGY_CLASSIFICATIONS)[number];
+
+export type TestStrategyDefinition = {
+  mode: TestStrategyMode;
+  source: TestStrategySource;
+  source_ref: string;
+  task_classification: TestStrategyClassification;
+  rationale: string;
+};
+
+export type TestStrategyExecutionPhase = 'flexible' | 'test-first' | 'red' | 'green' | 'implementation-first' | 'not-applicable' | 'legacy';
+
+export type TestStrategyExecutionContext = {
+  mode: TestStrategyMode | 'legacy';
+  phase: TestStrategyExecutionPhase;
+  required_outcome: 'implemented';
+  persistent_tests: string[];
+  step_index: number;
+  first_step_id: string;
+};
+
+export type TaskBasisSource = {
+  source: string;
+  verbatim: string;
+};
+
+export type TaskBasis = {
+  original_request: TaskBasisSource;
+  user_decisions: TaskBasisSource[];
+};
+
+export type TaskBasisReference = {
+  path: string;
+  revision: string;
+};
+
+export const CLAIM_KINDS = [
+  'acceptance',
+  'regression',
+  'invariant',
+  'bug-reproduction',
+  'compatibility',
+  'release',
+  'exploration',
+] as const;
+export type ClaimKind = (typeof CLAIM_KINDS)[number];
+
+export const CLAIM_EVIDENCE_DISPOSITIONS = [
+  'existing',
+  'reused',
+  'newly-executed',
+  'missing',
+  'deferred',
+  'blocked',
+] as const;
+export type ClaimEvidenceDisposition = (typeof CLAIM_EVIDENCE_DISPOSITIONS)[number];
+
+/** A task-scoped user statement, not an authenticated provider assertion. */
+export type UserEvidenceDecision = {
+  kind: 'human-acceptance' | 'waiver';
+  /** Exact planned validation labels explicitly included in this decision. */
+  validation_items?: string[];
+  decision_id: string;
+  decision_source: string;
+  statement_sha256: string;
+  check_id: string;
+  evidence_plan_revision: string;
+  subject_revision: string;
+  recorded_at: string;
+  assurance: 'caller-reported';
+};
+
+export type ClaimEvidenceSlot = {
+  slot_id: string;
+  minimum_type: string;
+  disposition: ClaimEvidenceDisposition;
+  evidence_refs: string[];
+  due_step_id?: string;
+  applicability?: 'current' | 'before-step';
+  before_step_id?: string;
+  check?: EvidenceCheck;
+  report?: EvidenceReport | null;
+  prerequisite_receipt?: { step_id: string; preflight_id: string; result_id: string; subject_snapshot: ReviewTarget } | null;
+  user_decision?: UserEvidenceDecision;
+};
+
+const LEGACY_EVIDENCE_EXECUTION_SELECTION_SCOPES = [
+  'focused',
+  'target',
+  'integration',
+  'e2e',
+  'broad-regression',
+] as const;
+type LegacyEvidenceExecutionSelectionScope = (typeof LEGACY_EVIDENCE_EXECUTION_SELECTION_SCOPES)[number];
+export const EVIDENCE_CHECK_BOUNDARIES = ['local', 'business-flow', 'e2e'] as const;
+export type EvidenceCheckBoundary = (typeof EVIDENCE_CHECK_BOUNDARIES)[number];
+export const EVIDENCE_EXECUTION_GRANULARITIES = ['focused', 'target', 'broad-regression'] as const;
+
+export const EVIDENCE_EXECUTION_BREADTH_BASES = [
+  'claim-risk-contract',
+  'acceptance-boundary',
+  'low-cost-evidence-insufficient',
+  'project-policy',
+  'release-gate',
+  'explicit-user',
+] as const;
+export type EvidenceExecutionBreadthBasis = (typeof EVIDENCE_EXECUTION_BREADTH_BASES)[number];
+
+export type EvidenceInvocation =
+  | { kind?: 'structured'; argv: string[]; selector_arg_index: number | null }
+  | { kind: 'opaque'; command: string };
+
+/**
+ * A bounded declaration of why one execution command is sufficient for one
+ * claim slot. It deliberately describes selection; it does not model a test
+ * registry, coverage system, or a new test lifecycle.
+ */
+export type EvidenceExecutionSelection = {
+  granularity?: (typeof EVIDENCE_EXECUTION_GRANULARITIES)[number];
+  /** Read-only compatibility for frozen checks predating orthogonal dimensions. */
+  scope?: LegacyEvidenceExecutionSelectionScope;
+  claim_scope?: EvidenceCheckBoundary;
+  invocation?: EvidenceInvocation;
+  selector: string | null;
+  selection_reason: string;
+  breadth_reason: string | null;
+  breadth_basis: EvidenceExecutionBreadthBasis | null;
+  breadth_source_ref: string | null;
+};
+
+export type EvidenceCheck = {
+  check_id: string;
+  method: 'execution' | 'static' | 'human';
+  entry: string;
+  expected_observation: string;
+  /** Exact due-step validation labels exclusively owned by this frozen check. */
+  validation_items?: string[];
+  boundary?: EvidenceCheckBoundary;
+  required_boundaries: string[];
+  allowed_substitutes: string[];
+  subject_paths: string[];
+  expected_result: 'passed' | 'accepted' | 'expected-failure';
+  selection?: EvidenceExecutionSelection;
+};
+
+export type EvidenceReport = {
+  result_id: string;
+  status: 'passed' | 'failed' | 'blocked' | 'not-run' | 'skipped' | 'accepted' | 'expected-failure';
+  evidence_plan_revision: string;
+  subject_revision: string;
+  actual_method: EvidenceCheck['method'];
+  environment: string;
+  assurance: 'caller-reported';
+};
+
+export type EvidenceChallenge = {
+  challenge_id: string;
+  claim_id: string;
+  slot_id: string;
+  result_id: string;
+  evidence_ref: string;
+  evidence_sha256: string;
+  reason: string;
+  status: 'contested' | 'invalidated' | 'resolved';
+  source_revision: string;
+  correction_step_id: string | null;
+  resolution?: {
+    kind: 'not-substantiated';
+    evidence_ref: string;
+    evidence_sha256: string;
+    reason: string;
+    source_revision: string;
+  };
+};
+
+export type EvidenceCarryForward = {
+  kind: 'evidence-carry-forward/v1' | 'evidence-carry-forward/v2';
+  receiving_source_revision?: string;
+  history_operation?: 'confirm-replan' | 'replace-validation';
+  user_decision_sha256?: string;
+  evidence_objects?: EvidenceObject[];
+  context_revision?: string;
+  old_source_revision: string;
+  old_plan_revision: string;
+  new_plan_revision: string;
+  claim_id: string;
+  slot_id: string;
+  check_id: string;
+  result_id: string;
+  report_sha256: string;
+  subject_revision: string;
+};
+
+export type ClaimEvidenceRecord = {
+  claim_id: string;
+  claim_kind: ClaimKind;
+  requirement?: string;
+  source_ref?: string;
+  /** Historical bytes only; new obligations own boundary on their check. */
+  boundary?: EvidenceCheckBoundary;
+  slots: ClaimEvidenceSlot[];
+};
+
+export type DraftTaskIdentity = {
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  task_title: string;
+};
+
+export type StepReviewReceipt = {
+  cycle_id: string;
+  cycle_phase: ReviewCyclePhase;
+  change_set_id: string;
+  review_target_revision: string;
+  verdict: 'clean';
+  admitted_fingerprints: string[];
+  evidence_refs: string[];
+};
+
+export const REVIEW_RESULT_VERDICTS = ['clean', 'findings', 'blocked'] as const;
+export type ReviewResultVerdict = (typeof REVIEW_RESULT_VERDICTS)[number];
+
+export const REVIEW_BLOCKER_ROUTES = ['review-change', 'debug-task', 'prepare-task:replan', 'prepare-task:amend-scope', 'user'] as const;
+export type ReviewBlockerRoute = (typeof REVIEW_BLOCKER_ROUTES)[number];
+
+export type ReviewFindingCandidate = {
+  fingerprint: string;
+  category: string;
+  file: string;
+  failure_condition: string;
+  required_behavior: string;
+  root_cause_status: 'confirmed' | 'bounded';
+  evidence_refs: string[];
+};
+
+export type ReviewBlocker = {
+  code: string;
+  summary: string;
+  next_route: ReviewBlockerRoute;
+};
+
+export type TestAssessment = {
+  applicable: boolean; reason: string; evidence_refs: string[];
+  necessity: string; oracle: string; boundary: string; reuse: string; applicability: string;
+};
+export type ReviewCoverage = {
+  change_set_id: string; base: ReviewTarget; target: ReviewTarget;
+  /** New writes contain only identity; content_base64 remains readable legacy input. */
+  preimages: Array<ReviewTargetEntry & { content_base64?: string | null }>;
+  pending_paths: string[]; last_clean_revision: string | null;
+};
+
+export type MutationAuthorityExpansion = {
+  path: string;
+  domain: string | null;
+  assessment: BlastRadiusAssessment;
+  first_touch_state: 'file' | 'absent';
+  admitted_at: string;
+  /** Present on new v2 records; omitted only for readable historical records. */
+  execution_id?: string;
+  preflight_id?: string;
+  step_id?: string;
+  plan_revision?: string;
+  change_set_id?: string;
+  mode?: VNextExecuteStepMode;
+  /** Old records omit this field and retain their mandatory review. */
+  review_required?: boolean;
+  /** A clean review consumes only the expansion records it actually covered. */
+  reviewed_by_review_id?: string;
+  reviewed_at?: string;
+};
+
+export type ExecutionPreflightState = {
+  execution_id: string;
+  preflight_id: string;
+  mode: VNextExecuteStepMode;
+  step_id: string;
+  plan_revision: string;
+  execution_phase: TestStrategyExecutionPhase;
+  candidate_paths: string[];
+  change_set_id: string;
+  repair_fingerprints: string[] | null;
+  repair_wave_id: string | null;
+  review_id: string | null;
+  review_target_paths: string[] | null;
+};
+
+export type PendingReviewResult = {
+  test_assessment?: TestAssessment;
+  kind: 'review-result/v1';
+  review_id: string;
+  execution_id: string;
+  step_id: string;
+  cycle_id: string;
+  cycle_phase: ReviewCyclePhase;
+  change_set_id: string;
+  review_target_revision: string;
+  verdict: ReviewResultVerdict;
+  findings: ReviewFindingCandidate[];
+  unresolved_fingerprints: string[];
+  evidence_refs: string[];
+  blocker: ReviewBlocker | null;
+  recorded_at: string;
+};
+
+export type ReviewTargetEntry = {
+  path: string;
+  state: 'file' | 'absent' | 'symlink';
+  sha256: string | null;
+};
+
+export type ReviewTarget = {
+  kind: 'runtime-file-manifest/v1';
+  revision: string;
+  entries: ReviewTargetEntry[];
+};
+
+export type ReviewChangeDeltaEntry = {
+  path: string;
+  before_state: ReviewTargetEntry['state'];
+  before_sha256: string | null;
+  after_state: ReviewTargetEntry['state'];
+  after_sha256: string | null;
+};
+
+export type ReviewChangeDelta = {
+  kind: 'runtime-file-delta/v1';
+  base_revision: string;
+  target_revision: string;
+  entries: ReviewChangeDeltaEntry[];
+};
+
+export type StepCommandResult = {
+  command: string;
+  status: StepExecutionResultStatus;
+  observed_repo_writes: string[];
+  evidence_refs: string[];
+  expected_failure?: StepExpectedFailureEvidence;
+  waiver_decision_id?: string;
+};
+
+export type StepValidationResult = {
+  validation: string;
+  status: StepExecutionResultStatus;
+  evidence_refs: string[];
+  expected_failure?: StepExpectedFailureEvidence;
+  waiver_decision_id?: string;
+};
+
+export type StepExpectedFailureEvidence = {
+  kind: 'behavior-not-implemented';
+  expected_behavior: string;
+  observed_failure_signature: string;
+};
+
+export type StepAcceptanceEvidence = {
+  claim_id: string;
+  slot_id: string;
+  check_id: string;
+  minimum_type: string;
+  disposition: ClaimEvidenceDisposition;
+  evidence_refs: string[];
+  report: EvidenceReport;
+};
+
+export type StepExecutionResult = {
+  execution_id?: string;
+  attempt_id?: string;
+  blocker_kind?: 'environment' | 'unknown';
+  outcome: 'implemented' | 'test-red' | 'blocked';
+  change_set_id: string;
+  review_base: ReviewTarget;
+  review_target: ReviewTarget;
+  change_delta: ReviewChangeDelta;
+  actual_changed_paths: string[];
+  command_results: StepCommandResult[];
+  validation_results: StepValidationResult[];
+  acceptance_evidence: Array<StepAcceptanceEvidence | { acceptance: string; evidence_refs: string[] }>;
+  blocker: string | null;
+};
+
+export type TaskStepProgressDelta = {
+  kind: 'task-state';
+  action: 'step-progress';
+  step_id: string;
+  status: StepStatus;
+  evidence_refs: string[];
+  note?: string;
+  repair_fingerprint?: string;
+  repair_fingerprints?: string[];
+  repair_wave_id?: string;
+  change_set_id?: string;
+  review_receipt?: StepReviewReceipt;
+  claim_evidence?: ClaimEvidenceRecord[];
+  execution_result?: StepExecutionResult;
+};
+
+export type TaskStateDelta =
+  | TaskStepProgressDelta
+  | {
+      kind: 'task-state';
+      action: 'record-user-evidence';
+      decision_kind: UserEvidenceDecision['kind'];
+      claim_id: string;
+      slot_id: string;
+      check_id: string;
+      evidence_plan_revision: string;
+      subject_revision: string;
+      decision_source: string;
+      decision_text: string;
+      validation_items?: string[];
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'consume-retained-review';
+      step_id: string;
+      review_receipt: StepReviewReceipt;
+      evidence_refs: string[];
+    }
+  | { kind: 'task-state'; action: 'retry-step'; step_id: string; blocked_attempt_id: string; blocker_resolution_refs: string[]; repair_diagnosis?: StepRepairDiagnosis; evidence_refs: string[] }
+  | {
+      kind: 'task-state';
+      action: 'record-step-preflight';
+      step_id: string;
+      candidate_paths: string[];
+      evidence_refs: string[];
+      blast_radius_assessments?: BlastRadiusAssessment[];
+      mode?: VNextExecuteStepMode;
+      execution_id?: string;
+      plan_revision?: string;
+      execution_phase?: TestStrategyExecutionPhase;
+      repair_fingerprints?: string[];
+      repair_wave_id?: string;
+      review_id?: string;
+      review_target_paths?: string[];
+      change_set_id?: string;
+    }
+  | {
+      kind: 'task-state';
+      action: 'extend-preflight';
+      step_id: string;
+      current_preflight_id: string;
+      additional_targets: string[];
+      blast_radius_assessments: BlastRadiusAssessment[];
+      evidence_refs: string[];
+      mode?: VNextExecuteStepMode;
+      execution_id?: string;
+      execution_phase?: TestStrategyExecutionPhase;
+    }
+  | {
+      kind: 'task-state';
+      action: 'create-draft' | 'update-draft';
+      predecessor?: SuccessorDecision;
+      task_id: string;
+      task_slug: string;
+      document_id: string;
+      task_title: string;
+      task_basis: TaskBasis;
+      draft_definition: DraftTaskDefinition;
+      active_step_id: string;
+      evidence_refs: string[];
+      claim_evidence?: ClaimEvidenceRecord[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'confirm-draft';
+      task_id: string;
+      task_slug: string;
+      document_id: string;
+      draft_revision: string;
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'migrate-claim-evidence';
+      claim_evidence: ClaimEvidenceRecord[];
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'clear-resume-review-gate';
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'mark-replan-blocked' | 'clear-replan-block';
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'commit-replan';
+      task_basis: TaskBasis;
+      replacement_definition: ReplanReplacementDefinition;
+      active_step_id: string;
+      evidence_refs: string[];
+      claim_evidence?: ClaimEvidenceRecord[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'commit-scope-amendment';
+      task_basis: TaskBasis;
+      replacement_definition: ReplanReplacementDefinition;
+      active_step_id: string;
+      evidence_refs: string[];
+      claim_evidence?: ClaimEvidenceRecord[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'record-evidence-challenge';
+      claim_id: string;
+      slot_id: string;
+      result_id: string;
+      evidence_ref: string;
+      evidence_sha256: string;
+      reason: string;
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'dismiss-evidence-challenge';
+      challenge_id: string;
+      evidence_ref: string;
+      evidence_sha256: string;
+      reason: string;
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
+      action: 'record-review-result';
+      review_result: Omit<PendingReviewResult, 'recorded_at'>;
+      evidence_refs: string[];
+    };
+
+export type ReplanDelta = Extract<TaskStateDelta, { action: 'commit-replan' }>;
+
+type LifecycleSnapshotEvidence = {
+  kind: 'lifecycle';
+  task_start_base: string;
+  last_reviewed_checkpoint: string;
+  current_diff_review_target: string;
+  rollback_conditions: string;
+  resume_review_reasons: ResumeReviewReason[];
+  evidence_refs: string[];
+};
+
+export type LifecycleDelta =
+  | (LifecycleSnapshotEvidence & {
+      action: 'pause';
+      lifecycle_state: Extract<TaskLifecycleState, 'paused_pending_closure' | 'paused_blocked'>;
+      suspension_reason: string;
+      blocker_status?: string;
+      blocking_evidence?: string;
+      remaining_acceptance?: string;
+      failed_checks?: string[];
+    })
+  | (LifecycleSnapshotEvidence & {
+      action: 'interrupt';
+      lifecycle_state: 'interrupted';
+      suspension_reason: string;
+      checkpoint_evidence: string;
+      dirty_attribution: string;
+      environment_state: string;
+      recovery_strategy: string;
+    })
+  | {
+      kind: 'lifecycle';
+      action: 'resume-paused' | 'resume-interrupted';
+      artifact_kind: Extract<TaskArtifactKind, 'paused' | 'interrupted'>;
+      recovery_package_path: string;
+      recovery_package_revision: string;
+      resume_review_reasons: ResumeReviewReason[];
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'lifecycle';
+      action: 'supersede';
+      invalidation_kind: 'goal' | 'scope' | 'acceptance';
+      invalidation_reason: string;
+      evidence_refs: string[];
+      partial_diff_disposition: PartialDiffDisposition;
+    };
+
+export type SupersedeDelta = Extract<LifecycleDelta, { action: 'supersede' }>;
+
+export type FindingRecord = {
+  fingerprint: string;
+  category: string;
+  owner_task_id: string;
+  scope: 'admitted';
+  decision: 'mechanical';
+  file: string;
+  failure_condition: string;
+  violated_invariant: string;
+  root_cause_status: 'confirmed' | 'bounded';
+  status: FindingStatus;
+  repair_attempts: number;
+  max_repair_attempts: number;
+  evidence_refs: string[];
+  review_cycle_id: string;
+  last_repair_wave_id: string | null;
+  admitted_at: string;
+  updated_at: string;
+};
+
+export type FindingQueueDelta =
+  | {
+      kind: 'finding-queue';
+      action: 'admit';
+      cycle_phase: ReviewCyclePhase;
+      finding_admission_wave_id: string;
+      finding: Omit<FindingRecord, 'status' | 'repair_attempts' | 'last_repair_wave_id' | 'admitted_at' | 'updated_at'> & {
+        status?: 'admitted';
+        repair_attempts?: 0;
+      };
+    }
+  | {
+      kind: 'finding-queue';
+      action: 'record-repair-attempt';
+      fingerprint: string;
+      review_cycle_id: string;
+      repair_wave_id: string;
+      evidence_refs: string[];
+      note?: string;
+    }
+  | {
+      kind: 'finding-queue';
+      action: 'resolve' | 'defer' | 'reject';
+      fingerprint: string;
+      evidence_refs: string[];
+      note?: string;
+    };
+
+export type ReleaseClosureEvidence = {
+  triggered: boolean;
+  complete: boolean;
+  evidence_refs: string[];
+};
+
+export type ClosureEvidence = {
+  acceptance_satisfied: boolean;
+  validation_complete: boolean;
+  no_admitted_or_in_progress_findings: boolean;
+  no_unresolved_closure_blocker: boolean;
+  release_evidence: ReleaseClosureEvidence;
+  rollback_evidence: ReleaseClosureEvidence;
+  observation_evidence: ReleaseClosureEvidence;
+  remaining_risks_non_blocking: boolean;
+  archive_path_verified: boolean;
+};
+
+export type DeliverySummary = {
+  goal: string;
+  actual_changes: string[];
+  verification: string[];
+  release_evidence: string[];
+  rollback_evidence: string[];
+  observation_evidence: string[];
+  next_action: string;
+};
+
+export type LessonAdmission = {
+  decision: 'admit' | 'defer' | 'no-op';
+  candidate_refs: string[];
+  evidence_refs: string[];
+};
+
+export type ArchiveDelta = {
+  kind: 'archive';
+  action: 'archive';
+  closure_evidence: ClosureEvidence;
+  delivery_summary: DeliverySummary;
+  remaining_risks: string[];
+  lesson_admission: LessonAdmission;
+  knowledge_admissions?: KnowledgeAdmissionBundle;
+  evidence_refs: string[];
+};
+
+export type KnowledgeAdmissionRecord = {
+  candidate: KnowledgeCandidate;
+  disposition: KnowledgeAdmissionDisposition;
+  matched_knowledge_id: string | null;
+  reasons: string[];
+};
+
+export type KnowledgeAdmissionBundle = {
+  contracts: KnowledgeAdmissionRecord[];
+  decisions: KnowledgeAdmissionRecord[];
+};
+
+export type KnowledgeProvenance = {
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  archive_path: string;
+  archive_revision: string;
+  source_revision: string;
+  evidence_refs: string[];
+};
+
+export type KnowledgeDelta = {
+  kind: 'knowledge';
+  action: 'promote';
+  knowledge_kind: 'contract' | 'decision';
+  admission: KnowledgeAdmissionRecord;
+  provenance: KnowledgeProvenance;
+  evidence_refs: string[];
+};
+
+export type ProjectStatusDelta = {
+  kind: 'project-status';
+  action: 'sync';
+  status: 'completed' | 'observing';
+  summary: string;
+  completed_items: string[];
+  remaining_risks: string[];
+  next_checkpoint: string;
+  evidence_refs: string[];
+};
+
+export type LessonCandidate = {
+  candidate_ref: string;
+  category: '通用' | '数据与存储' | '前端与交互' | '后端与服务' | '测试与回归' | '部署与运行时';
+  scene: string;
+  conclusion: string;
+  trigger: string;
+  cause: string;
+  action: string;
+  consumer: string;
+  evidence_refs: string[];
+};
+
+export type LessonRecordDelta = {
+  kind: 'lesson-record';
+  action: 'record';
+  candidates: LessonCandidate[];
+  evidence_refs: string[];
+};
+
+export type InboxRecord = {
+  artifact_kind: 'inbox_item';
+  item_id: string;
+  title: string;
+  type: InboxItemType;
+  source: InboxItemSource;
+  captured_at: string;
+  relation_to_current_task: 'unrelated';
+  current_task_id: string;
+  description: string;
+  evidence: string;
+  suggested_next_action: InboxSuggestedNextAction;
+  status: 'captured';
+};
+
+export type InboxRecordDelta = {
+  kind: 'inbox-record';
+  action: 'record';
+  item_slug: string;
+  record: InboxRecord;
+  relation_evidence_refs: string[];
+  duplicate_check: 'clear';
+  proposed_owner: InboxSuggestedNextAction;
+  target_path: string;
+  evidence_refs: string[];
+};
+
+export type RuntimeSemanticDelta = TaskStateDelta | FindingQueueDelta | LifecycleDelta | ArchiveDelta | ProjectStatusDelta | LessonRecordDelta | InboxRecordDelta | KnowledgeDelta;
+
+export type ReviewCycleState = {
+  id: string;
+  cycle_phase: ReviewCyclePhase;
+  repair_round: number;
+  counted_repair_wave_ids: string[];
+  active_repair_wave_id: string | null;
+  verification_new_finding_wave_used: boolean;
+  verification_new_finding_wave_id: string | null;
+};
+
+export function createReviewCycleZero(): ReviewCycleState {
+  return {
+    id: 'review-cycle-0',
+    cycle_phase: 'discovery',
+    repair_round: 0,
+    counted_repair_wave_ids: [],
+    active_repair_wave_id: null,
+    verification_new_finding_wave_used: false,
+    verification_new_finding_wave_id: null,
+  };
+}
+
+export type StepExecutionLogEntry = {
+  idempotency_key: string;
+  mode: VNextExecuteStepMode;
+  step_id: string;
+  status: StepStatus;
+  evidence_refs: string[];
+  note?: string;
+  repair_fingerprint?: string;
+  repair_fingerprints?: string[];
+  repair_wave_id?: string;
+  change_set_id?: string;
+  checkpoint?: TaskStepCheckpointPolicy;
+  advancement?: StepAdvancementOutcome;
+  next_step_id?: string | null;
+  review_receipt?: StepReviewReceipt;
+  claim_evidence?: ClaimEvidenceRecord[];
+  execution_result?: StepExecutionResult;
+  recorded_at: string;
+};
+
+export type StepAdvancementResult = {
+  outcome: StepAdvancementOutcome;
+  from_step_id: string;
+  to_step_id: string | null;
+  checkpoint: TaskStepCheckpointPolicy;
+  review_phase?: ReviewCyclePhase;
+};
+
+export type ReplanAuditLogEntry = {
+  action: ReplanAuditAction;
+  idempotency_key: string;
+  operation_kind: Extract<RuntimeOperationKind, 'task-state-transaction' | 'lifecycle-transaction'>;
+  caller: Extract<RuntimeProposal['caller'], 'prepare-task' | 'task-lifecycle'>;
+  mode: PrepareTaskMode | 'supersede';
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  from_workflow_status: CurrentTaskWorkflowStatus;
+  from_lifecycle_state: TaskLifecycleState;
+  to_workflow_status: CurrentTaskWorkflowStatus;
+  to_lifecycle_state: TaskLifecycleState;
+  source_revision: string;
+  authority_evidence: AuthorityEvidence[];
+  evidence_refs: string[];
+  partial_diff_disposition?: PartialDiffDisposition;
+  invalidation_kind?: 'goal' | 'scope' | 'acceptance';
+  invalidation_reason?: string;
+  candidate_digest?: string;
+  correction_reason?: string;
+  recorded_at: string;
+};
+
+export type ArchiveAuditLogEntry = {
+  action: 'archive';
+  idempotency_key: string;
+  operation_kind: 'archive-transaction';
+  caller: 'close-task';
+  mode: CloseTaskMode;
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  from_workflow_status: 'active';
+  from_lifecycle_state: 'active';
+  to_workflow_status: 'closed';
+  to_lifecycle_state: 'archived';
+  source_revision: string;
+  archive_path: string;
+  archive_revision: string;
+  closure_delta_digest: string;
+  authority_evidence: AuthorityEvidence[];
+  evidence_refs: string[];
+  lesson_admission: LessonAdmission;
+  knowledge_admissions: KnowledgeAdmissionBundle;
+  recorded_at: string;
+};
+
+export type SuccessorDecision = {
+  task_id: string;
+  document_id: string;
+  source_revision: string;
+  basis_revision: string;
+  decision_source: string;
+  decision_text: string;
+  obligations: Array<{ prior_key: string; disposition: 'carry-forward' | 'retired'; successor_claim_id: string | null; reason: string }>;
+};
+
+export type DraftAuditLogEntry = {
+  action: DraftAuditAction;
+  idempotency_key: string;
+  operation_kind: 'task-state-transaction';
+  caller: 'prepare-task';
+  mode: 'default' | 'confirm';
+  from_task_id: string;
+  from_task_slug: string;
+  from_document_id: string;
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  from_workflow_status: CurrentTaskWorkflowStatus;
+  from_lifecycle_state: TaskLifecycleState;
+  to_workflow_status: CurrentTaskWorkflowStatus;
+  to_lifecycle_state: TaskLifecycleState;
+  source_revision: string;
+  authority_evidence: AuthorityEvidence[];
+  evidence_refs: string[];
+  definition_digest?: string;
+  predecessor?: SuccessorDecision;
+  claim_evidence_digest?: string;
+  draft_revision?: string;
+  recorded_at: string;
+};
+
+export type ClaimEvidenceMigrationAuditLogEntry = {
+  action: 'migrate-claim-evidence';
+  idempotency_key: string;
+  operation_kind: 'task-state-transaction';
+  caller: 'prepare-task';
+  mode: 'default';
+  from_task_id: string;
+  from_task_slug: string;
+  from_document_id: string;
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  from_workflow_status: 'active';
+  from_lifecycle_state: 'active';
+  to_workflow_status: 'active';
+  to_lifecycle_state: 'active';
+  source_revision: string;
+  authority_evidence: AuthorityEvidence[];
+  evidence_refs: string[];
+  claim_evidence_digest: string;
+  recorded_at: string;
+};
+
+export type ExecutionLogEntry = StepExecutionLogEntry | DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | ArchiveAuditLogEntry;
+type RuntimeAuditLogEntry = DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | ArchiveAuditLogEntry;
+
+export type RuntimeProposal = {
+  schema_version: typeof VNEXT_RUNTIME_SCHEMA_VERSION;
+  kind: typeof VNEXT_RUNTIME_PROPOSAL_KIND;
+  operation_kind: RuntimeOperationKind;
+  caller: 'execute-step' | 'review-change' | 'prepare-task' | 'task-lifecycle' | 'capture-work-item' | 'close-task';
+  mode: VNextExecuteStepMode | PrepareTaskMode | LifecycleMode | CloseTaskMode;
+  source_tuple: RuntimeSourceTuple;
+  authority_evidence: AuthorityEvidence[];
+  semantic_delta: RuntimeSemanticDelta;
+  preconditions: string[];
+  evidence_refs: string[];
+  idempotency_key: string;
+  requested_write_targets: string[];
+};
+
+export type LifecycleProposal = RuntimeProposal & {
+  operation_kind: 'lifecycle-transaction';
+  caller: 'task-lifecycle';
+  mode: LifecycleMode;
+  semantic_delta: LifecycleDelta;
+};
+
+export type ArchiveProposal = RuntimeProposal & {
+  operation_kind: 'archive-transaction';
+  caller: 'close-task';
+  mode: CloseTaskMode;
+  semantic_delta: ArchiveDelta;
+};
+
+export type ProjectStatusProposal = RuntimeProposal & {
+  operation_kind: 'project-status-transaction';
+  caller: 'close-task';
+  mode: CloseTaskMode;
+  semantic_delta: ProjectStatusDelta;
+};
+
+export type LessonRecordProposal = RuntimeProposal & {
+  operation_kind: 'lesson-record-transaction';
+  caller: 'close-task';
+  mode: CloseTaskMode;
+  semantic_delta: LessonRecordDelta;
+};
+
+export type KnowledgeProposal = RuntimeProposal & {
+  operation_kind: 'contract-candidate-commit' | 'decision-record-transaction';
+  caller: 'close-task';
+  mode: CloseTaskMode;
+  semantic_delta: KnowledgeDelta;
+};
+
+export type ContractCandidateProposal = KnowledgeProposal & {
+  operation_kind: 'contract-candidate-commit';
+  semantic_delta: KnowledgeDelta & { knowledge_kind: 'contract' };
+};
+
+export type DecisionRecordProposal = KnowledgeProposal & {
+  operation_kind: 'decision-record-transaction';
+  semantic_delta: KnowledgeDelta & { knowledge_kind: 'decision' };
+};
+
+export type InboxRecordProposal = RuntimeProposal & {
+  operation_kind: 'inbox-record-transaction';
+  caller: 'capture-work-item';
+  mode: 'default';
+  semantic_delta: InboxRecordDelta;
+};
+
+export type StepRepairDiagnosis = { kind: 'same-plan-repair/v1'; status: 'confirmed'; owner: 'current-step'; failed_check: string; cause: string; repair_paths: string[] };
+
+export type StepAttempt = {
+  attempt_id: string; idempotency_key: string; request_digest: string | null;
+  status: 'ready' | 'preflighted' | 'blocked' | 'implemented';
+  blocker: { kind: 'environment' | 'unknown'; execution_result: StepExecutionResult; subject_snapshot: ReviewTarget } | null;
+  recovery?: StepRepairDiagnosis;
+  evidence_refs: string[];
+};
+export type StepAttemptLedger = { evidence_plan_revision: string; max_attempts: 3; attempts: StepAttempt[] };
+
+export type RuntimeState = {
+  business_evidence_version?: 1;
+  evidence_plan_revision?: string;
+  task_evolution_version?: 1 | 2;
+  preservation_source_revision?: string;
+  schema_version: typeof VNEXT_RUNTIME_SCHEMA_VERSION;
+  kind: typeof VNEXT_RUNTIME_STATE_KIND;
+  task_id: string;
+  task_slug: string;
+  workflow_status: CurrentTaskWorkflowStatus;
+  lifecycle_state: TaskLifecycleState;
+  resume_requires_review: boolean;
+  resume_review_reasons: ResumeReviewReason[];
+  active_step_id: string;
+  active_step_status: StepStatus;
+  finding_queue_revision: number;
+  review_cycle: ReviewCycleState;
+  findings: FindingRecord[];
+  execution_log: ExecutionLogEntry[];
+  applied_proposals: Array<{
+    idempotency_key: string;
+    operation_kind: RuntimeOperationKind;
+    proposal_digest: string;
+    source_revision: string;
+  }>;
+  /**
+   * Legacy CURRENT_TASK documents may omit these fields and remain readable,
+   * but terminal completion requires prepare-task migration. New/refined
+   * drafts set claim_evidence_required=true with a non-empty acceptance-bearing
+   * plan; execution may only fulfill its existing slots.
+   */
+  claim_evidence_required?: boolean;
+  claim_evidence?: ClaimEvidenceRecord[];
+  pending_review_result: PendingReviewResult | null;
+  /** The original step for a pending review retained across a scope amendment. */
+  scope_amendment_pending_review_step_id?: string;
+  review_coverage?: ReviewCoverage;
+  step_attempts?: Record<string, StepAttemptLedger>;
+  evidence_challenges?: EvidenceChallenge[];
+  evidence_carry_forward?: EvidenceCarryForward[];
+  artifact_checkpoint_ids?: string[];
+  /** True while an in-envelope footprint expansion still needs clean review. */
+  dynamic_review_required?: boolean;
+  dynamic_expansions?: MutationAuthorityExpansion[];
+  /** The current ordinary or repair execution preflight identity. */
+  execution_preflight?: ExecutionPreflightState;
+  /** v2 tasks bind execution to the exact project domain-map revision. */
+  authority_domain_revision?: string;
+};
+
+export type CurrentTaskStoreBinding = {
+  schema_version: 1;
+  kind: 'vnext-current-task-store-binding';
+  format: 'compact-v2' | 'compact-v3';
+  projection?: { definition: import('./task-store').TaskStoreObjectReference; state: import('./task-store').TaskStoreObjectReference };
+  manifest_path: string;
+  history: {
+    execution_log: 'task-store';
+    applied_proposals: 'task-store';
+  };
+};
+
+export type CanonicalCurrentTask = {
+  filePath: string;
+  relativePath: string;
+  raw: string;
+  frontmatter: AnyRecord;
+  body: string;
+  runtimeState: RuntimeState;
+  mutationAuthority: TaskMutationAuthority | null;
+  sourceTuple: RuntimeSourceTuple;
+};
+
+export type DynamicExpansionExecutionIdentity = Pick<
+  ExecutionPreflightState,
+  'execution_id' | 'step_id' | 'plan_revision' | 'change_set_id' | 'mode'
+>;
+
+function hasModernDynamicExpansionIdentity(
+  expansion: MutationAuthorityExpansion,
+): expansion is MutationAuthorityExpansion & DynamicExpansionExecutionIdentity & {
+  preflight_id: string;
+} {
+  return expansion.execution_id !== undefined
+    && expansion.preflight_id !== undefined
+    && expansion.step_id !== undefined
+    && expansion.plan_revision !== undefined
+    && expansion.change_set_id !== undefined
+    && expansion.mode !== undefined;
+}
+
+export function dynamicExpansionMatchesExecution(
+  expansion: MutationAuthorityExpansion,
+  identity: DynamicExpansionExecutionIdentity,
+): boolean {
+  return hasModernDynamicExpansionIdentity(expansion)
+    && expansion.execution_id === identity.execution_id
+    && expansion.step_id === identity.step_id
+    && expansion.plan_revision === identity.plan_revision
+    && expansion.change_set_id === identity.change_set_id
+    && expansion.mode === identity.mode;
+}
+
+export function currentExecutionDynamicExpansions(
+  current: CanonicalCurrentTask,
+  mode?: VNextExecuteStepMode,
+): MutationAuthorityExpansion[] {
+  const active = current.runtimeState.execution_preflight;
+  if (!active || active.step_id !== current.runtimeState.active_step_id || (mode !== undefined && active.mode !== mode)) return [];
+  return (current.runtimeState.dynamic_expansions ?? []).filter(item => dynamicExpansionMatchesExecution(item, active));
+}
+
+/**
+ * `dynamic_review_required` remains a compact compatibility projection.  New
+ * authority is derived from the current execution's expansion records; the
+ * fallback preserves the readable/blocked behavior of older v2 state that
+ * predates execution-bound expansion fields.
+ */
+export function dynamicReviewRequiredForCurrentExecution(current: CanonicalCurrentTask): boolean {
+  // A later private discovery/retry must not erase an earlier elevated change
+  // which is still in the cumulative unreviewed footprint.
+  const pending = new Set(current.runtimeState.review_coverage?.pending_paths ?? []);
+  if (current.runtimeState.dynamic_review_required === true
+    && (current.runtimeState.dynamic_expansions ?? []).some(item => item.review_required !== false
+      && item.reviewed_by_review_id === undefined && pending.has(item.path))) return true;
+  const active = current.runtimeState.execution_preflight;
+  if (!active || active.step_id !== current.runtimeState.active_step_id) {
+    return current.runtimeState.dynamic_review_required === true;
+  }
+  const currentExpansions = currentExecutionDynamicExpansions(current);
+  if (currentExpansions.length > 0) return currentExpansions.some(item => item.review_required !== false && item.reviewed_by_review_id === undefined);
+  const legacyCurrentExpansion = (current.runtimeState.dynamic_expansions ?? []).some(item =>
+    item.execution_id === active.execution_id
+      && item.step_id === active.step_id
+      && item.mode === active.mode,
+  );
+  return legacyCurrentExpansion ? current.runtimeState.dynamic_review_required === true : false;
+}
+
+export type RuntimeResult = {
+  evidence_assurance?: 'caller-reported';
+  status: RuntimeResultState;
+  operation_kind: RuntimeOperationKind;
+  idempotency_key: string;
+  target_path: string;
+  dry_run: boolean;
+  committed: boolean;
+  message: string;
+  code?: string;
+  previous_revision?: string;
+  resulting_revision?: string;
+  archive_path?: string;
+  archive_revision?: string;
+  planned_writes: string[];
+  governed_mutation_count: number;
+  read_back_verified: boolean;
+  task_store?: {
+    manifest_path: string;
+    source_revision: string;
+    definition_revision: string;
+    state_revision: string;
+    event_sequence: number;
+  };
+  advancement?: StepAdvancementResult;
+  state?: {
+    task_id: string;
+    workflow_status: CurrentTaskWorkflowStatus;
+    lifecycle_state: TaskLifecycleState;
+    resume_requires_review: boolean;
+    resume_review_reasons: ResumeReviewReason[];
+    active_step_id: string;
+    active_step_status: StepStatus;
+    finding_queue_revision: number;
+    review_cycle_id: string;
+    repair_round: number;
+    finding_status?: FindingStatus;
+    recovery_package_path?: string;
+    recorded_evidence_waivers?: Array<{ claim_id: string; slot_id: string; decision_source: string }>;
+  };
+};
+
+export type RuntimeApplyOptions = {
+  dryRun?: boolean;
+  now?: () => string;
+};
+
+export type VNextRuntimeContractValidationResult = {
+  phase: 'Phase 2';
+  runtime_distribution: {
+    kind: 'project-local-node';
+    package_path: string;
+    entrypoint: string;
+    package_version: string;
+    node_min_version: string;
+    package_lock_sha256: string;
+    entrypoint_sha256: string;
+  };
+  mutation_scope: {
+    status: 'bound';
+    binding: 'vnext-runtime-read-only';
+    check_command: 'scope-check';
+  };
+  bound_operations: RuntimeOperationKind[];
+  unbound_operations: string[];
+  bootstrap_operations: string[];
+};
+
+export class VNextRuntimeError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(`${code}: ${message}`);
+    this.name = 'VNextRuntimeError';
+    this.code = code;
+  }
+}
+
+function isRecord(value: unknown): value is AnyRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function fail(code: string, message: string): never {
+  throw new VNextRuntimeError(code, message);
+}
+
+function expectRecord(value: unknown, location: string): AnyRecord {
+  if (!isRecord(value)) fail('RUNTIME_SCHEMA_INVALID', `${location} must be a mapping.`);
+  return value;
+}
+
+function expectExactKeys(value: AnyRecord, expected: readonly string[], location: string): void {
+  const expectedSet = new Set(expected);
+  const missing = expected.filter(key => !(key in value));
+  const extra = Object.keys(value).filter(key => !expectedSet.has(key));
+  if (missing.length > 0 || extra.length > 0) {
+    fail(
+      'RUNTIME_SCHEMA_INVALID',
+      `${location} keys mismatch; missing=[${missing.join(', ')}], unexpected=[${extra.join(', ')}].`,
+    );
+  }
+}
+
+function expectString(value: unknown, location: string, pattern?: RegExp): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} must be a non-empty string.`);
+  }
+  const normalized = value.trim();
+  if (pattern && !pattern.test(normalized)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} has an invalid value.`);
+  }
+  return normalized;
+}
+
+function expectNullableString(value: unknown, location: string, pattern?: RegExp): string | null {
+  if (value === null) return null;
+  return expectString(value, location, pattern);
+}
+
+function expectText(value: unknown, location: string, maxLength = MAX_TEXT_LENGTH): string {
+  const text = expectString(value, location);
+  if (text.length > maxLength) fail('RUNTIME_SCHEMA_INVALID', `${location} exceeds ${maxLength} characters.`);
+  return text;
+}
+
+function expectEnum<T extends string>(value: unknown, allowed: readonly T[], location: string): T {
+  const normalized = expectString(value, location);
+  if (!allowed.includes(normalized as T)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} must be one of [${allowed.join(', ')}].`);
+  }
+  return normalized as T;
+}
+
+function expectBoolean(value: unknown, location: string): boolean {
+  if (typeof value !== 'boolean') fail('RUNTIME_SCHEMA_INVALID', `${location} must be a boolean.`);
+  return value;
+}
+
+function expectInteger(value: unknown, location: string, min = 0, max = Number.MAX_SAFE_INTEGER): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} must be an integer in [${min}, ${max}].`);
+  }
+  return value;
+}
+
+function expectStringArray(value: unknown, location: string, allowEmpty = false, maxLength = 128): string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} must be ${allowEmpty ? 'an array' : 'a non-empty array'}.`);
+  }
+  if (value.length > maxLength) fail('RUNTIME_SCHEMA_INVALID', `${location} has too many entries.`);
+  const items = value.map((item, index) => expectText(item, `${location}[${index}]`, 512));
+  if (new Set(items).size !== items.length) fail('RUNTIME_SCHEMA_INVALID', `${location} contains duplicates.`);
+  return items;
+}
+
+function expectSetEqual(actual: readonly string[], expected: readonly string[], location: string): void {
+  const actualSet = new Set(actual);
+  const expectedSet = new Set(expected);
+  const missing = expected.filter(item => !actualSet.has(item));
+  const extra = actual.filter(item => !expectedSet.has(item));
+  if (missing.length > 0 || extra.length > 0 || actualSet.size !== actual.length) {
+    fail('RUNTIME_CONTRACT_INVALID', `${location} differs from the closed set; missing=[${missing.join(', ')}], extra=[${extra.join(', ')}].`);
+  }
+}
+
+function normalizeRepoPath(value: string, location: string): string {
+  const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) {
+    fail('RUNTIME_PATH_INVALID', `${location} must be a repository-relative path.`);
+  }
+  return normalized;
+}
+
+function sha256(value: string | Buffer): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+  }
+  return value;
+}
+
+function digest(value: unknown): string {
+  return sha256(JSON.stringify(stableValue(value)));
+}
+
+export function captureReviewTarget(root: string, paths: readonly string[]): ReviewTarget {
+  const resolvedRoot = path.resolve(root);
+  const normalizedPaths = [...new Set(paths.map((item, index) => normalizeRepoPath(item, `review_target.paths[${index}]`)))].sort();
+  const entries = normalizedPaths.map((relativePath): ReviewTargetEntry => {
+    const filePath = path.resolve(resolvedRoot, ...relativePath.split('/'));
+    if (filePath !== resolvedRoot && !filePath.startsWith(`${resolvedRoot}${path.sep}`)) {
+      fail('RUNTIME_PATH_INVALID', `review target escapes the target root: ${relativePath}`);
+    }
+    if (!fs.existsSync(filePath)) return { path: relativePath, state: 'absent', sha256: null };
+    const stat = fs.lstatSync(filePath);
+    if (stat.isSymbolicLink()) {
+      return { path: relativePath, state: 'symlink', sha256: sha256(fs.readlinkSync(filePath)) };
+    }
+    if (!stat.isFile()) {
+      fail('REVIEW_TARGET_INVALID', `review target must be a file, symlink, or absent path: ${relativePath}`);
+    }
+    return { path: relativePath, state: 'file', sha256: sha256(fs.readFileSync(filePath)) };
+  });
+  return {
+    kind: 'runtime-file-manifest/v1',
+    revision: digest({ kind: 'runtime-file-manifest/v1', entries }),
+    entries,
+  };
+}
+
+function manifest(entries: ReviewTargetEntry[]): ReviewTarget {
+  const sorted = [...entries].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  return { kind: 'runtime-file-manifest/v1', entries: sorted, revision: digest({ kind: 'runtime-file-manifest/v1', entries: sorted }) };
+}
+
+export function createReviewTargetManifest(entries: ReviewTargetEntry[]): ReviewTarget {
+  return manifest(entries);
+}
+
+export function nextStepAttemptId(current: CanonicalCurrentTask): string {
+  const attempts = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id]?.attempts;
+  return attempts?.at(-1)?.attempt_id ?? `attempt-${digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision,step:current.runtimeState.active_step_id,n:1}).slice(0,40)}`;
+}
+
+function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger> {
+  const source = expectRecord(value, 'step_attempts');
+  const result: Record<string, StepAttemptLedger> = {};
+  for (const [step, raw] of Object.entries(source)) {
+    expectString(step,'attempt step',STEP_ID_PATTERN);
+    const ledger = expectRecord(raw,'step attempt ledger');
+    expectExactKeys(ledger,['evidence_plan_revision','max_attempts','attempts'],'step attempt ledger');
+    if (ledger.max_attempts !== 3 || !Array.isArray(ledger.attempts) || !ledger.attempts.length || ledger.attempts.length > 3) fail('RETRY_LEDGER_INVALID','Attempt budget must be three including the initial execution.');
+    const attempts = ledger.attempts.map(raw => {
+      const item = expectRecord(raw,'attempt');
+      expectExactKeys(item,['attempt_id','idempotency_key','request_digest','status','blocker',...(item.recovery === undefined ? [] : ['recovery']),'evidence_refs'],'attempt');
+      let blocker: StepAttempt['blocker'] = null;
+      if (item.blocker !== null) {
+        const rawBlocker = expectRecord(item.blocker,'attempt blocker');
+        expectExactKeys(rawBlocker,['kind','execution_result','subject_snapshot'],'attempt blocker');
+        blocker = {kind:expectEnum(rawBlocker.kind,['environment','unknown'],'blocker.kind'),execution_result:validateStepExecutionResult(rawBlocker.execution_result,'blocker.execution_result'),subject_snapshot:validateReviewTarget(rawBlocker.subject_snapshot,'blocker.subject_snapshot')};
+        if (blocker.execution_result.outcome !== 'blocked') fail('RETRY_LEDGER_INVALID','Retained failure must be blocked.');
+      }
+      const status = expectEnum(item.status,['ready','preflighted','blocked','implemented'],'attempt.status');
+      if ((status === 'blocked') !== (blocker !== null)) fail('RETRY_LEDGER_INVALID','Blocked attempts retain their original failure.');
+      return {attempt_id:expectString(item.attempt_id,'attempt_id',SAFE_KEY_PATTERN),idempotency_key:expectString(item.idempotency_key,'attempt.idempotency_key',SAFE_KEY_PATTERN),request_digest:item.request_digest === null ? null : expectString(item.request_digest,'request_digest',/^[a-f0-9]{64}$/u),status,blocker,...(item.recovery === undefined ? {} : {recovery:validateStepRepairDiagnosis(item.recovery)}),evidence_refs:validateEvidenceRefs(item.evidence_refs,'attempt.evidence_refs')};
+    });
+    if (new Set(attempts.map(a=>a.attempt_id)).size !== attempts.length || new Set(attempts.map(a=>a.idempotency_key)).size !== attempts.length) fail('RETRY_LEDGER_INVALID','Attempt identities must be unique.');
+    result[step] = {evidence_plan_revision:expectString(ledger.evidence_plan_revision,'attempt plan',/^[a-f0-9]{64}$/u),max_attempts:3,attempts};
+  }
+  return result;
+}
+
+function retryRequestDigest(current: CanonicalCurrentTask, delta: Extract<TaskStateDelta,{action:'retry-step'}>): string {
+  return digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision,step:delta.step_id,blocked_attempt_id:delta.blocked_attempt_id,refs:delta.blocker_resolution_refs,...(delta.repair_diagnosis ? {repair_diagnosis:delta.repair_diagnosis} : {})});
+}
+
+export function reviewCycleForNextStep(previousCycleId: string, nextStepId: string, completionKey: string): ReviewCycleState {
+  return {
+    ...createReviewCycleZero(),
+    id: `review-cycle-${digest({ previous_cycle_id: previousCycleId, next_step_id: nextStepId, completion_key: completionKey }).slice(0, 32)}`,
+  };
+}
+
+function validateStepRepairDiagnosis(value: unknown): StepRepairDiagnosis {
+  const report = expectRecord(value,'repair diagnosis');
+  expectExactKeys(report,['kind','status','owner','failed_check','cause','repair_paths'],'repair diagnosis');
+  if (report.kind !== 'same-plan-repair/v1' || report.status !== 'confirmed' || report.owner !== 'current-step') fail('RETRY_DIAGNOSIS_REQUIRED','Same-plan repair requires a confirmed current-step diagnosis.');
+  return {kind:'same-plan-repair/v1',status:'confirmed',owner:'current-step',failed_check:expectText(report.failed_check,'repair failed_check'),cause:expectText(report.cause,'repair cause'),repair_paths:expectStringArray(report.repair_paths,'repair repair_paths',false,256).map(p=>normalizeRepoPath(p,'repair path'))};
+}
+
+function validateRetryResolution(root: string, current: CanonicalCurrentTask, delta: Extract<TaskStateDelta,{action:'retry-step'}>, failure: NonNullable<StepAttempt['blocker']>): void {
+  if (captureReviewTarget(root,failure.subject_snapshot.entries.map(e=>e.path)).revision !== failure.subject_snapshot.revision) fail('RETRY_SUBJECT_STALE','Declared code, fixture or check objects changed after failure; use authorized repair or replan.');
+  const failures = [...failure.execution_result.command_results, ...failure.execution_result.validation_results]
+    .filter(item => item.status === 'failed' || item.status === 'blocked');
+  if (!delta.repair_diagnosis && failures.length && failures.every(item => applicableResultWaiver(root, current, delta.step_id, item))) {
+    const basis = readCanonicalTaskBasis(root, current);
+    if (delta.blocker_resolution_refs.length !== 1 || delta.blocker_resolution_refs[0] !== basis.path) {
+      fail('RETRY_RESOLUTION_REQUIRED', 'Risk-accepted retry cites the exact retained Task Basis, not a fabricated repair result.');
+    }
+    return; // Existing retry admission still preserves review and the attempt budget.
+  }
+  if (delta.repair_diagnosis) {
+    if (failure.kind !== 'unknown') fail('RETRY_DIAGNOSIS_REQUIRED','Same-plan repair requires the retained non-environment failure.');
+    const failed = [...failure.execution_result.command_results.filter(item=>item.status==='failed'),...failure.execution_result.validation_results.filter(item=>item.status==='failed')];
+    const checkNames = failed.map(item=>'command' in item ? item.command : item.validation);
+    if (!checkNames.includes(delta.repair_diagnosis.failed_check)) fail('RETRY_DIAGNOSIS_REQUIRED','The diagnosis must identify a check that actually failed in the retained attempt.');
+    const failedEvidence = new Set(failed.flatMap(item=>item.evidence_refs));
+    if (!delta.blocker_resolution_refs.every(ref=>failedEvidence.has(ref))) fail('RETRY_DIAGNOSIS_REQUIRED','Recovery evidence must cite the retained failed check.');
+    const admittedPaths = new Set(failure.execution_result.review_base.entries.map(entry=>entry.path));
+    if (delta.repair_diagnosis.repair_paths.some(p=>!admittedPaths.has(p))) fail('RETRY_SCOPE_BLOCKED','Same-plan repair paths must be a subset of the failed preflight candidate paths.');
+    return;
+  }
+  if (failure.kind !== 'environment' || [...failure.execution_result.command_results,...failure.execution_result.validation_results].some(item=>item.status==='failed')) fail('RETRY_DIAGNOSIS_REQUIRED','Environment retry requires a recorded environment blocker without failed checks.');
+  for (const ref of delta.blocker_resolution_refs) {
+    const relative = normalizeRepoPath(ref,'blocker_resolution_ref');
+    const absolute = path.resolve(root,relative);
+    if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile() || fs.statSync(absolute).size > 65536) fail('RETRY_RESOLUTION_REQUIRED','Resolution must be a retained bounded JSON report.');
+    let parsed: unknown;
+    try { parsed = JSON.parse(fs.readFileSync(absolute,'utf8')); } catch { fail('RETRY_RESOLUTION_REQUIRED','Resolution must be structured JSON, not a free-form unlock note.'); }
+    const report = expectRecord(parsed,'retry resolution');
+    expectExactKeys(report,['kind','task_id','document_id','step_id','blocked_attempt_id','evidence_plan_revision','subject_revision','status','diagnosis','resolution'],'retry resolution');
+    if (report.kind !== 'environment-restored/v1' || report.status !== 'passed' || report.task_id !== current.runtimeState.task_id || report.document_id !== current.sourceTuple.document_id || report.step_id !== delta.step_id || report.blocked_attempt_id !== delta.blocked_attempt_id || report.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || report.subject_revision !== failure.subject_snapshot.revision) fail('RETRY_RESOLUTION_REQUIRED','Resolution report must bind this exact environment failure, plan and subjects.');
+    expectText(report.diagnosis,'retry diagnosis'); expectText(report.resolution,'retry resolution');
+  }
+}
+
+function emptyReviewCoverage(planRevision: string): ReviewCoverage {
+  return {
+    change_set_id: `change-set-${planRevision.slice(0, 32)}`,
+    base: manifest([]), target: manifest([]), preimages: [],
+    pending_paths: [], last_clean_revision: null,
+  };
+}
+
+function validateReviewCoverage(value: unknown): ReviewCoverage {
+  const source = expectRecord(value, 'review_coverage');
+  expectExactKeys(source, ['change_set_id', 'base', 'target', 'preimages', 'pending_paths', 'last_clean_revision'], 'review_coverage');
+  const base = validateReviewTarget(source.base, 'review_coverage.base');
+  const target = validateReviewTarget(source.target, 'review_coverage.target');
+  createReviewChangeDelta(base, target);
+  if (!Array.isArray(source.preimages) || source.preimages.length !== base.entries.length) fail('REVIEW_COVERAGE_INVALID', 'preimages must cover the initial manifest.');
+  const preimages = source.preimages.map((value, index) => {
+    const item = expectRecord(value, 'preimage');
+    const hasLegacyContent = Object.prototype.hasOwnProperty.call(item, 'content_base64');
+    expectExactKeys(item, hasLegacyContent ? ['path', 'state', 'sha256', 'content_base64'] : ['path', 'state', 'sha256'], 'preimage');
+    const entry = base.entries[index];
+    if (digest({path:item.path,state:item.state,sha256:item.sha256}) !== digest(entry)) fail('REVIEW_COVERAGE_INVALID', 'preimage identity differs from base.');
+    if (entry.state === 'absent' && entry.sha256 !== null) fail('REVIEW_COVERAGE_INVALID', 'absent preimage must have a null hash.');
+    if (entry.state !== 'absent' && entry.sha256 === null) fail('REVIEW_COVERAGE_INVALID', 'file or symlink preimage must have a hash.');
+    if (hasLegacyContent) {
+      const content = item.content_base64;
+      if (entry.state === 'absent') {
+        if (content !== null) fail('REVIEW_COVERAGE_INVALID', 'absent preimage has content.');
+      } else {
+        if (typeof content !== 'string') fail('REVIEW_COVERAGE_INVALID', 'legacy preimage content is required.');
+        const buffer = Buffer.from(content, 'base64');
+        if (buffer.toString('base64') !== content || sha256(buffer) !== entry.sha256) fail('REVIEW_COVERAGE_INVALID', 'legacy preimage content hash is invalid.');
+      }
+    }
+    return hasLegacyContent ? { ...entry, content_base64: item.content_base64 as string | null } : { ...entry };
+  });
+  const pending = expectStringArray(source.pending_paths, 'review_coverage.pending_paths', true);
+  if (new Set(pending).size !== pending.length || pending.some(p => !base.entries.some(e => e.path === p))) fail('REVIEW_COVERAGE_INVALID', 'pending paths must be covered.');
+  return {change_set_id:expectString(source.change_set_id, 'review_coverage.change_set_id', SAFE_KEY_PATTERN),base,target,preimages,pending_paths:pending,last_clean_revision:source.last_clean_revision === null ? null : expectString(source.last_clean_revision, 'last_clean_revision', /^[a-f0-9]{64}$/u)};
+}
+
+function validateDynamicExpansions(value: unknown): MutationAuthorityExpansion[] {
+  if (!Array.isArray(value) || value.length > 256) fail('RUNTIME_SCHEMA_INVALID', 'dynamic_expansions must be a bounded array.');
+  const expansions = value.map((raw, index) => {
+    const item = expectRecord(raw, `dynamic_expansions[${index}]`);
+    const legacyIdentityKeys = ['execution_id', 'preflight_id', 'step_id', 'mode'];
+    const modernIdentityKeys = [...legacyIdentityKeys, 'plan_revision', 'change_set_id'];
+    const reviewKeys = ['reviewed_by_review_id', 'reviewed_at'];
+    expectExactKeys(item, ['path', 'domain', 'assessment', 'first_touch_state', 'admitted_at', ...modernIdentityKeys.filter(key => key in item), ...reviewKeys.filter(key => key in item), ...('review_required' in item ? ['review_required'] : [])], `dynamic_expansions[${index}]`);
+    let assessment: BlastRadiusAssessment;
+    try {
+      assessment = normalizeBlastRadiusAssessments([item.assessment])[0]!;
+    } catch (error) {
+      fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error));
+    }
+    if (item.review_required === false && requiresDynamicReview(assessment)) fail('MUTATION_AUTHORITY_ASSESSMENT_INVALID', 'Elevated or uncertain expansion cannot omit dynamic review.');
+    const target = normalizeAuthorityPath(item.path, `dynamic_expansions[${index}].path`);
+    if (assessment.target.path !== target) fail('RUNTIME_SCHEMA_INVALID', `dynamic_expansions[${index}] assessment target must match path.`);
+    const hasLegacyIdentity = legacyIdentityKeys.some(key => key in item);
+    const hasModernIdentity = modernIdentityKeys.some(key => key in item);
+    if (hasModernIdentity && modernIdentityKeys.some(key => !(key in item))) {
+      fail('RUNTIME_SCHEMA_INVALID', `dynamic_expansions[${index}] modern execution identity must be complete.`);
+    }
+    if (!hasModernIdentity && hasLegacyIdentity && legacyIdentityKeys.some(key => !(key in item))) {
+      fail('RUNTIME_SCHEMA_INVALID', `dynamic_expansions[${index}] historical execution identity must be complete.`);
+    }
+    const hasReview = reviewKeys.some(key => key in item);
+    if (hasReview && (!hasModernIdentity || reviewKeys.some(key => !(key in item)))) {
+      fail('RUNTIME_SCHEMA_INVALID', `dynamic_expansions[${index}] review consumption identity must be complete and modern.`);
+    }
+    return {
+      path: target,
+      domain: item.domain === null ? null : expectString(item.domain, `dynamic_expansions[${index}].domain`, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u),
+      assessment,
+      first_touch_state: expectEnum(item.first_touch_state, ['file', 'absent'], `dynamic_expansions[${index}].first_touch_state`),
+      admitted_at: expectString(item.admitted_at, `dynamic_expansions[${index}].admitted_at`),
+      ...(item.review_required === undefined ? {} : { review_required: expectBoolean(item.review_required, 'expansion.review_required') }),
+      ...(hasLegacyIdentity ? {
+        execution_id: expectString(item.execution_id, `dynamic_expansions[${index}].execution_id`, SAFE_KEY_PATTERN),
+        preflight_id: expectString(item.preflight_id, `dynamic_expansions[${index}].preflight_id`, SAFE_KEY_PATTERN),
+        step_id: expectString(item.step_id, `dynamic_expansions[${index}].step_id`, STEP_ID_PATTERN),
+        mode: expectEnum(item.mode, VNEXT_EXECUTE_STEP_MODES, `dynamic_expansions[${index}].mode`),
+      } : {}),
+      ...(hasModernIdentity ? {
+        plan_revision: expectString(item.plan_revision, `dynamic_expansions[${index}].plan_revision`, SHA256_PATTERN),
+        change_set_id: expectString(item.change_set_id, `dynamic_expansions[${index}].change_set_id`, SAFE_KEY_PATTERN),
+      } : {}),
+      ...(hasReview ? {
+        reviewed_by_review_id: expectString(item.reviewed_by_review_id, `dynamic_expansions[${index}].reviewed_by_review_id`, SAFE_KEY_PATTERN),
+        reviewed_at: expectString(item.reviewed_at, `dynamic_expansions[${index}].reviewed_at`),
+      } : {}),
+    };
+  });
+  const identities = expansions.map(item => hasModernDynamicExpansionIdentity(item)
+    ? `modern:${digest({ path: item.path, execution_id: item.execution_id, step_id: item.step_id, plan_revision: item.plan_revision, change_set_id: item.change_set_id, mode: item.mode })}`
+    : `historical:${digest({ path: item.path, execution_id: item.execution_id ?? null, step_id: item.step_id ?? null, mode: item.mode ?? null })}`);
+  if (new Set(identities).size !== identities.length) fail('RUNTIME_SCHEMA_INVALID', 'dynamic_expansions must not duplicate a path within one execution identity.');
+  return expansions;
+}
+
+function validateExecutionPreflight(value: unknown, location = 'runtime_state.execution_preflight'): ExecutionPreflightState {
+  const source = expectRecord(value, location);
+  expectExactKeys(source, [
+    'execution_id',
+    'preflight_id',
+    'mode',
+    'step_id',
+    'plan_revision',
+    'execution_phase',
+    'candidate_paths',
+    'change_set_id',
+    'repair_fingerprints',
+    'repair_wave_id',
+    'review_id',
+    'review_target_paths',
+  ], location);
+  const mode = expectEnum(source.mode, VNEXT_EXECUTE_STEP_MODES, `${location}.mode`);
+  const repairFingerprints = source.repair_fingerprints === null
+    ? null
+    : expectStringArray(source.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS).map((item, index) => expectString(item, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const repairWaveId = source.repair_wave_id === null ? null : expectString(source.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN);
+  const reviewId = source.review_id === null ? null : expectString(source.review_id, `${location}.review_id`, SAFE_KEY_PATTERN);
+  const reviewTargetPaths = source.review_target_paths === null
+    ? null
+    : expectStringArray(source.review_target_paths, `${location}.review_target_paths`, true, 256).map(item => normalizeRepoPath(item, `${location}.review_target_paths`));
+  if (mode === 'default' && (repairFingerprints !== null || repairWaveId !== null || reviewId !== null || reviewTargetPaths !== null)) {
+    fail('RUNTIME_STATE_CONFLICT', `${location} default execution must not carry repair identity.`);
+  }
+  if (mode === 'repair' && (repairFingerprints === null || repairFingerprints.length === 0 || repairWaveId === null || reviewId === null || reviewTargetPaths === null || reviewTargetPaths.length === 0)) {
+    fail('RUNTIME_STATE_CONFLICT', `${location} repair execution must carry its review and repair-wave identity.`);
+  }
+  return {
+    execution_id: expectString(source.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN),
+    preflight_id: expectString(source.preflight_id, `${location}.preflight_id`, SAFE_KEY_PATTERN),
+    mode,
+    step_id: expectString(source.step_id, `${location}.step_id`, STEP_ID_PATTERN),
+    plan_revision: expectString(source.plan_revision, `${location}.plan_revision`, SHA256_PATTERN),
+    execution_phase: expectEnum(source.execution_phase, ['flexible', 'test-first', 'red', 'green', 'implementation-first', 'not-applicable', 'legacy'], `${location}.execution_phase`),
+    candidate_paths: expectStringArray(source.candidate_paths, `${location}.candidate_paths`, false, 256).map(item => normalizeRepoPath(item, `${location}.candidate_paths`)),
+    change_set_id: expectString(source.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN),
+    repair_fingerprints: repairFingerprints === null ? null : [...new Set(repairFingerprints)],
+    repair_wave_id: repairWaveId,
+    review_id: reviewId,
+    review_target_paths: reviewTargetPaths,
+  };
+}
+
+type ReviewCoverageAdmission = {
+  coverage: ReviewCoverage;
+  preimageWrites: ReviewPreimageWrite[];
+};
+
+function normalizeReviewPreimages(preimages: readonly (ReviewTargetEntry & { content_base64?: string | null })[]): { entries: ReviewTargetEntry[]; writes: ReviewPreimageWrite[] } {
+  const writes: ReviewPreimageWrite[] = [];
+  const entries = preimages.map(preimage => {
+    if (Object.prototype.hasOwnProperty.call(preimage, 'content_base64')) {
+      const write = decodeLegacyReviewPreimage(preimage);
+      if (write) writes.push(write);
+    }

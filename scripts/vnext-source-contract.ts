@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseDocument } from 'yaml';
 import { resolveRoot } from './workflow-core';
+import { TASK_RECOVERY_PROTOCOL } from '../runtime/vnext/src/task-recovery';
 
 export const VNEXT_SOURCE_CONTRACT_RELATIVE_PATH = '.workflow-system/vnext/SOURCE_CONTRACT.yaml';
 export const VNEXT_SKILL_TEMPLATE_RELATIVE_PATH = 'templates/vnext/skills';
@@ -41,7 +42,7 @@ const PUBLIC_ENTRY_CONTINUATION_PATTERN = new RegExp(
 const PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN = new RegExp(PUBLIC_ENTRY_CONTINUATION_PATTERN.source, 'giu');
 
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
-  'prepare-task': ['default', 'confirm', 'replan'],
+  'prepare-task': ['default', 'confirm', 'replan', 'amend-scope'],
   'review-draft': [],
   'review-change': ['default'],
   'execute-step': ['default', 'repair'],
@@ -128,10 +129,10 @@ export const EXPECTED_EXPERT_RUNTIME_OPERATIONS: Record<ExpertEntry, readonly st
 };
 
 const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]>> = {
-  'prepare-task': ['scope-guard', 'adaptive-depth-policy', 'evidence-admission-policy', 'resume-review-gate'],
-  'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
-  'review-change': ['project-context-resolver', 'scope-guard', 'diff-target-resolver', 'read-only-review-guard'],
-  'execute-step': ['scope-guard', 'task-identity-guard', 'resume-review-gate'],
+  'prepare-task': ['scope-guard', 'mutation-authority-policy', 'adaptive-depth-policy', 'evidence-admission-policy', 'resume-review-gate'],
+  'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'mutation-authority-policy', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
+  'review-change': ['project-context-resolver', 'scope-guard', 'mutation-authority-policy', 'diff-target-resolver', 'read-only-review-guard'],
+  'execute-step': ['scope-guard', 'mutation-authority-policy', 'task-identity-guard', 'resume-review-gate'],
   'debug-task': ['scope-guard', 'review-convergence-policy', 'evidence-admission-policy'],
   'task-lifecycle': ['scope-guard'],
   'capture-work-item': ['scope-guard'],
@@ -175,6 +176,7 @@ const REQUIRED_CAPABILITIES = [
   'source-authority-policy',
   'task-identity-guard',
   'scope-guard',
+  'mutation-authority-policy',
   'decision-authority-gate',
   'adaptive-depth-policy',
   'draft-consistency-challenge',
@@ -228,6 +230,8 @@ const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
 const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
   'task-state-transaction': [
     'execute-step:step-progress',
+    'execute-step:extend-preflight',
+    'execute-step:default:consume-retained-review',
     'review-change:default:record-review-result',
     'review-change:default:record-evidence-challenge',
     'review-change:default:dismiss-evidence-challenge',
@@ -238,6 +242,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'prepare-task:default:migrate-claim-evidence',
     'prepare-task:replan:mark-replan-blocked',
     'prepare-task:replan:clear-replan-block',
+    'prepare-task:amend-scope:commit-scope-amendment',
   ],
   'finding-queue-transaction': [
     'execute-step:repair:admit',
@@ -508,12 +513,12 @@ function validateCapabilityCatalog(contract: UnknownRecord): Set<string> {
   const ids = new Set<string>();
   for (const [index, rawCapability] of rawCapabilities.entries()) {
     const capability = expectRecord(rawCapability, `contract.capabilities[${index}]`);
+    const id = expectString(capability.id, `contract.capabilities[${index}].id`);
     expectExactKeys(
       capability,
-      ['id', 'exposure', 'trigger', 'input_contract', 'output_contract', 'stop_conditions'],
+      ['id', 'exposure', 'trigger', 'input_contract', 'output_contract', 'stop_conditions', ...(id === 'mutation-authority-policy' ? ['execution_admission_binding'] : [])],
       `contract.capabilities[${index}]`,
     );
-    const id = expectString(capability.id, `contract.capabilities[${index}].id`);
     if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(id)) fail(`invalid capability id "${id}"`);
     if (ids.has(id)) fail(`duplicate capability id "${id}"`);
     ids.add(id);
@@ -522,6 +527,24 @@ function validateCapabilityCatalog(contract: UnknownRecord): Set<string> {
     expectStringArray(capability.input_contract, `capability "${id}".input_contract`);
     expectStringArray(capability.output_contract, `capability "${id}".output_contract`);
     expectStringArray(capability.stop_conditions, `capability "${id}".stop_conditions`);
+    if (id === 'mutation-authority-policy') {
+      const binding = expectRecord(capability.execution_admission_binding, 'capability "mutation-authority-policy".execution_admission_binding');
+      expectExactKeys(binding, ['evaluator', 'applies_to', 'classifications', 'identity'], 'capability "mutation-authority-policy".execution_admission_binding');
+      if (binding.evaluator !== 'runtime-owned-exact-target-admission/v1') fail('mutation-authority-policy execution admission evaluator must be runtime-owned-exact-target-admission/v1');
+      expectStringArray(binding.applies_to, 'mutation-authority-policy execution admission applies_to');
+      expectSetEqual(
+        expectStringArray(binding.classifications, 'mutation-authority-policy execution admission classifications'),
+        ['planned-admitted', 'dynamic-self-admitted', 'persistent-test-admitted', 'blocked-authority', 'blocked-assessment', 'blocked-test-strategy', 'blocked-persistent-test', 'blocked-non-executable-policy', 'blocked-governance'],
+        'mutation-authority-policy execution admission classifications',
+      );
+      const identity = expectRecord(binding.identity, 'mutation-authority-policy execution admission identity');
+      expectExactKeys(identity, ['stable_execution_id', 'replacement_receipt', 'retry_budget_effect'], 'mutation-authority-policy execution admission identity');
+      if (identity.stable_execution_id !== 'required_for_new_v2_execution_and_expansion'
+        || identity.replacement_receipt !== 'required_after_extension'
+        || identity.retry_budget_effect !== 'none_for_same_attempt_or_repair_wave') {
+        fail('mutation-authority-policy execution admission identity contract is invalid');
+      }
+    }
   }
   for (const required of REQUIRED_CAPABILITIES) {
     if (!ids.has(required)) fail(`capability catalog is missing required "${required}"`);
@@ -714,6 +737,19 @@ function validatePrepareTaskDraftBoundary(content: string): void {
     'Do not infer Red from step order',
     'TEST_STRATEGY_PREREQUISITE_UNSUPPORTED',
     'Persistent Tests may remain `none`',
+    '### Minimum-sufficient validation selection',
+    'check `boundary`',
+    'Boundary and granularity are orthogonal',
+    '`business-flow` + `focused`',
+    '{kind: structured, argv, selector_arg_index}',
+    '{kind: opaque, command}',
+    'Opaque invocation cannot claim focused',
+    'replan/recovery replacement',
+    'Never invent a user decision, policy, release gate, or authority source',
+    'A matching test file, target, or suite is only a candidate',
+    'A collection of unit PASS results cannot',
+    'Do not add E2E by default',
+    'command PASS never fills another claim slot automatically',
     'PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths',
     'Each policy entry must itself be an exact path or a literal directory prefix',
     'reject wildcard-bearing prefixes such as `*/**`',
@@ -746,6 +782,8 @@ function validateReviewDraftBoundary(content: string): void {
     'one exact `draft + active`',
     'governed_mutation_count: 0',
     'verdict: clean | findings | needs-user',
+    'Treat unjustified validation breadth as a material evidence-plan finding',
+    'Do not demand a full suite merely because it is',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) {
@@ -774,6 +812,7 @@ function validateExecuteStepSemanticBoundary(content: string): void {
     'Runtime `complete-reviewed-step`',
     'completion cannot add evidence',
     'never supply or copy a review receipt',
+    'Do not substitute an unplanned write-capable command, full suite, whole target, broad regression, or E2E command',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) {
@@ -793,6 +832,7 @@ function validateReviewChangeSemanticBoundary(content: string): void {
     'For historical `test-red`, verify that only frozen test assets were admitted',
     'Do not repair code or advance the step',
     'recommendation must not invoke another public Skill',
+    'many PASS results, or one command PASS, do not increase assurance for an unrelated claim',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) fail(`review-change must preserve the semantic boundary term "${term}"`);
@@ -1031,6 +1071,17 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
   const resolvedRoot = path.resolve(root);
   const contractPath = path.join(resolvedRoot, ...VNEXT_SOURCE_CONTRACT_RELATIVE_PATH.split('/'));
   const sourceContract = readYamlMapping(contractPath);
+  // Migration bundles may supply the Runtime contract as a separate artifact.
+  const runtimeContractPath = path.join(resolvedRoot, '.workflow-system/vnext/RUNTIME_CONTRACT.yaml');
+  if (fs.existsSync(runtimeContractPath)) {
+    const runtimeContract = readYamlMapping(runtimeContractPath);
+    const proposal = expectRecord(runtimeContract.proposal, 'Runtime proposal');
+    const prepareTask = expectRecord(proposal.prepare_task, 'Runtime prepare_task');
+    const history = expectRecord(prepareTask.task_history, 'Runtime task_history');
+    const recovery = expectRecord(history.recovery_protocol, 'Runtime recovery_protocol');
+    if (Object.keys(recovery).length !== Object.keys(TASK_RECOVERY_PROTOCOL).length
+      || Object.entries(TASK_RECOVERY_PROTOCOL).some(([key, value]) => JSON.stringify(recovery[key]) !== JSON.stringify(value))) fail('vNext recovery protocol must match the Kernel version, modes, boundaries and limits.');
+  }
   const phase = validateSourceNamespace(sourceContract);
   const entryTemplates = validateCatalogEntries(resolvedRoot, sourceContract);
   const administrativeTemplates = validateAdministrativeCatalog(resolvedRoot, sourceContract);
@@ -1048,6 +1099,14 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
       runtimeOperations,
       legacySkillNames,
     );
+  }
+  for (const [entry, terms] of Object.entries({
+    'prepare-task': ['challenge_ids', 'obligation_map', 'pending_step_changes', 'suspend-recovery', 'restore_plan'],
+    'review-change': ['route-input', 'ingest-evidence', 'Historical', 'Counterevidence is not product-fix authority'],
+    'execute-step': ['apply-artifact-restore', 'preflight', 'journal'],
+  })) {
+    const content = fs.readFileSync(path.join(resolvedRoot, 'templates/vnext/skills', `${entry}.SKILL.md.tmpl`), 'utf8');
+    for (const term of terms) if (!content.includes(term)) fail(`${entry} must preserve recovery boundary ${term}.`);
   }
   for (const entry of ADMIN_ENTRIES) {
     validateAdministrativeTemplate(

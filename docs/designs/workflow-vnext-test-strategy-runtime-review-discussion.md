@@ -1,6 +1,6 @@
 # Workflow vNext 测试策略、执行与评审机制讨论结论
 
-- **Status:** `Historical discussion / selected conclusions superseded by vnext-business-evidence / implementation pending`
+- **Status:** `Historical discussion / superseded where marked; implemented A–D behavior is summarized by E convergence`
 - **Date:** `2026-09-11`
 - **Scope:** `prepare-task、execute-step、review-testcase、review-change、Runtime 测试证据与测试复用`
 - **Behavior impact:** `proposal only; current Runtime 尚未完整实现本文方案`
@@ -12,6 +12,15 @@
   - [`workflow-vnext-implementation-blueprint.md`](workflow-vnext-implementation-blueprint.md)
   - [`workflow-vnext-phase1-prototype-assessment.md`](../product/workflow-vnext-phase1-prototype-assessment.md)
 
+## 2026-09-19 E：最终效力说明
+
+本文继续作为讨论历史保存，不能作为当前 Runtime/Skill 的实施指令。A–D 已实现后的现行原则以 Target Architecture、Runtime/Source Contract、Skill 和 `vnext-design-convergence.md` 为准。除下表已有替代项外，再明确两点：
+
+- minimum-sufficient 是**完整必要 evidence set** 的检出力/边界/总体成本判断，不是“每个 check 都必须最 focused”；合法的用户/项目/发布或契约/风险 breadth 不因存在 focused selector 而失效。
+- supersede 不再导向通用 same-task replacement；bounded correction、`amend-scope` 与显式 fresh successor 是不同执行出口。旧文中的 `review-testcase`、全局 Test ID/catalog、final full regression、默认强制 Red 和通用 same-task replan 均不得从历史段落恢复。
+
+本文后续所有“最终方案”“应新增”“必须”等措辞都受这一效力说明和 2026-09-11 替代表约束。
+
 ## 2026-09-11 S0：本轮方向替代范围
 
 本次用户已固定业务证据治理纠偏方向，实施规格为上链 PLAN，实际源码/安装身份及接口见 HANDOFF。以下仅标记讨论结论的效力；S0 没有修改 Runtime、正式 contract/schema、Target Architecture 或 Blueprint，也未完成 S1。
@@ -22,6 +31,7 @@
 | §3.2、§5、§7.1 的全局 testcase/Red/Green 阶段及必须后续产品步骤 | 被 D1/D2 取代；使用 claim/slot/check 局部义务，纯测试资产首次通过合法，expected-failure 不能证明正向交付。 |
 | §2.7、§6、§10、§12/13 的新增 public review-testcase 与架构变更方案 | 本轮不采用；测试必要性、oracle、复用及边界审查放在既有 review-draft/review-change；保留 Target 核心，不新建公共入口。 |
 | §2.8/10/11、§7.2、§8 的可信执行凭证、全局 Test ID/catalog 前置 | 被 D2/D3 的最小边界取代；任务内稳定 ID、多槽实际调用、结构化 caller-reported 报告及对象适用性本期接通；完整 Provider/AST/全局 ID 后置，不声称来源标签能证明可信执行。 |
+| §8.4、§13 的 `required test set`、`previously-green impacted tests` 与 `final-step full regression` 默认扩张 | 被 Target Architecture P-12 与 PLAN D2 的 minimum-sufficient execution 取代。测试执行集合也必须最小必要；不得因同 target/suite、历史 Green、最终步骤或“全量更稳妥”自动扩大。宽回归/E2E 只有在具体 claim/risk、项目/发布 gate 或显式用户要求证明必要时才进入 required evidence。 |
 | §5/7/14 的逐步仪式化执行/评审建议 | 以 D4 为准：按风险/逻辑检查点；required review 必须覆盖累计相关变更，修复仍需同一逻辑目标 verification。 |
 | §2.12、§7.4 的环境 blocked 重试 | 保留问题判断，按 D5 在 dogfood 前完成最小同计划、有界、幂等重试；不构建通用恢复平台。 |
 | §2.13、§7.5 的滚动日志证据丢失暂缓 | 不再适用于新语义完成判断；必需证据摘要、累计评审边界和 retry 预算存 canonical task records，不依赖 256 条滚动日志。 |

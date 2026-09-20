@@ -7,6 +7,43 @@ export type JsonObject = { [key: string]: JsonValue };
 export type WriteOperation = { path: string; content: string };
 
 const WORKFLOW_PROFILE_RELATIVE_PATH = '.workflow-system/PROJECT_PROFILE.yaml';
+const heldGovernanceLocks = new Set<string>();
+
+export function assertGovernanceReadable(currentPath: string): void {
+  const lock = path.join(path.dirname(currentPath), '.vnext-governance-write.lock');
+  if (fs.existsSync(lock) && !heldGovernanceLocks.has(lock)) throw new Error('GOVERNANCE_WRITE_LOCKED: publication is running or was interrupted; fail closed.');
+}
+
+/** Internal read-back distinction: the current commit owner may inspect its
+ * staged legacy representation before the pending marker is cleared. External
+ * readers still fail closed through assertGovernanceReadable/readCanonical. */
+export function governanceWriteLockIsHeld(root: string): boolean {
+  const profile = loadProfile(getWorkflowProfilePath(root));
+  const lock = getWorkflowDocPath(root, profile, '.vnext-governance-write.lock');
+  return heldGovernanceLocks.has(lock);
+}
+
+export function withGovernanceWriteLock<T>(root: string, operation: () => T): T {
+  const profile = loadProfile(getWorkflowProfilePath(root));
+  const lock = getWorkflowDocPath(root, profile, '.vnext-governance-write.lock');
+  fs.mkdirSync(path.dirname(lock), { recursive: true });
+  let fd: number;
+  try { fd = fs.openSync(lock, 'wx'); }
+  catch { throw new Error('GOVERNANCE_WRITE_LOCKED: concurrent or interrupted governance publication requires recovery; no writes admitted.'); }
+  let release = true;
+  try {
+    fs.writeFileSync(fd, JSON.stringify({ kind: 'governance-write-lock/v1', pid: process.pid }) + '\n');
+    fs.fsyncSync(fd);
+    heldGovernanceLocks.add(lock);
+    const result = operation();
+    if (result && typeof result === 'object' && 'code' in result && result.code === 'ROLLBACK_FAILED') release = false;
+    return result;
+  } finally {
+    heldGovernanceLocks.delete(lock);
+    fs.closeSync(fd);
+    if (release) fs.rmSync(lock);
+  }
+}
 
 function readText(filePath: string): string {
   if (!fs.existsSync(filePath)) throw new Error('Required file not found: ' + filePath);
