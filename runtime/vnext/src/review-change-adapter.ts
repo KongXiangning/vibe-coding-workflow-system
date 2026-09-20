@@ -854,11 +854,14 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   }
   if (verdict === 'clean' && (findings.length > 0 || unresolved.length > 0 || blocker !== null)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'clean must not contain findings or a blocker.');
   if (verdict === 'findings' && (findings.length === 0 && unresolved.length === 0 || blocker !== null)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings verdict requires a finding and no blocker.');
-  if (verdict === 'blocked' && (findings.length > 0 || unresolved.length > 0 || blocker === null)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocked requires only a blocker.');
+  if (verdict === 'blocked' && blocker === null) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocked requires a blocker.');
   const runtimeBlocker = verdict === 'findings' ? convergenceBlocker(current, receipt, findings, unresolved) : null;
   const finalVerdict: ReviewResultVerdict = runtimeBlocker ? 'blocked' : verdict;
-  const finalFindings = runtimeBlocker ? [] : findings;
-  const finalUnresolved = runtimeBlocker ? [] : unresolved;
+  // A convergence blocker stops execution, but it does not invalidate the
+  // reviewer's structured conclusions. Keep them attached to the blocked
+  // review so a later budget decision can recompute the complete repair set.
+  const finalFindings = findings;
+  const finalUnresolved = unresolved;
   const finalBlocker = runtimeBlocker ?? blocker;
   const reviewId = `review-${digest({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult: Omit<PendingReviewResult, 'recorded_at'> = {

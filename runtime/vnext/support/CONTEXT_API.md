@@ -1,4 +1,4 @@
-# Runtime source context (0.19.5)
+# Runtime source context (0.20.6)
 
 Use the installed Node CLI at `.workflow-system/runtime/dist/cli.js`. Pass `--root <project>` and JSON on stdin. These context commands do not write task state, admit tests, run checks, or certify evidence. For normal task inspection, use `validate --summary`; plain `validate` retains its full diagnostic output, including stored baselines.
 
@@ -424,7 +424,22 @@ cycle; explicit extensions have absolute caps of eight each. On success the next
 entry is `execute-step:repair`, which consumes the retained review through a fresh
 execution and verification. An exact replay is a no-op; partial, stale, reset, or
 second unconsumed extensions fail closed. Without explicit authorization, stop at
-the user-owned blocker.
+the user-owned blocker. A budget-blocked review retains its structured
+`findings` and `unresolved_fingerprints`; the extension set is only the subset
+authorized for extra attempts. After extension, repair consumes the full current
+review set whose findings are admitted and in scope, so findings with remaining
+budget are not dropped and findings already marked resolved are not re-scheduled.
+
+For a legacy 0.20.5 budget-blocked state whose stored review has empty
+`findings`/`unresolved_fingerprints`, the upgrade is intentionally fail-closed:
+it does not infer targets from prose and does not rewrite `CURRENT_TASK.md`.
+After the formal distribution `upgrade`, obtain a fresh `review-context` receipt,
+re-run the review against the recorded execution and exact review target, and
+submit a new structured `record-review-result` with evidence references. Only
+that bound review may be used for `extend-repair-budget`; stale receipts,
+changed source/task identity, mismatched execution or target paths require a
+new review. This is a recovery write through the Runtime transaction boundary,
+not a direct task-status edit.
 
 Ordinary `prepare-draft` remains closed for a superseded task
 (`REPLACEMENT_OUTCOME_UNSUPPORTED`), so unfinished obligations cannot be hidden by

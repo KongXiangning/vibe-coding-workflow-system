@@ -6178,7 +6178,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.5";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.6";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -7402,8 +7402,9 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   if (reviewReceiptContract.target_verification !== "runtime-file-manifest")
     fail3("RUNTIME_CONTRACT_INVALID", "review receipt target verification must be runtime-file-manifest.");
   const reviewResultContract = expectRecord2(taskStateContract.review_result, "Runtime contract.proposal.task_state.review_result");
-  expectExactKeys2(reviewResultContract, ["stored_in", "verdicts", "binds", "consumed_by", "test_assessment"], "Runtime contract.proposal.task_state.review_result");
+  expectExactKeys2(reviewResultContract, ["stored_in", "verdicts", "binds", "blocked_diagnostics", "consumed_by", "test_assessment"], "Runtime contract.proposal.task_state.review_result");
   expectSetEqual(expectStringArray2(reviewResultContract.test_assessment, "review_result.test_assessment"), ["applicable", "reason", "evidence_refs", "necessity", "oracle", "boundary", "reuse", "applicability"], "test assessment fields");
+  expectSetEqual(expectStringArray2(reviewResultContract.blocked_diagnostics, "review_result.blocked_diagnostics"), ["findings", "unresolved_fingerprints", "blocker"], "blocked review diagnostics");
   if (reviewResultContract.stored_in !== "canonical CURRENT_TASK.runtime_state.pending_review_result")
     fail3("RUNTIME_CONTRACT_INVALID", "review result must use canonical pending review storage.");
   expectSetEqual(expectStringArray2(reviewResultContract.verdicts, "Runtime contract review-result verdicts"), [...REVIEW_RESULT_VERDICTS], "Runtime contract review-result verdicts");
@@ -8935,8 +8936,8 @@ function validatePendingReviewResult(value, location2, includeRecordedAt) {
   if (verdict === "findings" && (findings.length === 0 && unresolvedFingerprints.length === 0 || blocker !== null)) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location2} findings result requires a finding and must not contain a blocker.`);
   }
-  if (verdict === "blocked" && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker === null)) {
-    fail3("RUNTIME_SCHEMA_INVALID", `${location2} blocked result requires only a blocker.`);
+  if (verdict === "blocked" && blocker === null) {
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2} blocked result requires a blocker.`);
   }
   const result = {
     ...record4.test_assessment === undefined ? {} : { test_assessment: validateTestAssessment(record4.test_assessment) },
@@ -18135,6 +18136,15 @@ function repairBudgetContinuationForPendingReview(current) {
   });
   return actionable ? { review_id: pending.review_id, finding_fingerprints: audit.finding_budgets.map((item) => item.fingerprint) } : null;
 }
+function repairFingerprintsForPendingReview(current) {
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending || pending.verdict !== "findings" && pending.verdict !== "blocked")
+    return [];
+  return [...new Set([
+    ...pending.unresolved_fingerprints,
+    ...pending.findings.map((item) => item.fingerprint)
+  ])].sort();
+}
 function repairBudgetExtensionTargets(current) {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== "blocked" || pending.blocker?.code !== "REPAIR_BUDGET_EXHAUSTED")
@@ -19150,8 +19160,12 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (!pending || pending.verdict !== "findings" && budgetContinuation === null || !delta.review_id || delta.review_id !== pending.review_id) {
         fail3("REVIEW_FINDINGS_REQUIRED", "repair preflight requires the current findings review identity or its explicitly authorized budget continuation.");
       }
-      if (budgetContinuation && digest3(repairFingerprints) !== digest3(budgetContinuation.finding_fingerprints)) {
-        fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "repair preflight must consume the exact authorized budget-extension finding set.");
+      const reviewFingerprints = repairFingerprintsForPendingReview(current);
+      if (digest3(repairFingerprints) !== digest3(reviewFingerprints)) {
+        fail3("REPAIR_TARGET_SET_INVALID", "repair preflight must consume exactly the current pending review repair set.");
+      }
+      if (budgetContinuation && budgetContinuation.finding_fingerprints.some((fingerprint) => !repairFingerprints.includes(fingerprint))) {
+        fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "repair preflight must include every finding authorized by the budget extension.");
       }
       if (repairFingerprints.length === 0 || !delta.repair_wave_id || !delta.change_set_id || delta.change_set_id !== pending.change_set_id || !delta.review_target_paths || delta.review_target_paths.length === 0) {
         fail3("REPAIR_PREFLIGHT_IDENTITY_REQUIRED", "repair preflight must bind findings, repair wave, review, target paths, and change set.");
@@ -27776,6 +27790,10 @@ function beginRepair(root2, input, options = {}) {
     if (!candidatePaths.includes(candidate.file)) {
       fail7("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", `candidate_paths must include review finding path ${candidate.file}.`);
     }
+    const existingFinding = current.runtimeState.findings.find((item) => item.fingerprint === candidate.fingerprint);
+    if (existingFinding?.status === "resolved") {
+      fail7("FINDING_ALREADY_RESOLVED", `review finding ${candidate.fingerprint} is already resolved and cannot be re-admitted.`);
+    }
     const admissionKey = idempotencyKey("execute-review-admit", { review_id: pending.review_id, fingerprint: candidate.fingerprint });
     if (hasAppliedProposal2(current, admissionKey))
       continue;
@@ -27812,10 +27830,13 @@ function beginRepair(root2, input, options = {}) {
     if (!options.dryRun)
       current = readCanonicalCurrentTask(root2);
   }
-  const fingerprints = budgetContinuation?.finding_fingerprints ?? [...new Set([
-    ...pending.unresolved_fingerprints,
-    ...pending.findings.map((item) => item.fingerprint)
-  ])].sort();
+  const fingerprints = repairFingerprintsForPendingReview(current);
+  if (fingerprints.length === 0) {
+    fail7("REVIEW_FINDINGS_REQUIRED", "the current review has no structured repair target; resubmit the exact review result before repairing.");
+  }
+  if (budgetContinuation && budgetContinuation.finding_fingerprints.some((fingerprint) => !fingerprints.includes(fingerprint))) {
+    fail7("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "the retained budget extension is not covered by the current review repair set.");
+  }
   for (const fingerprint of fingerprints) {
     const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
     if (!options.dryRun && (!finding || !["admitted", "in-progress"].includes(finding.status))) {
@@ -29540,12 +29561,12 @@ function recordReviewResult(root2, input, options = {}) {
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "clean must not contain findings or a blocker.");
   if (verdict === "findings" && (findings.length === 0 && unresolved.length === 0 || blocker !== null))
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "findings verdict requires a finding and no blocker.");
-  if (verdict === "blocked" && (findings.length > 0 || unresolved.length > 0 || blocker === null))
-    fail8("REVIEW_ADAPTER_INPUT_INVALID", "blocked requires only a blocker.");
+  if (verdict === "blocked" && blocker === null)
+    fail8("REVIEW_ADAPTER_INPUT_INVALID", "blocked requires a blocker.");
   const runtimeBlocker = verdict === "findings" ? convergenceBlocker(current, receipt, findings, unresolved) : null;
   const finalVerdict = runtimeBlocker ? "blocked" : verdict;
-  const finalFindings = runtimeBlocker ? [] : findings;
-  const finalUnresolved = runtimeBlocker ? [] : unresolved;
+  const finalFindings = findings;
+  const finalUnresolved = unresolved;
   const finalBlocker = runtimeBlocker ?? blocker;
   const reviewId = `review-${digest6({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult = {

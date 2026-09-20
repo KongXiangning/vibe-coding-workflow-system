@@ -40,6 +40,7 @@ import {
   createReviewChangeDelta,
   currentDefinitionExecutionLog,
   repairBudgetContinuationForPendingReview,
+  repairFingerprintsForPendingReview,
   reviewCycleForNextStep,
   cumulativeReviewExecution,
   createTaskStateProposal,
@@ -799,6 +800,10 @@ export function beginRepair(
     if (!candidatePaths.includes(candidate.file)) {
       fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', `candidate_paths must include review finding path ${candidate.file}.`);
     }
+    const existingFinding = current.runtimeState.findings.find(item => item.fingerprint === candidate.fingerprint);
+    if (existingFinding?.status === 'resolved') {
+      fail('FINDING_ALREADY_RESOLVED', `review finding ${candidate.fingerprint} is already resolved and cannot be re-admitted.`);
+    }
     const admissionKey = idempotencyKey('execute-review-admit', { review_id: pending.review_id, fingerprint: candidate.fingerprint });
     if (hasAppliedProposal(current, admissionKey)) continue;
     const proposal = createFindingQueueProposal(current, {
@@ -834,10 +839,13 @@ export function beginRepair(
     if (!options.dryRun) current = readCanonicalCurrentTask(root);
   }
 
-  const fingerprints = budgetContinuation?.finding_fingerprints ?? [...new Set([
-    ...pending.unresolved_fingerprints,
-    ...pending.findings.map(item => item.fingerprint),
-  ])].sort();
+  const fingerprints = repairFingerprintsForPendingReview(current);
+  if (fingerprints.length === 0) {
+    fail('REVIEW_FINDINGS_REQUIRED', 'the current review has no structured repair target; resubmit the exact review result before repairing.');
+  }
+  if (budgetContinuation && budgetContinuation.finding_fingerprints.some(fingerprint => !fingerprints.includes(fingerprint))) {
+    fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'the retained budget extension is not covered by the current review repair set.');
+  }
   for (const fingerprint of fingerprints) {
     const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
     if (!options.dryRun && (!finding || !['admitted', 'in-progress'].includes(finding.status))) {

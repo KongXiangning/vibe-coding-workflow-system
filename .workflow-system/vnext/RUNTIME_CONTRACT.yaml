@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.5
+  package_version: 0.20.6
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -378,6 +378,10 @@ proposal:
         - latest_execution_id
         - change_set_id
         - review_target_revision
+      blocked_diagnostics:
+        - findings
+        - unresolved_fingerprints
+        - blocker
       consumed_by:
         clean: execute-step:complete-reviewed-step
         findings: execute-step:begin-repair

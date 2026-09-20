@@ -8632,7 +8632,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(complete.runtimeState.pending_review_result).toBeNull();
   });
 
-  test('extends only the exact exhausted repair budget and resumes the retained blocked review', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+  test('extends only the exact exhausted repair budget and resumes the retained blocked review', { timeout: 40_000 }, () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
     const command = 'bun test test/vnext-runtime.test.ts';
     const validation = 'bun test test/vnext-runtime.test.ts passes';
@@ -8646,6 +8646,28 @@ describe('vNext Phase 2 Runtime contract', () => {
         validation: [validation],
       }],
     }));
+    const resolvedFindingFingerprint = 'finding-resolved-c';
+    let setupCurrent = readCanonicalCurrentTask(root);
+    const resolvedAdmissionDelta = admittedFinding(resolvedFindingFingerprint, setupCurrent.runtimeState.review_cycle.id);
+    resolvedAdmissionDelta.finding.owner_task_id = setupCurrent.runtimeState.task_id;
+    const resolvedAdmission = applyVNextRuntimeProposal(root, createFindingQueueProposal(setupCurrent, {
+      mode: 'repair',
+      delta: resolvedAdmissionDelta,
+      idempotency_key: 'repair-budget-resolved-c-admit',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+      evidence_refs: [`test:evidence:${resolvedFindingFingerprint}`],
+    }));
+    expect(resolvedAdmission.status).toBe('success');
+    setupCurrent = readCanonicalCurrentTask(root);
+    const resolvedFinding = applyVNextRuntimeProposal(root, createFindingQueueProposal(setupCurrent, {
+      mode: 'repair',
+      delta: { kind: 'finding-queue', action: 'resolve', fingerprint: resolvedFindingFingerprint, evidence_refs: ['test:repair-budget-resolved-c'] },
+      idempotency_key: 'repair-budget-resolved-c-resolve',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+      evidence_refs: ['test:repair-budget-resolved-c'],
+    }));
+    expect(resolvedFinding.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === resolvedFindingFingerprint)?.status).toBe('resolved');
     const product = path.join(root, ...file.split('/'));
     fs.mkdirSync(path.dirname(product), { recursive: true });
     const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
@@ -8698,14 +8720,48 @@ describe('vNext Phase 2 Runtime contract', () => {
     const exhausted = readCanonicalCurrentTask(root);
     const blockedReview = exhausted.runtimeState.pending_review_result!;
     expect(blockedReview).toMatchObject({ verdict: 'blocked', blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' } });
+    expect(blockedReview.unresolved_fingerprints).toEqual([fingerprint]);
+    expect(blockedReview.findings).toEqual([]);
     expect(exhausted.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({
       status: 'in-progress', repair_attempts: 2, max_repair_attempts: 2,
     });
     expect(taskContext(root, {}).overview.next_entry).toBe('prepare-task:extend-repair-budget');
     expect(() => beginRepair(root, { candidate_paths: [file] })).toThrow('REVIEW_FINDINGS_REQUIRED');
 
+    const enrichedReviewContext = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: enrichedReviewContext.receipt,
+      verdict: 'findings',
+      findings: [
+        {
+          category: 'correctness', file,
+          failure_condition: 'the second repair target remains incorrect',
+          required_behavior: 'repair the second target without dropping the existing issue',
+          root_cause_status: 'confirmed', evidence_refs: ['test:repair-budget-second-finding'],
+        },
+        {
+          category: 'correctness', file,
+          failure_condition: 'the newly discovered overlap is still conflicting',
+          required_behavior: 'preserve the conflicting overlap in the repair scope',
+          root_cause_status: 'confirmed', evidence_refs: ['test:repair-budget-new-finding'],
+        },
+      ],
+      unresolved_fingerprints: [fingerprint],
+      evidence_refs: ['test:repair-budget-review-recovery'],
+      blocker: null,
+    }).status).toBe('success');
+    const enrichedBlockedReview = readCanonicalCurrentTask(root).runtimeState.pending_review_result!;
+    const secondFingerprint = enrichedBlockedReview.findings[0]!.fingerprint;
+    const newFingerprint = enrichedBlockedReview.findings[1]!.fingerprint;
+    expect(enrichedBlockedReview).toMatchObject({
+      verdict: 'blocked',
+      blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' },
+      unresolved_fingerprints: [fingerprint],
+    });
+    expect(enrichedBlockedReview.findings.map(item => item.fingerprint)).toEqual([secondFingerprint, newFingerprint]);
+
     const authorization = {
-      review_id: blockedReview.review_id,
+      review_id: enrichedBlockedReview.review_id,
       finding_fingerprints: [fingerprint],
       additional_repair_attempts: 1,
       decision_source: 'user:repair-budget-extension-regression',
@@ -8717,7 +8773,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const extension = extendRepairBudget(root, authorization);
     expect(extension).toMatchObject({ status: 'success' });
     const extended = readCanonicalCurrentTask(root);
-    expect(extended.runtimeState.pending_review_result).toEqual(blockedReview);
+    expect(extended.runtimeState.pending_review_result).toEqual(enrichedBlockedReview);
     expect(extended.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({
       status: 'in-progress', repair_attempts: 2, max_repair_attempts: 3,
     });
@@ -8728,7 +8784,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const extensionAudit = extended.runtimeState.execution_log.findLast(item => 'action' in item && item.action === 'extend-repair-budget');
     expect(extensionAudit).toMatchObject({
       action: 'extend-repair-budget',
-      review_id: blockedReview.review_id,
+      review_id: enrichedBlockedReview.review_id,
       finding_budgets: [{ fingerprint, previous_max: 2, new_max: 3 }],
       previous_max_repair_rounds: 3,
       new_max_repair_rounds: 3,
@@ -8744,7 +8800,9 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(extended.filePath, 'utf8')).toBe(committedBytes);
 
     const continuation = beginRepair(root, { candidate_paths: [file] });
-    expect(continuation.receipt.repair_fingerprints).toEqual([fingerprint]);
+    expect(continuation.receipt.repair_fingerprints).toEqual([fingerprint, secondFingerprint, newFingerprint].sort());
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.filter(item => [fingerprint, secondFingerprint, newFingerprint].includes(item.fingerprint)).map(item => item.fingerprint).sort()).toEqual([fingerprint, secondFingerprint, newFingerprint].sort());
+    expect(continuation.receipt.repair_fingerprints).not.toContain(resolvedFindingFingerprint);
     expect(execute(continuation.receipt, 'repair round 3\n').status).toBe('success');
     const afterContinuation = readCanonicalCurrentTask(root);
     expect(afterContinuation.runtimeState.pending_review_result).toBeNull();

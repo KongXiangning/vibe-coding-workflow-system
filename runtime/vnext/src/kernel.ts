@@ -133,7 +133,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.5';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.6';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -2836,8 +2836,9 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   );
   if (reviewReceiptContract.target_verification !== 'runtime-file-manifest') fail('RUNTIME_CONTRACT_INVALID', 'review receipt target verification must be runtime-file-manifest.');
   const reviewResultContract = expectRecord(taskStateContract.review_result, 'Runtime contract.proposal.task_state.review_result');
-  expectExactKeys(reviewResultContract, ['stored_in', 'verdicts', 'binds', 'consumed_by', 'test_assessment'], 'Runtime contract.proposal.task_state.review_result');
+  expectExactKeys(reviewResultContract, ['stored_in', 'verdicts', 'binds', 'blocked_diagnostics', 'consumed_by', 'test_assessment'], 'Runtime contract.proposal.task_state.review_result');
   expectSetEqual(expectStringArray(reviewResultContract.test_assessment, 'review_result.test_assessment'), ['applicable','reason','evidence_refs','necessity','oracle','boundary','reuse','applicability'], 'test assessment fields');
+  expectSetEqual(expectStringArray(reviewResultContract.blocked_diagnostics, 'review_result.blocked_diagnostics'), ['findings', 'unresolved_fingerprints', 'blocker'], 'blocked review diagnostics');
   if (reviewResultContract.stored_in !== 'canonical CURRENT_TASK.runtime_state.pending_review_result') fail('RUNTIME_CONTRACT_INVALID', 'review result must use canonical pending review storage.');
   expectSetEqual(expectStringArray(reviewResultContract.verdicts, 'Runtime contract review-result verdicts'), [...REVIEW_RESULT_VERDICTS], 'Runtime contract review-result verdicts');
   expectSetEqual(expectStringArray(reviewResultContract.binds, 'Runtime contract review-result bindings'), ['active_step_id', 'review_cycle_id', 'latest_execution_id', 'change_set_id', 'review_target_revision'], 'Runtime contract review-result bindings');
@@ -4764,8 +4765,8 @@ function validatePendingReviewResult(
   if (verdict === 'findings' && (findings.length === 0 && unresolvedFingerprints.length === 0 || blocker !== null)) {
     fail('RUNTIME_SCHEMA_INVALID', `${location} findings result requires a finding and must not contain a blocker.`);
   }
-  if (verdict === 'blocked' && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker === null)) {
-    fail('RUNTIME_SCHEMA_INVALID', `${location} blocked result requires only a blocker.`);
+  if (verdict === 'blocked' && blocker === null) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} blocked result requires a blocker.`);
   }
   const result = {
     ...(record.test_assessment === undefined ? {} : {test_assessment:validateTestAssessment(record.test_assessment)}),
@@ -13915,6 +13916,22 @@ export function repairBudgetContinuationForPendingReview(current: CanonicalCurre
   return actionable ? { review_id: pending.review_id, finding_fingerprints: audit.finding_budgets.map(item => item.fingerprint) } : null;
 }
 
+/**
+ * Return the findings that the latest review says still need repair.
+ *
+ * This is deliberately independent from the budget-extension audit. The audit
+ * authorizes additional attempts for a subset of these findings; it never
+ * narrows the repair target set for the retained review.
+ */
+export function repairFingerprintsForPendingReview(current: CanonicalCurrentTask): string[] {
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending || (pending.verdict !== 'findings' && pending.verdict !== 'blocked')) return [];
+  return [...new Set([
+    ...pending.unresolved_fingerprints,
+    ...pending.findings.map(item => item.fingerprint),
+  ])].sort();
+}
+
 export function repairBudgetExtensionTargets(current: CanonicalCurrentTask): string[] | null {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') return null;
@@ -15000,8 +15017,12 @@ function applyTaskStateDelta(
       if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null) || !delta.review_id || delta.review_id !== pending.review_id) {
         fail('REVIEW_FINDINGS_REQUIRED', 'repair preflight requires the current findings review identity or its explicitly authorized budget continuation.');
       }
-      if (budgetContinuation && digest(repairFingerprints) !== digest(budgetContinuation.finding_fingerprints)) {
-        fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'repair preflight must consume the exact authorized budget-extension finding set.');
+      const reviewFingerprints = repairFingerprintsForPendingReview(current);
+      if (digest(repairFingerprints) !== digest(reviewFingerprints)) {
+        fail('REPAIR_TARGET_SET_INVALID', 'repair preflight must consume exactly the current pending review repair set.');
+      }
+      if (budgetContinuation && budgetContinuation.finding_fingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) {
+        fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'repair preflight must include every finding authorized by the budget extension.');
       }
       if (repairFingerprints.length === 0 || !delta.repair_wave_id || !delta.change_set_id || delta.change_set_id !== pending.change_set_id || !delta.review_target_paths || delta.review_target_paths.length === 0) {
         fail('REPAIR_PREFLIGHT_IDENTITY_REQUIRED', 'repair preflight must bind findings, repair wave, review, target paths, and change set.');

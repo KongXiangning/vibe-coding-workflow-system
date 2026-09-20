@@ -1,4 +1,4 @@
-# vNext 0.19.5：任务纠错、执行恢复与有界上下文
+# vNext 0.20.6：任务纠错、执行恢复与有界上下文
 
 ## 适用范围
 
@@ -66,13 +66,15 @@
 
 累计审查基线和未审 diff 不清零，新改动需要新审查。候选次数按稳定问题身份累计，原失败尝试及 finding repair budget 保留；跨恢复计划的同问题失败和修复 wave 继续计数。达到预算返回诊断/用户决定，不通过改文件名或恢复 ID 重试。
 
-当且仅当当前待审结果是 `REPAIR_BUDGET_EXHAUSTED`，可以在用户明确授权后调用 `prepare-task:extend-repair-budget`。输入绑定精确 `review_id`、当前周期中全部且仅限已耗尽的 `finding_fingerprints`、固定的 `additional_repair_attempts: 1`，以及决定来源和原文。Runtime 为每个 finding 只增加一次额度，并保留现有尝试次数、状态、pending review、累计审查基线、任务定义与身份；默认上限仍为每 finding 两次、每周期三个 repair wave，显式扩展的绝对上限均为八。扩展后同一 blocked review 直接路由到 `execute-step:repair`，新执行结果和验证审查照常消费；它不要求先清空 pending review/findings，也不生成 correction-replan candidate。
+当且仅当当前待审结果是 `REPAIR_BUDGET_EXHAUSTED`，可以在用户明确授权后调用 `prepare-task:extend-repair-budget`。输入绑定精确 `review_id`、当前周期中全部且仅限已耗尽的 `finding_fingerprints`、固定的 `additional_repair_attempts: 1`，以及决定来源和原文。Runtime 为每个 finding 只增加一次额度，并保留现有尝试次数、状态、pending review、累计审查基线、任务定义与身份；默认上限仍为每 finding 两次、每周期三个 repair wave，显式扩展的绝对上限均为八。扩展后同一 blocked review 直接路由到 `execute-step:repair`，新执行结果和验证审查照常消费；它不要求先清空 pending review/findings，也不生成 correction-replan candidate。预算授权集合只决定哪些 finding 可以增加尝试次数，不替代最新审查的完整修复集合；仍有预算的未解决 finding 必须保留，已解决 finding 不得重新安排。
+
+预算阻断不是“没有审查结论”。Runtime 保留 blocked review 中的结构化 `findings`、`unresolved_fingerprints` 和 `blocker`。对旧 0.20.5 状态，如果历史 blocked review 已经把这些字段清空，升级不会从自由文本猜测结论，也不会要求手改 `CURRENT_TASK.md`：先用正式 `upgrade` 完成分发升级，再用 `review-context` 取得绑定当前 execution/target 的新 receipt，重新提交一次带完整结构化 finding、未解决项和证据引用的 `record-review-result`。只有这次审查重新形成精确的 `REPAIR_BUDGET_EXHAUSTED` pending review 后，才允许用户以这次重新记录返回的 `review_id` 和精确耗尽集合调用预算扩展；receipt、task/source revision、execution、change set 和目标路径任一过期都必须重新审查，不能靠重放或改状态绕过。
 
 0.19.1 会沿已确认候选的历史 execution 和后续步骤替代关系承接问题身份，包括旧 v2 候选；三次真实失败后，新恢复步骤的 preflight 仍拒绝。针对同一原报告的多个质疑可分批处理：保留原 result ID，通过已确认纠错结果建立关联，剩余质疑继续阻塞普通推进，每批都需新的结果与审查。
 
 ## 安装、升级和兼容
 
-使用发行报告列出的固定 `vibe-governance-0.19.5.tgz`，先核对 SHA-256。可在独立安装目录执行：
+使用发行报告列出的固定 `vibe-governance-0.20.6.tgz`，先核对 SHA-256。可在独立安装目录执行：
 
 ```powershell
 npm install --ignore-scripts --no-audit --no-fund <固定tgz绝对路径>
@@ -82,7 +84,7 @@ npm install --ignore-scripts --no-audit --no-fund <固定tgz绝对路径>
 node <目标路径>/.workflow-system/runtime/dist/cli.js validate --root <目标路径>
 ```
 
-软件 upgrade 不重写活动 CURRENT_TASK/Basis。旧状态可读；需要恢复写入时，先通过本地 CLI `initialize-preservation` 提交当前 `source_revision` 和 `basis_revision`，保全原字节后显式设置保护版本 2。旧 receipt 不授权新协议，未知版本 fail closed。已写入 v2 状态后，不支持直接降级 0.18.7 继续写任务；保留发行包及历史，前向处理兼容问题。
+软件 upgrade 不重写活动 CURRENT_TASK/Basis，也不直接覆盖已安装目标的 `dist/cli.js`；分发事务只更新受管文件并做 read-back。旧状态可读；需要恢复写入时，先通过本地 CLI `initialize-preservation` 提交当前 `source_revision` 和 `basis_revision`，保全原字节后显式设置保护版本 2。对预算阻断旧状态，按上一节用新 receipt 重新记录结构化审查，不得由文字证据自动推断已解决项。旧 receipt 不授权新协议，未知版本 fail closed。已写入 v2 状态后，不支持直接降级 0.18.7 继续写任务；保留发行包及历史，前向处理兼容问题。
 
 ## 真实目标部署后验收清单（待部署验收）
 

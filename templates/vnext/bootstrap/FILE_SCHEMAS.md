@@ -281,6 +281,10 @@ per finding and three repair waves per cycle; an optional Runtime-owned
 eight attempts and eight waves. A matching unconsumed audit authorizes only the
 next exact `begin-repair`; different, stale, partial, reset, or bulk extensions
 fail closed. This route does not create a correction-replan candidate.
+When a review is blocked by convergence or budget, its structured findings and
+unresolved fingerprints remain in the pending result. The extension audit is
+only an authorization set; repair preflight recomputes the full current review
+set and excludes findings already marked resolved.
 
 Persistent Tests retain exact path + stable claim IDs in `proves`, plus `owner`,
 `owner_source`, `source_ref`, `basis` (acceptance/regression/critical-invariant/
@@ -604,7 +608,7 @@ no selected sources. The normal prepare adapter writes affected contracts to the
 existing affected-contracts section. Confirmation binds both sections; subsequent
 reads expose the saved metadata without loading the referenced documents.
 
-## Task aggregate and bounded context (0.19.5)
+## Task aggregate and bounded context (0.20.6)
 
 CURRENT_TASK.md carries one aggregate submission head with exact source_revision,
 definition_revision, state_revision, and committed event range. The head is
