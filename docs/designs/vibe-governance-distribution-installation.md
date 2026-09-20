@@ -99,11 +99,14 @@ The commands are strict dispatches:
 | `migrate` | `legacy` | independent Migration Pack conversion and install | fresh install or vNext upgrade |
 | `upgrade` | `vnext(old)` | state-preserving vNext replacement after a validated idle or confirmed active boundary | legacy parsing or conversion |
 
-For an older vNext target, `upgrade` asks the project-local Runtime to validate
-the current task before promotion. A `closed + archived` task or a confirmed
-`active + active` task is admitted; the transaction replaces only
-Distribution-managed files and leaves `CURRENT_TASK.md`, Task Basis, profile,
-and product files untouched.
+For an older vNext target, `upgrade` validates the current task with the
+incoming Runtime parser from the admitted payload before promotion. This keeps
+the boundary read-only and lets a storage-compatible target cross an old
+Runtime parser that predates the compatibility fix. A `closed + archived` task
+or a confirmed `active + active` task is admitted; managed-file ownership and
+the old Distribution state are still checked before promotion. The transaction
+replaces only Distribution-managed files and leaves `CURRENT_TASK.md`, Task
+Basis, profile, task-data, and product files untouched.
 If the dogfood orchestration is interrupted after promotion, the expected
 versioned upgrade branch may safely resume the local commit after the
 published-bin read-back confirms that the requested Distribution is already

@@ -986,6 +986,10 @@ function stateSnapshotPayload(current) {
     })) : [];
     return { ...copyWithout(item, ["slots"]), slots };
   }) : [];
+  const pendingReview = snapshot.pending_review_result;
+  if (record2(pendingReview) && Array.isArray(pendingReview.resolved_fingerprints) && pendingReview.resolved_fingerprints.length === 0) {
+    snapshot.pending_review_result = copyWithout(pendingReview, ["resolved_fingerprints"]);
+  }
   return {
     schema_version: 1,
     kind: "task-state-snapshot/v1",
@@ -6178,7 +6182,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.7";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.8";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",

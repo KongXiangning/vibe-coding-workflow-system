@@ -616,6 +616,15 @@ function stateSnapshotPayload(current: TaskStoreCurrent): Record<string, unknown
       return { ...copyWithout(item, ['slots']), slots };
     })
     : [];
+  // The review-resolution default added after 0.20.5 is semantically
+  // identical to the omitted field persisted by 0.20.5, so it must not change
+  // the task-state/v1 revision of an existing compact task.
+  const pendingReview = snapshot.pending_review_result;
+  if (record(pendingReview)
+    && Array.isArray(pendingReview.resolved_fingerprints)
+    && pendingReview.resolved_fingerprints.length === 0) {
+    snapshot.pending_review_result = copyWithout(pendingReview, ['resolved_fingerprints']);
+  }
   return {
     schema_version: 1,
     kind: 'task-state-snapshot/v1',

@@ -611,7 +611,7 @@ no selected sources. The normal prepare adapter writes affected contracts to the
 existing affected-contracts section. Confirmation binds both sections; subsequent
 reads expose the saved metadata without loading the referenced documents.
 
-## Task aggregate and bounded context (0.20.7)
+## Task aggregate and bounded context (0.20.8)
 
 CURRENT_TASK.md carries one aggregate submission head with exact source_revision,
 definition_revision, state_revision, and committed event range. The head is

@@ -45,6 +45,7 @@ import { parseDocument } from 'yaml';
 import { validateMigrationDecisions, legacyCurrentTaskBackup } from '../runtime/vnext/src/migration-preservation';
 import { isAlignedPath, originalBackupPath } from './migration-alignment';
 import { RG_INSTALL_ENTRY, RG_TOOLS_PATH, resolveRg, assertRgDirectory } from '../runtime/vnext/src/rg-tool';
+import { readCanonicalCurrentTask } from '../runtime/vnext/src/kernel';
 
 export const VIBE_GOVERNANCE_PRODUCT = 'Vibe Governance' as const;
 export const VIBE_GOVERNANCE_PACKAGE_NAME = 'vibe-governance' as const;
@@ -1011,30 +1012,25 @@ function runDryRunPromotion(
   return result;
 }
 
-function governanceUpgradeBoundary(targetRoot: string, installedVersion: string): DistributionIssue[] {
+function governanceUpgradeBoundary(targetRoot: string): DistributionIssue[] {
   const profilePath = path.join(targetRoot, '.workflow-system', 'PROJECT_PROFILE.yaml');
   const defaultCurrentTask = path.join(targetRoot, 'docs', 'workflow', 'CURRENT_TASK.md');
   if (!fileExists(profilePath) && !fileExists(defaultCurrentTask)) return [];
   if (!fileExists(profilePath)) return [distributionIssue('UPGRADE_GOVERNANCE_UNKNOWN', 'A project CURRENT_TASK exists without PROJECT_PROFILE.yaml; upgrade stops fail-closed.')];
-  const runtimeEntrypoint = path.join(targetRoot, ...VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH.split('/'));
-  if (!fileExists(runtimeEntrypoint)) return [distributionIssue('UPGRADE_GOVERNANCE_UNKNOWN', 'Project-local Runtime is missing; upgrade cannot validate the task-state boundary.')];
   try {
-    // Older installed Runtimes do not understand --summary. Current versions
-    // must not serialize full review baselines just to prove the status tuple.
-    const summaryVersion = compareVersions(installedVersion, '0.17.0');
-    const useSummary = summaryVersion !== null && summaryVersion >= 0;
-    const validationArgs = [runtimeEntrypoint, 'validate', ...(useSummary ? ['--summary'] : []), '--root', targetRoot];
-    const output = execFileSync(NODE_COMMAND, validationArgs, { cwd: targetRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, NODE_PATH: undefined, BUN_INSTALL: undefined } });
-    const parsed = JSON.parse(output) as Record<string, unknown>;
-    const runtimeState = (useSummary ? parsed.summary : parsed.runtime_state) as Record<string, unknown> | undefined;
-    const workflowStatus = runtimeState?.workflow_status;
-    const lifecycleState = runtimeState?.lifecycle_state;
+    // Validate the task boundary with the incoming Runtime parser. Calling the
+    // installed CLI here makes an otherwise compatible upgrade impossible when
+    // that CLI predates a storage-revision compatibility fix. Distribution
+    // ownership and managed-file integrity are checked separately by the
+    // promotion preflight, so this read-only boundary remains fail-closed.
+    const current = readCanonicalCurrentTask(targetRoot);
+    const workflowStatus = current.runtimeState.workflow_status;
+    const lifecycleState = current.runtimeState.lifecycle_state;
     if ((workflowStatus === 'closed' && lifecycleState === 'archived')
       || (workflowStatus === 'active' && lifecycleState === 'active')) return [];
     return [distributionIssue('UPGRADE_NON_IDLE', 'vNext upgrade requires a valid closed + archived task or a confirmed active + active task; suspended, interrupted, draft, and ambiguous states remain blocked.')];
   } catch (error) {
-    const detail = error && typeof error === 'object' && 'stderr' in error ? String((error as { stderr?: unknown }).stderr ?? '') : '';
-    return [distributionIssue('UPGRADE_NON_IDLE', `Project-local Runtime did not prove a valid task-state boundary: ${detail.trim() || (error instanceof Error ? error.message : String(error))}`)];
+    return [distributionIssue('UPGRADE_NON_IDLE', `Incoming Runtime did not prove a valid task-state boundary: ${error instanceof Error ? error.message : String(error)}`)];
   }
 }
 
@@ -1126,7 +1122,7 @@ function runUpgrade(options: DistributionOperationOptions, payload: LoadedPayloa
   const oldState = (() => {
     try { return readDistributionState(targetRoot, payload.manifest); } catch { return null; }
   })();
-  const governanceIssues = governanceUpgradeBoundary(targetRoot, classification.version!);
+  const governanceIssues = governanceUpgradeBoundary(targetRoot);
   if (governanceIssues.length > 0) {
     result.blockers.push(...governanceIssues);
     return result;

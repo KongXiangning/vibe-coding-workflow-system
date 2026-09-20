@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { readCanonicalCurrentTask, taskSourceRevisionMatches } from '../runtime/vnext/src/kernel';
 import { taskRead } from '../runtime/vnext/src/task-context';
-import { TaskStore, commitTaskStorageMigration, digest, sha256, stableJson } from '../runtime/vnext/src/task-store';
+import { TaskStore, commitTaskStorageMigration, digest, sha256, stableJson, taskStoreStateSnapshotPayload } from '../runtime/vnext/src/task-store';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -19,6 +19,41 @@ function fixtureRoot(): string {
 }
 
 describe('vNext task aggregate store', () => {
+  test('keeps compact task-state revisions stable across the review-resolution default', () => {
+    const root = fixtureRoot();
+    try {
+      const current = readCanonicalCurrentTask(root);
+      const legacyPendingReview = {
+        kind: 'review-result/v1',
+        verdict: 'blocked',
+        findings: [],
+        unresolved_fingerprints: [],
+        evidence_refs: [],
+        blocker: null,
+      };
+      const withoutDefault = {
+        ...current,
+        runtimeState: { ...current.runtimeState, pending_review_result: legacyPendingReview },
+      };
+      const withDefault = {
+        ...withoutDefault,
+        runtimeState: {
+          ...withoutDefault.runtimeState,
+          pending_review_result: { ...legacyPendingReview, resolved_fingerprints: [] },
+        },
+      };
+      expect(digest(taskStoreStateSnapshotPayload(withDefault as any))).toBe(digest(taskStoreStateSnapshotPayload(withoutDefault as any)));
+      const withResolution = {
+        ...withoutDefault,
+        runtimeState: {
+          ...withoutDefault.runtimeState,
+          pending_review_result: { ...legacyPendingReview, resolved_fingerprints: ['finding-000000000000000000000000'] },
+        },
+      };
+      expect(digest(taskStoreStateSnapshotPayload(withResolution as any))).not.toBe(digest(taskStoreStateSnapshotPayload(withoutDefault as any)));
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('receipt lineage follows multiple committed storage edges but never a business or corrupt edge', () => {
     const root = fixtureRoot();
     try {

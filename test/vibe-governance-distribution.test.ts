@@ -494,6 +494,28 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(JSON.parse(fs.readFileSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH), 'utf8')).distribution_version).toBe(validateDistributionVersionLockstep(ROOT));
   });
 
+  test('vNext upgrade uses the incoming parser when an older Runtime cannot read a compatible task store', { timeout: 60000 }, () => {
+    const target = makeActiveVNextTarget();
+    const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
+    state.distribution_version = '0.20.7';
+    const runtimeCli = targetPath(target, '.workflow-system/runtime/dist/cli.js');
+    fs.writeFileSync(runtimeCli, [
+      "process.stderr.write('legacy Runtime cannot validate this compatible task store');",
+      'process.exitCode = 1;',
+    ].join('\n') + '\n', 'utf8');
+    const managedFiles = state.managed_files as Array<Record<string, unknown>>;
+    const runtimeEntry = managedFiles.find(item => item.path === '.workflow-system/runtime/dist/cli.js');
+    expect(runtimeEntry).toBeDefined();
+    runtimeEntry!.checksum = crypto.createHash('sha256').update(fs.readFileSync(runtimeCli)).digest('hex');
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8');
+
+    const upgrade = upgradeDistribution({ targetRoot: target, packageRoot });
+    expect(upgrade.status).toBe('upgraded');
+    expect(upgrade.read_back_verified).toBe(true);
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).distribution_version).toBe(validateDistributionVersionLockstep(ROOT));
+  });
+
   for (const mode of ['legacy', 'summary']) {
     test(`vNext upgrade still rejects an unconfirmed draft task (${mode})`, { timeout: 60000 }, () => {
       const target = makeActiveVNextTarget();

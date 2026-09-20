@@ -370,7 +370,7 @@ step_attempts. Retry never completes the step: a fresh preflight and execution
 are required. Unknown causes, changed plans, and open findings do not use this
 retry; no server restart or database reset is an implicit recovery action.
 
-## Current view, state, and complete history (0.20.7)
+## Current view, state, and complete history (0.20.8)
 
 This additive storage contract preserves task identity, goal, acceptance,
 authority, scope, test admission, review / repair budgets, and lifecycle
