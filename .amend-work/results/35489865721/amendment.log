@@ -1,0 +1,16 @@
+bun test v1.3.10 (30e609e0)
+
+::group::test/vnext-runtime.test.ts:
+(pass) vNext Phase 2 Runtime contract > evidence-plan amendment keeps missing slots and pending repair findings executable in the same task [4985.96ms]
+(pass) vNext Phase 2 Runtime contract > evidence-plan amendment rejects obligation drift and shared or write-capable command loss [724.01ms]
+(pass) vNext Phase 2 Runtime contract > evidence-plan amendment retains old clean review as history and demands fresh verification [925.07ms]
+(pass) vNext Phase 2 Runtime contract > evidence-plan amendment carries untouched waivers without manufacturing reports [460.00ms]
+(pass) vNext Phase 2 Runtime contract > evidence-plan amendment Node CLI recovers publication and rejects stale candidates without losing the task [1453.99ms]
+
+::endgroup::
+
+ 5 pass
+ 192 filtered out
+ 0 fail
+ 95 expect() calls
+Ran 5 tests across 1 file. [8.69s]

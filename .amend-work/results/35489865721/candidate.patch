@@ -1,0 +1,1601 @@
+diff --git a/.workflow-system/vnext/RUNTIME_CONTRACT.yaml b/.workflow-system/vnext/RUNTIME_CONTRACT.yaml
+index b4ddc93..d2bb18e 100644
+--- a/.workflow-system/vnext/RUNTIME_CONTRACT.yaml
++++ b/.workflow-system/vnext/RUNTIME_CONTRACT.yaml
+@@ -155,6 +155,7 @@ proposal:
+       - review_cycle_id
+       - repair_wave_id
+   process_control:
++    evidence_plan_amendment: prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation
+     user_evidence: exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated
+     waiver: user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass
+     successor: explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required
+diff --git a/.workflow-system/vnext/SOURCE_CONTRACT.yaml b/.workflow-system/vnext/SOURCE_CONTRACT.yaml
+index 57b28dc..0dc866a 100644
+--- a/.workflow-system/vnext/SOURCE_CONTRACT.yaml
++++ b/.workflow-system/vnext/SOURCE_CONTRACT.yaml
+@@ -372,6 +372,7 @@ capabilities:
+       - 'only Runtime-derived carry-forward may satisfy an unchanged old report under a new plan; challenged, stale-subject and before-step receipts cannot be silently reused'
+       - 'upgrade preserves the old CURRENT_TASK bytes; explicit initialize-preservation saves exact task and Task Basis preimages before adding a version marker, and missing or unknown protection versions cannot authorize task replacement'
+       - 'supersede preserves unfinished obligations and never authorizes a successor by itself; ordinary prepare-draft remains blocked, while explicit prepare-successor binds the retained predecessor, verbatim user decision, complete obligation disposition and a fresh draft that still needs ordinary confirmation'
++      - 'same-task user-authorized evidence-plan amendment prepares an immutable candidate and confirms exact selection changes without requiring a report challenge; goal, acceptance, boundaries, authority, findings, failures and budgets are retained, affected evidence requires revalidation, and supersede is not a fallback for a missing selection route'
+       - 'ordinary execute-step results preserve the frozen claim/slot/check plan; replace-validation may replace one read-only invocation under unchanged observation, boundary, subjects, validation ownership, exact granularity, selector, authority and retained budgets, without a whole-task replan'
+       - 'record-human-acceptance records an explicit Task Basis user observation for a frozen human check; record-evidence-waiver discharges only an exact user-owned current obligation and its exclusively bound validation labels, rechecked at record and consumption, without rewriting failed/missing reports as PASS; both are caller-reported and cannot authorize administrative realign'
+       - 'user evidence decisions remain source/subject/plan bound and visible in context and archive; raw progress cannot manufacture them, prerequisites and policy/contract obligations are not waived, and required review/findings remain intact'
+diff --git a/docs/designs/workflow-vnext-target-architecture.md b/docs/designs/workflow-vnext-target-architecture.md
+index b5eaff9..a03c941 100644
+--- a/docs/designs/workflow-vnext-target-architecture.md
++++ b/docs/designs/workflow-vnext-target-architecture.md
+@@ -106,7 +106,7 @@ neither writes a finding queue, and neither invokes another public entry.
+ 
+ ### P-06 — Model/user semantic authority must have a bounded execution outlet; Runtime commits
+ 
+-The model and user own semantic judgment and authority. Runtime owns deterministic validation, exact write boundaries, conflict detection, idempotence, atomic commit, and read-back. Runtime cannot promote an unconfirmed proposal into project truth. Semantic authority is not useful if a legitimate decision has no legal transition: the current system therefore has bounded paths for explicit human acceptance, explicit evidence waiver, exact validation-invocation replacement, additive authority amendment, restricted correction/recovery, and an explicitly requested fresh successor after supersede. These paths preserve the original failure/report/history semantics: a waiver is not PASS, a human observation is not automated execution, an engineering replacement cannot change selection, and supersede alone never creates or approves a replacement. Public Skills return recommendations rather than invoking the next public Skill automatically.
++The model and user own semantic judgment and authority. Runtime owns deterministic validation, exact write boundaries, conflict detection, idempotence, atomic commit, and read-back. Runtime cannot promote an unconfirmed proposal into project truth. Semantic authority is not useful if a legitimate decision has no legal transition: the current system therefore has bounded paths for explicit human acceptance, explicit evidence waiver, exact validation-invocation replacement, additive authority amendment, restricted correction/recovery, and an explicitly requested fresh successor after supersede. These paths preserve the original failure/report/history semantics: a waiver is not PASS, a human observation is not automated execution, an engineering replacement cannot change selection, and supersede alone never creates or approves a replacement. An explicitly authorized evidence-selection amendment under unchanged Goal, Acceptance, observation boundary and total authority has its own same-task prepare/confirm path. It does not require a previous report or challenge, a new business requirement, or supersede. Pending findings and recorded repair history remain owned by the current task; changed checks require new results, and an affected clean review remains historical rather than proving the replacement selection. Public Skills return recommendations rather than invoking the next public Skill automatically.
+ 
+ For administrative mutations, especially `bootstrap-project:realign`, the
+ proposal's `authority_evidence` is not a trust root. Human authority must enter
+diff --git a/runtime/vnext/dist/cli.js b/runtime/vnext/dist/cli.js
+index 8569735..cbf0d50 100644
+--- a/runtime/vnext/dist/cli.js
++++ b/runtime/vnext/dist/cli.js
+@@ -7304,6 +7304,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
+   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
+   const processControl = expectRecord2(proposal.process_control, "Runtime process_control");
+   const processSemantics = {
++    evidence_plan_amendment: "prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation",
+     user_evidence: "exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated",
+     waiver: "user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass",
+     successor: "explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required",
+@@ -11472,7 +11473,7 @@ function validateEvidenceCarryForward(value, location2) {
+   return {
+     kind: v2 ? "evidence-carry-forward/v2" : "evidence-carry-forward/v1",
+     ...v2 ? { receiving_source_revision: hash3("receiving_source_revision"), evidence_objects: objects, context_revision: hash3("context_revision") } : {},
+-    ...item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ["confirm-replan", "replace-validation"], "history_operation") },
++    ...item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ["confirm-replan", "replace-validation", "amend-evidence-plan"], "history_operation") },
+     ...item.user_decision_sha256 === undefined ? {} : { user_decision_sha256: hash3("user_decision_sha256") },
+     old_source_revision: hash3("old_source_revision"),
+     old_plan_revision: hash3("old_plan_revision"),
+@@ -15065,6 +15066,534 @@ function replaceValidation(root2, rawInput, options = {}) {
+     };
+   });
+ }
++function normalizeEvidencePlanAmendment(raw) {
++  const input = expectRecord2(raw, "evidence-plan amendment");
++  expectExactKeys2(input, ["source_revision", "decision_source", "decision_text", "reason", "replacements", "command_replacements", ...input.validation_replacements === undefined ? [] : ["validation_replacements"]], "evidence-plan amendment");
++  if (!Array.isArray(input.replacements) || !input.replacements.length || input.replacements.length > MAX_CLAIM_EVIDENCE_RECORDS || !Array.isArray(input.command_replacements) || input.command_replacements.length > MAX_EXECUTION_RESULT_ITEMS) {
++    fail3("EVIDENCE_AMENDMENT_INVALID", "Supply a bounded nonempty check replacement set and bounded command replacements.");
++  }
++  const replacements = input.replacements.map((raw2, index) => {
++    const row = expectRecord2(raw2, `replacements[${index}]`);
++    expectExactKeys2(row, ["claim_id", "slot_id", "replaces_check_id", "replacement_check"], "check replacement");
++    return {
++      claim_id: expectString2(row.claim_id, "claim_id", CLAIM_ID_PATTERN),
++      slot_id: expectString2(row.slot_id, "slot_id", CLAIM_EVIDENCE_SLOT_ID_PATTERN),
++      replaces_check_id: expectString2(row.replaces_check_id, "replaces_check_id", CLAIM_ID_PATTERN),
++      replacement_check: validateEvidenceCheck(row.replacement_check, "replacement_check")
++    };
++  });
++  const commands = input.command_replacements.map((raw2) => {
++    const row = expectRecord2(raw2, "command replacement");
++    expectExactKeys2(row, ["step_id", "old_command", "new_commands"], "command replacement");
++    const oldCommand = expectText(row.old_command, "old_command", 4096);
++    const newCommands = expectStringArray2(row.new_commands, "new_commands", false, 32);
++    if (/[\r\n]/u.test(oldCommand) || newCommands.some((command) => /[\r\n]/u.test(command)) || new Set(newCommands).size !== newCommands.length || newCommands.length === 1 && newCommands[0] === oldCommand) {
++      fail3("EVIDENCE_AMENDMENT_INVALID", "Command replacements require a changed bounded set of literal single-line invocations.");
++    }
++    return { step_id: expectString2(row.step_id, "step_id", STEP_ID_PATTERN2), old_command: oldCommand, new_commands: newCommands };
++  });
++  if (new Set(replacements.map((row) => `${row.claim_id}\x00${row.slot_id}`)).size !== replacements.length || new Set(commands.map((row) => `${row.step_id}\x00${row.old_command}`)).size !== commands.length) {
++    fail3("EVIDENCE_AMENDMENT_INVALID", "Each slot and each step/command may be replaced only once.");
++  }
++  const validations = input.validation_replacements;
++  if (validations !== undefined && (!Array.isArray(validations) || validations.length > MAX_EXECUTION_RESULT_ITEMS))
++    fail3("EVIDENCE_AMENDMENT_INVALID", "Validation description changes must be bounded.");
++  const validationChanges = validations?.map((raw2) => {
++    const row = expectRecord2(raw2, "validation replacement");
++    expectExactKeys2(row, ["step_id", "old_validation", "new_validation", "check_ids", "reason"], "validation replacement");
++    const oldLabel = expectText(row.old_validation, "old_validation", 4096);
++    const newLabel = expectText(row.new_validation, "new_validation", 4096);
++    const ids = expectStringArray2(row.check_ids, "check_ids", false, MAX_CLAIM_EVIDENCE_RECORDS).map((id) => expectString2(id, "check_id", CLAIM_ID_PATTERN));
++    if (/[;\r\n]/u.test(oldLabel + newLabel) || oldLabel === newLabel || new Set(ids).size !== ids.length)
++      fail3("EVIDENCE_AMENDMENT_INVALID", "Selection descriptions need changed single-line labels and unique old check IDs.");
++    return { step_id: expectString2(row.step_id, "step_id", STEP_ID_PATTERN2), old_validation: oldLabel, new_validation: newLabel, check_ids: ids, reason: expectText(row.reason, "validation replacement reason") };
++  });
++  if (validationChanges && new Set(validationChanges.map((row) => `${row.step_id}\x00${row.old_validation}`)).size !== validationChanges.length)
++    fail3("EVIDENCE_AMENDMENT_INVALID", "Each validation label may be rebound only once.");
++  return {
++    ...validationChanges === undefined ? {} : { validation_replacements: validationChanges },
++    source_revision: expectString2(input.source_revision, "source_revision", SHA256_PATTERN2),
++    decision_source: expectText(input.decision_source, "decision_source", 1024),
++    decision_text: expectVerbatim(input.decision_text, "decision_text", 32768),
++    reason: expectText(input.reason, "reason"),
++    replacements,
++    command_replacements: commands
++  };
++}
++function evidenceAmendmentBasis(basis, source, text2) {
++  const prior = [basis.original_request, ...basis.user_decisions].filter((item) => item.source === source);
++  if (prior.some((item) => item.verbatim !== text2))
++    fail3("EVIDENCE_AMENDMENT_AUTHORITY_CONFLICT", "A retained user source cannot be reassigned different words.");
++  return {
++    original_request: basis.original_request,
++    user_decisions: prior.length ? [...basis.user_decisions] : [...basis.user_decisions, { source, verbatim: text2 }]
++  };
++}
++function evidenceAmendmentLocation(root2, current, hash3) {
++  expectString2(hash3, "candidate_digest", SHA256_PATTERN2);
++  const relativePath3 = path12.posix.join(path12.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${hash3}.evidence.json`);
++  return { relativePath: relativePath3, filePath: safeRepositoryFile(root2, relativePath3) };
++}
++function evidenceAmendmentReceipt(candidate) {
++  return {
++    kind: "evidence-plan-amendment-receipt/v1",
++    document_id: candidate.document_id,
++    task_id: candidate.task_id,
++    source_revision: candidate.source_revision,
++    basis_revision: candidate.basis_revision,
++    old_plan_revision: candidate.old_plan_revision,
++    new_plan_revision: candidate.new_plan_revision,
++    candidate_digest: digest3(candidate)
++  };
++}
++function normalizeEvidenceAmendmentReceipt(raw) {
++  const value = expectRecord2(raw, "candidate_receipt");
++  expectExactKeys2(value, ["kind", "document_id", "task_id", "source_revision", "basis_revision", "old_plan_revision", "new_plan_revision", "candidate_digest"], "candidate_receipt");
++  if (value.kind !== "evidence-plan-amendment-receipt/v1")
++    fail3("EVIDENCE_AMENDMENT_RECEIPT_INVALID", "An exact evidence-plan amendment receipt is required.");
++  for (const key of ["source_revision", "basis_revision", "old_plan_revision", "new_plan_revision", "candidate_digest"])
++    expectString2(value[key], key, SHA256_PATTERN2);
++  expectString2(value.document_id, "document_id", DOCUMENT_ID_PATTERN);
++  expectString2(value.task_id, "task_id");
++  return value;
++}
++function readEvidenceAmendment(root2, current, receipt) {
++  if (receipt.document_id !== current.sourceTuple.document_id || receipt.task_id !== current.runtimeState.task_id)
++    fail3("EVIDENCE_AMENDMENT_IDENTITY_CONFLICT", "The candidate belongs to another task.");
++  const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
++  if (!fs11.existsSync(location2.filePath) || fs11.existsSync(`${location2.filePath}.discarded`))
++    fail3("EVIDENCE_AMENDMENT_CANDIDATE_MISSING", "The candidate is absent or discarded.");
++  const candidate = JSON.parse(fs11.readFileSync(location2.filePath, "utf8"));
++  if (candidate.kind !== "evidence-plan-amendment-candidate/v1" || digest3(candidate) !== receipt.candidate_digest || digest3(evidenceAmendmentReceipt(candidate)) !== digest3(receipt))
++    fail3("EVIDENCE_AMENDMENT_CANDIDATE_INVALID", "The candidate bytes or receipt coordinates changed.");
++  return candidate;
++}
++function buildEvidencePlanAmendment(root2, current, input) {
++  assertBusinessEvidenceVersion(current);
++  assertV2AuthorityDomainRevisionFreshForTransition(root2, current, "Evidence-plan amendment");
++  const state = current.runtimeState;
++  if (state.workflow_status !== "active" || state.lifecycle_state !== "active" || state.resume_requires_review)
++    fail3("EVIDENCE_AMENDMENT_STATE_INVALID", "A confirmed active task is required; an evidence amendment cannot clear lifecycle/resume gates.");
++  if (!taskSourceRevisionMatches(root2, current, input.source_revision))
++    fail3("EVIDENCE_AMENDMENT_SOURCE_STALE", "The decision must bind the current task or its exact storage-only alias.");
++  const basis = readCanonicalTaskBasis(root2, current);
++  const nextBasis = evidenceAmendmentBasis(basis.basis, input.decision_source, input.decision_text);
++  const definition = readDraftDefinitionFromBody(current.body);
++  const steps = parseImplementationSteps(definition.implementation_steps);
++  const currentIndex = steps.findIndex((step) => step.id === state.active_step_id);
++  const oldClaims = state.claim_evidence ?? [];
++  const claims = copyClaimEvidence(oldClaims);
++  const oldChecks = new Set(oldClaims.flatMap((claim) => claim.slots.map((slot) => slot.check?.check_id)));
++  const selected = new Set(input.replacements.map((row) => `${row.claim_id}\x00${row.slot_id}`));
++  for (const row of input.replacements) {
++    const claim = claims.find((item) => item.claim_id === row.claim_id);
++    const slot = claim?.slots.find((item) => item.slot_id === row.slot_id);
++    const old = slot?.check;
++    if (!slot || !old || old.check_id !== row.replaces_check_id || slot.applicability !== "current" || slot.prerequisite_receipt || steps.findIndex((step) => step.id === slot.due_step_id) < currentIndex)
++      fail3("EVIDENCE_AMENDMENT_TARGET_INVALID", "Replace an existing current/future obligation, not a prerequisite or an earlier completed step.");
++    if ((state.evidence_challenges ?? []).some((c) => c.claim_id === row.claim_id && c.slot_id === row.slot_id && c.status !== "resolved"))
++      fail3("EVIDENCE_CHALLENGE_UNRESOLVED", "This exact challenged result retains its correction owner; unrelated findings do not require a challenge.");
++    const check = row.replacement_check;
++    if (oldChecks.has(check.check_id) || old.method !== "execution" || check.method !== "execution")
++      fail3("EVIDENCE_AMENDMENT_CHECK_INVALID", "Execution selection changes require a fresh check identity and preserve method.");
++    oldChecks.add(check.check_id);
++    const obligation = (value) => ({
++      method: value.method,
++      boundary: value.boundary,
++      expected_observation: value.expected_observation,
++      expected_result: value.expected_result,
++      subject_paths: value.subject_paths,
++      required_boundaries: value.required_boundaries,
++      allowed_substitutes: value.allowed_substitutes,
++      validation_items: value.validation_items
++    });
++    const oldWithReboundLabels = { ...old, ...old.validation_items === undefined ? {} : { validation_items: old.validation_items.map((label) => (input.validation_replacements ?? []).find((change) => change.step_id === slot.due_step_id && change.old_validation === label && change.check_ids.includes(old.check_id))?.new_validation ?? label) } };
++    if (digest3(obligation(oldWithReboundLabels)) !== digest3(obligation(check)))
++      fail3("EVIDENCE_AMENDMENT_OBLIGATION_CHANGED", "Keep observation, business boundary, subject set, expected result and validation ownership unchanged.");
++    if (["project-policy", "release-gate", "claim-risk-contract"].includes(old.selection?.breadth_basis ?? ""))
++      fail3("EVIDENCE_AMENDMENT_POLICY_REQUIRED", "A policy/contract/release-mandated selection needs its owning authority, not a task-user selection amendment.");
++    if (old.boundary === "e2e" && (old.selection?.breadth_basis !== check.selection?.breadth_basis || old.selection?.breadth_source_ref !== check.selection?.breadth_source_ref))
++      fail3("EVIDENCE_AMENDMENT_POLICY_REQUIRED", "Retain the independent E2E breadth authorization.");
++    slot.check = check;
++    slot.report = null;
++    slot.evidence_refs = [];
++    slot.disposition = "missing";
++    delete slot.user_decision;
++  }
++  for (const row of input.command_replacements) {
++    if (steps.findIndex((step) => step.id === row.step_id) < currentIndex)
++      fail3("EVIDENCE_AMENDMENT_STEP_INVALID", "Only the active and future steps may change verification selection.");
++    const bound = row.new_commands.every((command) => command === row.old_command || input.replacements.some((change) => {
++      const old = oldClaims.find((claim) => claim.claim_id === change.claim_id)?.slots.find((slot) => slot.slot_id === change.slot_id)?.check;
++      return old?.entry === row.old_command && change.replacement_check.entry === command;
++    }));
++    if (!bound)
++      fail3("EVIDENCE_AMENDMENT_COMMAND_UNBOUND", "Every replacement invocation must implement a selected old/new check pair.");
++    const block = implementationStepBlock(definition, row.step_id);
++    if (!block)
++      fail3("EVIDENCE_AMENDMENT_STEP_INVALID", "The selected step does not exist.");
++    const lines = block.split(`
++`);
++    const hits = lines.flatMap((line, index) => line.trim() === `- planned_command: ${row.old_command}` ? [index] : []);
++    if (hits.length !== 1 || lines[hits[0] + 1]?.trim() !== "- expected_repo_writes: none")
++      fail3("EVIDENCE_AMENDMENT_WRITES_FORBIDDEN", "Replace only an exact read-only verification command, never an implementation command.");
++    if (!row.new_commands.includes(row.old_command) && oldClaims.some((claim) => claim.slots.some((slot) => slot.due_step_id === row.step_id && slot.check?.entry === row.old_command && !selected.has(`${claim.claim_id}\x00${slot.slot_id}`))))
++      fail3("EVIDENCE_AMENDMENT_SHARED_COMMAND", "Retain every obligation of a shared invocation; include every affected consumer.");
++    const start = hits[0];
++    let end = start + 1;
++    while (end < lines.length && /^\s{4,}- /.test(lines[end]))
++      end++;
++    const retained = [...lines.slice(0, start), ...lines.slice(end)];
++    const additions = [];
++    for (const command of row.new_commands) {
++      const existing = retained.findIndex((line) => line.trim() === `- planned_command: ${command}`);
++      if (existing >= 0) {
++        if (retained[existing + 1]?.trim() !== "- expected_repo_writes: none")
++          fail3("EVIDENCE_AMENDMENT_WRITES_FORBIDDEN", "An existing invocation can be reused only with its exact read-only footprint.");
++        continue;
++      }
++      additions.push(`  - planned_command: ${command}`, "    - expected_repo_writes: none", "    - transformation_kind: localized");
++    }
++    lines.splice(start, end - start, ...additions);
++    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
++`));
++  }
++  for (const row of input.validation_replacements ?? []) {
++    const oldStep = steps.find((step) => step.id === row.step_id);
++    if (!oldStep || steps.indexOf(oldStep) < currentIndex)
++      fail3("EVIDENCE_AMENDMENT_STEP_INVALID", "Only current/future selection descriptions may change.");
++    for (const checkId of row.check_ids) {
++      const replacement = input.replacements.find((change) => change.replaces_check_id === checkId);
++      const oldSlot = oldClaims.flatMap((claim) => claim.slots).find((slot) => slot.check?.check_id === checkId);
++      const command = input.command_replacements.find((change) => change.step_id === row.step_id && change.old_command === oldSlot?.check?.entry);
++      if (!replacement || !oldSlot?.check || !command || !command.new_commands.includes(replacement.replacement_check.entry) || oldSlot.check.validation_items !== undefined && (!oldSlot.check.validation_items.includes(row.old_validation) || oldSlot.due_step_id !== row.step_id))
++        fail3("EVIDENCE_AMENDMENT_VALIDATION_UNBOUND", "A changed description must name the selected check and its exact step invocation; an explicitly owned label cannot be reassigned.");
++    }
++    const owners = oldClaims.flatMap((claim) => claim.slots).filter((slot) => slot.due_step_id === row.step_id && slot.check?.validation_items?.includes(row.old_validation));
++    if (owners.some((slot) => !row.check_ids.includes(slot.check.check_id)))
++      fail3("EVIDENCE_AMENDMENT_VALIDATION_UNBOUND", "A shared validation description must retain every independently bound owner.");
++    const block = implementationStepBlock(definition, row.step_id);
++    const lines = block.split(`
++`);
++    const labelIndex = lines.findIndex((line) => /^\s*- required_evidence:/.test(line));
++    if (labelIndex < 0)
++      fail3("EVIDENCE_AMENDMENT_VALIDATION_UNBOUND", "The selected validation labels are absent.");
++    const labels = lines[labelIndex].replace(/^\s*- required_evidence:\s*/u, "").split(";").map((label) => label.trim()).filter(Boolean);
++    if (labels.filter((label) => label === row.old_validation).length !== 1 || labels.includes(row.new_validation))
++      fail3("EVIDENCE_AMENDMENT_VALIDATION_UNBOUND", "Replace one exact existing label without merging another obligation.");
++    lines[labelIndex] = "  - required_evidence: " + labels.map((label) => label === row.old_validation ? row.new_validation : label).join("; ");
++    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
++`));
++  }
++  const revalidate = input.command_replacements.some((row) => row.step_id === state.active_step_id) || input.replacements.some((row) => oldClaims.find((c) => c.claim_id === row.claim_id)?.slots.find((s) => s.slot_id === row.slot_id)?.due_step_id === state.active_step_id);
++  const historicalReview = revalidate && state.pending_review_result?.verdict === "clean";
++  if (historicalReview || revalidate && !state.pending_review_result && state.active_step_status !== "ready") {
++    const block = implementationStepBlock(definition, state.active_step_id);
++    definition.implementation_steps = definition.implementation_steps.replace(block, block.replace(/^\s*- review_checkpoint:.*$/mu, "  - review_checkpoint: required: fresh verification after user-authorized evidence selection change"));
++  }
++  assertV2DraftDefinitionAuthority(root2, definition);
++  assertPreparedTestStrategy(root2, definition, nextBasis);
++  const newPlan = assertEvidencePlan(definition, claims, false, { root: root2, taskBasis: nextBasis, previous: oldClaims });
++  if (newPlan === state.evidence_plan_revision)
++    fail3("EVIDENCE_AMENDMENT_NO_CHANGE", "The candidate must change the verification plan.");
++  const subjects = [...new Set([
++    ...oldClaims.flatMap((c) => c.slots.flatMap((s) => s.check?.subject_paths ?? [])),
++    ...state.review_coverage?.target.entries.map((entry) => entry.path) ?? []
++  ])];
++  return {
++    kind: "evidence-plan-amendment-candidate/v1",
++    task_id: state.task_id,
++    document_id: current.sourceTuple.document_id,
++    source_revision: input.source_revision,
++    basis_revision: basis.revision,
++    old_plan_revision: state.evidence_plan_revision,
++    new_plan_revision: newPlan,
++    input,
++    definition,
++    claim_evidence: claims,
++    workspace_target: captureReviewTarget(root2, subjects),
++    retained_obligations_digest: digest3(correctionObligations(current)),
++    retained_review: state.pending_review_result ?? null,
++    review_disposition: historicalReview ? "historical-revalidation-required" : "preserve",
++    revalidate_current_step: revalidate
++  };
++}
++function prepareEvidencePlanAmendment(root2, raw, options = {}) {
++  return withGovernanceWriteLock(root2, () => {
++    if (!options.dryRun)
++      recoverPendingTaskStoreCommit(root2);
++    const current = readCanonicalCurrentTask(root2);
++    const candidate = buildEvidencePlanAmendment(root2, current, normalizeEvidencePlanAmendment(raw));
++    const receipt = evidenceAmendmentReceipt(candidate);
++    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
++    const content = JSON.stringify(candidate, null, 2) + `
++`;
++    const exists = fs11.existsSync(location2.filePath);
++    if (fs11.existsSync(`${location2.filePath}.discarded`))
++      fail3("EVIDENCE_AMENDMENT_DISCARDED", "This candidate was explicitly discarded.");
++    if (exists && fs11.readFileSync(location2.filePath, "utf8") !== content)
++      fail3("EVIDENCE_AMENDMENT_CANDIDATE_INVALID", "Immutable candidate bytes conflict.");
++    if (!options.dryRun && !exists) {
++      fs11.mkdirSync(path12.dirname(location2.filePath), { recursive: true });
++      executeWrites([{ path: location2.filePath, content }], false, "Prepare evidence-plan amendment candidate only");
++    }
++    return {
++      status: exists ? "no-op" : "success",
++      operation_kind: "task-state-transaction",
++      idempotency_key: `prepare-evidence-${receipt.candidate_digest}`,
++      target_path: location2.relativePath,
++      dry_run: options.dryRun === true,
++      committed: false,
++      planned_writes: [location2.relativePath],
++      governed_mutation_count: options.dryRun || exists ? 0 : 1,
++      read_back_verified: !options.dryRun && fs11.readFileSync(location2.filePath, "utf8") === content,
++      evidence_assurance: "caller-reported",
++      message: "Candidate prepared; the live task and its review/findings are unchanged. Confirm this exact candidate before applying it.",
++      candidate_receipt: receipt,
++      candidate_path: location2.relativePath
++    };
++  });
++}
++function confirmEvidencePlanAmendment(root2, raw, options = {}) {
++  return withGovernanceWriteLock(root2, () => {
++    const input = expectRecord2(raw, "confirm-evidence-plan-amendment");
++    expectExactKeys2(input, ["candidate_receipt", "decision_source", "decision_text"], "confirm-evidence-plan-amendment");
++    const receipt = normalizeEvidenceAmendmentReceipt(input.candidate_receipt);
++    const approval = { decision_source: expectText(input.decision_source, "decision_source", 1024), decision_text: expectVerbatim(input.decision_text, "decision_text", 32768) };
++    if (!options.dryRun)
++      recoverPendingTaskStoreCommit(root2);
++    const current = readCanonicalCurrentTask(root2);
++    const saved = readEvidenceAmendment(root2, current, receipt);
++    const key = `evidence-amend-${receipt.candidate_digest}-${digest3(approval).slice(0, 24)}`;
++    const store = TaskStore.forCurrent(root2, current);
++    const prior = current.runtimeState.applied_proposals.find((item) => item.idempotency_key === key) ?? store.lookupIdempotency(key);
++    if (prior) {
++      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, prior.source_revision, "amend-evidence-plan");
++      return {
++        status: "no-op",
++        operation_kind: "task-state-transaction",
++        idempotency_key: key,
++        target_path: current.relativePath,
++        dry_run: !!options.dryRun,
++        committed: false,
++        message: "This exact evidence-plan amendment was already committed.",
++        planned_writes: [],
++        governed_mutation_count: 0,
++        read_back_verified: true,
++        evidence_assurance: "caller-reported",
++        state: resultState(current.runtimeState)
++      };
++    }
++    const rebuilt = buildEvidencePlanAmendment(root2, current, saved.input);
++    if (digest3(rebuilt) !== receipt.candidate_digest)
++      fail3("EVIDENCE_AMENDMENT_CANDIDATE_STALE", "The task, obligations, user source, workspace or review changed after preparation.");
++    const state = current.runtimeState;
++    const preflight = state.execution_preflight;
++    const ledger = state.step_attempts?.[state.active_step_id];
++    if (preflight && !executionResultRecordedForPreflight(current, preflight, preflight.mode === "default" ? ledger?.attempts.at(-1)?.attempt_id : undefined))
++      fail3("EXECUTE_ATTEMPT_OUTSTANDING", "Record the actual in-flight execution before committing a changed verification plan. Pending recorded findings are allowed.");
++    if (!preflight && ledger?.attempts.at(-1)?.status === "preflighted")
++      fail3("EXECUTE_ATTEMPT_OUTSTANDING", "Record the actual preflighted attempt before changing its plan.");
++    const basis = readCanonicalTaskBasis(root2, current);
++    const nextBasis = evidenceAmendmentBasis(evidenceAmendmentBasis(basis.basis, saved.input.decision_source, saved.input.decision_text), approval.decision_source, approval.decision_text);
++    const basisArtifact = materializeTaskBasis(root2, current, {
++      task_id: state.task_id,
++      task_slug: state.task_slug,
++      task_title: extractTaskIdentityFromCurrentTask(current.body).title ?? fail3("RUNTIME_IDENTITY_INVALID", "Task title is missing."),
++      document_id: current.sourceTuple.document_id
++    }, nextBasis);
++    const claims = copyClaimEvidence(saved.claim_evidence);
++    const affected = new Set(saved.input.replacements.map((row) => `${row.claim_id}\x00${row.slot_id}`));
++    const carry = [];
++    for (const claim of claims)
++      for (const slot of claim.slots) {
++        if (affected.has(`${claim.claim_id}\x00${slot.slot_id}`) || !slot.report && !slot.user_decision || !slot.check)
++          continue;
++        const before = state.claim_evidence.find((c) => c.claim_id === claim.claim_id).slots.find((s) => s.slot_id === slot.slot_id);
++        if (before.user_decision) {
++          try {
++            carry.push(carryUserEvidenceDecision(root2, current, claim.claim_id, before, saved.new_plan_revision, "amend-evidence-plan"));
++          } catch {}
++        } else {
++          try {
++            assertEvidenceReportApplicable(root2, current, before);
++          } catch {
++            continue;
++          }
++          const origin = state.evidence_carry_forward?.find((p) => p.claim_id === claim.claim_id && p.slot_id === slot.slot_id && p.new_plan_revision === state.evidence_plan_revision && p.result_id === slot.report.result_id);
++          carry.push({
++            kind: "evidence-carry-forward/v2",
++            old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
++            history_operation: origin ? origin.history_operation ?? "confirm-replan" : "amend-evidence-plan",
++            old_plan_revision: slot.report.evidence_plan_revision,
++            new_plan_revision: saved.new_plan_revision,
++            receiving_source_revision: current.sourceTuple.revision,
++            context_revision: recoveryEvidenceContextRevision(root2),
++            evidence_objects: describeEvidenceObjects(root2, slot.evidence_refs),
++            claim_id: claim.claim_id,
++            slot_id: slot.slot_id,
++            check_id: slot.check.check_id,
++            result_id: slot.report.result_id,
++            report_sha256: digest3(slot.report),
++            subject_revision: slot.report.subject_revision
++          });
++        }
++      }
++    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
++    const proposal = {
++      schema_version: 1,
++      kind: VNEXT_RUNTIME_PROPOSAL_KIND,
++      operation_kind: "task-state-transaction",
++      caller: "prepare-task",
++      mode: "replan",
++      source_tuple: current.sourceTuple,
++      semantic_delta: { kind: "task-state", action: "amend-evidence-plan", candidate: saved, candidate_receipt: receipt, approval },
++      authority_evidence: [{ kind: "user-confirmation", source: approval.decision_source, subject: receipt.candidate_digest }],
++      evidence_refs: [location2.relativePath],
++      idempotency_key: key,
++      requested_write_targets: [current.relativePath, basis.path]
++    };
++    const attempts = structuredClone(state.step_attempts ?? {});
++    for (const item of Object.values(attempts))
++      item.evidence_plan_revision = saved.new_plan_revision;
++    const revalidate = saved.revalidate_current_step && (!state.pending_review_result || saved.review_disposition === "historical-revalidation-required");
++    if (revalidate && ledger && ledger.attempts.at(-1)?.status !== "ready") {
++      if (ledger.attempts.length >= ledger.max_attempts)
++        fail3("RETRY_BUDGET_EXHAUSTED", "Evidence selection amendments retain the existing attempt budget.");
++      attempts[state.active_step_id].attempts.push({
++        attempt_id: `attempt-${digest3(key).slice(0, 40)}`,
++        idempotency_key: key,
++        request_digest: digest3(saved.input),
++        status: "ready",
++        blocker: null,
++        evidence_refs: [location2.relativePath]
++      });
++    }
++    const next = {
++      ...state,
++      claim_evidence: claims,
++      evidence_plan_revision: saved.new_plan_revision,
++      evidence_carry_forward: carry,
++      step_attempts: attempts,
++      applied_proposals: appendAppliedProposal(state, proposal, current.sourceTuple.revision),
++      ...revalidate ? { active_step_status: "ready" } : {},
++      ...saved.review_disposition === "historical-revalidation-required" ? { pending_review_result: null } : {}
++    };
++    if (saved.revalidate_current_step)
++      delete next.execution_preflight;
++    const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { replacementDefinition: saved.definition, taskBasisReference: { path: basis.path, revision: basisArtifact.revision } });
++    const historyInput = {
++      currentPath: current.filePath,
++      previousContent: current.raw,
++      nextContent: prepared.content,
++      documentId: current.sourceTuple.document_id,
++      taskId: state.task_id,
++      basisPath: basis.filePath,
++      basisContent: basis.content,
++      nextBasisContent: basisArtifact.content,
++      operation: "amend-evidence-plan",
++      evidencePlanRevision: state.evidence_plan_revision,
++      referencedEvidence: [location2.relativePath]
++    };
++    const history = taskHistoryLocation(historyInput);
++    const writes = [path12.posix.join(path12.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
++    if (options.dryRun)
++      return {
++        status: "success",
++        operation_kind: "task-state-transaction",
++        idempotency_key: key,
++        target_path: current.relativePath,
++        dry_run: true,
++        committed: false,
++        message: "Evidence-plan amendment validated; no live state changed.",
++        planned_writes: writes,
++        governed_mutation_count: 0,
++        read_back_verified: false,
++        evidence_assurance: "caller-reported"
++      };
++    for (const proof of carry)
++      preserveEvidenceObjects(root2, current.filePath, proof.evidence_objects ?? []);
++    const staged = stageTaskEvolutionStoreCommit(root2, current, prepared.content, next, proposal, [{ path: history.path, content: history.content }, { path: basisArtifact.filePath, content: basisArtifact.content }, { path: current.filePath, content: prepared.content }], prepared);
++    try {
++      commitTaskEvolutionWithHistory(historyInput, (raw2) => {
++        const parsed = parseCanonicalCurrentTaskContent(raw2, current.filePath, current.relativePath);
++        if (parsed.runtimeState.evidence_plan_revision !== saved.new_plan_revision || digest3(parsed.runtimeState.findings) !== digest3(state.findings) || readCanonicalTaskBasis(root2, parsed).revision !== basisArtifact.revision)
++          fail3("EVIDENCE_AMENDMENT_READ_BACK_FAILED", "Evidence amendment read-back changed protected state.");
++      });
++    } catch (error) {
++      if (fs11.readFileSync(current.filePath, "utf8") === current.raw)
++        clearPendingTaskStoreAfterRollback(root2, current);
++      throw error;
++    }
++    completeTaskEvolutionStoreCommit(root2, current, staged, proposal, { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: key });
++    return {
++      status: "success",
++      operation_kind: "task-state-transaction",
++      idempotency_key: key,
++      target_path: current.relativePath,
++      dry_run: false,
++      committed: true,
++      message: "Same-task evidence selection amended; goals, authority, findings, failures and budgets retained. Old results are not new-plan PASS.",
++      planned_writes: writes,
++      governed_mutation_count: 3,
++      read_back_verified: true,
++      previous_revision: current.sourceTuple.revision,
++      resulting_revision: staged.sourceTuple.revision,
++      state: resultState(next),
++      evidence_assurance: "caller-reported"
++    };
++  });
++}
++function discardEvidencePlanAmendment(root2, raw, options = {}) {
++  return withGovernanceWriteLock(root2, () => {
++    const input = expectRecord2(raw, "discard-evidence-plan-amendment");
++    expectExactKeys2(input, ["candidate_receipt"], "discard-evidence-plan-amendment");
++    const receipt = normalizeEvidenceAmendmentReceipt(input.candidate_receipt);
++    if (!options.dryRun)
++      recoverPendingTaskStoreCommit(root2);
++    const current = readCanonicalCurrentTask(root2);
++    if (receipt.document_id !== current.sourceTuple.document_id || receipt.task_id !== current.runtimeState.task_id)
++      fail3("EVIDENCE_AMENDMENT_IDENTITY_CONFLICT", "The candidate belongs to another task.");
++    const prefix = `evidence-amend-${receipt.candidate_digest}-`;
++    const store = TaskStore.forCurrent(root2, current);
++    if ([...current.runtimeState.applied_proposals, ...store.readAppliedProposals()].some((item) => isRecord4(item) && typeof item.idempotency_key === "string" && item.idempotency_key.startsWith(prefix)))
++      fail3("EVIDENCE_AMENDMENT_ALREADY_COMMITTED", "Discard cannot undo a committed amendment.");
++    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
++    const marker = `${location2.filePath}.discarded`;
++    if (fs11.existsSync(marker))
++      return {
++        status: "no-op",
++        operation_kind: "task-state-transaction",
++        idempotency_key: prefix,
++        target_path: `${location2.relativePath}.discarded`,
++        dry_run: !!options.dryRun,
++        committed: false,
++        message: "This candidate is already discarded.",
++        planned_writes: [],
++        governed_mutation_count: 0,
++        read_back_verified: true,
++        evidence_assurance: "caller-reported"
++      };
++    readEvidenceAmendment(root2, current, receipt);
++    const content = JSON.stringify({ kind: "evidence-plan-amendment-discard/v1", candidate_digest: receipt.candidate_digest }) + `
++`;
++    if (!options.dryRun)
++      executeWrites([{ path: marker, content }], false, "Discard uncommitted evidence-plan amendment");
++    return {
++      status: "success",
++      operation_kind: "task-state-transaction",
++      idempotency_key: prefix,
++      target_path: `${location2.relativePath}.discarded`,
++      dry_run: !!options.dryRun,
++      committed: false,
++      message: "Candidate discarded; the active task is unchanged.",
++      planned_writes: [`${location2.relativePath}.discarded`],
++      governed_mutation_count: options.dryRun ? 0 : 1,
++      read_back_verified: !options.dryRun,
++      evidence_assurance: "caller-reported"
++    };
++  });
++}
+ function initializeTaskPreservation(root2, rawInput, options = {}) {
+   return withGovernanceWriteLock(root2, () => initializeTaskPreservationLocked(root2, rawInput, options));
+ }
+@@ -21001,9 +21530,13 @@ function assertOrdinaryPreflight(current, root2) {
+   }
+   for (const carry of current.runtimeState.evidence_carry_forward ?? []) {
+     const slot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === carry.claim_id)?.slots.find((item) => item.slot_id === carry.slot_id);
+-    if (!slot?.report)
+-      fail3("EVIDENCE_CARRY_FORWARD_STALE", "A carried slot no longer has its old report.");
+-    assertEvidenceReportApplicable(root2, current, slot);
++    if (slot?.user_decision)
++      assertUserEvidenceApplicable(root2, current, slot);
++    else {
++      if (!slot?.report)
++        fail3("EVIDENCE_CARRY_FORWARD_STALE", "A carried slot no longer has its old report.");
++      assertEvidenceReportApplicable(root2, current, slot);
++    }
+   }
+   const pending = current.runtimeState.pending_review_result;
+   if (pending) {
+@@ -23673,6 +24206,9 @@ var PREPARE_TASK_ADAPTER_COMMANDS = [
+   "confirm-draft",
+   "clear-resume-review",
+   "replan",
++  "prepare-evidence-plan-amendment",
++  "confirm-evidence-plan-amendment",
++  "discard-evidence-plan-amendment",
+   "prepare-replan",
+   "confirm-replan",
+   "discard-replan",
+@@ -24562,6 +25098,15 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
+       case "replan":
+         result = replan(args.root, input, options);
+         break;
++      case "prepare-evidence-plan-amendment":
++        result = prepareEvidencePlanAmendment(args.root, input, options);
++        break;
++      case "confirm-evidence-plan-amendment":
++        result = confirmEvidencePlanAmendment(args.root, input, options);
++        break;
++      case "discard-evidence-plan-amendment":
++        result = discardEvidencePlanAmendment(args.root, input, options);
++        break;
+       case "prepare-replan":
+         result = prepareCorrectionReplan(args.root, input, options);
+         break;
+diff --git a/runtime/vnext/src/kernel.ts b/runtime/vnext/src/kernel.ts
+index 668d63a..f22b1a3 100644
+--- a/runtime/vnext/src/kernel.ts
++++ b/runtime/vnext/src/kernel.ts
+@@ -562,7 +562,7 @@ export type EvidenceChallenge = {
+ export type EvidenceCarryForward = {
+   kind: 'evidence-carry-forward/v1' | 'evidence-carry-forward/v2';
+   receiving_source_revision?: string;
+-  history_operation?: 'confirm-replan' | 'replace-validation';
++  history_operation?: 'confirm-replan' | 'replace-validation' | 'amend-evidence-plan';
+   user_decision_sha256?: string;
+   evidence_objects?: EvidenceObject[];
+   context_revision?: string;
+@@ -2589,6 +2589,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
+   );
+   const processControl = expectRecord(proposal.process_control, 'Runtime process_control');
+   const processSemantics = {
++    evidence_plan_amendment: 'prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation',
+     user_evidence: 'exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated',
+     waiver: 'user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass',
+     successor: 'explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required',
+@@ -4242,7 +4243,7 @@ function assertUserEvidenceApplicable(root: string, current: CanonicalCurrentTas
+ }
+ 
+ function carryUserEvidenceDecision(root: string, current: CanonicalCurrentTask, claimId: string,
+-  slot: ClaimEvidenceSlot, newPlan: string, operation: 'confirm-replan' | 'replace-validation'): EvidenceCarryForward {
++  slot: ClaimEvidenceSlot, newPlan: string, operation: 'confirm-replan' | 'replace-validation' | 'amend-evidence-plan'): EvidenceCarryForward {
+   assertUserEvidenceApplicable(root, current, slot);
+   const d = slot.user_decision!;
+   const origin = current.runtimeState.evidence_carry_forward?.find(p => p.claim_id === claimId && p.slot_id === slot.slot_id
+@@ -7214,7 +7215,7 @@ function validateEvidenceCarryForward(value: unknown, location: string): Evidenc
+   return {
+     kind: v2 ? 'evidence-carry-forward/v2' : 'evidence-carry-forward/v1',
+     ...(v2 ? { receiving_source_revision: hash('receiving_source_revision'), evidence_objects: objects, context_revision: hash('context_revision') } : {}),
+-    ...(item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ['confirm-replan', 'replace-validation'], 'history_operation') }),
++    ...(item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ['confirm-replan', 'replace-validation', 'amend-evidence-plan'], 'history_operation') }),
+     ...(item.user_decision_sha256 === undefined ? {} : { user_decision_sha256: hash('user_decision_sha256') }),
+     old_source_revision: hash('old_source_revision'), old_plan_revision: hash('old_plan_revision'), new_plan_revision: hash('new_plan_revision'),
+     claim_id: expectString(item.claim_id, `${location}.claim_id`, CLAIM_ID_PATTERN),
+@@ -11148,6 +11149,390 @@ export function replaceValidation(root: string, rawInput: unknown, options: Runt
+   });
+ }
+ 
++/** A user-owned verification-selection change is neither a counterexample to an
++ * existing report nor a replacement task. Keep the obligation and its owner;
++ * version only the selected check and its read-only invocations. */
++export type EvidencePlanAmendmentInput = {
++  source_revision: string;
++  decision_source: string;
++  decision_text: string;
++  reason: string;
++  replacements: Array<{ claim_id: string; slot_id: string; replaces_check_id: string; replacement_check: EvidenceCheck }>;
++  command_replacements: Array<{ step_id: string; old_command: string; new_commands: string[] }>;
++  validation_replacements?: Array<{ step_id: string; old_validation: string; new_validation: string; check_ids: string[]; reason: string }>;
++};
++export type EvidencePlanAmendmentReceipt = {
++  kind: 'evidence-plan-amendment-receipt/v1';
++  document_id: string;
++  task_id: string;
++  source_revision: string;
++  basis_revision: string;
++  old_plan_revision: string;
++  new_plan_revision: string;
++  candidate_digest: string;
++};
++type EvidencePlanAmendmentCandidate = {
++  kind: 'evidence-plan-amendment-candidate/v1';
++  document_id: string;
++  task_id: string;
++  source_revision: string;
++  basis_revision: string;
++  old_plan_revision: string;
++  new_plan_revision: string;
++  input: EvidencePlanAmendmentInput;
++  definition: DraftTaskDefinition;
++  claim_evidence: ClaimEvidenceRecord[];
++  workspace_target: ReviewTarget;
++  retained_obligations_digest: string;
++  retained_review: PendingReviewResult | null;
++  review_disposition: 'preserve' | 'historical-revalidation-required';
++  revalidate_current_step: boolean;
++};
++
++function normalizeEvidencePlanAmendment(raw: unknown): EvidencePlanAmendmentInput {
++  const input = expectRecord(raw, 'evidence-plan amendment');
++  expectExactKeys(input, ['source_revision', 'decision_source', 'decision_text', 'reason', 'replacements', 'command_replacements', ...(input.validation_replacements === undefined ? [] : ['validation_replacements'])], 'evidence-plan amendment');
++  if (!Array.isArray(input.replacements) || !input.replacements.length || input.replacements.length > MAX_CLAIM_EVIDENCE_RECORDS
++    || !Array.isArray(input.command_replacements) || input.command_replacements.length > MAX_EXECUTION_RESULT_ITEMS) {
++    fail('EVIDENCE_AMENDMENT_INVALID', 'Supply a bounded nonempty check replacement set and bounded command replacements.');
++  }
++  const replacements = input.replacements.map((raw, index) => {
++    const row = expectRecord(raw, `replacements[${index}]`);
++    expectExactKeys(row, ['claim_id', 'slot_id', 'replaces_check_id', 'replacement_check'], 'check replacement');
++    return { claim_id: expectString(row.claim_id, 'claim_id', CLAIM_ID_PATTERN),
++      slot_id: expectString(row.slot_id, 'slot_id', CLAIM_EVIDENCE_SLOT_ID_PATTERN),
++      replaces_check_id: expectString(row.replaces_check_id, 'replaces_check_id', CLAIM_ID_PATTERN),
++      replacement_check: validateEvidenceCheck(row.replacement_check, 'replacement_check') };
++  });
++  const commands = input.command_replacements.map(raw => {
++    const row = expectRecord(raw, 'command replacement');
++    expectExactKeys(row, ['step_id', 'old_command', 'new_commands'], 'command replacement');
++    const oldCommand = expectText(row.old_command, 'old_command', 4096);
++    const newCommands = expectStringArray(row.new_commands, 'new_commands', false, 32);
++    if (/[\r\n]/u.test(oldCommand) || newCommands.some(command => /[\r\n]/u.test(command))
++      || new Set(newCommands).size !== newCommands.length || (newCommands.length === 1 && newCommands[0] === oldCommand)) {
++      fail('EVIDENCE_AMENDMENT_INVALID', 'Command replacements require a changed bounded set of literal single-line invocations.');
++    }
++    return { step_id: expectString(row.step_id, 'step_id', STEP_ID_PATTERN), old_command: oldCommand, new_commands: newCommands };
++  });
++  if (new Set(replacements.map(row => `${row.claim_id}\0${row.slot_id}`)).size !== replacements.length
++    || new Set(commands.map(row => `${row.step_id}\0${row.old_command}`)).size !== commands.length) {
++    fail('EVIDENCE_AMENDMENT_INVALID', 'Each slot and each step/command may be replaced only once.');
++  }
++  const validations = input.validation_replacements;
++  if (validations !== undefined && (!Array.isArray(validations) || validations.length > MAX_EXECUTION_RESULT_ITEMS)) fail('EVIDENCE_AMENDMENT_INVALID', 'Validation description changes must be bounded.');
++  const validationChanges = (validations as unknown[] | undefined)?.map(raw => {
++    const row = expectRecord(raw, 'validation replacement');
++    expectExactKeys(row, ['step_id', 'old_validation', 'new_validation', 'check_ids', 'reason'], 'validation replacement');
++    const oldLabel = expectText(row.old_validation, 'old_validation', 4096);
++    const newLabel = expectText(row.new_validation, 'new_validation', 4096);
++    const ids = expectStringArray(row.check_ids, 'check_ids', false, MAX_CLAIM_EVIDENCE_RECORDS).map(id => expectString(id, 'check_id', CLAIM_ID_PATTERN));
++    if (/[;\r\n]/u.test(oldLabel + newLabel) || oldLabel === newLabel || new Set(ids).size !== ids.length) fail('EVIDENCE_AMENDMENT_INVALID', 'Selection descriptions need changed single-line labels and unique old check IDs.');
++    return { step_id: expectString(row.step_id, 'step_id', STEP_ID_PATTERN), old_validation: oldLabel, new_validation: newLabel, check_ids: ids, reason: expectText(row.reason, 'validation replacement reason') };
++  });
++  if (validationChanges && new Set(validationChanges.map(row => `${row.step_id}\0${row.old_validation}`)).size !== validationChanges.length) fail('EVIDENCE_AMENDMENT_INVALID', 'Each validation label may be rebound only once.');
++  return { ...(validationChanges === undefined ? {} : { validation_replacements: validationChanges }), source_revision: expectString(input.source_revision, 'source_revision', SHA256_PATTERN),
++    decision_source: expectText(input.decision_source, 'decision_source', 1024),
++    decision_text: expectVerbatim(input.decision_text, 'decision_text', 32768),
++    reason: expectText(input.reason, 'reason'), replacements, command_replacements: commands };
++}
++
++function evidenceAmendmentBasis(basis: TaskBasis, source: string, text: string): TaskBasis {
++  const prior = [basis.original_request, ...basis.user_decisions].filter(item => item.source === source);
++  if (prior.some(item => item.verbatim !== text)) fail('EVIDENCE_AMENDMENT_AUTHORITY_CONFLICT', 'A retained user source cannot be reassigned different words.');
++  return { original_request: basis.original_request,
++    user_decisions: prior.length ? [...basis.user_decisions] : [...basis.user_decisions, { source, verbatim: text }] };
++}
++
++function evidenceAmendmentLocation(root: string, current: CanonicalCurrentTask, hash: string) {
++  expectString(hash, 'candidate_digest', SHA256_PATTERN);
++  const relativePath = path.posix.join(path.posix.dirname(current.relativePath), 'task-candidates', current.sourceTuple.document_id, `${hash}.evidence.json`);
++  return { relativePath, filePath: safeRepositoryFile(root, relativePath) };
++}
++function evidenceAmendmentReceipt(candidate: EvidencePlanAmendmentCandidate): EvidencePlanAmendmentReceipt {
++  return { kind: 'evidence-plan-amendment-receipt/v1', document_id: candidate.document_id, task_id: candidate.task_id,
++    source_revision: candidate.source_revision, basis_revision: candidate.basis_revision,
++    old_plan_revision: candidate.old_plan_revision, new_plan_revision: candidate.new_plan_revision, candidate_digest: digest(candidate) };
++}
++function normalizeEvidenceAmendmentReceipt(raw: unknown): EvidencePlanAmendmentReceipt {
++  const value = expectRecord(raw, 'candidate_receipt');
++  expectExactKeys(value, ['kind', 'document_id', 'task_id', 'source_revision', 'basis_revision', 'old_plan_revision', 'new_plan_revision', 'candidate_digest'], 'candidate_receipt');
++  if (value.kind !== 'evidence-plan-amendment-receipt/v1') fail('EVIDENCE_AMENDMENT_RECEIPT_INVALID', 'An exact evidence-plan amendment receipt is required.');
++  for (const key of ['source_revision', 'basis_revision', 'old_plan_revision', 'new_plan_revision', 'candidate_digest']) expectString(value[key], key, SHA256_PATTERN);
++  expectString(value.document_id, 'document_id', DOCUMENT_ID_PATTERN);
++  expectString(value.task_id, 'task_id');
++  return value as EvidencePlanAmendmentReceipt;
++}
++function readEvidenceAmendment(root: string, current: CanonicalCurrentTask, receipt: EvidencePlanAmendmentReceipt): EvidencePlanAmendmentCandidate {
++  if (receipt.document_id !== current.sourceTuple.document_id || receipt.task_id !== current.runtimeState.task_id) fail('EVIDENCE_AMENDMENT_IDENTITY_CONFLICT', 'The candidate belongs to another task.');
++  const location = evidenceAmendmentLocation(root, current, receipt.candidate_digest);
++  if (!fs.existsSync(location.filePath) || fs.existsSync(`${location.filePath}.discarded`)) fail('EVIDENCE_AMENDMENT_CANDIDATE_MISSING', 'The candidate is absent or discarded.');
++  const candidate = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as EvidencePlanAmendmentCandidate;
++  if (candidate.kind !== 'evidence-plan-amendment-candidate/v1' || digest(candidate) !== receipt.candidate_digest
++    || digest(evidenceAmendmentReceipt(candidate)) !== digest(receipt)) fail('EVIDENCE_AMENDMENT_CANDIDATE_INVALID', 'The candidate bytes or receipt coordinates changed.');
++  return candidate;
++}
++
++function buildEvidencePlanAmendment(root: string, current: CanonicalCurrentTask, input: EvidencePlanAmendmentInput): EvidencePlanAmendmentCandidate {
++  assertBusinessEvidenceVersion(current);
++  assertV2AuthorityDomainRevisionFreshForTransition(root, current, 'Evidence-plan amendment');
++  const state = current.runtimeState;
++  if (state.workflow_status !== 'active' || state.lifecycle_state !== 'active' || state.resume_requires_review) fail('EVIDENCE_AMENDMENT_STATE_INVALID', 'A confirmed active task is required; an evidence amendment cannot clear lifecycle/resume gates.');
++  if (!taskSourceRevisionMatches(root, current, input.source_revision)) fail('EVIDENCE_AMENDMENT_SOURCE_STALE', 'The decision must bind the current task or its exact storage-only alias.');
++  const basis = readCanonicalTaskBasis(root, current);
++  const nextBasis = evidenceAmendmentBasis(basis.basis, input.decision_source, input.decision_text);
++  const definition = readDraftDefinitionFromBody(current.body);
++  const steps = parseImplementationSteps(definition.implementation_steps);
++  const currentIndex = steps.findIndex(step => step.id === state.active_step_id);
++  const oldClaims = state.claim_evidence ?? [];
++  const claims = copyClaimEvidence(oldClaims);
++  const oldChecks = new Set(oldClaims.flatMap(claim => claim.slots.map(slot => slot.check?.check_id)));
++  const selected = new Set(input.replacements.map(row => `${row.claim_id}\0${row.slot_id}`));
++  for (const row of input.replacements) {
++    const claim = claims.find(item => item.claim_id === row.claim_id);
++    const slot = claim?.slots.find(item => item.slot_id === row.slot_id);
++    const old = slot?.check;
++    if (!slot || !old || old.check_id !== row.replaces_check_id || slot.applicability !== 'current' || slot.prerequisite_receipt
++      || steps.findIndex(step => step.id === slot.due_step_id) < currentIndex) fail('EVIDENCE_AMENDMENT_TARGET_INVALID', 'Replace an existing current/future obligation, not a prerequisite or an earlier completed step.');
++    if ((state.evidence_challenges ?? []).some(c => c.claim_id === row.claim_id && c.slot_id === row.slot_id && c.status !== 'resolved')) fail('EVIDENCE_CHALLENGE_UNRESOLVED', 'This exact challenged result retains its correction owner; unrelated findings do not require a challenge.');
++    const check = row.replacement_check;
++    if (oldChecks.has(check.check_id) || old.method !== 'execution' || check.method !== 'execution') fail('EVIDENCE_AMENDMENT_CHECK_INVALID', 'Execution selection changes require a fresh check identity and preserve method.');
++    oldChecks.add(check.check_id);
++    const obligation = (value: EvidenceCheck) => ({ method: value.method, boundary: value.boundary,
++      expected_observation: value.expected_observation, expected_result: value.expected_result,
++      subject_paths: value.subject_paths, required_boundaries: value.required_boundaries,
++      allowed_substitutes: value.allowed_substitutes, validation_items: value.validation_items });
++    const oldWithReboundLabels = { ...old, ...(old.validation_items === undefined ? {} : { validation_items: old.validation_items.map(label => (input.validation_replacements ?? []).find(change => change.step_id === slot.due_step_id && change.old_validation === label && change.check_ids.includes(old.check_id))?.new_validation ?? label) }) };
++    if (digest(obligation(oldWithReboundLabels)) !== digest(obligation(check))) fail('EVIDENCE_AMENDMENT_OBLIGATION_CHANGED', 'Keep observation, business boundary, subject set, expected result and validation ownership unchanged.');
++    // A task user does not thereby own a policy/contract-mandated selection.
++    if (['project-policy', 'release-gate', 'claim-risk-contract'].includes(old.selection?.breadth_basis ?? '')) fail('EVIDENCE_AMENDMENT_POLICY_REQUIRED', 'A policy/contract/release-mandated selection needs its owning authority, not a task-user selection amendment.');
++    if (old.boundary === 'e2e' && (old.selection?.breadth_basis !== check.selection?.breadth_basis
++      || old.selection?.breadth_source_ref !== check.selection?.breadth_source_ref)) fail('EVIDENCE_AMENDMENT_POLICY_REQUIRED', 'Retain the independent E2E breadth authorization.');
++    slot.check = check; slot.report = null; slot.evidence_refs = []; slot.disposition = 'missing';
++    delete slot.user_decision; // The old waiver/observation is historical, not permission for this new check.
++  }
++  for (const row of input.command_replacements) {
++    if (steps.findIndex(step => step.id === row.step_id) < currentIndex) fail('EVIDENCE_AMENDMENT_STEP_INVALID', 'Only the active and future steps may change verification selection.');
++    const bound = row.new_commands.every(command => command === row.old_command || input.replacements.some(change => {
++      const old = oldClaims.find(claim => claim.claim_id === change.claim_id)?.slots.find(slot => slot.slot_id === change.slot_id)?.check;
++      return old?.entry === row.old_command && change.replacement_check.entry === command;
++    }));
++    if (!bound) fail('EVIDENCE_AMENDMENT_COMMAND_UNBOUND', 'Every replacement invocation must implement a selected old/new check pair.');
++    const block = implementationStepBlock(definition, row.step_id);
++    if (!block) fail('EVIDENCE_AMENDMENT_STEP_INVALID', 'The selected step does not exist.');
++    const lines = block.split('\n');
++    const hits = lines.flatMap((line, index) => line.trim() === `- planned_command: ${row.old_command}` ? [index] : []);
++    if (hits.length !== 1 || lines[hits[0]! + 1]?.trim() !== '- expected_repo_writes: none') fail('EVIDENCE_AMENDMENT_WRITES_FORBIDDEN', 'Replace only an exact read-only verification command, never an implementation command.');
++    if (!row.new_commands.includes(row.old_command) && oldClaims.some(claim => claim.slots.some(slot => slot.due_step_id === row.step_id && slot.check?.entry === row.old_command
++      && !selected.has(`${claim.claim_id}\0${slot.slot_id}`)))) fail('EVIDENCE_AMENDMENT_SHARED_COMMAND', 'Retain every obligation of a shared invocation; include every affected consumer.');
++    const start = hits[0]!;
++    let end = start + 1;
++    while (end < lines.length && /^\s{4,}- /.test(lines[end]!)) end++;
++    const retained = [...lines.slice(0, start), ...lines.slice(end)];
++    const additions: string[] = [];
++    for (const command of row.new_commands) {
++      const existing = retained.findIndex(line => line.trim() === `- planned_command: ${command}`);
++      if (existing >= 0) {
++        if (retained[existing + 1]?.trim() !== '- expected_repo_writes: none') fail('EVIDENCE_AMENDMENT_WRITES_FORBIDDEN', 'An existing invocation can be reused only with its exact read-only footprint.');
++        continue;
++      }
++      additions.push(`  - planned_command: ${command}`, '    - expected_repo_writes: none', '    - transformation_kind: localized');
++    }
++    lines.splice(start, end - start, ...additions);
++    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join('\n'));
++  }
++  for (const row of input.validation_replacements ?? []) {
++    const oldStep = steps.find(step => step.id === row.step_id);
++    if (!oldStep || steps.indexOf(oldStep) < currentIndex) fail('EVIDENCE_AMENDMENT_STEP_INVALID', 'Only current/future selection descriptions may change.');
++    for (const checkId of row.check_ids) {
++      const replacement = input.replacements.find(change => change.replaces_check_id === checkId);
++      const oldSlot = oldClaims.flatMap(claim => claim.slots).find(slot => slot.check?.check_id === checkId);
++      const command = input.command_replacements.find(change => change.step_id === row.step_id && change.old_command === oldSlot?.check?.entry);
++      if (!replacement || !oldSlot?.check || !command || !command.new_commands.includes(replacement.replacement_check.entry)
++        || (oldSlot.check.validation_items !== undefined && (!oldSlot.check.validation_items.includes(row.old_validation) || oldSlot.due_step_id !== row.step_id))) fail('EVIDENCE_AMENDMENT_VALIDATION_UNBOUND', 'A changed description must name the selected check and its exact step invocation; an explicitly owned label cannot be reassigned.');
++    }
++    const owners = oldClaims.flatMap(claim => claim.slots).filter(slot => slot.due_step_id === row.step_id && slot.check?.validation_items?.includes(row.old_validation));
++    if (owners.some(slot => !row.check_ids.includes(slot.check!.check_id))) fail('EVIDENCE_AMENDMENT_VALIDATION_UNBOUND', 'A shared validation description must retain every independently bound owner.');
++    const block = implementationStepBlock(definition, row.step_id)!;
++    const lines = block.split('\n');
++    const labelIndex = lines.findIndex(line => /^\s*- required_evidence:/.test(line));
++    if (labelIndex < 0) fail('EVIDENCE_AMENDMENT_VALIDATION_UNBOUND', 'The selected validation labels are absent.');
++    const labels = lines[labelIndex]!.replace(/^\s*- required_evidence:\s*/u, '').split(';').map(label => label.trim()).filter(Boolean);
++    if (labels.filter(label => label === row.old_validation).length !== 1 || labels.includes(row.new_validation)) fail('EVIDENCE_AMENDMENT_VALIDATION_UNBOUND', 'Replace one exact existing label without merging another obligation.');
++    lines[labelIndex] = '  - required_evidence: ' + labels.map(label => label === row.old_validation ? row.new_validation : label).join('; ');
++    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join('\n'));
++  }
++  // Past results remain tied to their immutable preimage. A new invocation
++  // cannot borrow the old execution or its clean review as successful evidence.
++  const revalidate = input.command_replacements.some(row => row.step_id === state.active_step_id)
++    || input.replacements.some(row => oldClaims.find(c => c.claim_id === row.claim_id)?.slots.find(s => s.slot_id === row.slot_id)?.due_step_id === state.active_step_id);
++  const historicalReview = revalidate && state.pending_review_result?.verdict === 'clean';
++  if (historicalReview || (revalidate && !state.pending_review_result && state.active_step_status !== 'ready')) {
++    const block = implementationStepBlock(definition, state.active_step_id)!;
++    definition.implementation_steps = definition.implementation_steps.replace(block, block.replace(/^\s*- review_checkpoint:.*$/mu,
++      '  - review_checkpoint: required: fresh verification after user-authorized evidence selection change'));
++  }
++  assertV2DraftDefinitionAuthority(root, definition);
++  assertPreparedTestStrategy(root, definition, nextBasis);
++  const newPlan = assertEvidencePlan(definition, claims, false, { root, taskBasis: nextBasis, previous: oldClaims });
++  if (newPlan === state.evidence_plan_revision) fail('EVIDENCE_AMENDMENT_NO_CHANGE', 'The candidate must change the verification plan.');
++  const subjects = [...new Set([...oldClaims.flatMap(c => c.slots.flatMap(s => s.check?.subject_paths ?? [])),
++    ...(state.review_coverage?.target.entries.map(entry => entry.path) ?? [])])];
++  return { kind: 'evidence-plan-amendment-candidate/v1', task_id: state.task_id, document_id: current.sourceTuple.document_id,
++    source_revision: input.source_revision, basis_revision: basis.revision, old_plan_revision: state.evidence_plan_revision!,
++    new_plan_revision: newPlan, input, definition, claim_evidence: claims,
++    workspace_target: captureReviewTarget(root, subjects), retained_obligations_digest: digest(correctionObligations(current)),
++    retained_review: state.pending_review_result ?? null, review_disposition: historicalReview ? 'historical-revalidation-required' : 'preserve',
++    revalidate_current_step: revalidate };
++}
++
++export function prepareEvidencePlanAmendment(root: string, raw: unknown, options: RuntimeApplyOptions = {}): RuntimeResult & {
++  candidate_receipt: EvidencePlanAmendmentReceipt; candidate_path: string;
++} {
++  return withGovernanceWriteLock(root, () => {
++    if (!options.dryRun) recoverPendingTaskStoreCommit(root);
++    const current = readCanonicalCurrentTask(root);
++    const candidate = buildEvidencePlanAmendment(root, current, normalizeEvidencePlanAmendment(raw));
++    const receipt = evidenceAmendmentReceipt(candidate);
++    const location = evidenceAmendmentLocation(root, current, receipt.candidate_digest);
++    const content = JSON.stringify(candidate, null, 2) + '\n';
++    const exists = fs.existsSync(location.filePath);
++    if (fs.existsSync(`${location.filePath}.discarded`)) fail('EVIDENCE_AMENDMENT_DISCARDED', 'This candidate was explicitly discarded.');
++    if (exists && fs.readFileSync(location.filePath, 'utf8') !== content) fail('EVIDENCE_AMENDMENT_CANDIDATE_INVALID', 'Immutable candidate bytes conflict.');
++    if (!options.dryRun && !exists) {
++      fs.mkdirSync(path.dirname(location.filePath), { recursive: true });
++      executeWrites([{ path: location.filePath, content }], false, 'Prepare evidence-plan amendment candidate only');
++    }
++    return { status: exists ? 'no-op' : 'success', operation_kind: 'task-state-transaction',
++      idempotency_key: `prepare-evidence-${receipt.candidate_digest}`, target_path: location.relativePath,
++      dry_run: options.dryRun === true, committed: false, planned_writes: [location.relativePath],
++      governed_mutation_count: options.dryRun || exists ? 0 : 1, read_back_verified: !options.dryRun && fs.readFileSync(location.filePath, 'utf8') === content,
++      evidence_assurance: 'caller-reported', message: 'Candidate prepared; the live task and its review/findings are unchanged. Confirm this exact candidate before applying it.',
++      candidate_receipt: receipt, candidate_path: location.relativePath };
++  });
++}
++
++export function confirmEvidencePlanAmendment(root: string, raw: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
++  return withGovernanceWriteLock(root, () => {
++    const input = expectRecord(raw, 'confirm-evidence-plan-amendment');
++    expectExactKeys(input, ['candidate_receipt', 'decision_source', 'decision_text'], 'confirm-evidence-plan-amendment');
++    const receipt = normalizeEvidenceAmendmentReceipt(input.candidate_receipt);
++    const approval = { decision_source: expectText(input.decision_source, 'decision_source', 1024), decision_text: expectVerbatim(input.decision_text, 'decision_text', 32768) };
++    if (!options.dryRun) recoverPendingTaskStoreCommit(root);
++    const current = readCanonicalCurrentTask(root);
++    const saved = readEvidenceAmendment(root, current, receipt);
++    const key = `evidence-amend-${receipt.candidate_digest}-${digest(approval).slice(0, 24)}`;
++    const store = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
++    const prior = current.runtimeState.applied_proposals.find(item => item.idempotency_key === key) ?? store.lookupIdempotency(key);
++    if (prior) {
++      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, prior.source_revision, 'amend-evidence-plan');
++      return { status: 'no-op', operation_kind: 'task-state-transaction', idempotency_key: key, target_path: current.relativePath,
++        dry_run: !!options.dryRun, committed: false, message: 'This exact evidence-plan amendment was already committed.', planned_writes: [],
++        governed_mutation_count: 0, read_back_verified: true, evidence_assurance: 'caller-reported', state: resultState(current.runtimeState) };
++    }
++    const rebuilt = buildEvidencePlanAmendment(root, current, saved.input);
++    if (digest(rebuilt) !== receipt.candidate_digest) fail('EVIDENCE_AMENDMENT_CANDIDATE_STALE', 'The task, obligations, user source, workspace or review changed after preparation.');
++    const state = current.runtimeState;
++    const preflight = state.execution_preflight;
++    const ledger = state.step_attempts?.[state.active_step_id];
++    if (preflight && !executionResultRecordedForPreflight(current, preflight, preflight.mode === 'default' ? ledger?.attempts.at(-1)?.attempt_id : undefined)) fail('EXECUTE_ATTEMPT_OUTSTANDING', 'Record the actual in-flight execution before committing a changed verification plan. Pending recorded findings are allowed.');
++    if (!preflight && ledger?.attempts.at(-1)?.status === 'preflighted') fail('EXECUTE_ATTEMPT_OUTSTANDING', 'Record the actual preflighted attempt before changing its plan.');
++    const basis = readCanonicalTaskBasis(root, current);
++    const nextBasis = evidenceAmendmentBasis(evidenceAmendmentBasis(basis.basis, saved.input.decision_source, saved.input.decision_text), approval.decision_source, approval.decision_text);
++    const basisArtifact = materializeTaskBasis(root, current, { task_id: state.task_id, task_slug: state.task_slug,
++      task_title: extractTaskIdentityFromCurrentTask(current.body).title ?? fail('RUNTIME_IDENTITY_INVALID', 'Task title is missing.'), document_id: current.sourceTuple.document_id }, nextBasis);
++    const claims = copyClaimEvidence(saved.claim_evidence);
++    const affected = new Set(saved.input.replacements.map(row => `${row.claim_id}\0${row.slot_id}`));
++    const carry: EvidenceCarryForward[] = [];
++    for (const claim of claims) for (const slot of claim.slots) {
++      if (affected.has(`${claim.claim_id}\0${slot.slot_id}`) || (!slot.report && !slot.user_decision) || !slot.check) continue;
++      const before = state.claim_evidence!.find(c => c.claim_id === claim.claim_id)!.slots.find(s => s.slot_id === slot.slot_id)!;
++      if (before.user_decision) {
++        try { carry.push(carryUserEvidenceDecision(root, current, claim.claim_id, before, saved.new_plan_revision, 'amend-evidence-plan')); } catch { /* Keep stale decisions without promoting them. */ }
++      } else {
++        try { assertEvidenceReportApplicable(root, current, before); } catch { continue; }
++        const origin = state.evidence_carry_forward?.find(p => p.claim_id === claim.claim_id && p.slot_id === slot.slot_id && p.new_plan_revision === state.evidence_plan_revision && p.result_id === slot.report!.result_id);
++        carry.push({ kind: 'evidence-carry-forward/v2', old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
++          history_operation: origin ? origin.history_operation ?? 'confirm-replan' : 'amend-evidence-plan',
++          old_plan_revision: slot.report!.evidence_plan_revision, new_plan_revision: saved.new_plan_revision,
++          receiving_source_revision: current.sourceTuple.revision, context_revision: recoveryEvidenceContextRevision(root),
++          evidence_objects: describeEvidenceObjects(root, slot.evidence_refs), claim_id: claim.claim_id, slot_id: slot.slot_id,
++          check_id: slot.check.check_id, result_id: slot.report!.result_id, report_sha256: digest(slot.report), subject_revision: slot.report!.subject_revision });
++      }
++    }
++    const location = evidenceAmendmentLocation(root, current, receipt.candidate_digest);
++    const proposal = { schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND, operation_kind: 'task-state-transaction',
++      caller: 'prepare-task', mode: 'replan', source_tuple: current.sourceTuple,
++      semantic_delta: { kind: 'task-state', action: 'amend-evidence-plan', candidate: saved, candidate_receipt: receipt, approval },
++      authority_evidence: [{ kind: 'user-confirmation', source: approval.decision_source, subject: receipt.candidate_digest }],
++      evidence_refs: [location.relativePath], idempotency_key: key, requested_write_targets: [current.relativePath, basis.path] } as unknown as RuntimeProposal;
++    const attempts = structuredClone(state.step_attempts ?? {});
++    for (const item of Object.values(attempts)) item.evidence_plan_revision = saved.new_plan_revision;
++    const revalidate = saved.revalidate_current_step && (!state.pending_review_result || saved.review_disposition === 'historical-revalidation-required');
++    if (revalidate && ledger && ledger.attempts.at(-1)?.status !== 'ready') {
++      if (ledger.attempts.length >= ledger.max_attempts) fail('RETRY_BUDGET_EXHAUSTED', 'Evidence selection amendments retain the existing attempt budget.');
++      attempts[state.active_step_id]!.attempts.push({ attempt_id: `attempt-${digest(key).slice(0, 40)}`, idempotency_key: key,
++        request_digest: digest(saved.input), status: 'ready', blocker: null, evidence_refs: [location.relativePath] });
++    }
++    const next: RuntimeState = { ...state, claim_evidence: claims, evidence_plan_revision: saved.new_plan_revision,
++      evidence_carry_forward: carry, step_attempts: attempts, applied_proposals: appendAppliedProposal(state, proposal, current.sourceTuple.revision),
++      ...(revalidate ? { active_step_status: 'ready' as const } : {}),
++      ...(saved.review_disposition === 'historical-revalidation-required' ? { pending_review_result: null } : {}) };
++    if (saved.revalidate_current_step) delete next.execution_preflight;
++    const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next,
++      { replacementDefinition: saved.definition, taskBasisReference: { path: basis.path, revision: basisArtifact.revision } });
++    const historyInput = { currentPath: current.filePath, previousContent: current.raw, nextContent: prepared.content,
++      documentId: current.sourceTuple.document_id, taskId: state.task_id, basisPath: basis.filePath, basisContent: basis.content,
++      nextBasisContent: basisArtifact.content, operation: 'amend-evidence-plan' as const,
++      evidencePlanRevision: state.evidence_plan_revision, referencedEvidence: [location.relativePath] };
++    const history = taskHistoryLocation(historyInput);
++    const writes = [path.posix.join(path.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
++    if (options.dryRun) return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: key, target_path: current.relativePath,
++      dry_run: true, committed: false, message: 'Evidence-plan amendment validated; no live state changed.', planned_writes: writes,
++      governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported' };
++    for (const proof of carry) preserveEvidenceObjects(root, current.filePath, proof.evidence_objects ?? []);
++    const staged = stageTaskEvolutionStoreCommit(root, current, prepared.content, next, proposal,
++      [{ path: history.path, content: history.content }, { path: basisArtifact.filePath, content: basisArtifact.content }, { path: current.filePath, content: prepared.content }], prepared);
++    try { commitTaskEvolutionWithHistory(historyInput, raw => {
++      const parsed = parseCanonicalCurrentTaskContent(raw, current.filePath, current.relativePath);
++      if (parsed.runtimeState.evidence_plan_revision !== saved.new_plan_revision || digest(parsed.runtimeState.findings) !== digest(state.findings)
++        || readCanonicalTaskBasis(root, parsed).revision !== basisArtifact.revision) fail('EVIDENCE_AMENDMENT_READ_BACK_FAILED', 'Evidence amendment read-back changed protected state.');
++    }); } catch (error) {
++      if (fs.readFileSync(current.filePath, 'utf8') === current.raw) clearPendingTaskStoreAfterRollback(root, current);
++      throw error;
++    }
++    completeTaskEvolutionStoreCommit(root, current, staged, proposal, { status: 'success', committed: true, operation_kind: 'task-state-transaction', idempotency_key: key });
++    return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: key, target_path: current.relativePath,
++      dry_run: false, committed: true, message: 'Same-task evidence selection amended; goals, authority, findings, failures and budgets retained. Old results are not new-plan PASS.',
++      planned_writes: writes, governed_mutation_count: 3, read_back_verified: true,
++      previous_revision: current.sourceTuple.revision, resulting_revision: staged.sourceTuple.revision, state: resultState(next), evidence_assurance: 'caller-reported' };
++  });
++}
++
++export function discardEvidencePlanAmendment(root: string, raw: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
++  return withGovernanceWriteLock(root, () => {
++    const input = expectRecord(raw, 'discard-evidence-plan-amendment');
++    expectExactKeys(input, ['candidate_receipt'], 'discard-evidence-plan-amendment');
++    const receipt = normalizeEvidenceAmendmentReceipt(input.candidate_receipt);
++    if (!options.dryRun) recoverPendingTaskStoreCommit(root);
++    const current = readCanonicalCurrentTask(root);
++    if (receipt.document_id !== current.sourceTuple.document_id || receipt.task_id !== current.runtimeState.task_id) fail('EVIDENCE_AMENDMENT_IDENTITY_CONFLICT', 'The candidate belongs to another task.');
++    const prefix = `evidence-amend-${receipt.candidate_digest}-`;
++    const store = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
++    if ([...current.runtimeState.applied_proposals, ...store.readAppliedProposals()].some(item => isRecord(item) && typeof item.idempotency_key === 'string' && item.idempotency_key.startsWith(prefix))) fail('EVIDENCE_AMENDMENT_ALREADY_COMMITTED', 'Discard cannot undo a committed amendment.');
++    const location = evidenceAmendmentLocation(root, current, receipt.candidate_digest);
++    const marker = `${location.filePath}.discarded`;
++    if (fs.existsSync(marker)) return { status: 'no-op', operation_kind: 'task-state-transaction', idempotency_key: prefix, target_path: `${location.relativePath}.discarded`,
++      dry_run: !!options.dryRun, committed: false, message: 'This candidate is already discarded.', planned_writes: [], governed_mutation_count: 0, read_back_verified: true, evidence_assurance: 'caller-reported' };
++    readEvidenceAmendment(root, current, receipt);
++    const content = JSON.stringify({ kind: 'evidence-plan-amendment-discard/v1', candidate_digest: receipt.candidate_digest }) + '\n';
++    if (!options.dryRun) executeWrites([{ path: marker, content }], false, 'Discard uncommitted evidence-plan amendment');
++    return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: prefix, target_path: `${location.relativePath}.discarded`,
++      dry_run: !!options.dryRun, committed: false, message: 'Candidate discarded; the active task is unchanged.', planned_writes: [`${location.relativePath}.discarded`],
++      governed_mutation_count: options.dryRun ? 0 : 1, read_back_verified: !options.dryRun, evidence_assurance: 'caller-reported' };
++  });
++}
++
+ export function initializeTaskPreservation(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+   return withGovernanceWriteLock(root, () => initializeTaskPreservationLocked(root, rawInput, options));
+ }
+@@ -17289,8 +17674,11 @@ export function assertOrdinaryPreflight(current: CanonicalCurrentTask, root: str
+   }
+   for (const carry of current.runtimeState.evidence_carry_forward ?? []) {
+     const slot = current.runtimeState.claim_evidence?.find(item => item.claim_id === carry.claim_id)?.slots.find(item => item.slot_id === carry.slot_id);
+-    if (!slot?.report) fail('EVIDENCE_CARRY_FORWARD_STALE', 'A carried slot no longer has its old report.');
+-    assertEvidenceReportApplicable(root, current, slot);
++    if (slot?.user_decision) assertUserEvidenceApplicable(root, current, slot);
++    else {
++      if (!slot?.report) fail('EVIDENCE_CARRY_FORWARD_STALE', 'A carried slot no longer has its old report.');
++      assertEvidenceReportApplicable(root, current, slot);
++    }
+   }
+   const pending = current.runtimeState.pending_review_result;
+   if (pending) {
+diff --git a/runtime/vnext/src/prepare-task-adapter.ts b/runtime/vnext/src/prepare-task-adapter.ts
+index ccc5eaa..76b983c 100644
+--- a/runtime/vnext/src/prepare-task-adapter.ts
++++ b/runtime/vnext/src/prepare-task-adapter.ts
+@@ -28,6 +28,9 @@ import {
+   createPrepareTaskDraftProposal,
+   createPrepareTaskReplanProposal,
+   createPrepareTaskResumeReviewProposal,
++  prepareEvidencePlanAmendment,
++  confirmEvidencePlanAmendment,
++  discardEvidencePlanAmendment,
+   prepareCorrectionReplan,
+   confirmCorrectionReplan,
+   discardCorrectionReplan,
+@@ -75,6 +78,9 @@ export const PREPARE_TASK_ADAPTER_COMMANDS = [
+   'confirm-draft',
+   'clear-resume-review',
+   'replan',
++  'prepare-evidence-plan-amendment',
++  'confirm-evidence-plan-amendment',
++  'discard-evidence-plan-amendment',
+   'prepare-replan',
+   'confirm-replan',
+   'discard-replan',
+@@ -1155,6 +1161,15 @@ export async function runPrepareTaskAdapterCli(argv: string[] = process.argv.sli
+       case 'replan':
+         result = replan(args.root, input, options);
+         break;
++      case 'prepare-evidence-plan-amendment':
++        result = prepareEvidencePlanAmendment(args.root, input, options);
++        break;
++      case 'confirm-evidence-plan-amendment':
++        result = confirmEvidencePlanAmendment(args.root, input, options);
++        break;
++      case 'discard-evidence-plan-amendment':
++        result = discardEvidencePlanAmendment(args.root, input, options);
++        break;
+       case 'prepare-replan':
+         result = prepareCorrectionReplan(args.root, input, options);
+         break;
+diff --git a/runtime/vnext/src/task-evolution-io.ts b/runtime/vnext/src/task-evolution-io.ts
+index adc119b..30385de 100644
+--- a/runtime/vnext/src/task-evolution-io.ts
++++ b/runtime/vnext/src/task-evolution-io.ts
+@@ -25,7 +25,7 @@ export type TaskEvolutionInput = {
+   basisPath?: string;
+   basisContent?: string;
+   nextBasisContent?: string;
+-  operation?: 'supersede' | 'confirm-replan' | 'commit-scope-amendment' | 'confirm-scope-amendment' | 'initialize-preservation' | 'replace-validation';
++  operation?: 'supersede' | 'confirm-replan' | 'commit-scope-amendment' | 'confirm-scope-amendment' | 'initialize-preservation' | 'replace-validation' | 'amend-evidence-plan';
+   evidencePlanRevision?: string | null;
+   referencedEvidence?: string[];
+ };
+@@ -91,7 +91,7 @@ export function taskHistoryLocation(input: TaskEvolutionInput): TaskHistoryLocat
+   };
+ }
+ 
+-export function assertTaskHistoryForRevision(currentPath: string, documentId: string, taskId: string, sourceRevision: string, operation: 'supersede' | 'confirm-replan' | 'commit-scope-amendment' | 'confirm-scope-amendment' | 'initialize-preservation' | 'replace-validation' = 'supersede'): void {
++export function assertTaskHistoryForRevision(currentPath: string, documentId: string, taskId: string, sourceRevision: string, operation: 'supersede' | 'confirm-replan' | 'commit-scope-amendment' | 'confirm-scope-amendment' | 'initialize-preservation' | 'replace-validation' | 'amend-evidence-plan' = 'supersede'): void {
+   if (!/^doc-[a-f0-9]+$/u.test(documentId) || !/^[a-f0-9]{64}$/u.test(sourceRevision)) {
+     throw new Error('TASK_HISTORY_INVALID: replay identity or revision is invalid.');
+   }
+diff --git a/runtime/vnext/support/CONTEXT_API.md b/runtime/vnext/support/CONTEXT_API.md
+index a420463..c29de1f 100644
+--- a/runtime/vnext/support/CONTEXT_API.md
++++ b/runtime/vnext/support/CONTEXT_API.md
+@@ -768,3 +768,92 @@ Source-template guards test guidance availability, not model comprehension. A
+ curated reference answer or deterministic selection fixture is not a fresh Agent
+ run; broader selection-effectiveness claims require retained independent runs or
+ real target-project dogfood with the actual Skill/model/version and source context.
++
++
++## User-authorized evidence-plan amendment
++
++An explicit user decision to reselect sufficient evidence under unchanged Goal,
++Acceptance, business boundaries and mutation authority is not a counterexample
++and not a replacement task. Use the existing prepare-task Skill with the internal
++`prepare-evidence-plan-amendment` command. A missing report/result_id, pending
++findings, or a recorded repair result does not require a fabricated challenge,
++new business requirement, supersede, or successor.
++
++Preparation takes this closed JSON shape (all IDs and receipts are handled by the
++Agent/Runtime, never constructed by the user):
++
++```json
++{
++  "source_revision": "<exact current source SHA-256>",
++  "decision_source": "<original user message coordinate>",
++  "decision_text": "<verbatim user selection decision>",
++  "reason": "<why the replacement set is minimum-sufficient>",
++  "replacements": [{
++    "claim_id": "C1", "slot_id": "C1-rule", "replaces_check_id": "old-check",
++    "replacement_check": "<complete new execution EvidenceCheck with a fresh check_id>"
++  }],
++  "command_replacements": [{
++    "step_id": "S1", "old_command": "<exact old read-only planned command>",
++    "new_commands": ["<exact replacement check entry>"]
++  }]
++}
++```
++
++`replacement_check` above denotes a JSON object, not a literal string. It retains
++method, expected observation/result, subjects, business/required boundaries,
++allowed substitutes and validation-label ownership. Selection granularity,
++selector and literal invocation may change through normal evidence admission.
++Every removed shared invocation must retain all its claim consumers; a command
++may split into several bound invocations or merge into an already planned
++read-only invocation. Include the affected current and future step invocations
++explicitly, including a current-step invocation of a check due at a later step.
++Previous step history, independent validation obligations, Persistent Tests admission,
++product/test files and write-capable implementation commands are not rewritten.
++Do not impose one test function per slot or a fixed test-count target: the unit of
++sufficiency is the admitted observation and real boundary, not the number of PASS
++results. Excluded acceptance invocations remain available as ordinary regression;
++this command does not delete tests or authorize unplanned regression execution.
++
++The result supplies `candidate_path` and `candidate_receipt`; the live task and
++Task Basis are unchanged. Read the exact candidate (paged task-read supports
++repository-relative paths), explain the old/new selection and any review
++invalidation, then stop when the user requested candidate-only preparation.
++Confirm the exact candidate through `confirm-evidence-plan-amendment` with
++`{candidate_receipt, decision_source, decision_text}` retaining the confirmation
++message verbatim. `discard-evidence-plan-amendment` takes `{candidate_receipt}`
++and can discard only an uncommitted candidate. Replays are idempotent and genuine
++source/workspace/obligation drift is stale; storage-only aliases remain valid.
++
++Confirmation is one journaled task-history/Task Basis/CURRENT_TASK transaction.
++Task/document/step identities, requirements, authority, findings, execution
++history, review cycle and repair/retry budgets remain owned by the same task.
++Changed checks return to missing; old reports and user decisions remain in exact
++history, never become replacement-check PASS. Applicable independent evidence
++and decisions carry forward through verified history. A pending findings review
++is preserved exactly; begin-repair uses fresh preflight and the amended commands.
++An old clean review of an affected current-step invocation is explicitly retained
++in candidate/history as `historical-revalidation-required`, not silently treated
++as approval of the new plan. The task requires fresh execution and review before
++completion. Other pending blockers remain in force. Unrecorded in-flight product
++execution must first be recorded honestly; amendment does not retroactively
++change its receipt or reset a failed budget. Policy/contract/release-mandated
++selections and before-step prerequisites require their existing owning authority.
++
++Runtime checks identities, structural preservation, admission and atomicity;
++sufficiency and actual execution truth remain caller-reported. Do not route an
++ordinary user-authorized selection change to supersede just because there is no
++slot report or evidence challenge. This route does not relax replace-validation,
++which still permits equivalent invocation engineering only.
++
++
++Selection-dependent step descriptions may be rebound in the same candidate with
++optional `validation_replacements: [{step_id, old_validation, new_validation,
++check_ids, reason}]`. `check_ids` are the old IDs included in `replacements`, and
++each must have its exact invocation changed in that step. Explicitly owned labels
++retain all their owners, including the corresponding replacement check's
++`validation_items`; legacy unowned descriptions do not gain waiver ownership.
++Only descriptions of the changed selection may be revised, not an independent
++behavioral requirement. The Agent must justify that distinction and the user
++confirms the exact old/new text. Runtime verifies the structural ownership and
++keeps every frozen claim observation/boundary unchanged; semantic sufficiency is
++caller-reported, not inferred from label text or a green aggregate command.
+diff --git a/templates/vnext/bootstrap/FILE_SCHEMAS.md b/templates/vnext/bootstrap/FILE_SCHEMAS.md
+index f539823..b64793b 100644
+--- a/templates/vnext/bootstrap/FILE_SCHEMAS.md
++++ b/templates/vnext/bootstrap/FILE_SCHEMAS.md
+@@ -771,3 +771,24 @@ The previous delta is tied to adjacent acknowledged events, not repeated reads.
+ Unknown prior filesystem totals are null. A metric is not a receipt, validation
+ result, authority grant, size gate or an instruction to migrate/replan. No schema
+ fields are added to CURRENT_TASK, immutable roots, events or manifests for metrics.
++
++
++### Same-task evidence-selection amendment
++
++An explicit user decision may revise verification selection without replacing the
++task's goal, acceptance, authority or business boundary. The internal
++prepare/confirm/discard-evidence-plan-amendment commands are owned by prepare-task.
++Preparation preserves the live task; confirmation versions only admitted check
++selection and bound read-only current/future commands. It requires no challenge
++when no report exists. Findings, failures and budgets persist. Affected reports
++are historical, not new-plan evidence; a pending findings review remains active,
++while an affected clean review is retained explicitly as historical and requires
++fresh validation/review. Neither test deletion nor supersede follows from this
++operation. The existing equivalent-invocation and genuine counterevidence routes
++keep their original, narrower contracts.
++
++The immutable `evidence-plan-amendment-candidate/v1` binds task/document/source,
++Task Basis, old/new plan revisions, exact old/new check and command selection,
++workspace hashes, retained obligation digest and explicit review disposition.
++Its receipt is `evidence-plan-amendment-receipt/v1`; confirmation is a
++`task-state-transaction` with immutable `amend-evidence-plan` history.
+diff --git a/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md b/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md
+index 5086eb8..9f7ea77 100644
+--- a/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md
++++ b/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md
+@@ -440,3 +440,18 @@ Only a genuine task invalidation permits supersede. A later explicit replacement
+ request may prepare a fresh successor with complete old-obligation disposition;
+ it cannot erase unfinished facts or execute before ordinary draft confirmation.
+ Supersede never automatically creates or approves a replacement.
++
++
++### Same-task evidence-selection amendment
++
++An explicit user decision may revise verification selection without replacing the
++task's goal, acceptance, authority or business boundary. The internal
++prepare/confirm/discard-evidence-plan-amendment commands are owned by prepare-task.
++Preparation preserves the live task; confirmation versions only admitted check
++selection and bound read-only current/future commands. It requires no challenge
++when no report exists. Findings, failures and budgets persist. Affected reports
++are historical, not new-plan evidence; a pending findings review remains active,
++while an affected clean review is retained explicitly as historical and requires
++fresh validation/review. Neither test deletion nor supersede follows from this
++operation. The existing equivalent-invocation and genuine counterevidence routes
++keep their original, narrower contracts.
+diff --git a/templates/vnext/skills/execute-step.SKILL.md.tmpl b/templates/vnext/skills/execute-step.SKILL.md.tmpl
+index 0b8ffdf..c46b0b0 100644
+--- a/templates/vnext/skills/execute-step.SKILL.md.tmpl
++++ b/templates/vnext/skills/execute-step.SKILL.md.tmpl
+@@ -271,3 +271,24 @@ No server restart, DB reset, or cleanup is implied. When blocked by diagnosis,
+ findings, object drift, or budget, report the exact reason and permitted route.
+ Do not route a confirmed same-scope test typo to `supersede`; that transition
+ requires an invalidated goal, scope, or acceptance.
++
++
++## User-authorized evidence selection changes
++
++An equivalent invocation fix uses replace-validation. An explicitly requested
++selector/granularity change under unchanged observations, business boundary and
++authority instead uses prepare-task's internal evidence-plan amendment route;
++do not manufacture a report/challenge or recommend supersede for that gap.
++After confirmation, refresh task-context and preflight. A retained findings
++review continues through begin-repair in the same task and budget, with the new
++planned commands. Old execution/clean review is never copied as new-plan PASS.
++Finish an actually outstanding execution truthfully before a plan commit; do not
++retroactively relabel the command that already ran. Tests not selected for
++acceptance stay on disk; neither physical deletion nor broad regression is an
++implicit consequence of selector amendment.
++
++When a frozen step label still names the former whole-suite invocation, include
++its selection-only `validation_replacements` in the same candidate instead of
++claiming the old suite ran. Bind the old check IDs, preserve independent behavior
++requirements and label ownership, and show the exact before/after description to
++the user. Do not treat a selector rename as a waiver of a business obligation.
+diff --git a/templates/vnext/skills/prepare-task.SKILL.md.tmpl b/templates/vnext/skills/prepare-task.SKILL.md.tmpl
+index 70b7ea7..e382a09 100644
+--- a/templates/vnext/skills/prepare-task.SKILL.md.tmpl
++++ b/templates/vnext/skills/prepare-task.SKILL.md.tmpl
+@@ -499,3 +499,28 @@ Do not invent a final exemption: only an approved exemption of the entire target
+ may use a reason starting with `final-exemption:`. Repair verification is never
+ exempt. Read preimage size limits when planning large or binary changes; do not
+ substitute Git HEAD for existing user changes.
++
++
++## Same-task user-authorized verification selection
++
++For an explicit user decision to change evidence selectors while retaining Goal,
++Acceptance, business boundaries and authority, use the internal
++`prepare-evidence-plan-amendment` / `confirm-evidence-plan-amendment` /
++`discard-evidence-plan-amendment` commands documented in CONTEXT_API.md.
++Missing slot reports and existing findings are not prerequisites for inventing
++an evidence challenge. Preparation writes only an immutable candidate; when the
++user requested a candidate, stop for confirmation of that exact candidate.
++Retain the user's original decision rather than asking them to rename it a new
++business requirement. Do not supersede this task or prepare a successor merely
++because selectors need changing. Confirmed changes preserve current findings,
++recorded pending findings review, task identity, scope, history and budgets;
++new checks require fresh evidence. Explain any explicit historical retention of
++an affected old clean review and the required fresh verification. No product or
++test deletion is authorized. Existing invocation-only replace-validation remains
++narrow; policy/contract/prerequisite requirements are not waived.
++
++When a frozen step label still names the former whole-suite invocation, include
++its selection-only `validation_replacements` in the same candidate instead of
++claiming the old suite ran. Bind the old check IDs, preserve independent behavior
++requirements and label ownership, and show the exact before/after description to
++the user. Do not treat a selector rename as a waiver of a business obligation.
+diff --git a/templates/vnext/skills/review-change.SKILL.md.tmpl b/templates/vnext/skills/review-change.SKILL.md.tmpl
+index 70b1a21..7862bd7 100644
+--- a/templates/vnext/skills/review-change.SKILL.md.tmpl
++++ b/templates/vnext/skills/review-change.SKILL.md.tmpl
+@@ -163,3 +163,17 @@ business observation and test selection; do not turn a local adjustment into a
+ whole-task redesign. A low-risk private discovery adds no new checkpoint, but
+ shared/public/contract-impact expansions and existing repair gates still require
+ review. Do not create findings merely because a legitimate internal route was used.
++
++
++## Review of evidence-plan amendments
++
++A user-authorized evidence selector amendment can prepare and commit within the
++same task without an existing slot report or challenge. Distinguish review of a
++plan/selection from counterevidence to an actual report; the latter still needs
++its exact claim/slot/result. Do not instruct the user to invent a result, rename
++a selection change as a business requirement, or supersede solely to reach a
++planning route. Review sufficiency of the whole selected set, independent oracle
++and real boundary, not one-test-per-slot or a fixed count. Preserve findings and
++failures; historical clean review does not certify replacement checks. Do not
++count future not-yet-due missing slots as present-step failures, although an
++unsupported report of completed acceptance remains a real finding.
+diff --git a/test/vnext-runtime.test.ts b/test/vnext-runtime.test.ts
+index 13f6ed6..96affc7 100644
+--- a/test/vnext-runtime.test.ts
++++ b/test/vnext-runtime.test.ts
+@@ -1,3 +1,4 @@
++import { prepareEvidencePlanAmendment, confirmEvidencePlanAmendment, discardEvidencePlanAmendment } from '../runtime/vnext/src/kernel';
+ import { taskStorageMetrics } from '../runtime/vnext/src/task-storage-metrics';
+ import { readProjectDocuments } from '../runtime/vnext/src/project-documents';
+ import { reviewRead } from '../runtime/vnext/src/review-change-adapter';
+@@ -6386,6 +6387,216 @@ describe('vNext Phase 2 Runtime contract', () => {
+     }
+   });
+ 
++  function evidenceAmendmentDraft(twoSteps = false) {
++    const draft = singleStepSemanticDraft();
++    draft.mutation_scope!.allowed = ['README.md'];
++    draft.implementation_steps[0]!.mutation_scope = ['README.md'];
++    const check = draft.claim_evidence[0]!.slots[0]!.check!;
++    check.subject_paths = ['README.md'];
++    check.selection = { granularity: 'target', selector: null,
++      invocation: { kind: 'structured', argv: ['bun', 'test', 'test/vnext-runtime.test.ts'], selector_arg_index: null },
++      selection_reason: 'Originally selected the complete target for the same observation.',
++      breadth_basis: 'explicit-user', breadth_source_ref: draft.task_basis.original_request.source,
++      breadth_reason: 'The original user selected the complete target.' };
++    if (twoSteps) {
++      draft.implementation_steps.push({ ...structuredClone(draft.implementation_steps[0]!), id: 'step-2', description: 'Collect the final acceptance evidence' });
++      draft.claim_evidence[0]!.slots[0]!.due_step_id = 'step-2';
++    }
++    return draft;
++  }
++  function evidenceAmendmentRequest(root: string) {
++    const current = readCanonicalCurrentTask(root);
++    const claim = current.runtimeState.claim_evidence![0]!;
++    const slot = claim.slots[0]!;
++    const check = structuredClone(slot.check!);
++    check.check_id = `amended-${check.check_id}`;
++    check.entry = 'bun test test/vnext-runtime.test.ts --test-name-pattern exact-case';
++    check.selection = { granularity: 'focused', selector: 'exact-case',
++      invocation: { kind: 'structured', argv: ['bun', 'test', 'test/vnext-runtime.test.ts', '--test-name-pattern', 'exact-case'], selector_arg_index: 4 },
++      selection_reason: 'The exact case retains the independently specified observation without unrelated startup regressions.',
++      breadth_basis: null, breadth_source_ref: null, breadth_reason: null };
++    return { source_revision: current.sourceTuple.revision,
++      decision_source: 'conversation:user-selector-decision', decision_text: 'Keep the goal, acceptance and authority. Select the necessary cases; keep other tests as ordinary regression.',
++      reason: 'User-authorized minimum-sufficient selection; no report challenge or task replacement.',
++      replacements: [{ claim_id: claim.claim_id, slot_id: slot.slot_id, replaces_check_id: slot.check!.check_id, replacement_check: check }],
++      command_replacements: readDraftDefinitionFromBody(current.body).implementation_plan.split('\n').flatMap(line => {
++        const step = /^- ([^:]+):/.exec(line)?.[1];
++        return step ? [{ step_id: step, old_command: slot.check!.entry, new_commands: [check.entry] }] : [];
++      }) };
++  }
++  function evidenceAmendmentApproval(prepared: ReturnType<typeof prepareEvidencePlanAmendment>) {
++    return { candidate_receipt: prepared.candidate_receipt, decision_source: 'conversation:user-confirm-exact-amendment',
++      decision_text: 'Confirm this exact verification selection amendment, retaining every finding and actual result.' };
++  }
++  function submitAmendmentExecution(root: string, preflight: ReturnType<typeof preflightStep> | ReturnType<typeof beginRepair>, reports: any[] = []) {
++    return recordStepResult(root, { preflight_receipt: preflight.receipt, actual_changed_paths: [],
++      command_results: preflight.current_step.commands.map(item => ({ command: item.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] })),
++      validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed', evidence_refs: ['evidence-report.txt'] })),
++      acceptance_evidence: reports, outcome: 'implemented', note: 'Isolated Runtime transition fixture, not a business-test execution claim.' });
++  }
++
++  test('evidence-plan amendment keeps missing slots and pending repair findings executable in the same task', () => {
++    for (const format of ['compact-v3', 'inline']) {
++      const root = confirmedSemanticRoot(evidenceAmendmentDraft(true));
++      if (format === 'inline') useLegacyInlineCurrent(root);
++      fs.writeFileSync(path.join(root, 'README.md'), 'The retained implementation.');
++      expect(submitAmendmentExecution(root, preflightStep(root, { candidate_paths: ['README.md'] })).status).toBe('success');
++      const review = reviewContext(root, {});
++      // Fingerprint is owned by the public review adapter, not caller input.
++      expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'findings',
++        findings: [{ category: 'correctness', file: 'README.md', failure_condition: 'The admitted observation remains unsatisfied.',
++          required_behavior: 'Preserve the original behavior; selecting tests cannot resolve this finding.', root_cause_status: 'confirmed', evidence_refs: ['evidence-report.txt'] }],
++        unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
++      const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
++      expect(submitAmendmentExecution(root, beginRepair(root, { candidate_paths: ['README.md'] })).status).toBe('success');
++      const verification = reviewContext(root, {});
++      expect(recordReviewResult(root, { context_receipt: verification.receipt, verdict: 'findings', findings: [],
++        unresolved_fingerprints: [fingerprint], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
++      const before = readCanonicalCurrentTask(root);
++      const oldDefinition = readDraftDefinitionFromBody(before.body);
++      const basisBefore = readCanonicalTaskBasis(root, before);
++      expect(before.runtimeState.claim_evidence![0]!.slots[0]!.report).toBeNull();
++      expect(before.runtimeState.evidence_challenges ?? []).toEqual([]);
++      const request = { ...evidenceAmendmentRequest(root), validation_replacements: ['step-1', 'step-2'].map(step_id => ({
++        step_id, old_validation: 'bun test test/vnext-runtime.test.ts passes', new_validation: 'The explicitly selected necessary cases pass',
++        check_ids: ['K1'], reason: 'Replace only the invocation description; the frozen claim and observation are unchanged.' })) };
++      expect(prepareEvidencePlanAmendment(root, request, { dryRun: true }).status).toBe('success');
++      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
++      const prepared = prepareEvidencePlanAmendment(root, request);
++      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
++      expect(readCanonicalTaskBasis(root).content).toBe(basisBefore.content);
++      const approval = evidenceAmendmentApproval(prepared);
++      expect(confirmEvidencePlanAmendment(root, approval).status).toBe('success');
++      const after = readCanonicalCurrentTask(root);
++      expect(after.sourceTuple.document_id).toBe(before.sourceTuple.document_id);
++      expect(after.runtimeState.task_id).toBe(before.runtimeState.task_id);
++      expect(after.runtimeState.workflow_status).toBe('active');
++      expect(after.runtimeState.active_step_id).toBe('step-1');
++      expect(after.runtimeState.findings).toEqual(before.runtimeState.findings);
++      expect(after.runtimeState.pending_review_result).toEqual(before.runtimeState.pending_review_result);
++      expect(after.runtimeState.review_cycle).toEqual(before.runtimeState.review_cycle);
++      expect(after.runtimeState.execution_log).toEqual(before.runtimeState.execution_log);
++      expect(after.runtimeState.step_attempts!['step-1']!.attempts).toEqual(before.runtimeState.step_attempts!['step-1']!.attempts);
++      expect(after.runtimeState.claim_evidence![0]!.slots[0]!.report).toBeNull();
++      expect(after.runtimeState.claim_evidence![0]!.slots[0]!.check!.selection!.selector).toBe('exact-case');
++      const newDefinition = readDraftDefinitionFromBody(after.body);
++      expect({ ...newDefinition, implementation_steps: null }).toEqual({ ...oldDefinition, implementation_steps: null });
++      expect(fs.readFileSync(path.join(root, 'README.md'), 'utf8')).toBe('The retained implementation.');
++      expect(confirmEvidencePlanAmendment(root, approval).status).toBe('no-op');
++      expect(() => discardEvidencePlanAmendment(root, { candidate_receipt: prepared.candidate_receipt })).toThrow('EVIDENCE_AMENDMENT_ALREADY_COMMITTED');
++      const nextRepair = beginRepair(root, { candidate_paths: ['README.md'] });
++      expect(nextRepair.current_step.commands.some(item => item.command.includes('--test-name-pattern exact-case'))).toBe(true);
++      expect(nextRepair.current_step.validation).toEqual(['The explicitly selected necessary cases pass']);
++      expect(submitAmendmentExecution(root, nextRepair).status).toBe('success');
++      const clean = reviewContext(root, {});
++      expect(recordReviewResult(root, { context_receipt: clean.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
++      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Actual repaired execution was reviewed, not waived by the amendment.' }).status).toBe('success');
++      expect(readCanonicalCurrentTask(root).runtimeState.active_step_id).toBe('step-2');
++    }
++  }, 60000);
++
++  test('evidence-plan amendment rejects obligation drift and shared or write-capable command loss', () => {
++    const draft = evidenceAmendmentDraft();
++    const second = structuredClone(draft.claim_evidence[0]!.slots[0]!); second.slot_id = 'other'; second.check!.check_id = 'other-check';
++    draft.claim_evidence[0]!.slots.push(second);
++    const root = confirmedSemanticRoot(draft);
++    const request = evidenceAmendmentRequest(root);
++    const changed = structuredClone(request); changed.replacements[0]!.replacement_check.expected_observation = 'Weaken the original observation';
++    expect(() => prepareEvidencePlanAmendment(root, changed)).toThrow('EVIDENCE_AMENDMENT_OBLIGATION_CHANGED');
++    expect(() => prepareEvidencePlanAmendment(root, request)).toThrow('EVIDENCE_AMENDMENT_SHARED_COMMAND');
++    const both = structuredClone(request);
++    const other = structuredClone(both.replacements[0]!); other.slot_id = 'other'; other.replaces_check_id = 'other-check';
++    other.replacement_check.check_id = 'other-amended';
++    other.replacement_check.entry = other.replacement_check.entry.replace('exact-case', 'second-case');
++    other.replacement_check.selection!.selector = 'second-case';
++    (other.replacement_check.selection!.invocation as any).argv[4] = 'second-case';
++    both.replacements.push(other); both.command_replacements[0]!.new_commands.push(other.replacement_check.entry);
++    const candidate = prepareEvidencePlanAmendment(root, both);
++    expect(confirmEvidencePlanAmendment(root, evidenceAmendmentApproval(candidate)).status).toBe('success');
++    expect(preflightStep(root, { candidate_paths: [] }).current_step.commands).toHaveLength(2);
++    const writes = evidenceAmendmentDraft(); writes.implementation_steps[0]!.commands[0]!.expected_repo_writes = ['README.md'];
++    const writeRoot = confirmedSemanticRoot(writes);
++    expect(() => prepareEvidencePlanAmendment(writeRoot, evidenceAmendmentRequest(writeRoot))).toThrow('EVIDENCE_AMENDMENT_WRITES_FORBIDDEN');
++    const policy = evidenceAmendmentDraft(); policy.claim_evidence[0]!.slots[0]!.check!.selection!.breadth_basis = 'claim-risk-contract';
++    policy.claim_evidence[0]!.slots[0]!.check!.selection!.breadth_source_ref = 'A1';
++    const policyRoot = confirmedSemanticRoot(policy);
++    expect(() => prepareEvidencePlanAmendment(policyRoot, evidenceAmendmentRequest(policyRoot))).toThrow('EVIDENCE_AMENDMENT_POLICY_REQUIRED');
++  }, 60000);
++
++  test('evidence-plan amendment retains old clean review as history and demands fresh verification', () => {
++    const root = confirmedSemanticRoot(evidenceAmendmentDraft());
++    const preflight = preflightStep(root, { candidate_paths: [] });
++    expect(submitAmendmentExecution(root, preflight, [reportFixture(root)]).status).toBe('success');
++    const context = reviewContext(root, {});
++    expect(recordReviewResult(root, { context_receipt: context.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
++    const before = readCanonicalCurrentTask(root);
++    const prepared = prepareEvidencePlanAmendment(root, evidenceAmendmentRequest(root));
++    const saved = JSON.parse(fs.readFileSync(path.join(root, prepared.candidate_path), 'utf8'));
++    expect(saved.retained_review).toEqual(before.runtimeState.pending_review_result);
++    expect(saved.review_disposition).toBe('historical-revalidation-required');
++    expect(confirmEvidencePlanAmendment(root, evidenceAmendmentApproval(prepared)).status).toBe('success');
++    const after = readCanonicalCurrentTask(root);
++    expect(after.runtimeState.execution_log).toEqual(before.runtimeState.execution_log);
++    expect(after.runtimeState.claim_evidence![0]!.slots[0]!.report).toBeNull();
++    expect(() => completeReviewedStep(root, { step_id: 'step-1', note: 'Old review must not certify a new selection.' })).toThrow();
++    expect(submitAmendmentExecution(root, preflightStep(root, { candidate_paths: [] }), [reportFixture(root)]).status).toBe('success');
++    const fresh = reviewContext(root, {});
++    expect(recordReviewResult(root, { context_receipt: fresh.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
++    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The replacement check has fresh evidence and review.' }).status).toBe('success');
++  }, 60000);
++
++  test('evidence-plan amendment carries untouched waivers without manufacturing reports', () => {
++    const draft = evidenceAmendmentDraft();
++    const manual = structuredClone(draft.claim_evidence[0]!.slots[0]!);
++    manual.slot_id = 'manual'; manual.check!.check_id = 'manual-check'; manual.check!.method = 'human'; manual.check!.expected_result = 'accepted';
++    manual.check!.entry = 'Observe the visible result'; delete manual.check!.selection;
++    draft.claim_evidence[0]!.slots.push(manual);
++    const root = confirmedSemanticRoot(draft);
++    const before = readCanonicalCurrentTask(root);
++    expect(recordUserEvidenceDecision(root, 'waiver', { claim_id: 'A1', slot_id: 'manual', check_id: 'manual-check',
++      evidence_plan_revision: before.runtimeState.evidence_plan_revision,
++      subject_revision: captureReviewTarget(root, manual.check!.subject_paths).revision,
++      decision_source: 'conversation:manual-risk', decision_text: 'I accept the unverified manual observation risk, not tested PASS.' }).status).toBe('success');
++    const old = readCanonicalCurrentTask(root).runtimeState.claim_evidence![0]!.slots[1]!;
++    const candidate = prepareEvidencePlanAmendment(root, evidenceAmendmentRequest(root));
++    expect(confirmEvidencePlanAmendment(root, evidenceAmendmentApproval(candidate)).status).toBe('success');
++    const after = readCanonicalCurrentTask(root);
++    expect(after.runtimeState.claim_evidence![0]!.slots[1]!.user_decision).toEqual(old.user_decision);
++    expect(after.runtimeState.claim_evidence![0]!.slots[1]!.report).toBeNull();
++    expect(preflightStep(root, { candidate_paths: [] }).status).toBe('pass');
++  }, 60000);
++
++  test('evidence-plan amendment Node CLI recovers publication and rejects stale candidates without losing the task', () => {
++    const root = confirmedSemanticRoot(evidenceAmendmentDraft());
++    const cli = path.join(ROOT, 'runtime/vnext/dist/cli.js');
++    const prepared = runInstalledRuntimeCli(cli, root, 'prepare-evidence-plan-amendment', evidenceAmendmentRequest(root));
++    expect(prepared.status, prepared.stderr + prepared.stdout).toBe(0);
++    const approval = evidenceAmendmentApproval(prepared.json);
++    const record = TaskStore.prototype.recordCommit;
++    try {
++      TaskStore.prototype.recordCommit = function(input) {
++        if ((input.proposal as any)?.semantic_delta?.action === 'amend-evidence-plan') throw new Error('injected evidence amendment publication interruption');
++        return record.call(this, input);
++      };
++      expect(() => confirmEvidencePlanAmendment(root, approval)).toThrow('injected evidence amendment publication interruption');
++    } finally { TaskStore.prototype.recordCommit = record; }
++    expect(() => readCanonicalCurrentTask(root)).toThrow('RUNTIME_STORAGE_RECOVERY_REQUIRED');
++    const recovered = runInstalledRuntimeCli(cli, root, 'confirm-evidence-plan-amendment', approval);
++    expect(recovered.status, recovered.stderr + recovered.stdout).toBe(0);
++    expect(recovered.json.status).toBe('no-op');
++    const staleRoot = confirmedSemanticRoot(evidenceAmendmentDraft());
++    const stale = prepareEvidencePlanAmendment(staleRoot, evidenceAmendmentRequest(staleRoot));
++    preflightStep(staleRoot, { candidate_paths: [] });
++    expect(() => confirmEvidencePlanAmendment(staleRoot, evidenceAmendmentApproval(stale))).toThrow('EVIDENCE_AMENDMENT_SOURCE_STALE');
++    const discardRoot = confirmedSemanticRoot(evidenceAmendmentDraft());
++    const discarded = prepareEvidencePlanAmendment(discardRoot, evidenceAmendmentRequest(discardRoot));
++    const beforeDiscard = readCanonicalCurrentTask(discardRoot).raw;
++    const result = runInstalledRuntimeCli(cli, discardRoot, 'discard-evidence-plan-amendment', { candidate_receipt: discarded.candidate_receipt });
++    expect(result.status, result.stderr + result.stdout).toBe(0);
++    expect(readCanonicalCurrentTask(discardRoot).raw).toBe(beforeDiscard);
++    expect(() => confirmEvidencePlanAmendment(discardRoot, evidenceAmendmentApproval(discarded))).toThrow('EVIDENCE_AMENDMENT_CANDIDATE_MISSING');
++  }, 60000);
++
+   test('process-control review rejects validation selection changes through engineering replacement', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+     for (const scenario of ['target-to-focused', 'broad-to-target', 'broad-to-focused', 'selector-change', 'e2e-authority-change']) {
+       const draft = singleStepSemanticDraft();
