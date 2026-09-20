@@ -163,3 +163,17 @@ business observation and test selection; do not turn a local adjustment into a
 whole-task redesign. A low-risk private discovery adds no new checkpoint, but
 shared/public/contract-impact expansions and existing repair gates still require
 review. Do not create findings merely because a legitimate internal route was used.
+
+
+## Review of evidence-plan amendments
+
+A user-authorized evidence selector amendment can prepare and commit within the
+same task without an existing slot report or challenge. Distinguish review of a
+plan/selection from counterevidence to an actual report; the latter still needs
+its exact claim/slot/result. Do not instruct the user to invent a result, rename
+a selection change as a business requirement, or supersede solely to reach a
+planning route. Review sufficiency of the whole selected set, independent oracle
+and real boundary, not one-test-per-slot or a fixed count. Preserve findings and
+failures; historical clean review does not certify replacement checks. Do not
+count future not-yet-due missing slots as present-step failures, although an
+unsupported report of completed acceptance remains a real finding.

@@ -768,3 +768,92 @@ Source-template guards test guidance availability, not model comprehension. A
 curated reference answer or deterministic selection fixture is not a fresh Agent
 run; broader selection-effectiveness claims require retained independent runs or
 real target-project dogfood with the actual Skill/model/version and source context.
+
+
+## User-authorized evidence-plan amendment
+
+An explicit user decision to reselect sufficient evidence under unchanged Goal,
+Acceptance, business boundaries and mutation authority is not a counterexample
+and not a replacement task. Use the existing prepare-task Skill with the internal
+`prepare-evidence-plan-amendment` command. A missing report/result_id, pending
+findings, or a recorded repair result does not require a fabricated challenge,
+new business requirement, supersede, or successor.
+
+Preparation takes this closed JSON shape (all IDs and receipts are handled by the
+Agent/Runtime, never constructed by the user):
+
+```json
+{
+  "source_revision": "<exact current source SHA-256>",
+  "decision_source": "<original user message coordinate>",
+  "decision_text": "<verbatim user selection decision>",
+  "reason": "<why the replacement set is minimum-sufficient>",
+  "replacements": [{
+    "claim_id": "C1", "slot_id": "C1-rule", "replaces_check_id": "old-check",
+    "replacement_check": "<complete new execution EvidenceCheck with a fresh check_id>"
+  }],
+  "command_replacements": [{
+    "step_id": "S1", "old_command": "<exact old read-only planned command>",
+    "new_commands": ["<exact replacement check entry>"]
+  }]
+}
+```
+
+`replacement_check` above denotes a JSON object, not a literal string. It retains
+method, expected observation/result, subjects, business/required boundaries,
+allowed substitutes and validation-label ownership. Selection granularity,
+selector and literal invocation may change through normal evidence admission.
+Every removed shared invocation must retain all its claim consumers; a command
+may split into several bound invocations or merge into an already planned
+read-only invocation. Include the affected current and future step invocations
+explicitly, including a current-step invocation of a check due at a later step.
+Previous step history, independent validation obligations, Persistent Tests admission,
+product/test files and write-capable implementation commands are not rewritten.
+Do not impose one test function per slot or a fixed test-count target: the unit of
+sufficiency is the admitted observation and real boundary, not the number of PASS
+results. Excluded acceptance invocations remain available as ordinary regression;
+this command does not delete tests or authorize unplanned regression execution.
+
+The result supplies `candidate_path` and `candidate_receipt`; the live task and
+Task Basis are unchanged. Read the exact candidate (paged task-read supports
+repository-relative paths), explain the old/new selection and any review
+invalidation, then stop when the user requested candidate-only preparation.
+Confirm the exact candidate through `confirm-evidence-plan-amendment` with
+`{candidate_receipt, decision_source, decision_text}` retaining the confirmation
+message verbatim. `discard-evidence-plan-amendment` takes `{candidate_receipt}`
+and can discard only an uncommitted candidate. Replays are idempotent and genuine
+source/workspace/obligation drift is stale; storage-only aliases remain valid.
+
+Confirmation is one journaled task-history/Task Basis/CURRENT_TASK transaction.
+Task/document/step identities, requirements, authority, findings, execution
+history, review cycle and repair/retry budgets remain owned by the same task.
+Changed checks return to missing; old reports and user decisions remain in exact
+history, never become replacement-check PASS. Applicable independent evidence
+and decisions carry forward through verified history. A pending findings review
+is preserved exactly; begin-repair uses fresh preflight and the amended commands.
+An old clean review of an affected current-step invocation is explicitly retained
+in candidate/history as `historical-revalidation-required`, not silently treated
+as approval of the new plan. The task requires fresh execution and review before
+completion. Other pending blockers remain in force. Unrecorded in-flight product
+execution must first be recorded honestly; amendment does not retroactively
+change its receipt or reset a failed budget. Policy/contract/release-mandated
+selections and before-step prerequisites require their existing owning authority.
+
+Runtime checks identities, structural preservation, admission and atomicity;
+sufficiency and actual execution truth remain caller-reported. Do not route an
+ordinary user-authorized selection change to supersede just because there is no
+slot report or evidence challenge. This route does not relax replace-validation,
+which still permits equivalent invocation engineering only.
+
+
+Selection-dependent step descriptions may be rebound in the same candidate with
+optional `validation_replacements: [{step_id, old_validation, new_validation,
+check_ids, reason}]`. `check_ids` are the old IDs included in `replacements`, and
+each must have its exact invocation changed in that step. Explicitly owned labels
+retain all their owners, including the corresponding replacement check's
+`validation_items`; legacy unowned descriptions do not gain waiver ownership.
+Only descriptions of the changed selection may be revised, not an independent
+behavioral requirement. The Agent must justify that distinction and the user
+confirms the exact old/new text. Runtime verifies the structural ownership and
+keeps every frozen claim observation/boundary unchanged; semantic sufficiency is
+caller-reported, not inferred from label text or a green aggregate command.

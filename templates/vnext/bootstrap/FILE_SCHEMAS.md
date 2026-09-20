@@ -771,3 +771,24 @@ The previous delta is tied to adjacent acknowledged events, not repeated reads.
 Unknown prior filesystem totals are null. A metric is not a receipt, validation
 result, authority grant, size gate or an instruction to migrate/replan. No schema
 fields are added to CURRENT_TASK, immutable roots, events or manifests for metrics.
+
+
+### Same-task evidence-selection amendment
+
+An explicit user decision may revise verification selection without replacing the
+task's goal, acceptance, authority or business boundary. The internal
+prepare/confirm/discard-evidence-plan-amendment commands are owned by prepare-task.
+Preparation preserves the live task; confirmation versions only admitted check
+selection and bound read-only current/future commands. It requires no challenge
+when no report exists. Findings, failures and budgets persist. Affected reports
+are historical, not new-plan evidence; a pending findings review remains active,
+while an affected clean review is retained explicitly as historical and requires
+fresh validation/review. Neither test deletion nor supersede follows from this
+operation. The existing equivalent-invocation and genuine counterevidence routes
+keep their original, narrower contracts.
+
+The immutable `evidence-plan-amendment-candidate/v1` binds task/document/source,
+Task Basis, old/new plan revisions, exact old/new check and command selection,
+workspace hashes, retained obligation digest and explicit review disposition.
+Its receipt is `evidence-plan-amendment-receipt/v1`; confirmation is a
+`task-state-transaction` with immutable `amend-evidence-plan` history.

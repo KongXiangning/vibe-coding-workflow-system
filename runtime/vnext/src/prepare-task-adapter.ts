@@ -28,6 +28,9 @@ import {
   createPrepareTaskDraftProposal,
   createPrepareTaskReplanProposal,
   createPrepareTaskResumeReviewProposal,
+  prepareEvidencePlanAmendment,
+  confirmEvidencePlanAmendment,
+  discardEvidencePlanAmendment,
   prepareCorrectionReplan,
   confirmCorrectionReplan,
   discardCorrectionReplan,
@@ -75,6 +78,9 @@ export const PREPARE_TASK_ADAPTER_COMMANDS = [
   'confirm-draft',
   'clear-resume-review',
   'replan',
+  'prepare-evidence-plan-amendment',
+  'confirm-evidence-plan-amendment',
+  'discard-evidence-plan-amendment',
   'prepare-replan',
   'confirm-replan',
   'discard-replan',
@@ -1154,6 +1160,15 @@ export async function runPrepareTaskAdapterCli(argv: string[] = process.argv.sli
         break;
       case 'replan':
         result = replan(args.root, input, options);
+        break;
+      case 'prepare-evidence-plan-amendment':
+        result = prepareEvidencePlanAmendment(args.root, input, options);
+        break;
+      case 'confirm-evidence-plan-amendment':
+        result = confirmEvidencePlanAmendment(args.root, input, options);
+        break;
+      case 'discard-evidence-plan-amendment':
+        result = discardEvidencePlanAmendment(args.root, input, options);
         break;
       case 'prepare-replan':
         result = prepareCorrectionReplan(args.root, input, options);

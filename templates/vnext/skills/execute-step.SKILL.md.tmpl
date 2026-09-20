@@ -271,3 +271,24 @@ No server restart, DB reset, or cleanup is implied. When blocked by diagnosis,
 findings, object drift, or budget, report the exact reason and permitted route.
 Do not route a confirmed same-scope test typo to `supersede`; that transition
 requires an invalidated goal, scope, or acceptance.
+
+
+## User-authorized evidence selection changes
+
+An equivalent invocation fix uses replace-validation. An explicitly requested
+selector/granularity change under unchanged observations, business boundary and
+authority instead uses prepare-task's internal evidence-plan amendment route;
+do not manufacture a report/challenge or recommend supersede for that gap.
+After confirmation, refresh task-context and preflight. A retained findings
+review continues through begin-repair in the same task and budget, with the new
+planned commands. Old execution/clean review is never copied as new-plan PASS.
+Finish an actually outstanding execution truthfully before a plan commit; do not
+retroactively relabel the command that already ran. Tests not selected for
+acceptance stay on disk; neither physical deletion nor broad regression is an
+implicit consequence of selector amendment.
+
+When a frozen step label still names the former whole-suite invocation, include
+its selection-only `validation_replacements` in the same candidate instead of
+claiming the old suite ran. Bind the old check IDs, preserve independent behavior
+requirements and label ownership, and show the exact before/after description to
+the user. Do not treat a selector rename as a waiver of a business obligation.

@@ -440,3 +440,18 @@ Only a genuine task invalidation permits supersede. A later explicit replacement
 request may prepare a fresh successor with complete old-obligation disposition;
 it cannot erase unfinished facts or execute before ordinary draft confirmation.
 Supersede never automatically creates or approves a replacement.
+
+
+### Same-task evidence-selection amendment
+
+An explicit user decision may revise verification selection without replacing the
+task's goal, acceptance, authority or business boundary. The internal
+prepare/confirm/discard-evidence-plan-amendment commands are owned by prepare-task.
+Preparation preserves the live task; confirmation versions only admitted check
+selection and bound read-only current/future commands. It requires no challenge
+when no report exists. Findings, failures and budgets persist. Affected reports
+are historical, not new-plan evidence; a pending findings review remains active,
+while an affected clean review is retained explicitly as historical and requires
+fresh validation/review. Neither test deletion nor supersede follows from this
+operation. The existing equivalent-invocation and genuine counterevidence routes
+keep their original, narrower contracts.

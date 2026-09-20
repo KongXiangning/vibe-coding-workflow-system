@@ -7304,6 +7304,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
   const processControl = expectRecord2(proposal.process_control, "Runtime process_control");
   const processSemantics = {
+    evidence_plan_amendment: "prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation",
     user_evidence: "exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated",
     waiver: "user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass",
     successor: "explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required",
@@ -11472,7 +11473,7 @@ function validateEvidenceCarryForward(value, location2) {
   return {
     kind: v2 ? "evidence-carry-forward/v2" : "evidence-carry-forward/v1",
     ...v2 ? { receiving_source_revision: hash3("receiving_source_revision"), evidence_objects: objects, context_revision: hash3("context_revision") } : {},
-    ...item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ["confirm-replan", "replace-validation"], "history_operation") },
+    ...item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ["confirm-replan", "replace-validation", "amend-evidence-plan"], "history_operation") },
     ...item.user_decision_sha256 === undefined ? {} : { user_decision_sha256: hash3("user_decision_sha256") },
     old_source_revision: hash3("old_source_revision"),
     old_plan_revision: hash3("old_plan_revision"),
@@ -15061,6 +15062,534 @@ function replaceValidation(root2, rawInput, options = {}) {
       previous_revision: sourceRevision,
       resulting_revision: staged.sourceTuple.revision,
       state: resultState(next),
+      evidence_assurance: "caller-reported"
+    };
+  });
+}
+function normalizeEvidencePlanAmendment(raw) {
+  const input = expectRecord2(raw, "evidence-plan amendment");
+  expectExactKeys2(input, ["source_revision", "decision_source", "decision_text", "reason", "replacements", "command_replacements", ...input.validation_replacements === undefined ? [] : ["validation_replacements"]], "evidence-plan amendment");
+  if (!Array.isArray(input.replacements) || !input.replacements.length || input.replacements.length > MAX_CLAIM_EVIDENCE_RECORDS || !Array.isArray(input.command_replacements) || input.command_replacements.length > MAX_EXECUTION_RESULT_ITEMS) {
+    fail3("EVIDENCE_AMENDMENT_INVALID", "Supply a bounded nonempty check replacement set and bounded command replacements.");
+  }
+  const replacements = input.replacements.map((raw2, index) => {
+    const row = expectRecord2(raw2, `replacements[${index}]`);
+    expectExactKeys2(row, ["claim_id", "slot_id", "replaces_check_id", "replacement_check"], "check replacement");
+    return {
+      claim_id: expectString2(row.claim_id, "claim_id", CLAIM_ID_PATTERN),
+      slot_id: expectString2(row.slot_id, "slot_id", CLAIM_EVIDENCE_SLOT_ID_PATTERN),
+      replaces_check_id: expectString2(row.replaces_check_id, "replaces_check_id", CLAIM_ID_PATTERN),
+      replacement_check: validateEvidenceCheck(row.replacement_check, "replacement_check")
+    };
+  });
+  const commands = input.command_replacements.map((raw2) => {
+    const row = expectRecord2(raw2, "command replacement");
+    expectExactKeys2(row, ["step_id", "old_command", "new_commands"], "command replacement");
+    const oldCommand = expectText(row.old_command, "old_command", 4096);
+    const newCommands = expectStringArray2(row.new_commands, "new_commands", false, 32);
+    if (/[\r\n]/u.test(oldCommand) || newCommands.some((command) => /[\r\n]/u.test(command)) || new Set(newCommands).size !== newCommands.length || newCommands.length === 1 && newCommands[0] === oldCommand) {
+      fail3("EVIDENCE_AMENDMENT_INVALID", "Command replacements require a changed bounded set of literal single-line invocations.");
+    }
+    return { step_id: expectString2(row.step_id, "step_id", STEP_ID_PATTERN2), old_command: oldCommand, new_commands: newCommands };
+  });
+  if (new Set(replacements.map((row) => `${row.claim_id}\x00${row.slot_id}`)).size !== replacements.length || new Set(commands.map((row) => `${row.step_id}\x00${row.old_command}`)).size !== commands.length) {
+    fail3("EVIDENCE_AMENDMENT_INVALID", "Each slot and each step/command may be replaced only once.");
+  }
+  const validations = input.validation_replacements;
+  if (validations !== undefined && (!Array.isArray(validations) || validations.length > MAX_EXECUTION_RESULT_ITEMS))
+    fail3("EVIDENCE_AMENDMENT_INVALID", "Validation description changes must be bounded.");
+  const validationChanges = validations?.map((raw2) => {
+    const row = expectRecord2(raw2, "validation replacement");
+    expectExactKeys2(row, ["step_id", "old_validation", "new_validation", "check_ids", "reason"], "validation replacement");
+    const oldLabel = expectText(row.old_validation, "old_validation", 4096);
+    const newLabel = expectText(row.new_validation, "new_validation", 4096);
+    const ids = expectStringArray2(row.check_ids, "check_ids", false, MAX_CLAIM_EVIDENCE_RECORDS).map((id) => expectString2(id, "check_id", CLAIM_ID_PATTERN));
+    if (/[;\r\n]/u.test(oldLabel + newLabel) || oldLabel === newLabel || new Set(ids).size !== ids.length)
+      fail3("EVIDENCE_AMENDMENT_INVALID", "Selection descriptions need changed single-line labels and unique old check IDs.");
+    return { step_id: expectString2(row.step_id, "step_id", STEP_ID_PATTERN2), old_validation: oldLabel, new_validation: newLabel, check_ids: ids, reason: expectText(row.reason, "validation replacement reason") };
+  });
+  if (validationChanges && new Set(validationChanges.map((row) => `${row.step_id}\x00${row.old_validation}`)).size !== validationChanges.length)
+    fail3("EVIDENCE_AMENDMENT_INVALID", "Each validation label may be rebound only once.");
+  return {
+    ...validationChanges === undefined ? {} : { validation_replacements: validationChanges },
+    source_revision: expectString2(input.source_revision, "source_revision", SHA256_PATTERN2),
+    decision_source: expectText(input.decision_source, "decision_source", 1024),
+    decision_text: expectVerbatim(input.decision_text, "decision_text", 32768),
+    reason: expectText(input.reason, "reason"),
+    replacements,
+    command_replacements: commands
+  };
+}
+function evidenceAmendmentBasis(basis, source, text2) {
+  const prior = [basis.original_request, ...basis.user_decisions].filter((item) => item.source === source);
+  if (prior.some((item) => item.verbatim !== text2))
+    fail3("EVIDENCE_AMENDMENT_AUTHORITY_CONFLICT", "A retained user source cannot be reassigned different words.");
+  return {
+    original_request: basis.original_request,
+    user_decisions: prior.length ? [...basis.user_decisions] : [...basis.user_decisions, { source, verbatim: text2 }]
+  };
+}
+function evidenceAmendmentLocation(root2, current, hash3) {
+  expectString2(hash3, "candidate_digest", SHA256_PATTERN2);
+  const relativePath3 = path12.posix.join(path12.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${hash3}.evidence.json`);
+  return { relativePath: relativePath3, filePath: safeRepositoryFile(root2, relativePath3) };
+}
+function evidenceAmendmentReceipt(candidate) {
+  return {
+    kind: "evidence-plan-amendment-receipt/v1",
+    document_id: candidate.document_id,
+    task_id: candidate.task_id,
+    source_revision: candidate.source_revision,
+    basis_revision: candidate.basis_revision,
+    old_plan_revision: candidate.old_plan_revision,
+    new_plan_revision: candidate.new_plan_revision,
+    candidate_digest: digest3(candidate)
+  };
+}
+function normalizeEvidenceAmendmentReceipt(raw) {
+  const value = expectRecord2(raw, "candidate_receipt");
+  expectExactKeys2(value, ["kind", "document_id", "task_id", "source_revision", "basis_revision", "old_plan_revision", "new_plan_revision", "candidate_digest"], "candidate_receipt");
+  if (value.kind !== "evidence-plan-amendment-receipt/v1")
+    fail3("EVIDENCE_AMENDMENT_RECEIPT_INVALID", "An exact evidence-plan amendment receipt is required.");
+  for (const key of ["source_revision", "basis_revision", "old_plan_revision", "new_plan_revision", "candidate_digest"])
+    expectString2(value[key], key, SHA256_PATTERN2);
+  expectString2(value.document_id, "document_id", DOCUMENT_ID_PATTERN);
+  expectString2(value.task_id, "task_id");
+  return value;
+}
+function readEvidenceAmendment(root2, current, receipt) {
+  if (receipt.document_id !== current.sourceTuple.document_id || receipt.task_id !== current.runtimeState.task_id)
+    fail3("EVIDENCE_AMENDMENT_IDENTITY_CONFLICT", "The candidate belongs to another task.");
+  const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
+  if (!fs11.existsSync(location2.filePath) || fs11.existsSync(`${location2.filePath}.discarded`))
+    fail3("EVIDENCE_AMENDMENT_CANDIDATE_MISSING", "The candidate is absent or discarded.");
+  const candidate = JSON.parse(fs11.readFileSync(location2.filePath, "utf8"));
+  if (candidate.kind !== "evidence-plan-amendment-candidate/v1" || digest3(candidate) !== receipt.candidate_digest || digest3(evidenceAmendmentReceipt(candidate)) !== digest3(receipt))
+    fail3("EVIDENCE_AMENDMENT_CANDIDATE_INVALID", "The candidate bytes or receipt coordinates changed.");
+  return candidate;
+}
+function buildEvidencePlanAmendment(root2, current, input) {
+  assertBusinessEvidenceVersion(current);
+  assertV2AuthorityDomainRevisionFreshForTransition(root2, current, "Evidence-plan amendment");
+  const state = current.runtimeState;
+  if (state.workflow_status !== "active" || state.lifecycle_state !== "active" || state.resume_requires_review)
+    fail3("EVIDENCE_AMENDMENT_STATE_INVALID", "A confirmed active task is required; an evidence amendment cannot clear lifecycle/resume gates.");
+  if (!taskSourceRevisionMatches(root2, current, input.source_revision))
+    fail3("EVIDENCE_AMENDMENT_SOURCE_STALE", "The decision must bind the current task or its exact storage-only alias.");
+  const basis = readCanonicalTaskBasis(root2, current);
+  const nextBasis = evidenceAmendmentBasis(basis.basis, input.decision_source, input.decision_text);
+  const definition = readDraftDefinitionFromBody(current.body);
+  const steps = parseImplementationSteps(definition.implementation_steps);
+  const currentIndex = steps.findIndex((step) => step.id === state.active_step_id);
+  const oldClaims = state.claim_evidence ?? [];
+  const claims = copyClaimEvidence(oldClaims);
+  const oldChecks = new Set(oldClaims.flatMap((claim) => claim.slots.map((slot) => slot.check?.check_id)));
+  const selected = new Set(input.replacements.map((row) => `${row.claim_id}\x00${row.slot_id}`));
+  for (const row of input.replacements) {
+    const claim = claims.find((item) => item.claim_id === row.claim_id);
+    const slot = claim?.slots.find((item) => item.slot_id === row.slot_id);
+    const old = slot?.check;
+    if (!slot || !old || old.check_id !== row.replaces_check_id || slot.applicability !== "current" || slot.prerequisite_receipt || steps.findIndex((step) => step.id === slot.due_step_id) < currentIndex)
+      fail3("EVIDENCE_AMENDMENT_TARGET_INVALID", "Replace an existing current/future obligation, not a prerequisite or an earlier completed step.");
+    if ((state.evidence_challenges ?? []).some((c) => c.claim_id === row.claim_id && c.slot_id === row.slot_id && c.status !== "resolved"))
+      fail3("EVIDENCE_CHALLENGE_UNRESOLVED", "This exact challenged result retains its correction owner; unrelated findings do not require a challenge.");
+    const check = row.replacement_check;
+    if (oldChecks.has(check.check_id) || old.method !== "execution" || check.method !== "execution")
+      fail3("EVIDENCE_AMENDMENT_CHECK_INVALID", "Execution selection changes require a fresh check identity and preserve method.");
+    oldChecks.add(check.check_id);
+    const obligation = (value) => ({
+      method: value.method,
+      boundary: value.boundary,
+      expected_observation: value.expected_observation,
+      expected_result: value.expected_result,
+      subject_paths: value.subject_paths,
+      required_boundaries: value.required_boundaries,
+      allowed_substitutes: value.allowed_substitutes,
+      validation_items: value.validation_items
+    });
+    const oldWithReboundLabels = { ...old, ...old.validation_items === undefined ? {} : { validation_items: old.validation_items.map((label) => (input.validation_replacements ?? []).find((change) => change.step_id === slot.due_step_id && change.old_validation === label && change.check_ids.includes(old.check_id))?.new_validation ?? label) } };
+    if (digest3(obligation(oldWithReboundLabels)) !== digest3(obligation(check)))
+      fail3("EVIDENCE_AMENDMENT_OBLIGATION_CHANGED", "Keep observation, business boundary, subject set, expected result and validation ownership unchanged.");
+    if (["project-policy", "release-gate", "claim-risk-contract"].includes(old.selection?.breadth_basis ?? ""))
+      fail3("EVIDENCE_AMENDMENT_POLICY_REQUIRED", "A policy/contract/release-mandated selection needs its owning authority, not a task-user selection amendment.");
+    if (old.boundary === "e2e" && (old.selection?.breadth_basis !== check.selection?.breadth_basis || old.selection?.breadth_source_ref !== check.selection?.breadth_source_ref))
+      fail3("EVIDENCE_AMENDMENT_POLICY_REQUIRED", "Retain the independent E2E breadth authorization.");
+    slot.check = check;
+    slot.report = null;
+    slot.evidence_refs = [];
+    slot.disposition = "missing";
+    delete slot.user_decision;
+  }
+  for (const row of input.command_replacements) {
+    if (steps.findIndex((step) => step.id === row.step_id) < currentIndex)
+      fail3("EVIDENCE_AMENDMENT_STEP_INVALID", "Only the active and future steps may change verification selection.");
+    const bound = row.new_commands.every((command) => command === row.old_command || input.replacements.some((change) => {
+      const old = oldClaims.find((claim) => claim.claim_id === change.claim_id)?.slots.find((slot) => slot.slot_id === change.slot_id)?.check;
+      return old?.entry === row.old_command && change.replacement_check.entry === command;
+    }));
+    if (!bound)
+      fail3("EVIDENCE_AMENDMENT_COMMAND_UNBOUND", "Every replacement invocation must implement a selected old/new check pair.");
+    const block = implementationStepBlock(definition, row.step_id);
+    if (!block)
+      fail3("EVIDENCE_AMENDMENT_STEP_INVALID", "The selected step does not exist.");
+    const lines = block.split(`
+`);
+    const hits = lines.flatMap((line, index) => line.trim() === `- planned_command: ${row.old_command}` ? [index] : []);
+    if (hits.length !== 1 || lines[hits[0] + 1]?.trim() !== "- expected_repo_writes: none")
+      fail3("EVIDENCE_AMENDMENT_WRITES_FORBIDDEN", "Replace only an exact read-only verification command, never an implementation command.");
+    if (!row.new_commands.includes(row.old_command) && oldClaims.some((claim) => claim.slots.some((slot) => slot.due_step_id === row.step_id && slot.check?.entry === row.old_command && !selected.has(`${claim.claim_id}\x00${slot.slot_id}`))))
+      fail3("EVIDENCE_AMENDMENT_SHARED_COMMAND", "Retain every obligation of a shared invocation; include every affected consumer.");
+    const start = hits[0];
+    let end = start + 1;
+    while (end < lines.length && /^\s{4,}- /.test(lines[end]))
+      end++;
+    const retained = [...lines.slice(0, start), ...lines.slice(end)];
+    const additions = [];
+    for (const command of row.new_commands) {
+      const existing = retained.findIndex((line) => line.trim() === `- planned_command: ${command}`);
+      if (existing >= 0) {
+        if (retained[existing + 1]?.trim() !== "- expected_repo_writes: none")
+          fail3("EVIDENCE_AMENDMENT_WRITES_FORBIDDEN", "An existing invocation can be reused only with its exact read-only footprint.");
+        continue;
+      }
+      additions.push(`  - planned_command: ${command}`, "    - expected_repo_writes: none", "    - transformation_kind: localized");
+    }
+    lines.splice(start, end - start, ...additions);
+    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
+`));
+  }
+  for (const row of input.validation_replacements ?? []) {
+    const oldStep = steps.find((step) => step.id === row.step_id);
+    if (!oldStep || steps.indexOf(oldStep) < currentIndex)
+      fail3("EVIDENCE_AMENDMENT_STEP_INVALID", "Only current/future selection descriptions may change.");
+    for (const checkId of row.check_ids) {
+      const replacement = input.replacements.find((change) => change.replaces_check_id === checkId);
+      const oldSlot = oldClaims.flatMap((claim) => claim.slots).find((slot) => slot.check?.check_id === checkId);
+      const command = input.command_replacements.find((change) => change.step_id === row.step_id && change.old_command === oldSlot?.check?.entry);
+      if (!replacement || !oldSlot?.check || !command || !command.new_commands.includes(replacement.replacement_check.entry) || oldSlot.check.validation_items !== undefined && (!oldSlot.check.validation_items.includes(row.old_validation) || oldSlot.due_step_id !== row.step_id))
+        fail3("EVIDENCE_AMENDMENT_VALIDATION_UNBOUND", "A changed description must name the selected check and its exact step invocation; an explicitly owned label cannot be reassigned.");
+    }
+    const owners = oldClaims.flatMap((claim) => claim.slots).filter((slot) => slot.due_step_id === row.step_id && slot.check?.validation_items?.includes(row.old_validation));
+    if (owners.some((slot) => !row.check_ids.includes(slot.check.check_id)))
+      fail3("EVIDENCE_AMENDMENT_VALIDATION_UNBOUND", "A shared validation description must retain every independently bound owner.");
+    const block = implementationStepBlock(definition, row.step_id);
+    const lines = block.split(`
+`);
+    const labelIndex = lines.findIndex((line) => /^\s*- required_evidence:/.test(line));
+    if (labelIndex < 0)
+      fail3("EVIDENCE_AMENDMENT_VALIDATION_UNBOUND", "The selected validation labels are absent.");
+    const labels = lines[labelIndex].replace(/^\s*- required_evidence:\s*/u, "").split(";").map((label) => label.trim()).filter(Boolean);
+    if (labels.filter((label) => label === row.old_validation).length !== 1 || labels.includes(row.new_validation))
+      fail3("EVIDENCE_AMENDMENT_VALIDATION_UNBOUND", "Replace one exact existing label without merging another obligation.");
+    lines[labelIndex] = "  - required_evidence: " + labels.map((label) => label === row.old_validation ? row.new_validation : label).join("; ");
+    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
+`));
+  }
+  const revalidate = input.command_replacements.some((row) => row.step_id === state.active_step_id) || input.replacements.some((row) => oldClaims.find((c) => c.claim_id === row.claim_id)?.slots.find((s) => s.slot_id === row.slot_id)?.due_step_id === state.active_step_id);
+  const historicalReview = revalidate && state.pending_review_result?.verdict === "clean";
+  if (historicalReview || revalidate && !state.pending_review_result && state.active_step_status !== "ready") {
+    const block = implementationStepBlock(definition, state.active_step_id);
+    definition.implementation_steps = definition.implementation_steps.replace(block, block.replace(/^\s*- review_checkpoint:.*$/mu, "  - review_checkpoint: required: fresh verification after user-authorized evidence selection change"));
+  }
+  assertV2DraftDefinitionAuthority(root2, definition);
+  assertPreparedTestStrategy(root2, definition, nextBasis);
+  const newPlan = assertEvidencePlan(definition, claims, false, { root: root2, taskBasis: nextBasis, previous: oldClaims });
+  if (newPlan === state.evidence_plan_revision)
+    fail3("EVIDENCE_AMENDMENT_NO_CHANGE", "The candidate must change the verification plan.");
+  const subjects = [...new Set([
+    ...oldClaims.flatMap((c) => c.slots.flatMap((s) => s.check?.subject_paths ?? [])),
+    ...state.review_coverage?.target.entries.map((entry) => entry.path) ?? []
+  ])];
+  return {
+    kind: "evidence-plan-amendment-candidate/v1",
+    task_id: state.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: input.source_revision,
+    basis_revision: basis.revision,
+    old_plan_revision: state.evidence_plan_revision,
+    new_plan_revision: newPlan,
+    input,
+    definition,
+    claim_evidence: claims,
+    workspace_target: captureReviewTarget(root2, subjects),
+    retained_obligations_digest: digest3(correctionObligations(current)),
+    retained_review: state.pending_review_result ?? null,
+    review_disposition: historicalReview ? "historical-revalidation-required" : "preserve",
+    revalidate_current_step: revalidate
+  };
+}
+function prepareEvidencePlanAmendment(root2, raw, options = {}) {
+  return withGovernanceWriteLock(root2, () => {
+    if (!options.dryRun)
+      recoverPendingTaskStoreCommit(root2);
+    const current = readCanonicalCurrentTask(root2);
+    const candidate = buildEvidencePlanAmendment(root2, current, normalizeEvidencePlanAmendment(raw));
+    const receipt = evidenceAmendmentReceipt(candidate);
+    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
+    const content = JSON.stringify(candidate, null, 2) + `
+`;
+    const exists = fs11.existsSync(location2.filePath);
+    if (fs11.existsSync(`${location2.filePath}.discarded`))
+      fail3("EVIDENCE_AMENDMENT_DISCARDED", "This candidate was explicitly discarded.");
+    if (exists && fs11.readFileSync(location2.filePath, "utf8") !== content)
+      fail3("EVIDENCE_AMENDMENT_CANDIDATE_INVALID", "Immutable candidate bytes conflict.");
+    if (!options.dryRun && !exists) {
+      fs11.mkdirSync(path12.dirname(location2.filePath), { recursive: true });
+      executeWrites([{ path: location2.filePath, content }], false, "Prepare evidence-plan amendment candidate only");
+    }
+    return {
+      status: exists ? "no-op" : "success",
+      operation_kind: "task-state-transaction",
+      idempotency_key: `prepare-evidence-${receipt.candidate_digest}`,
+      target_path: location2.relativePath,
+      dry_run: options.dryRun === true,
+      committed: false,
+      planned_writes: [location2.relativePath],
+      governed_mutation_count: options.dryRun || exists ? 0 : 1,
+      read_back_verified: !options.dryRun && fs11.readFileSync(location2.filePath, "utf8") === content,
+      evidence_assurance: "caller-reported",
+      message: "Candidate prepared; the live task and its review/findings are unchanged. Confirm this exact candidate before applying it.",
+      candidate_receipt: receipt,
+      candidate_path: location2.relativePath
+    };
+  });
+}
+function confirmEvidencePlanAmendment(root2, raw, options = {}) {
+  return withGovernanceWriteLock(root2, () => {
+    const input = expectRecord2(raw, "confirm-evidence-plan-amendment");
+    expectExactKeys2(input, ["candidate_receipt", "decision_source", "decision_text"], "confirm-evidence-plan-amendment");
+    const receipt = normalizeEvidenceAmendmentReceipt(input.candidate_receipt);
+    const approval = { decision_source: expectText(input.decision_source, "decision_source", 1024), decision_text: expectVerbatim(input.decision_text, "decision_text", 32768) };
+    if (!options.dryRun)
+      recoverPendingTaskStoreCommit(root2);
+    const current = readCanonicalCurrentTask(root2);
+    const saved = readEvidenceAmendment(root2, current, receipt);
+    const key = `evidence-amend-${receipt.candidate_digest}-${digest3(approval).slice(0, 24)}`;
+    const store = TaskStore.forCurrent(root2, current);
+    const prior = current.runtimeState.applied_proposals.find((item) => item.idempotency_key === key) ?? store.lookupIdempotency(key);
+    if (prior) {
+      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, prior.source_revision, "amend-evidence-plan");
+      return {
+        status: "no-op",
+        operation_kind: "task-state-transaction",
+        idempotency_key: key,
+        target_path: current.relativePath,
+        dry_run: !!options.dryRun,
+        committed: false,
+        message: "This exact evidence-plan amendment was already committed.",
+        planned_writes: [],
+        governed_mutation_count: 0,
+        read_back_verified: true,
+        evidence_assurance: "caller-reported",
+        state: resultState(current.runtimeState)
+      };
+    }
+    const rebuilt = buildEvidencePlanAmendment(root2, current, saved.input);
+    if (digest3(rebuilt) !== receipt.candidate_digest)
+      fail3("EVIDENCE_AMENDMENT_CANDIDATE_STALE", "The task, obligations, user source, workspace or review changed after preparation.");
+    const state = current.runtimeState;
+    const preflight = state.execution_preflight;
+    const ledger = state.step_attempts?.[state.active_step_id];
+    if (preflight && !executionResultRecordedForPreflight(current, preflight, preflight.mode === "default" ? ledger?.attempts.at(-1)?.attempt_id : undefined))
+      fail3("EXECUTE_ATTEMPT_OUTSTANDING", "Record the actual in-flight execution before committing a changed verification plan. Pending recorded findings are allowed.");
+    if (!preflight && ledger?.attempts.at(-1)?.status === "preflighted")
+      fail3("EXECUTE_ATTEMPT_OUTSTANDING", "Record the actual preflighted attempt before changing its plan.");
+    const basis = readCanonicalTaskBasis(root2, current);
+    const nextBasis = evidenceAmendmentBasis(evidenceAmendmentBasis(basis.basis, saved.input.decision_source, saved.input.decision_text), approval.decision_source, approval.decision_text);
+    const basisArtifact = materializeTaskBasis(root2, current, {
+      task_id: state.task_id,
+      task_slug: state.task_slug,
+      task_title: extractTaskIdentityFromCurrentTask(current.body).title ?? fail3("RUNTIME_IDENTITY_INVALID", "Task title is missing."),
+      document_id: current.sourceTuple.document_id
+    }, nextBasis);
+    const claims = copyClaimEvidence(saved.claim_evidence);
+    const affected = new Set(saved.input.replacements.map((row) => `${row.claim_id}\x00${row.slot_id}`));
+    const carry = [];
+    for (const claim of claims)
+      for (const slot of claim.slots) {
+        if (affected.has(`${claim.claim_id}\x00${slot.slot_id}`) || !slot.report && !slot.user_decision || !slot.check)
+          continue;
+        const before = state.claim_evidence.find((c) => c.claim_id === claim.claim_id).slots.find((s) => s.slot_id === slot.slot_id);
+        if (before.user_decision) {
+          try {
+            carry.push(carryUserEvidenceDecision(root2, current, claim.claim_id, before, saved.new_plan_revision, "amend-evidence-plan"));
+          } catch {}
+        } else {
+          try {
+            assertEvidenceReportApplicable(root2, current, before);
+          } catch {
+            continue;
+          }
+          const origin = state.evidence_carry_forward?.find((p) => p.claim_id === claim.claim_id && p.slot_id === slot.slot_id && p.new_plan_revision === state.evidence_plan_revision && p.result_id === slot.report.result_id);
+          carry.push({
+            kind: "evidence-carry-forward/v2",
+            old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
+            history_operation: origin ? origin.history_operation ?? "confirm-replan" : "amend-evidence-plan",
+            old_plan_revision: slot.report.evidence_plan_revision,
+            new_plan_revision: saved.new_plan_revision,
+            receiving_source_revision: current.sourceTuple.revision,
+            context_revision: recoveryEvidenceContextRevision(root2),
+            evidence_objects: describeEvidenceObjects(root2, slot.evidence_refs),
+            claim_id: claim.claim_id,
+            slot_id: slot.slot_id,
+            check_id: slot.check.check_id,
+            result_id: slot.report.result_id,
+            report_sha256: digest3(slot.report),
+            subject_revision: slot.report.subject_revision
+          });
+        }
+      }
+    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
+    const proposal = {
+      schema_version: 1,
+      kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+      operation_kind: "task-state-transaction",
+      caller: "prepare-task",
+      mode: "replan",
+      source_tuple: current.sourceTuple,
+      semantic_delta: { kind: "task-state", action: "amend-evidence-plan", candidate: saved, candidate_receipt: receipt, approval },
+      authority_evidence: [{ kind: "user-confirmation", source: approval.decision_source, subject: receipt.candidate_digest }],
+      evidence_refs: [location2.relativePath],
+      idempotency_key: key,
+      requested_write_targets: [current.relativePath, basis.path]
+    };
+    const attempts = structuredClone(state.step_attempts ?? {});
+    for (const item of Object.values(attempts))
+      item.evidence_plan_revision = saved.new_plan_revision;
+    const revalidate = saved.revalidate_current_step && (!state.pending_review_result || saved.review_disposition === "historical-revalidation-required");
+    if (revalidate && ledger && ledger.attempts.at(-1)?.status !== "ready") {
+      if (ledger.attempts.length >= ledger.max_attempts)
+        fail3("RETRY_BUDGET_EXHAUSTED", "Evidence selection amendments retain the existing attempt budget.");
+      attempts[state.active_step_id].attempts.push({
+        attempt_id: `attempt-${digest3(key).slice(0, 40)}`,
+        idempotency_key: key,
+        request_digest: digest3(saved.input),
+        status: "ready",
+        blocker: null,
+        evidence_refs: [location2.relativePath]
+      });
+    }
+    const next = {
+      ...state,
+      claim_evidence: claims,
+      evidence_plan_revision: saved.new_plan_revision,
+      evidence_carry_forward: carry,
+      step_attempts: attempts,
+      applied_proposals: appendAppliedProposal(state, proposal, current.sourceTuple.revision),
+      ...revalidate ? { active_step_status: "ready" } : {},
+      ...saved.review_disposition === "historical-revalidation-required" ? { pending_review_result: null } : {}
+    };
+    if (saved.revalidate_current_step)
+      delete next.execution_preflight;
+    const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, next, { replacementDefinition: saved.definition, taskBasisReference: { path: basis.path, revision: basisArtifact.revision } });
+    const historyInput = {
+      currentPath: current.filePath,
+      previousContent: current.raw,
+      nextContent: prepared.content,
+      documentId: current.sourceTuple.document_id,
+      taskId: state.task_id,
+      basisPath: basis.filePath,
+      basisContent: basis.content,
+      nextBasisContent: basisArtifact.content,
+      operation: "amend-evidence-plan",
+      evidencePlanRevision: state.evidence_plan_revision,
+      referencedEvidence: [location2.relativePath]
+    };
+    const history = taskHistoryLocation(historyInput);
+    const writes = [path12.posix.join(path12.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
+    if (options.dryRun)
+      return {
+        status: "success",
+        operation_kind: "task-state-transaction",
+        idempotency_key: key,
+        target_path: current.relativePath,
+        dry_run: true,
+        committed: false,
+        message: "Evidence-plan amendment validated; no live state changed.",
+        planned_writes: writes,
+        governed_mutation_count: 0,
+        read_back_verified: false,
+        evidence_assurance: "caller-reported"
+      };
+    for (const proof of carry)
+      preserveEvidenceObjects(root2, current.filePath, proof.evidence_objects ?? []);
+    const staged = stageTaskEvolutionStoreCommit(root2, current, prepared.content, next, proposal, [{ path: history.path, content: history.content }, { path: basisArtifact.filePath, content: basisArtifact.content }, { path: current.filePath, content: prepared.content }], prepared);
+    try {
+      commitTaskEvolutionWithHistory(historyInput, (raw2) => {
+        const parsed = parseCanonicalCurrentTaskContent(raw2, current.filePath, current.relativePath);
+        if (parsed.runtimeState.evidence_plan_revision !== saved.new_plan_revision || digest3(parsed.runtimeState.findings) !== digest3(state.findings) || readCanonicalTaskBasis(root2, parsed).revision !== basisArtifact.revision)
+          fail3("EVIDENCE_AMENDMENT_READ_BACK_FAILED", "Evidence amendment read-back changed protected state.");
+      });
+    } catch (error) {
+      if (fs11.readFileSync(current.filePath, "utf8") === current.raw)
+        clearPendingTaskStoreAfterRollback(root2, current);
+      throw error;
+    }
+    completeTaskEvolutionStoreCommit(root2, current, staged, proposal, { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: key });
+    return {
+      status: "success",
+      operation_kind: "task-state-transaction",
+      idempotency_key: key,
+      target_path: current.relativePath,
+      dry_run: false,
+      committed: true,
+      message: "Same-task evidence selection amended; goals, authority, findings, failures and budgets retained. Old results are not new-plan PASS.",
+      planned_writes: writes,
+      governed_mutation_count: 3,
+      read_back_verified: true,
+      previous_revision: current.sourceTuple.revision,
+      resulting_revision: staged.sourceTuple.revision,
+      state: resultState(next),
+      evidence_assurance: "caller-reported"
+    };
+  });
+}
+function discardEvidencePlanAmendment(root2, raw, options = {}) {
+  return withGovernanceWriteLock(root2, () => {
+    const input = expectRecord2(raw, "discard-evidence-plan-amendment");
+    expectExactKeys2(input, ["candidate_receipt"], "discard-evidence-plan-amendment");
+    const receipt = normalizeEvidenceAmendmentReceipt(input.candidate_receipt);
+    if (!options.dryRun)
+      recoverPendingTaskStoreCommit(root2);
+    const current = readCanonicalCurrentTask(root2);
+    if (receipt.document_id !== current.sourceTuple.document_id || receipt.task_id !== current.runtimeState.task_id)
+      fail3("EVIDENCE_AMENDMENT_IDENTITY_CONFLICT", "The candidate belongs to another task.");
+    const prefix = `evidence-amend-${receipt.candidate_digest}-`;
+    const store = TaskStore.forCurrent(root2, current);
+    if ([...current.runtimeState.applied_proposals, ...store.readAppliedProposals()].some((item) => isRecord4(item) && typeof item.idempotency_key === "string" && item.idempotency_key.startsWith(prefix)))
+      fail3("EVIDENCE_AMENDMENT_ALREADY_COMMITTED", "Discard cannot undo a committed amendment.");
+    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
+    const marker = `${location2.filePath}.discarded`;
+    if (fs11.existsSync(marker))
+      return {
+        status: "no-op",
+        operation_kind: "task-state-transaction",
+        idempotency_key: prefix,
+        target_path: `${location2.relativePath}.discarded`,
+        dry_run: !!options.dryRun,
+        committed: false,
+        message: "This candidate is already discarded.",
+        planned_writes: [],
+        governed_mutation_count: 0,
+        read_back_verified: true,
+        evidence_assurance: "caller-reported"
+      };
+    readEvidenceAmendment(root2, current, receipt);
+    const content = JSON.stringify({ kind: "evidence-plan-amendment-discard/v1", candidate_digest: receipt.candidate_digest }) + `
+`;
+    if (!options.dryRun)
+      executeWrites([{ path: marker, content }], false, "Discard uncommitted evidence-plan amendment");
+    return {
+      status: "success",
+      operation_kind: "task-state-transaction",
+      idempotency_key: prefix,
+      target_path: `${location2.relativePath}.discarded`,
+      dry_run: !!options.dryRun,
+      committed: false,
+      message: "Candidate discarded; the active task is unchanged.",
+      planned_writes: [`${location2.relativePath}.discarded`],
+      governed_mutation_count: options.dryRun ? 0 : 1,
+      read_back_verified: !options.dryRun,
       evidence_assurance: "caller-reported"
     };
   });
@@ -21001,9 +21530,13 @@ function assertOrdinaryPreflight(current, root2) {
   }
   for (const carry of current.runtimeState.evidence_carry_forward ?? []) {
     const slot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === carry.claim_id)?.slots.find((item) => item.slot_id === carry.slot_id);
-    if (!slot?.report)
-      fail3("EVIDENCE_CARRY_FORWARD_STALE", "A carried slot no longer has its old report.");
-    assertEvidenceReportApplicable(root2, current, slot);
+    if (slot?.user_decision)
+      assertUserEvidenceApplicable(root2, current, slot);
+    else {
+      if (!slot?.report)
+        fail3("EVIDENCE_CARRY_FORWARD_STALE", "A carried slot no longer has its old report.");
+      assertEvidenceReportApplicable(root2, current, slot);
+    }
   }
   const pending = current.runtimeState.pending_review_result;
   if (pending) {
@@ -23673,6 +24206,9 @@ var PREPARE_TASK_ADAPTER_COMMANDS = [
   "confirm-draft",
   "clear-resume-review",
   "replan",
+  "prepare-evidence-plan-amendment",
+  "confirm-evidence-plan-amendment",
+  "discard-evidence-plan-amendment",
   "prepare-replan",
   "confirm-replan",
   "discard-replan",
@@ -24561,6 +25097,15 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
         break;
       case "replan":
         result = replan(args.root, input, options);
+        break;
+      case "prepare-evidence-plan-amendment":
+        result = prepareEvidencePlanAmendment(args.root, input, options);
+        break;
+      case "confirm-evidence-plan-amendment":
+        result = confirmEvidencePlanAmendment(args.root, input, options);
+        break;
+      case "discard-evidence-plan-amendment":
+        result = discardEvidencePlanAmendment(args.root, input, options);
         break;
       case "prepare-replan":
         result = prepareCorrectionReplan(args.root, input, options);
