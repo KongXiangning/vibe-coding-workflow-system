@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.6
+  package_version: 0.20.7
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -381,6 +381,7 @@ proposal:
       blocked_diagnostics:
         - findings
         - unresolved_fingerprints
+        - resolved_fingerprints
         - blocker
       consumed_by:
         clean: execute-step:complete-reviewed-step
@@ -666,9 +667,10 @@ proposal:
       - commit-scope-amendment
     repair_budget_extension:
       route: extend-repair-budget
-      increment: exactly-one-attempt-for-each-exhausted-finding
-      eligibility: exact-pending-REPAIR_BUDGET_EXHAUSTED-review
-      preserves: pending-review-findings-attempt-counts-review-baseline-task-definition-and-identity
+      increment: one-bounded-continuation-unit-finding-or-repair-round
+      scopes: finding-attempts-or-repair-round
+      eligibility: exact-pending-REPAIR_BUDGET_EXHAUSTED-review-and-latest-review-repair-set
+      preserves: pending-review-findings-resolved-queue-state-attempt-counts-review-baseline-task-definition-and-identity
       absolute_limits: eight-attempts-per-finding-and-eight-repair-rounds-per-cycle
     direct_replan_result: REPLAN_CONFIRMATION_REQUIRED
     task_history:

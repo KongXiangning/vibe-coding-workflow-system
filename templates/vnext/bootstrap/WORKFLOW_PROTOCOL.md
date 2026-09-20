@@ -370,7 +370,7 @@ step_attempts. Retry never completes the step: a fresh preflight and execution
 are required. Unknown causes, changed plans, and open findings do not use this
 retry; no server restart or database reset is an implicit recovery action.
 
-## Current view, state, and complete history (0.20.6)
+## Current view, state, and complete history (0.20.7)
 
 This additive storage contract preserves task identity, goal, acceptance,
 authority, scope, test admission, review / repair budgets, and lifecycle
@@ -438,9 +438,13 @@ currently exhausted finding, records the decision/audit, and preserves the task,
 pending review, attempts, baseline, and evidence obligations. The retained review
 then routes directly to `execute-step:repair`; without that decision it remains a
 user-owned blocker. Default limits do not change, and explicit extensions are
-bounded by the Runtime absolute limits. A blocked review keeps its structured
-findings and unresolved fingerprints; the extra-budget authorization is not a
-replacement for the full repair target set.
+bounded by the Runtime absolute limits. If only the repair-wave quota is
+exhausted, the same decision may use `extension_scope: repair-round` with an
+empty fingerprint set; this extends only the cycle quota and preserves every
+finding attempt count. A blocked review keeps its structured findings,
+unresolved fingerprints, and resolved fingerprints; verified resolutions update
+the finding queue in the same Runtime transaction, and the extra-budget
+authorization is not a replacement for the full repair target set.
 Local equivalent read-only validation adjustments use execute-step's internal
 replace-validation, preserving the task and its obligations. Low-risk private
 same-domain discoveries do not add a review beyond the confirmed checkpoint;

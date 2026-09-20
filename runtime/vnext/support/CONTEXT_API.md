@@ -1,4 +1,4 @@
-# Runtime source context (0.20.6)
+# Runtime source context (0.20.7)
 
 Use the installed Node CLI at `.workflow-system/runtime/dist/cli.js`. Pass `--root <project>` and JSON on stdin. These context commands do not write task state, admit tests, run checks, or certify evidence. For normal task inspection, use `validate --summary`; plain `validate` retains its full diagnostic output, including stored baselines.
 
@@ -418,17 +418,24 @@ adapter command `extend-repair-budget` with:
 The fingerprint array must contain every and only currently exhausted open
 finding in that pending review cycle. Runtime adds one maximum attempt to each,
 records a Task Basis decision and typed audit, and preserves prior attempts,
-statuses, pending review, review baseline, task definition, and identity. The
-ordinary defaults remain two attempts per finding and three repair waves per
-cycle; explicit extensions have absolute caps of eight each. On success the next
-entry is `execute-step:repair`, which consumes the retained review through a fresh
-execution and verification. An exact replay is a no-op; partial, stale, reset, or
-second unconsumed extensions fail closed. Without explicit authorization, stop at
-the user-owned blocker. A budget-blocked review retains its structured
-`findings` and `unresolved_fingerprints`; the extension set is only the subset
-authorized for extra attempts. After extension, repair consumes the full current
-review set whose findings are admitted and in scope, so findings with remaining
-budget are not dropped and findings already marked resolved are not re-scheduled.
+statuses, pending review, review baseline, task definition, and identity. If the
+cycle repair-wave quota is exhausted while the findings still have attempts,
+submit the same bounded decision with `finding_fingerprints: []` and
+`extension_scope: "repair-round"`; this raises only the cycle quota and changes
+no finding attempt maximum. The ordinary defaults remain two attempts per
+finding and three repair waves per cycle; explicit extensions have absolute
+caps of eight each. On success the next entry is `execute-step:repair`, which
+consumes the retained review through a fresh execution and verification. An
+exact replay is a no-op; partial, stale, reset, or second unconsumed extensions
+fail closed. Without explicit authorization, stop at the user-owned blocker. A
+budget-blocked review retains its structured `findings`,
+`unresolved_fingerprints`, and `resolved_fingerprints`; the extension set is
+only the subset authorized for extra attempts. A review-declared resolution is
+applied to the finding queue in the same Runtime transaction, so the retained
+review and queue cannot disagree. After extension, repair consumes the full
+current review set whose findings are admitted and in scope, so findings with
+remaining budget are not dropped and findings already marked resolved are not
+re-scheduled.
 
 For a legacy 0.20.5 budget-blocked state whose stored review has empty
 `findings`/`unresolved_fingerprints`, the upgrade is intentionally fail-closed:

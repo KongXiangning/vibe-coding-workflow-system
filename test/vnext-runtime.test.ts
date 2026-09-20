@@ -58,6 +58,8 @@ import {
   assertOrdinaryPreflight,
   completeReviewedStep,
   beginRepair,
+  repairBudgetExtensionTargets,
+  repairFingerprintsForPendingReview,
   prepareDraft,
   preflightStep,
   extendPreflight,
@@ -8646,28 +8648,6 @@ describe('vNext Phase 2 Runtime contract', () => {
         validation: [validation],
       }],
     }));
-    const resolvedFindingFingerprint = 'finding-resolved-c';
-    let setupCurrent = readCanonicalCurrentTask(root);
-    const resolvedAdmissionDelta = admittedFinding(resolvedFindingFingerprint, setupCurrent.runtimeState.review_cycle.id);
-    resolvedAdmissionDelta.finding.owner_task_id = setupCurrent.runtimeState.task_id;
-    const resolvedAdmission = applyVNextRuntimeProposal(root, createFindingQueueProposal(setupCurrent, {
-      mode: 'repair',
-      delta: resolvedAdmissionDelta,
-      idempotency_key: 'repair-budget-resolved-c-admit',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
-      evidence_refs: [`test:evidence:${resolvedFindingFingerprint}`],
-    }));
-    expect(resolvedAdmission.status).toBe('success');
-    setupCurrent = readCanonicalCurrentTask(root);
-    const resolvedFinding = applyVNextRuntimeProposal(root, createFindingQueueProposal(setupCurrent, {
-      mode: 'repair',
-      delta: { kind: 'finding-queue', action: 'resolve', fingerprint: resolvedFindingFingerprint, evidence_refs: ['test:repair-budget-resolved-c'] },
-      idempotency_key: 'repair-budget-resolved-c-resolve',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
-      evidence_refs: ['test:repair-budget-resolved-c'],
-    }));
-    expect(resolvedFinding.status).toBe('success');
-    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === resolvedFindingFingerprint)?.status).toBe('resolved');
     const product = path.join(root, ...file.split('/'));
     fs.mkdirSync(path.dirname(product), { recursive: true });
     const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
@@ -8689,29 +8669,58 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(recordReviewResult(root, {
       context_receipt: discovery.receipt,
       verdict: 'findings',
-      findings: [{
-        category: 'correctness',
-        file,
-        failure_condition: 'the bounded continuation still loses the required mapping',
-        required_behavior: 'retain the required mapping across the repair continuation',
-        root_cause_status: 'confirmed',
-        evidence_refs: ['test:repair-budget-finding'],
-      }],
+      findings: [
+        {
+          category: 'correctness',
+          file,
+          failure_condition: 'the bounded continuation still loses the required mapping',
+          required_behavior: 'retain the required mapping across the repair continuation',
+          root_cause_status: 'confirmed',
+          evidence_refs: ['test:repair-budget-finding'],
+        },
+        {
+          category: 'validation',
+          file,
+          failure_condition: 'the independently verified evidence is not retained',
+          required_behavior: 'retain independent evidence for the repaired target',
+          root_cause_status: 'bounded',
+          evidence_refs: ['test:repair-budget-resolved-c'],
+        },
+      ],
       unresolved_fingerprints: [],
       evidence_refs: ['test:repair-budget-review'],
       blocker: null,
     }).status).toBe('success');
-    const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+    const discoveryReview = readCanonicalCurrentTask(root).runtimeState.pending_review_result!;
+    const fingerprint = discoveryReview.findings[0]!.fingerprint;
+    const resolvedFindingFingerprint = discoveryReview.findings[1]!.fingerprint;
 
     for (const round of [1, 2]) {
       const repair = beginRepair(root, { candidate_paths: [file] });
+      expect(repair.receipt.repair_fingerprints).toEqual(
+        (round === 1 ? [fingerprint, resolvedFindingFingerprint] : [fingerprint]).sort(),
+      );
       expect(execute(repair.receipt, `repair round ${round}\n`).status).toBe('success');
       const verification = reviewContext(root, {});
       expect(recordReviewResult(root, {
         context_receipt: verification.receipt,
         verdict: 'findings',
-        findings: [],
+        findings: round === 2 ? [
+          {
+            category: 'correctness', file,
+            failure_condition: 'the second repair target remains incorrect',
+            required_behavior: 'repair the second target without dropping the existing issue',
+            root_cause_status: 'confirmed', evidence_refs: ['test:repair-budget-second-finding'],
+          },
+          {
+            category: 'correctness', file,
+            failure_condition: 'the newly discovered overlap is still conflicting',
+            required_behavior: 'preserve the conflicting overlap in the repair scope',
+            root_cause_status: 'confirmed', evidence_refs: ['test:repair-budget-new-finding'],
+          },
+        ] : [],
         unresolved_fingerprints: [fingerprint],
+        resolved_fingerprints: round === 1 ? [resolvedFindingFingerprint] : [],
         evidence_refs: [`test:repair-budget-verification-${round}`],
         blocker: null,
       }).status).toBe('success');
@@ -8721,36 +8730,17 @@ describe('vNext Phase 2 Runtime contract', () => {
     const blockedReview = exhausted.runtimeState.pending_review_result!;
     expect(blockedReview).toMatchObject({ verdict: 'blocked', blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' } });
     expect(blockedReview.unresolved_fingerprints).toEqual([fingerprint]);
-    expect(blockedReview.findings).toEqual([]);
+    expect(blockedReview.findings).toHaveLength(2);
+    expect(exhausted.runtimeState.findings.find(item => item.fingerprint === resolvedFindingFingerprint)).toMatchObject({
+      status: 'resolved', repair_attempts: 1, max_repair_attempts: 2,
+    });
     expect(exhausted.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({
       status: 'in-progress', repair_attempts: 2, max_repair_attempts: 2,
     });
     expect(taskContext(root, {}).overview.next_entry).toBe('prepare-task:extend-repair-budget');
     expect(() => beginRepair(root, { candidate_paths: [file] })).toThrow('REVIEW_FINDINGS_REQUIRED');
 
-    const enrichedReviewContext = reviewContext(root, {});
-    expect(recordReviewResult(root, {
-      context_receipt: enrichedReviewContext.receipt,
-      verdict: 'findings',
-      findings: [
-        {
-          category: 'correctness', file,
-          failure_condition: 'the second repair target remains incorrect',
-          required_behavior: 'repair the second target without dropping the existing issue',
-          root_cause_status: 'confirmed', evidence_refs: ['test:repair-budget-second-finding'],
-        },
-        {
-          category: 'correctness', file,
-          failure_condition: 'the newly discovered overlap is still conflicting',
-          required_behavior: 'preserve the conflicting overlap in the repair scope',
-          root_cause_status: 'confirmed', evidence_refs: ['test:repair-budget-new-finding'],
-        },
-      ],
-      unresolved_fingerprints: [fingerprint],
-      evidence_refs: ['test:repair-budget-review-recovery'],
-      blocker: null,
-    }).status).toBe('success');
-    const enrichedBlockedReview = readCanonicalCurrentTask(root).runtimeState.pending_review_result!;
+    const enrichedBlockedReview = blockedReview;
     const secondFingerprint = enrichedBlockedReview.findings[0]!.fingerprint;
     const newFingerprint = enrichedBlockedReview.findings[1]!.fingerprint;
     expect(enrichedBlockedReview).toMatchObject({
@@ -8816,6 +8806,211 @@ describe('vNext Phase 2 Runtime contract', () => {
       evidence_refs: ['test:repair-budget-clean'], blocker: null,
     }).status).toBe('success');
     expect(completeReviewedStep(root, { step_id: 'step-1', note: 'bounded continuation verified' }).status).toBe('success');
+  });
+
+  test('reconciles review-verified resolutions before selecting the next repair set', { timeout: 60_000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise review-to-queue resolution reconciliation', mutation_scope: [file],
+        commands: [{ command, expected_repo_writes: 'none' }], validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
+      fs.writeFileSync(product, content, 'utf8');
+      return recordStepResult(root, {
+        preflight_receipt: receipt, actual_changed_paths: [file],
+        command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:resolution-command'] }],
+        validation_results: [{ validation, status: 'passed', evidence_refs: ['test:resolution-validation'] }],
+        acceptance_evidence: receipt.mode === 'default' ? [reportFixture(root)] : [],
+        outcome: 'implemented', note: content.trim(),
+      });
+    };
+    const first = preflightStep(root, { candidate_paths: [file] });
+    expect(execute(first.receipt, 'initial implementation\n').status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt, verdict: 'findings',
+      findings: [{
+        category: 'correctness', file,
+        failure_condition: 'the original repair remains incomplete',
+        required_behavior: 'preserve the original repair invariant',
+        root_cause_status: 'confirmed', evidence_refs: ['test:resolution-a'],
+      }],
+      unresolved_fingerprints: [], evidence_refs: ['test:resolution-discovery'], blocker: null,
+    }).status).toBe('success');
+    const a = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+
+    const repairOne = beginRepair(root, { candidate_paths: [file] });
+    expect(execute(repairOne.receipt, 'repair one\n').status).toBe('success');
+    const verificationOne = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: verificationOne.receipt, verdict: 'findings',
+      findings: [
+        {
+          category: 'correctness', file,
+          failure_condition: 'the retained budget mapping is incomplete',
+          required_behavior: 'retain the budget mapping',
+          root_cause_status: 'confirmed', evidence_refs: ['test:resolution-b'],
+        },
+        {
+          category: 'validation', file,
+          failure_condition: 'the review conclusion has no independent evidence',
+          required_behavior: 'retain independent review evidence',
+          root_cause_status: 'bounded', evidence_refs: ['test:resolution-c'],
+        },
+      ],
+      unresolved_fingerprints: [a], evidence_refs: ['test:resolution-wave-one'], blocker: null,
+    }).status).toBe('success');
+    const waveOneReview = readCanonicalCurrentTask(root).runtimeState.pending_review_result!;
+    const b = waveOneReview.findings[0]!.fingerprint;
+    const c = waveOneReview.findings[1]!.fingerprint;
+
+    const repairTwo = beginRepair(root, { candidate_paths: [file] });
+    expect(repairTwo.receipt.repair_fingerprints).toEqual([a, b, c].sort());
+    expect(execute(repairTwo.receipt, 'repair two\n').status).toBe('success');
+    const verificationTwo = reviewContext(root, {});
+    expect(verificationTwo.receipt.admitted_fingerprints).toEqual([a, b, c].sort());
+    expect(recordReviewResult(root, {
+      context_receipt: verificationTwo.receipt, verdict: 'findings', findings: [],
+      unresolved_fingerprints: [b], resolved_fingerprints: [a, c],
+      evidence_refs: ['test:resolution-wave-two'], blocker: null,
+    }).status).toBe('success');
+
+    const reconciled = readCanonicalCurrentTask(root);
+    expect(reconciled.runtimeState.pending_review_result).toMatchObject({
+      verdict: 'findings', unresolved_fingerprints: [b], resolved_fingerprints: [a, c],
+    });
+    expect(reconciled.runtimeState.findings.filter(item => [a, b, c].includes(item.fingerprint))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fingerprint: a, status: 'resolved', repair_attempts: 2, max_repair_attempts: 2 }),
+      expect.objectContaining({ fingerprint: b, status: 'in-progress', repair_attempts: 1, max_repair_attempts: 2 }),
+      expect.objectContaining({ fingerprint: c, status: 'resolved', repair_attempts: 1, max_repair_attempts: 2 }),
+    ]));
+    expect(repairFingerprintsForPendingReview(reconciled)).toEqual([b]);
+    expect(repairBudgetExtensionTargets(reconciled)).toBeNull();
+
+    const repairThree = beginRepair(root, { candidate_paths: [file] });
+    expect(repairThree.receipt.repair_fingerprints).toEqual([b]);
+    expect(repairThree.receipt.repair_fingerprints).not.toContain(a);
+    expect(repairThree.receipt.repair_fingerprints).not.toContain(c);
+  });
+
+  test('extends only the repair-wave quota when a finding still has attempts', { timeout: 90_000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise repair-wave-only budget continuation', mutation_scope: [file],
+        commands: [{ command, expected_repo_writes: 'none' }], validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
+      fs.writeFileSync(product, content, 'utf8');
+      return recordStepResult(root, {
+        preflight_receipt: receipt, actual_changed_paths: [file],
+        command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:round-command'] }],
+        validation_results: [{ validation, status: 'passed', evidence_refs: ['test:round-validation'] }],
+        acceptance_evidence: receipt.mode === 'default' ? [reportFixture(root)] : [],
+        outcome: 'implemented', note: content.trim(),
+      });
+    };
+    const first = preflightStep(root, { candidate_paths: [file] });
+    expect(execute(first.receipt, 'initial implementation\n').status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt, verdict: 'findings',
+      findings: [{
+        category: 'correctness', file,
+        failure_condition: 'the repair wave does not preserve the original behavior',
+        required_behavior: 'preserve the original behavior',
+        root_cause_status: 'confirmed', evidence_refs: ['test:round-a'],
+      }],
+      unresolved_fingerprints: [], evidence_refs: ['test:round-discovery'], blocker: null,
+    }).status).toBe('success');
+    const a = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+
+    const repairOne = beginRepair(root, { candidate_paths: [file] });
+    expect(execute(repairOne.receipt, 'repair one\n').status).toBe('success');
+    const verificationOne = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: verificationOne.receipt, verdict: 'findings',
+      findings: [],
+      unresolved_fingerprints: [a], evidence_refs: ['test:round-wave-one'], blocker: null,
+    }).status).toBe('success');
+
+    const repairTwo = beginRepair(root, { candidate_paths: [file] });
+    expect(repairTwo.receipt.repair_fingerprints).toEqual([a]);
+    expect(execute(repairTwo.receipt, 'repair two\n').status).toBe('success');
+    const verificationTwo = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: verificationTwo.receipt, verdict: 'findings', findings: [{
+        category: 'correctness', file,
+        failure_condition: 'the second finding is newly visible',
+        required_behavior: 'preserve the second finding in the repair scope',
+        root_cause_status: 'confirmed', evidence_refs: ['test:round-b'],
+      }],
+      unresolved_fingerprints: [], resolved_fingerprints: [a],
+      evidence_refs: ['test:round-wave-two'], blocker: null,
+    }).status).toBe('success');
+    const b = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({
+      status: 'resolved', repair_attempts: 2, max_repair_attempts: 2,
+    });
+
+    const repairThree = beginRepair(root, { candidate_paths: [file] });
+    expect(repairThree.receipt.repair_fingerprints).toEqual([b]);
+    expect(execute(repairThree.receipt, 'repair three\n').status).toBe('success');
+    const verificationThree = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: verificationThree.receipt, verdict: 'findings', findings: [],
+      unresolved_fingerprints: [b], evidence_refs: ['test:round-wave-three'], blocker: null,
+    }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    expect(blocked.runtimeState.pending_review_result).toMatchObject({ verdict: 'blocked', blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' } });
+    expect(blocked.runtimeState.findings.find(item => item.fingerprint === b)).toMatchObject({
+      status: 'in-progress', repair_attempts: 1, max_repair_attempts: 2,
+    });
+    expect(repairBudgetExtensionTargets(blocked)).toEqual([]);
+
+    const authorization = {
+      review_id: blocked.runtimeState.pending_review_result!.review_id,
+      finding_fingerprints: [],
+      extension_scope: 'repair-round' as const,
+      additional_repair_attempts: 1,
+      decision_source: 'user:repair-round-extension-regression',
+      decision_text: 'Authorize one additional repair wave while preserving every finding attempt count and the retained review.',
+    };
+    expect(extendRepairBudget(root, authorization)).toMatchObject({ status: 'success' });
+    const extended = readCanonicalCurrentTask(root);
+    expect(extended.runtimeState.findings.find(item => item.fingerprint === b)).toMatchObject({
+      status: 'in-progress', repair_attempts: 1, max_repair_attempts: 2,
+    });
+    expect(extended.runtimeState.pending_review_result).toEqual(blocked.runtimeState.pending_review_result);
+    expect(extended.runtimeState.execution_log.findLast(item => 'action' in item && item.action === 'extend-repair-budget')).toMatchObject({
+      extension_scope: 'repair-round', finding_budgets: [], previous_max_repair_rounds: 3, new_max_repair_rounds: 4,
+    });
+
+    const repairFour = beginRepair(root, { candidate_paths: [file] });
+    expect(repairFour.receipt.repair_fingerprints).toEqual([b]);
+    expect(execute(repairFour.receipt, 'repair four\n').status).toBe('success');
+    const finalReview = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: finalReview.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['test:round-clean'], blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'repair-wave extension verified' })).toMatchObject({
+      status: 'success', advancement: { outcome: 'task-complete' },
+    });
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === b)?.status).toBe('resolved');
   });
 
   test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', { timeout: 30000 }, () => {

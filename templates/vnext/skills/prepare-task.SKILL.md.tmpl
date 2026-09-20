@@ -366,10 +366,17 @@ Basis, increments each selected finding by one, and preserves attempts, statuses
 review baseline, task definition, identity, and pending review. It never clears
 or resets the failed history. The default limits remain two attempts per finding
 and three repair waves per cycle; explicit extensions are capped at eight each.
-An unconsumed extension routes directly to `execute-step:repair`; the fresh repair
-result and verification consume it. A different or additional extension requires
-a later explicit decision after another real exhaustion. Without that decision,
-return the user-owned blocker and do not manufacture a replan candidate.
+If only the repair-wave quota is exhausted and every current repair target still
+has a finding attempt available, submit the same decision with
+`finding_fingerprints: []` and `extension_scope: "repair-round"`; Runtime raises
+only the cycle quota and preserves every finding's attempt count. An unconsumed
+extension routes directly to `execute-step:repair`; the fresh repair result and
+verification consume it. A different or additional extension requires a later
+explicit decision after another real exhaustion. Without that decision, return
+the user-owned blocker and do not manufacture a replan candidate. A review may
+also carry `resolved_fingerprints`; Runtime applies those verified resolutions to
+the finding queue atomically with the retained review, so they are not required
+to be submitted again as unresolved and are not scheduled for repair.
 
 In `confirm` mode, submit the user's explicit confirmation through
 `confirm-draft` with the exact confirmation receipt returned by the committed

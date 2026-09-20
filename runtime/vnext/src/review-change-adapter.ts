@@ -202,8 +202,11 @@ function digest(value: unknown): string {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-function authority(current: CanonicalCurrentTask): AuthorityEvidence[] {
-  return (['active-task-owner', 'scope-admission', 'evidence-admission'] as const).map(kind => ({
+function authority(current: CanonicalCurrentTask, additionalKinds: readonly AuthorityEvidence['kind'][] = []): AuthorityEvidence[] {
+  const kinds = [...new Set<AuthorityEvidence['kind']>([
+    'active-task-owner', 'scope-admission', 'evidence-admission', ...additionalKinds,
+  ])];
+  return kinds.map(kind => ({
     kind,
     source: current.relativePath,
     subject: current.runtimeState.task_id,
@@ -772,15 +775,24 @@ function normalizeFinding(value: unknown, index: number, current: CanonicalCurre
   };
 }
 
-function convergenceBlocker(current: CanonicalCurrentTask, receipt: ReviewContextReceipt, findings: ReviewFindingCandidate[], unresolved: string[]): ReviewBlocker | null {
+function convergenceBlocker(
+  current: CanonicalCurrentTask,
+  receipt: ReviewContextReceipt,
+  findings: ReviewFindingCandidate[],
+  unresolved: string[],
+  resolved: string[],
+): ReviewBlocker | null {
   if (receipt.cycle_phase !== 'verification') return null;
-  if (findings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
+  const resolvedSet = new Set(resolved);
+  const activeFindings = findings.filter(item => !resolvedSet.has(item.fingerprint));
+  const activeUnresolved = unresolved.filter(fingerprint => !resolvedSet.has(fingerprint));
+  if (activeFindings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
     return { code: 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED', summary: 'Verification found another new-finding wave after the one allowed wave was already used.', next_route: 'debug-task' };
   }
-  if (current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle) && (findings.length > 0 || unresolved.length > 0)) {
+  if (current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle) && (activeFindings.length > 0 || activeUnresolved.length > 0)) {
     return { code: 'REPAIR_BUDGET_EXHAUSTED', summary: 'The current review cycle has exhausted its repair-wave budget.', next_route: 'debug-task' };
   }
-  const exhausted = unresolved.filter(fingerprint => {
+  const exhausted = activeUnresolved.filter(fingerprint => {
     const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
     return finding !== undefined && finding.repair_attempts >= finding.max_repair_attempts;
   });
@@ -831,7 +843,7 @@ function semanticNoOp(current: CanonicalCurrentTask, key: string, message: strin
 
 export function recordReviewResult(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input, 'record-review-result input');
-  exactKeys(source, ['context_receipt', 'verdict', 'findings', 'unresolved_fingerprints', 'evidence_refs', 'blocker', ...(source.test_assessment === undefined ? [] : ['test_assessment'])], 'record-review-result input');
+  exactKeys(source, ['context_receipt', 'verdict', 'findings', 'unresolved_fingerprints', ...(source.resolved_fingerprints === undefined ? [] : ['resolved_fingerprints']), 'evidence_refs', 'blocker', ...(source.test_assessment === undefined ? [] : ['test_assessment'])], 'record-review-result input');
   const receipt = normalizeContextReceipt(source.context_receipt);
   if (!['clean', 'findings', 'blocked'].includes(String(source.verdict))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'verdict must be clean, findings, or blocked.');
   const verdict = source.verdict as ReviewResultVerdict;
@@ -843,6 +855,10 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   if (new Set(findings.map(item => item.fingerprint)).size !== findings.length) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must not contain duplicates.');
   const unresolved = textList(source.unresolved_fingerprints, 'unresolved_fingerprints', true);
   if (unresolved.some(item => !receipt.admitted_fingerprints.includes(item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'unresolved_fingerprints must be drawn from the Runtime review context.');
+  const resolved = textList(source.resolved_fingerprints === undefined ? [] : source.resolved_fingerprints, 'resolved_fingerprints', true);
+  if (resolved.some(item => !receipt.admitted_fingerprints.includes(item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'resolved_fingerprints must be drawn from the Runtime review context.');
+  if (resolved.some(item => unresolved.includes(item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'resolved_fingerprints must not overlap unresolved_fingerprints.');
+  if (resolved.some(item => findings.some(finding => finding.fingerprint === item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'resolved_fingerprints must not overlap findings.');
   const evidenceRefs = textList(source.evidence_refs, 'evidence_refs', false);
   let blocker: ReviewBlocker | null;
   if (source.blocker === null) blocker = null;
@@ -855,7 +871,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   if (verdict === 'clean' && (findings.length > 0 || unresolved.length > 0 || blocker !== null)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'clean must not contain findings or a blocker.');
   if (verdict === 'findings' && (findings.length === 0 && unresolved.length === 0 || blocker !== null)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings verdict requires a finding and no blocker.');
   if (verdict === 'blocked' && blocker === null) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocked requires a blocker.');
-  const runtimeBlocker = verdict === 'findings' ? convergenceBlocker(current, receipt, findings, unresolved) : null;
+  const runtimeBlocker = verdict === 'findings' ? convergenceBlocker(current, receipt, findings, unresolved, resolved) : null;
   const finalVerdict: ReviewResultVerdict = runtimeBlocker ? 'blocked' : verdict;
   // A convergence blocker stops execution, but it does not invalidate the
   // reviewer's structured conclusions. Keep them attached to the blocked
@@ -863,7 +879,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   const finalFindings = findings;
   const finalUnresolved = unresolved;
   const finalBlocker = runtimeBlocker ?? blocker;
-  const reviewId = `review-${digest({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
+  const reviewId = `review-${digest({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, resolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult: Omit<PendingReviewResult, 'recorded_at'> = {
     ...(source.test_assessment === undefined ? {} : {test_assessment:validateTestAssessment(source.test_assessment)}),
     kind: 'review-result/v1',
@@ -877,6 +893,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
     verdict: finalVerdict,
     findings: finalFindings,
     unresolved_fingerprints: finalUnresolved,
+    resolved_fingerprints: resolved,
     evidence_refs: evidenceRefs,
     blocker: finalBlocker,
   };
@@ -891,7 +908,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
     review_result: reviewResult,
     evidence_refs: evidenceRefs,
     idempotency_key: resultKey,
-    authority_evidence: authority(current),
+    authority_evidence: authority(current, resolved.length > 0 ? ['finding-admission'] : []),
   });
   return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), reviewId, options);
 }

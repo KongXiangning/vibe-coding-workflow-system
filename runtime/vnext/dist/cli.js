@@ -6178,7 +6178,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.6";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.7";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -7404,7 +7404,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   const reviewResultContract = expectRecord2(taskStateContract.review_result, "Runtime contract.proposal.task_state.review_result");
   expectExactKeys2(reviewResultContract, ["stored_in", "verdicts", "binds", "blocked_diagnostics", "consumed_by", "test_assessment"], "Runtime contract.proposal.task_state.review_result");
   expectSetEqual(expectStringArray2(reviewResultContract.test_assessment, "review_result.test_assessment"), ["applicable", "reason", "evidence_refs", "necessity", "oracle", "boundary", "reuse", "applicability"], "test assessment fields");
-  expectSetEqual(expectStringArray2(reviewResultContract.blocked_diagnostics, "review_result.blocked_diagnostics"), ["findings", "unresolved_fingerprints", "blocker"], "blocked review diagnostics");
+  expectSetEqual(expectStringArray2(reviewResultContract.blocked_diagnostics, "review_result.blocked_diagnostics"), ["findings", "unresolved_fingerprints", "resolved_fingerprints", "blocker"], "blocked review diagnostics");
   if (reviewResultContract.stored_in !== "canonical CURRENT_TASK.runtime_state.pending_review_result")
     fail3("RUNTIME_CONTRACT_INVALID", "review result must use canonical pending review storage.");
   expectSetEqual(expectStringArray2(reviewResultContract.verdicts, "Runtime contract review-result verdicts"), [...REVIEW_RESULT_VERDICTS], "Runtime contract review-result verdicts");
@@ -7592,8 +7592,8 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task scope_amendment_mode must be amend-scope.");
   expectSetEqual(expectStringArray2(prepareTaskContract.scope_amendment_actions, "Runtime contract.proposal.prepare_task.scope_amendment_actions"), ["commit-scope-amendment"], "Runtime contract prepare-task scope amendment actions");
   const repairBudgetExtension = expectRecord2(prepareTaskContract.repair_budget_extension, "Runtime contract.proposal.prepare_task.repair_budget_extension");
-  expectExactKeys2(repairBudgetExtension, ["route", "increment", "eligibility", "preserves", "absolute_limits"], "Runtime contract.proposal.prepare_task.repair_budget_extension");
-  if (repairBudgetExtension.route !== "extend-repair-budget" || repairBudgetExtension.increment !== "exactly-one-attempt-for-each-exhausted-finding" || repairBudgetExtension.eligibility !== "exact-pending-REPAIR_BUDGET_EXHAUSTED-review" || repairBudgetExtension.preserves !== "pending-review-findings-attempt-counts-review-baseline-task-definition-and-identity" || repairBudgetExtension.absolute_limits !== "eight-attempts-per-finding-and-eight-repair-rounds-per-cycle") {
+  expectExactKeys2(repairBudgetExtension, ["route", "increment", "scopes", "eligibility", "preserves", "absolute_limits"], "Runtime contract.proposal.prepare_task.repair_budget_extension");
+  if (repairBudgetExtension.route !== "extend-repair-budget" || repairBudgetExtension.increment !== "one-bounded-continuation-unit-finding-or-repair-round" || repairBudgetExtension.scopes !== "finding-attempts-or-repair-round" || repairBudgetExtension.eligibility !== "exact-pending-REPAIR_BUDGET_EXHAUSTED-review-and-latest-review-repair-set" || repairBudgetExtension.preserves !== "pending-review-findings-resolved-queue-state-attempt-counts-review-baseline-task-definition-and-identity" || repairBudgetExtension.absolute_limits !== "eight-attempts-per-finding-and-eight-repair-rounds-per-cycle") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime repair-budget extension contract is invalid.");
   }
   if (prepareTaskContract.direct_replan_result !== "REPLAN_CONFIRMATION_REQUIRED") {
@@ -8909,6 +8909,7 @@ function validatePendingReviewResult(value, location2, includeRecordedAt) {
     "verdict",
     "findings",
     "unresolved_fingerprints",
+    ...record4.resolved_fingerprints === undefined ? [] : ["resolved_fingerprints"],
     "evidence_refs",
     "blocker",
     ...record4.test_assessment === undefined ? [] : ["test_assessment"],
@@ -8927,6 +8928,16 @@ function validatePendingReviewResult(value, location2, includeRecordedAt) {
   const unresolvedFingerprints = expectStringArray2(record4.unresolved_fingerprints, `${location2}.unresolved_fingerprints`, true, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `${location2}.unresolved_fingerprints[${index}]`, FINGERPRINT_PATTERN));
   if (new Set(unresolvedFingerprints).size !== unresolvedFingerprints.length) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location2}.unresolved_fingerprints must be unique.`);
+  }
+  const resolvedFingerprints = expectStringArray2(record4.resolved_fingerprints === undefined ? [] : record4.resolved_fingerprints, `${location2}.resolved_fingerprints`, true, MAX_FINDINGS).map((fingerprint, index) => expectString2(fingerprint, `${location2}.resolved_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  if (new Set(resolvedFingerprints).size !== resolvedFingerprints.length) {
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.resolved_fingerprints must be unique.`);
+  }
+  if (resolvedFingerprints.some((fingerprint) => unresolvedFingerprints.includes(fingerprint))) {
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.resolved_fingerprints must not overlap unresolved_fingerprints.`);
+  }
+  if (resolvedFingerprints.some((fingerprint) => findings.some((item) => item.fingerprint === fingerprint))) {
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.resolved_fingerprints must not overlap findings.`);
   }
   const verdict = expectEnum(record4.verdict, REVIEW_RESULT_VERDICTS, `${location2}.verdict`);
   const blocker = record4.blocker === null ? null : validateReviewBlocker(record4.blocker, `${location2}.blocker`);
@@ -8952,6 +8963,7 @@ function validatePendingReviewResult(value, location2, includeRecordedAt) {
     verdict,
     findings,
     unresolved_fingerprints: unresolvedFingerprints,
+    resolved_fingerprints: resolvedFingerprints,
     evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location2}.evidence_refs`),
     blocker
   };
@@ -9650,18 +9662,26 @@ function validateTaskStateDelta(value) {
   const kind = expectEnum(record4.kind, ["task-state"], "semantic_delta.kind");
   const action = expectEnum(record4.action, ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", "extend-repair-budget", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "semantic_delta.action");
   if (action === "extend-repair-budget") {
-    expectExactKeys2(record4, ["kind", "action", "review_id", "finding_fingerprints", "additional_repair_attempts", "decision_source", "decision_text", "evidence_refs"], "extend-repair-budget");
-    const findingFingerprints = expectStringArray2(record4.finding_fingerprints, "finding_fingerprints", false, MAX_FINDINGS).map((item, index) => expectString2(item, `finding_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    expectExactKeys2(record4, ["kind", "action", "review_id", "finding_fingerprints", "additional_repair_attempts", "decision_source", "decision_text", "evidence_refs", ...record4.extension_scope === undefined ? [] : ["extension_scope"]], "extend-repair-budget");
+    const findingFingerprints = expectStringArray2(record4.finding_fingerprints, "finding_fingerprints", true, MAX_FINDINGS).map((item, index) => expectString2(item, `finding_fingerprints[${index}]`, FINGERPRINT_PATTERN));
     if (findingFingerprints.join("|") !== [...findingFingerprints].sort().join("|"))
       fail3("RUNTIME_SCHEMA_INVALID", "finding_fingerprints must use canonical sorted order.");
     if (record4.additional_repair_attempts !== 1)
       fail3("RUNTIME_SCHEMA_INVALID", "additional_repair_attempts must be exactly 1.");
+    const extensionScope = record4.extension_scope === undefined ? findingFingerprints.length > 0 ? "finding-attempts" : "repair-round" : expectEnum(record4.extension_scope, ["finding-attempts", "repair-round"], "extension_scope");
+    if (extensionScope === "finding-attempts" && findingFingerprints.length === 0) {
+      fail3("RUNTIME_SCHEMA_INVALID", "finding-attempts extensions must authorize at least one finding.");
+    }
+    if (extensionScope === "repair-round" && findingFingerprints.length > 0) {
+      fail3("RUNTIME_SCHEMA_INVALID", "repair-round extensions must not authorize finding attempts.");
+    }
     return {
       kind,
       action,
       review_id: expectString2(record4.review_id, "review_id", SAFE_KEY_PATTERN2),
       finding_fingerprints: findingFingerprints,
       additional_repair_attempts: 1,
+      extension_scope: extensionScope,
       decision_source: expectText(record4.decision_source, "decision_source"),
       decision_text: expectVerbatim(record4.decision_text, "decision_text", 32768),
       evidence_refs: validateEvidenceRefs(record4.evidence_refs, "evidence_refs")
@@ -11247,7 +11267,7 @@ function validateRepairBudgetExtensionAuditLogEntry(value, location2, taskId, ta
     "decision_sha256",
     "recorded_at"
   ];
-  expectExactKeys2(value, requiredKeys, location2);
+  expectExactKeys2(value, [...requiredKeys, ...value.extension_scope === undefined ? [] : ["extension_scope"]], location2);
   if (value.action !== "extend-repair-budget" || value.operation_kind !== "task-state-transaction" || value.caller !== "prepare-task" || value.mode !== "default" || value.from_workflow_status !== "active" || value.from_lifecycle_state !== "active" || value.to_workflow_status !== "active" || value.to_lifecycle_state !== "active") {
     fail3("RUNTIME_STATE_CONFLICT", `${location2} repair-budget audit has an invalid operation or lifecycle binding.`);
   }
@@ -11256,8 +11276,8 @@ function validateRepairBudgetExtensionAuditLogEntry(value, location2, taskId, ta
   if (entryTaskId !== taskId || entryTaskSlug !== taskSlug)
     fail3("RUNTIME_STATE_CONFLICT", `${location2} identity does not match runtime_state.`);
   const budgetsRaw = value.finding_budgets;
-  if (!Array.isArray(budgetsRaw) || budgetsRaw.length === 0 || budgetsRaw.length > MAX_FINDINGS)
-    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.finding_budgets must be a bounded non-empty array.`);
+  if (!Array.isArray(budgetsRaw) || budgetsRaw.length > MAX_FINDINGS)
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.finding_budgets must be a bounded array.`);
   const findingBudgets = budgetsRaw.map((raw, index) => {
     const budget = expectRecord2(raw, `${location2}.finding_budgets[${index}]`);
     expectExactKeys2(budget, ["fingerprint", "previous_max", "new_max"], `${location2}.finding_budgets[${index}]`);
@@ -11273,6 +11293,13 @@ function validateRepairBudgetExtensionAuditLogEntry(value, location2, taskId, ta
   const newMaxRepairRounds = expectInteger(value.new_max_repair_rounds, `${location2}.new_max_repair_rounds`, MAX_REPAIR_ROUNDS, MAX_EXTENDED_REPAIR_ROUNDS);
   if (newMaxRepairRounds < previousMaxRepairRounds || newMaxRepairRounds > previousMaxRepairRounds + 1)
     fail3("RUNTIME_SCHEMA_INVALID", `${location2} may add at most one review-cycle repair round.`);
+  const extensionScope = value.extension_scope === undefined ? findingBudgets.length > 0 ? "finding-attempts" : "repair-round" : expectEnum(value.extension_scope, ["finding-attempts", "repair-round"], `${location2}.extension_scope`);
+  if (extensionScope === "finding-attempts" && findingBudgets.length === 0) {
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.finding-attempts audit must contain finding budgets.`);
+  }
+  if (extensionScope === "repair-round" && (findingBudgets.length > 0 || newMaxRepairRounds <= previousMaxRepairRounds)) {
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.repair-round audit must contain no finding budgets and add one repair round.`);
+  }
   return {
     action: "extend-repair-budget",
     idempotency_key: expectString2(value.idempotency_key, `${location2}.idempotency_key`, SAFE_KEY_PATTERN2),
@@ -11290,6 +11317,7 @@ function validateRepairBudgetExtensionAuditLogEntry(value, location2, taskId, ta
     authority_evidence: validateAuthorityEvidence2(value.authority_evidence),
     evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location2}.evidence_refs`),
     review_id: expectString2(value.review_id, `${location2}.review_id`, SAFE_KEY_PATTERN2),
+    extension_scope: extensionScope,
     finding_budgets: findingBudgets,
     previous_max_repair_rounds: previousMaxRepairRounds,
     new_max_repair_rounds: newMaxRepairRounds,
@@ -12114,6 +12142,7 @@ function renderExecutionAuditRecord(audit, includeEmptyKnowledge = true) {
   } else if (audit.action === "extend-repair-budget") {
     const extensionAudit = audit;
     lines.push(`  review_id: ${extensionAudit.review_id}`);
+    lines.push(`  extension_scope: ${extensionAudit.extension_scope}`);
     lines.push(`  finding_budgets: ${JSON.stringify(extensionAudit.finding_budgets)}`);
     lines.push(`  previous_max_repair_rounds: ${extensionAudit.previous_max_repair_rounds}`);
     lines.push(`  new_max_repair_rounds: ${extensionAudit.new_max_repair_rounds}`);
@@ -18115,6 +18144,7 @@ function makeRepairBudgetExtensionAudit(current, proposal, next, now, findingBud
     authority_evidence: proposal.authority_evidence.map((item) => ({ ...item })),
     evidence_refs: [...delta.evidence_refs],
     review_id: delta.review_id,
+    extension_scope: delta.extension_scope,
     finding_budgets: findingBudgets.map((item) => ({ ...item })),
     previous_max_repair_rounds: previousMaxRepairRounds,
     new_max_repair_rounds: repairRoundLimit(next.review_cycle),
@@ -18130,27 +18160,41 @@ function repairBudgetContinuationForPendingReview(current) {
   const audit = current.runtimeState.execution_log.findLast((entry) => ("action" in entry) && entry.action === "extend-repair-budget" && entry.review_id === pending.review_id);
   if (!audit)
     return null;
-  const actionable = audit.finding_budgets.every((budget) => {
+  const actionableFindings = audit.finding_budgets.every((budget) => {
     const finding = current.runtimeState.findings.find((item) => item.fingerprint === budget.fingerprint);
     return finding !== undefined && ["admitted", "in-progress"].includes(finding.status) && finding.review_cycle_id === pending.cycle_id && finding.max_repair_attempts === budget.new_max && finding.repair_attempts < finding.max_repair_attempts;
   });
+  const actionableRound = audit.extension_scope === "repair-round" && audit.finding_budgets.length === 0 && audit.new_max_repair_rounds > audit.previous_max_repair_rounds && repairRoundLimit(current.runtimeState.review_cycle) === audit.new_max_repair_rounds && current.runtimeState.review_cycle.repair_round < repairRoundLimit(current.runtimeState.review_cycle) && repairFingerprintsForPendingReview(current).some((fingerprint) => {
+    const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+    return finding !== undefined && ["admitted", "in-progress"].includes(finding.status) && finding.review_cycle_id === pending.cycle_id && finding.repair_attempts < finding.max_repair_attempts || pending.findings.some((item) => item.fingerprint === fingerprint);
+  });
+  const actionable = audit.extension_scope === "repair-round" ? actionableRound : actionableFindings;
   return actionable ? { review_id: pending.review_id, finding_fingerprints: audit.finding_budgets.map((item) => item.fingerprint) } : null;
 }
 function repairFingerprintsForPendingReview(current) {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== "findings" && pending.verdict !== "blocked")
     return [];
+  const resolved = new Set(pending.resolved_fingerprints);
   return [...new Set([
     ...pending.unresolved_fingerprints,
     ...pending.findings.map((item) => item.fingerprint)
-  ])].sort();
+  ])].filter((fingerprint) => !resolved.has(fingerprint)).sort();
 }
 function repairBudgetExtensionTargets(current) {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== "blocked" || pending.blocker?.code !== "REPAIR_BUDGET_EXHAUSTED")
     return null;
-  const fingerprints = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status) && item.review_cycle_id === pending.cycle_id && item.repair_attempts >= item.max_repair_attempts).map((item) => item.fingerprint).sort();
-  return fingerprints.length > 0 ? fingerprints : null;
+  const repairTargets = new Set(repairFingerprintsForPendingReview(current));
+  const fingerprints = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status) && item.review_cycle_id === pending.cycle_id && repairTargets.has(item.fingerprint) && item.repair_attempts >= item.max_repair_attempts).map((item) => item.fingerprint).sort();
+  if (fingerprints.length > 0)
+    return fingerprints;
+  const cycleExhausted = current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle);
+  const hasRepairTarget = repairTargets.size > 0 && [...repairTargets].some((fingerprint) => {
+    const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+    return finding !== undefined && ["admitted", "in-progress"].includes(finding.status) && finding.review_cycle_id === pending.cycle_id && finding.repair_attempts < finding.max_repair_attempts || pending.findings.some((item) => item.fingerprint === fingerprint);
+  });
+  return cycleExhausted && hasRepairTarget ? [] : null;
 }
 function ensureAnyAuthorityKind(proposal, allowed) {
   if (!proposal.authority_evidence.some((item) => allowed.includes(item.kind))) {
@@ -18454,7 +18498,7 @@ function assertTaskStateReplay(root2, current, proposal) {
     assertExecutionAudit(root2, current, audit2);
     const basis = readCanonicalTaskBasis(root2, current).basis;
     const decision = [basis.original_request, ...basis.user_decisions].find((item) => item.source === delta2.decision_source);
-    if (!decision || sha2565(decision.verbatim) !== audit2.decision_sha256 || audit2.review_id !== delta2.review_id || digest3(audit2.finding_budgets.map((item) => item.fingerprint)) !== digest3(delta2.finding_fingerprints) || audit2.finding_budgets.some((budget) => current.runtimeState.findings.find((item) => item.fingerprint === budget.fingerprint)?.max_repair_attempts !== budget.new_max)) {
+    if (!decision || sha2565(decision.verbatim) !== audit2.decision_sha256 || audit2.review_id !== delta2.review_id || audit2.extension_scope !== delta2.extension_scope || digest3(audit2.finding_budgets.map((item) => item.fingerprint)) !== digest3(delta2.finding_fingerprints) || delta2.extension_scope === "repair-round" && audit2.finding_budgets.length !== 0 || audit2.finding_budgets.some((budget) => current.runtimeState.findings.find((item) => item.fingerprint === budget.fingerprint)?.max_repair_attempts !== budget.new_max)) {
       fail3("RUNTIME_REPLAY_INCOMPLETE", "repair-budget replay no longer matches the retained decision or finding budgets.");
     }
     return;
@@ -18515,10 +18559,19 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     if (selected.some((item) => item.max_repair_attempts >= MAX_EXTENDED_REPAIR_ATTEMPTS)) {
       fail3("REPAIR_BUDGET_EXTENSION_LIMIT", "A finding reached the absolute bounded repair-attempt limit.");
     }
+    if (delta.extension_scope === "repair-round" && exhausted.length !== 0) {
+      fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "A repair-round-only extension cannot authorize finding attempts.");
+    }
+    if (delta.extension_scope === "finding-attempts" && exhausted.length === 0) {
+      fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "A finding-attempt extension must authorize an exhausted finding.");
+    }
     const priorRoundLimit = repairRoundLimit(current.runtimeState.review_cycle);
     const nextRoundLimit = Math.max(priorRoundLimit, current.runtimeState.review_cycle.repair_round + 1);
     if (nextRoundLimit > MAX_EXTENDED_REPAIR_ROUNDS)
       fail3("REPAIR_BUDGET_EXTENSION_LIMIT", "The review cycle reached the absolute bounded repair-round limit.");
+    if (delta.extension_scope === "repair-round" && nextRoundLimit <= priorRoundLimit) {
+      fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "A repair-round-only extension requires the current repair-wave quota to be exhausted.");
+    }
     const retained = readCanonicalTaskBasis(root2, current);
     const basis = structuredClone(retained.basis);
     const priorDecision = [basis.original_request, ...basis.user_decisions].find((item) => item.source === delta.decision_source);
@@ -18529,7 +18582,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     const findingBudgets = selected.map((item) => ({ fingerprint: item.fingerprint, previous_max: item.max_repair_attempts, new_max: item.max_repair_attempts + 1 }));
     const nextWithoutAudit = {
       ...current.runtimeState,
-      finding_queue_revision: current.runtimeState.finding_queue_revision + 1,
+      finding_queue_revision: current.runtimeState.finding_queue_revision + (findingBudgets.length > 0 ? 1 : 0),
       review_cycle: {
         ...current.runtimeState.review_cycle,
         ...nextRoundLimit === MAX_REPAIR_ROUNDS ? {} : { max_repair_rounds: nextRoundLimit }
@@ -18934,6 +18987,8 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       fail3("RESUME_REVIEW_REQUIRED", "review-change cannot record a step review while the resume review gate is active.");
     }
     const review = delta.review_result;
+    if (review.resolved_fingerprints.length > 0)
+      ensureAuthorityKinds(proposal, ["finding-admission"]);
     const isCorrectionReview = (current.runtimeState.evidence_challenges ?? []).some((item) => item.status === "invalidated" && item.correction_step_id === review.step_id);
     if (review.verdict === "clean" && !isCorrectionReview && (current.runtimeState.evidence_challenges ?? []).some((item) => item.status !== "resolved" && item.correction_step_id !== review.step_id)) {
       fail3("EVIDENCE_CHALLENGE_UNRESOLVED", "A clean review cannot consume an unresolved challenge outside its admitted correction step.");
@@ -18975,6 +19030,10 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (!openFingerprints.has(fingerprint))
         fail3("FINDING_NOT_FOUND", `review result references non-open finding ${fingerprint}.`);
     }
+    for (const fingerprint of review.resolved_fingerprints) {
+      if (!openFingerprints.has(fingerprint))
+        fail3("FINDING_NOT_FOUND", `review result resolves non-open finding ${fingerprint}.`);
+    }
     const nestedEvidence = [...review.findings.flatMap((item) => item.evidence_refs), ...review.test_assessment?.evidence_refs ?? []];
     if (![...nestedEvidence, ...review.evidence_refs].every((ref) => delta.evidence_refs.includes(ref))) {
       fail3("RUNTIME_EVIDENCE_INVALID", "record-review-result evidence_refs must cover the review result and every finding.");
@@ -18990,9 +19049,16 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       dynamic_review_required: false
     };
     const dynamicReviewRequired = review.verdict === "clean" ? dynamicReviewRequiredForCurrentExecution({ ...current, runtimeState: stateAfterDynamicReview }) : current.runtimeState.dynamic_review_required === true;
+    const resolvedFingerprints = new Set(review.resolved_fingerprints);
+    const resolvedEvidenceRefs = [...new Set(review.evidence_refs)];
+    const nextFindings = resolvedFingerprints.size === 0 ? current.runtimeState.findings : current.runtimeState.findings.map((item) => resolvedFingerprints.has(item.fingerprint) ? { ...item, status: "resolved", evidence_refs: [...new Set([...item.evidence_refs, ...resolvedEvidenceRefs])], updated_at: now } : item);
     return {
       next: {
         ...current.runtimeState,
+        ...resolvedFingerprints.size === 0 ? {} : {
+          finding_queue_revision: current.runtimeState.finding_queue_revision + 1,
+          findings: nextFindings
+        },
         pending_review_result: { ...review, recorded_at: now },
         ...consumedDynamicExpansions === undefined ? {} : { dynamic_expansions: consumedDynamicExpansions },
         ...review.verdict === "clean" ? { dynamic_review_required: dynamicReviewRequired } : {},
@@ -22023,21 +22089,23 @@ function recordUserEvidenceDecision(root2, kind, input, options = {}) {
 }
 function extendRepairBudget(root2, input, options = {}) {
   const value = expectRecord2(input, "extend-repair-budget input");
-  expectExactKeys2(value, ["review_id", "finding_fingerprints", "additional_repair_attempts", "decision_source", "decision_text"], "extend-repair-budget input");
+  expectExactKeys2(value, ["review_id", "finding_fingerprints", "additional_repair_attempts", "decision_source", "decision_text", ...value.extension_scope === undefined ? [] : ["extension_scope"]], "extend-repair-budget input");
   const current = readCanonicalCurrentTask(root2);
   const basisPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
-  const fingerprints = expectStringArray2(value.finding_fingerprints, "finding_fingerprints", false, MAX_FINDINGS).map((item, index) => expectString2(item, `finding_fingerprints[${index}]`, FINGERPRINT_PATTERN)).sort();
+  const fingerprints = expectStringArray2(value.finding_fingerprints, "finding_fingerprints", true, MAX_FINDINGS).map((item, index) => expectString2(item, `finding_fingerprints[${index}]`, FINGERPRINT_PATTERN)).sort();
+  const extensionScope = value.extension_scope === undefined ? fingerprints.length > 0 ? "finding-attempts" : "repair-round" : expectEnum(value.extension_scope, ["finding-attempts", "repair-round"], "extension_scope");
   const delta = validateTaskStateDelta({
     kind: "task-state",
     action: "extend-repair-budget",
     review_id: value.review_id,
     finding_fingerprints: fingerprints,
     additional_repair_attempts: value.additional_repair_attempts,
+    extension_scope: extensionScope,
     decision_source: value.decision_source,
     decision_text: value.decision_text,
     evidence_refs: [basisPath]
   });
-  const key = `extend-repair-budget-${digest3({ document_id: current.sourceTuple.document_id, review_id: value.review_id, fingerprints, decision_source: value.decision_source, decision_text: value.decision_text }).slice(0, 40)}`;
+  const key = `extend-repair-budget-${digest3({ document_id: current.sourceTuple.document_id, review_id: value.review_id, fingerprints, extension_scope: extensionScope, decision_source: value.decision_source, decision_text: value.decision_text }).slice(0, 40)}`;
   const proposal = validateRuntimeProposal({
     schema_version: 1,
     kind: VNEXT_RUNTIME_PROPOSAL_KIND,
@@ -28892,8 +28960,14 @@ function repoPath(value, location2) {
 function digest6(value) {
   return crypto16.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
-function authority3(current) {
-  return ["active-task-owner", "scope-admission", "evidence-admission"].map((kind) => ({
+function authority3(current, additionalKinds = []) {
+  const kinds = [...new Set([
+    "active-task-owner",
+    "scope-admission",
+    "evidence-admission",
+    ...additionalKinds
+  ])];
+  return kinds.map((kind) => ({
     kind,
     source: current.relativePath,
     subject: current.runtimeState.task_id,
@@ -29472,16 +29546,19 @@ function normalizeFinding(value, index, current, root2) {
     ...candidate
   };
 }
-function convergenceBlocker(current, receipt, findings, unresolved) {
+function convergenceBlocker(current, receipt, findings, unresolved, resolved) {
   if (receipt.cycle_phase !== "verification")
     return null;
-  if (findings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
+  const resolvedSet = new Set(resolved);
+  const activeFindings = findings.filter((item) => !resolvedSet.has(item.fingerprint));
+  const activeUnresolved = unresolved.filter((fingerprint) => !resolvedSet.has(fingerprint));
+  if (activeFindings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
     return { code: "NEW_FINDING_WAVE_BUDGET_EXHAUSTED", summary: "Verification found another new-finding wave after the one allowed wave was already used.", next_route: "debug-task" };
   }
-  if (current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle) && (findings.length > 0 || unresolved.length > 0)) {
+  if (current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle) && (activeFindings.length > 0 || activeUnresolved.length > 0)) {
     return { code: "REPAIR_BUDGET_EXHAUSTED", summary: "The current review cycle has exhausted its repair-wave budget.", next_route: "debug-task" };
   }
-  const exhausted = unresolved.filter((fingerprint) => {
+  const exhausted = activeUnresolved.filter((fingerprint) => {
     const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
     return finding !== undefined && finding.repair_attempts >= finding.max_repair_attempts;
   });
@@ -29530,7 +29607,7 @@ function semanticNoOp3(current, key, message, options) {
 }
 function recordReviewResult(root2, input, options = {}) {
   const source = record7(input, "record-review-result input");
-  exactKeys4(source, ["context_receipt", "verdict", "findings", "unresolved_fingerprints", "evidence_refs", "blocker", ...source.test_assessment === undefined ? [] : ["test_assessment"]], "record-review-result input");
+  exactKeys4(source, ["context_receipt", "verdict", "findings", "unresolved_fingerprints", ...source.resolved_fingerprints === undefined ? [] : ["resolved_fingerprints"], "evidence_refs", "blocker", ...source.test_assessment === undefined ? [] : ["test_assessment"]], "record-review-result input");
   const receipt = normalizeContextReceipt(source.context_receipt);
   if (!["clean", "findings", "blocked"].includes(String(source.verdict)))
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "verdict must be clean, findings, or blocked.");
@@ -29546,6 +29623,13 @@ function recordReviewResult(root2, input, options = {}) {
   const unresolved = textList3(source.unresolved_fingerprints, "unresolved_fingerprints", true);
   if (unresolved.some((item) => !receipt.admitted_fingerprints.includes(item)))
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "unresolved_fingerprints must be drawn from the Runtime review context.");
+  const resolved = textList3(source.resolved_fingerprints === undefined ? [] : source.resolved_fingerprints, "resolved_fingerprints", true);
+  if (resolved.some((item) => !receipt.admitted_fingerprints.includes(item)))
+    fail8("REVIEW_ADAPTER_INPUT_INVALID", "resolved_fingerprints must be drawn from the Runtime review context.");
+  if (resolved.some((item) => unresolved.includes(item)))
+    fail8("REVIEW_ADAPTER_INPUT_INVALID", "resolved_fingerprints must not overlap unresolved_fingerprints.");
+  if (resolved.some((item) => findings.some((finding) => finding.fingerprint === item)))
+    fail8("REVIEW_ADAPTER_INPUT_INVALID", "resolved_fingerprints must not overlap findings.");
   const evidenceRefs = textList3(source.evidence_refs, "evidence_refs", false);
   let blocker;
   if (source.blocker === null)
@@ -29563,12 +29647,12 @@ function recordReviewResult(root2, input, options = {}) {
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "findings verdict requires a finding and no blocker.");
   if (verdict === "blocked" && blocker === null)
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "blocked requires a blocker.");
-  const runtimeBlocker = verdict === "findings" ? convergenceBlocker(current, receipt, findings, unresolved) : null;
+  const runtimeBlocker = verdict === "findings" ? convergenceBlocker(current, receipt, findings, unresolved, resolved) : null;
   const finalVerdict = runtimeBlocker ? "blocked" : verdict;
   const finalFindings = findings;
   const finalUnresolved = unresolved;
   const finalBlocker = runtimeBlocker ?? blocker;
-  const reviewId = `review-${digest6({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
+  const reviewId = `review-${digest6({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, resolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult = {
     ...source.test_assessment === undefined ? {} : { test_assessment: validateTestAssessment(source.test_assessment) },
     kind: "review-result/v1",
@@ -29582,6 +29666,7 @@ function recordReviewResult(root2, input, options = {}) {
     verdict: finalVerdict,
     findings: finalFindings,
     unresolved_fingerprints: finalUnresolved,
+    resolved_fingerprints: resolved,
     evidence_refs: evidenceRefs,
     blocker: finalBlocker
   };
@@ -29597,7 +29682,7 @@ function recordReviewResult(root2, input, options = {}) {
     review_result: reviewResult,
     evidence_refs: evidenceRefs,
     idempotency_key: resultKey,
-    authority_evidence: authority3(current)
+    authority_evidence: authority3(current, resolved.length > 0 ? ["finding-admission"] : [])
   });
   return verifyReadBack2(root2, applyVNextRuntimeProposal(root2, proposal, options), reviewId, options);
 }
