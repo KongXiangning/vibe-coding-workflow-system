@@ -1,0 +1,33 @@
+name: Evidence plan amendment workbench
+on:
+  push:
+    branches: [codex/evidence-plan-amendment-work-20260920]
+    paths: [.github/workflows/evidence-plan-amendment-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Extract read-only baseline source windows
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, subprocess
+          base='098710a2f91313450b0aeaf3f94b0136b56a3cf4'
+          text=subprocess.check_output(['git','show',base+':runtime/vnext/src/kernel.ts']).decode()
+          out=pathlib.Path('.amend-work/source'); out.mkdir(parents=True,exist_ok=True)
+          lines=text.splitlines(keepends=True)
+          for start in range(0,len(lines),2000):
+              (out/f'kernel-{start//2000:02d}.txt').write_text(''.join(lines[start:start+2000]))
+          (out/'index.txt').write_text('\n'.join(f'{i+1}: {line.rstrip()}' for i,line in enumerate(lines) if re.match(r'(?:export )?(?:async )?function |export (?:type|const) ',line)))
+          PY
+          git add -- .amend-work/source
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore(dev): retain read-only baseline source windows'
+          git push origin HEAD:codex/evidence-plan-amendment-work-20260920
