@@ -1,0 +1,13 @@
+ .workflow-system/vnext/RUNTIME_CONTRACT.yaml       |   1 +
+ .workflow-system/vnext/SOURCE_CONTRACT.yaml        |   1 +
+ runtime/vnext/src/kernel.ts                        | 359 ++++++++++++++++++++-
+ runtime/vnext/src/prepare-task-adapter.ts          |  15 +
+ runtime/vnext/src/task-evolution-io.ts             |   4 +-
+ runtime/vnext/support/CONTEXT_API.md               |  76 +++++
+ templates/vnext/bootstrap/FILE_SCHEMAS.md          |  21 ++
+ templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md     |  15 +
+ templates/vnext/skills/execute-step.SKILL.md.tmpl  |  15 +
+ templates/vnext/skills/prepare-task.SKILL.md.tmpl  |  19 ++
+ templates/vnext/skills/review-change.SKILL.md.tmpl |  14 +
+ test/vnext-runtime.test.ts                         | 207 ++++++++++++
+ 12 files changed, 740 insertions(+), 7 deletions(-)
