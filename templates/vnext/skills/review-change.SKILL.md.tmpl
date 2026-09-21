@@ -139,6 +139,23 @@ Do not demand more tests, mandatory mutation testing or E2E when the existing
 minimum evidence already detects the relevant failure. Apply materiality and the
 existing repair scope, not a new gate for formatting or an inefficient extra PASS.
 
+### Format hygiene scope
+
+`git diff --check` and equivalent whitespace-only checks are hygiene checks, not
+independent business acceptance evidence. They are blocking only when the
+reported offending path is inside the current step's authorized mutable
+business/product scope. If every reported path is immutable or hash-bound
+governance evidence—such as `docs/workflow/task-basis/**`,
+`docs/workflow/task-data/**`, `docs/workflow/evidence-objects/**`,
+`docs/workflow/CURRENT_TASK.md`, `.workflow-system/**`, or retained
+authorization text—preserve the exact bytes and hash, retain the failed
+whole-tree invocation as historical evidence, and continue the review against
+the authorized mutable paths. Do not emit `FORMAT_CHECK_SCOPE_BLOCKED`, request
+an evidence-plan amendment, or require a waiver solely for that out-of-scope
+whitespace. When a format gate is part of the confirmed plan, run or inspect a
+scoped check for the mutable paths. A failure reported for an authorized
+mutable path remains a real finding or blocker.
+
 Verify actual evidence against `frozen_invocation` and its selector arguments.
 For opaque invocation, compare the verbatim frozen command and inspect the wrapper's
 real boundary; opaque metadata cannot establish focused execution or oracle quality.

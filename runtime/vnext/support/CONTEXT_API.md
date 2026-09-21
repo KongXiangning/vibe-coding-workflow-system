@@ -471,13 +471,19 @@ legacy v1 grant remains one wave with its historical two-attempt cap. It
 never raises ordinary maxima, resets counters, clears a review, manufactures
 clean, or closes an unverified finding.
 
-`FORMAT_CHECK_SCOPE_BLOCKED` is a format-gate blocker, not a license to erase
-the business review. Its structured findings, unresolved/resolved fingerprints,
-and blocker remain intact. The user may first use the formal evidence-plan
-amendment route to scope a governance check to business files; if a confirmed
-must-fix business finding is already at the ordinary absolute boundary, the
-same finite controlled-recovery route may continue that finding while the
-format blocker remains recorded.
+`FORMAT_CHECK_SCOPE_BLOCKED` is reserved for a format failure reported inside
+the authorized mutable business/product scope. A whole-tree whitespace result
+that points only at immutable or hash-bound governance evidence is not a
+business blocker: preserve the exact bytes and hash, retain the original failed
+invocation as historical evidence, and review the authorized mutable paths with
+a scoped check when the plan requires one. Do not create this blocker, request
+an evidence-plan amendment, or require a waiver solely because retained
+authorization text has trailing whitespace. The byte-level hash protects the
+integrity of that authorization record; it does not turn incidental whitespace
+into a product acceptance obligation. A failure in an authorized mutable path
+remains a real finding/blocker. A previously recorded format blocker remains
+truthful historical state and may be reconciled by a fresh scoped review; it is
+not a reason to rewrite the protected evidence.
 
 The authorization set is not the repair set. Findings with remaining ordinary
 budget stay in the full repair wave, verified resolutions stay out, and a new

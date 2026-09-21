@@ -404,11 +404,16 @@ requeued, and a new review finding must complete normal admission. Exact
 replay is a no-op; stale, duplicate, cross-task, over-target and over-quota
 requests stop at the transaction gate.
 
-`FORMAT_CHECK_SCOPE_BLOCKED` is retained as a format-gate blocker and does not
-erase structured business findings. Use the formal evidence-plan amendment
-route to correct an over-broad governance check; a separately authorized
-controlled repair may continue a must-fix business finding while that format
-blocker remains recorded.
+`FORMAT_CHECK_SCOPE_BLOCKED` is reserved for a format failure reported inside
+the authorized mutable business/product scope. A whole-tree format check that
+reports only immutable or hash-bound governance evidence—such as Task Basis,
+task data, Runtime-managed task state, or retained authorization text—does not
+block business review. Preserve those exact bytes, hashes, and the original
+failed invocation as historical evidence; do not create this blocker, demand a
+waiver, or route the user through evidence-plan amendment solely to exclude
+those paths. Re-run the hygiene check against the authorized mutable paths when
+the confirmed plan requires it. Historical blocked reviews remain truthful and
+may be reviewed as legacy state, but a fresh review must use this scope rule.
 For the legacy bridge, the explicit recovery target must cover every existing
 unresolved finding in the complete repair set with no ordinary attempt
 remaining; a partial request is rejected before the one-per-review grant is

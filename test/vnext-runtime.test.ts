@@ -9192,6 +9192,79 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(businessWhitespaceCheck.status).not.toBe(0);
   });
 
+  test('accepts a fresh scoped review after a governance-only format blocker', { timeout: 30_000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const formatCommand = 'git diff --check';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Reconcile a governance-only format blocker', mutation_scope: [file],
+        commands: [{ command, expected_repo_writes: 'none' }, { command: formatCommand, expected_repo_writes: 'none' }],
+        validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    fs.writeFileSync(product, 'before\n', 'utf8');
+
+    const initial = preflightStep(root, { candidate_paths: [file] });
+    fs.writeFileSync(product, 'initial\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: initial.receipt,
+      actual_changed_paths: [file],
+      command_results: [
+        { command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:format-only-initial-command'] },
+        { command: formatCommand, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:format-only-initial-format'] },
+      ],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:format-only-initial-validation'] }],
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Initial implementation.',
+    }).status).toBe('success');
+
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt, verdict: 'findings', findings: [{
+        category: 'correctness', file,
+        failure_condition: 'the repair invariant is not yet complete',
+        required_behavior: 'preserve the invariant in the repair', root_cause_status: 'confirmed',
+        evidence_refs: ['test:format-only-finding'],
+      }], unresolved_fingerprints: [], evidence_refs: ['test:format-only-discovery'], blocker: null,
+    }).status).toBe('success');
+    const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+
+    const repair = beginRepair(root, { candidate_paths: [file] });
+    fs.writeFileSync(product, 'repaired\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: repair.receipt,
+      actual_changed_paths: [file],
+      command_results: [
+        { command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:format-only-repair-command'] },
+        { command: formatCommand, status: 'failed', observed_repo_writes: [], evidence_refs: ['test:format-only-whole-tree-format'] },
+      ],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:format-only-repair-validation'] }],
+      acceptance_evidence: [], outcome: 'blocked', note: 'Only retained governance evidence failed the whole-tree format check.',
+    }).status).toBe('success');
+
+    const remediation = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: remediation.receipt, verdict: 'blocked', findings: [], unresolved_fingerprints: [],
+      resolved_fingerprints: [fingerprint], evidence_refs: ['test:format-only-remediation'],
+      blocker: { code: 'FORMAT_CHECK_SCOPE_BLOCKED', summary: 'Only immutable governance evidence was reported.', next_route: 'user' },
+    }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.pending_review_result).toMatchObject({
+      verdict: 'blocked', blocker: { code: 'FORMAT_CHECK_SCOPE_BLOCKED' }, findings: [], unresolved_fingerprints: [],
+    });
+
+    const fresh = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: fresh.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['test:format-only-scoped-review'], blocker: null,
+    }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.pending_review_result).toMatchObject({ verdict: 'clean', blocker: null });
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Scoped business review passed; governance whitespace remains historical evidence.' }).status).toBe('success');
+  });
+
   test('reconciles review-verified resolutions before selecting the next repair set', { timeout: 60_000 }, () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
     const command = 'bun test test/vnext-runtime.test.ts';

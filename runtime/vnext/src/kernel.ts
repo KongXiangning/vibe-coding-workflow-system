@@ -133,7 +133,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.12';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.14';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -14695,6 +14695,22 @@ export function isRepairRecoveryReviewBlocked(pending: PendingReviewResult | nul
     && REPAIR_RECOVERY_REVIEW_BLOCKER_CODES.includes(pending.blocker.code as RepairRecoveryReviewBlockerCode);
 }
 
+/**
+ * A legacy caller may have recorded a whole-tree format failure against only
+ * immutable/hash-bound governance evidence. That historical execution remains
+ * blocked and its bytes remain untouched, but a fresh scoped review must be
+ * able to acknowledge the business result. This exception is deliberately
+ * narrower than the general recovery blocker: any finding or unresolved
+ * fingerprint keeps the ordinary remediation gate closed.
+ */
+export function isGovernanceOnlyFormatScopeBlocked(current: CanonicalCurrentTask): boolean {
+  const pending = current.runtimeState.pending_review_result;
+  return pending?.verdict === 'blocked'
+    && pending.blocker?.code === 'FORMAT_CHECK_SCOPE_BLOCKED'
+    && pending.findings.length === 0
+    && pending.unresolved_fingerprints.length === 0;
+}
+
 function controlledGrantAuthorizedWaves(grant: ControlledRepairRecoveryGrant): number {
   return grant.authorized_repair_waves ?? 1;
 }
@@ -15955,7 +15971,7 @@ function applyTaskStateDelta(
     // but raw task-state proposals can reach this branch directly.  A failed
     // repair execution is reviewable for diagnosis/remediation; it is never a
     // clean acceptance receipt for the same execution.
-    if (execution.mode === 'repair' && executionResult.outcome === 'blocked' && review.verdict === 'clean') {
+    if (execution.mode === 'repair' && executionResult.outcome === 'blocked' && review.verdict === 'clean' && !isGovernanceOnlyFormatScopeBlocked(current)) {
       fail('REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION', 'a blocked repair result must receive a remediation review before any clean acceptance review.');
     }
     const currentTarget = captureReviewTarget(root, executionResult.review_target.entries.map(item => item.path));

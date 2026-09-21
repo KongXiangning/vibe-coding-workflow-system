@@ -31,6 +31,7 @@ import {
   currentExecutionDynamicExpansions,
   cumulativeReviewExecution,
   dynamicReviewRequiredForCurrentExecution,
+  isGovernanceOnlyFormatScopeBlocked,
   validateTestAssessment,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
@@ -895,7 +896,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
   const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
-  if (recordedExecution.execution_result?.outcome === 'blocked' && verdict === 'clean') {
+  if (recordedExecution.execution_result?.outcome === 'blocked' && verdict === 'clean' && !isGovernanceOnlyFormatScopeBlocked(current)) {
     fail('REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION', 'a blocked repair result must receive a remediation review before any clean acceptance review.');
   }
   if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must be a bounded array.');

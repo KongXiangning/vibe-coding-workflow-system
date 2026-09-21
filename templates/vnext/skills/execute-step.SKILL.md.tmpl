@@ -262,6 +262,14 @@ fabricated resolution report. The diagnosis is caller-reported and Runtime
 retains it in the new attempt; it grants only a fresh preflight, not a pass.
 No new project file is needed solely to carry the diagnosis.
 
+A whole-tree whitespace check that reports only immutable or hash-bound
+governance evidence is not a failed business validation. Preserve its exact
+failure result and continue with the authorized mutable-path check; do not
+create `FORMAT_CHECK_SCOPE_BLOCKED` or require an evidence-plan amendment just
+to exclude that governance material. A whitespace failure in an authorized
+mutable business/product path remains a normal failed validation and follows
+the retry/repair rules above.
+
 Runtime permits initial execution plus at most two retries, preserving failures
 and recovery evidence beyond rolling logs. A successful retry only sets ready.
 Obtain a fresh preflight before any correction, then rerun the failed check and

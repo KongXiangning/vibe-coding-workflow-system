@@ -120,6 +120,15 @@ describe('gen-workflow-skills', () => {
     }
   });
 
+  test('vNext review skill keeps governance-only whitespace outside the business blocker scope', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'skills', 'review-change.SKILL.md.tmpl'), 'utf8');
+    expect(content).toContain('### Format hygiene scope');
+    expect(content).toContain('only when the\nreported offending path is inside the current step\'s authorized mutable');
+    expect(content).toContain('preserve the exact bytes and hash');
+    expect(content).toContain('Do not emit `FORMAT_CHECK_SCOPE_BLOCKED`');
+    expect(content).toContain('A failure reported for an authorized\nmutable path remains a real finding or blocker.');
+  });
+
   test('every generated workflow skill has required schema fields', () => {
     const files = fs.readdirSync(OUTPUT_DIR).filter(file => file.endsWith('.SKILL.md'));
     for (const file of files) {

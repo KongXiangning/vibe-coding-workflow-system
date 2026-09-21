@@ -174,3 +174,11 @@ boundary. Missing or failed flow evidence cannot be replaced by a rule pass.
 When assessing persistent-test admission, check its P-12 owner/source, claim
 binding and existing-evidence insufficiency; this entry grants no write authority.
 Keep assurance caller-reported; do not invent Provider or human authentication.
+
+Whitespace-only hygiene follows the same boundary: `git diff --check` is
+blocking only for offending paths inside the authorized mutable business scope.
+If the whole-tree result points only at immutable or hash-bound governance
+evidence, preserve the original failure and exact bytes as historical evidence,
+judge the business paths with a scoped check, and do not emit
+`FORMAT_CHECK_SCOPE_BLOCKED` or demand an evidence-plan amendment. A real
+failure in an authorized mutable path remains failed evidence.

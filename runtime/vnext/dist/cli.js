@@ -6182,7 +6182,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.12";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.14";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -18722,6 +18722,10 @@ var REPAIR_RECOVERY_REVIEW_BLOCKER_CODES = ["REPAIR_BUDGET_EXHAUSTED", "FORMAT_C
 function isRepairRecoveryReviewBlocked(pending) {
   return pending?.verdict === "blocked" && typeof pending.blocker?.code === "string" && REPAIR_RECOVERY_REVIEW_BLOCKER_CODES.includes(pending.blocker.code);
 }
+function isGovernanceOnlyFormatScopeBlocked(current) {
+  const pending = current.runtimeState.pending_review_result;
+  return pending?.verdict === "blocked" && pending.blocker?.code === "FORMAT_CHECK_SCOPE_BLOCKED" && pending.findings.length === 0 && pending.unresolved_fingerprints.length === 0;
+}
 function controlledGrantAuthorizedWaves(grant) {
   return grant.authorized_repair_waves ?? 1;
 }
@@ -19807,7 +19811,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (!executionResult || execution.change_set_id !== review.change_set_id || executionResult.change_set_id !== review.change_set_id || executionResult.review_target.revision !== review.review_target_revision) {
       fail3("REVIEW_TARGET_CONFLICT", "review result does not bind the Runtime-recorded execution change set and review target.");
     }
-    if (execution.mode === "repair" && executionResult.outcome === "blocked" && review.verdict === "clean") {
+    if (execution.mode === "repair" && executionResult.outcome === "blocked" && review.verdict === "clean" && !isGovernanceOnlyFormatScopeBlocked(current)) {
       fail3("REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION", "a blocked repair result must receive a remediation review before any clean acceptance review.");
     }
     const currentTarget = captureReviewTarget(root, executionResult.review_target.entries.map((item) => item.path));
@@ -30771,7 +30775,7 @@ function recordReviewResult(root, input, options = {}) {
   const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
   const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
-  if (recordedExecution.execution_result?.outcome === "blocked" && verdict === "clean") {
+  if (recordedExecution.execution_result?.outcome === "blocked" && verdict === "clean" && !isGovernanceOnlyFormatScopeBlocked(current)) {
     fail8("REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION", "a blocked repair result must receive a remediation review before any clean acceptance review.");
   }
   if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS3)
