@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.9
+  package_version: 0.20.11
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -155,7 +155,7 @@ proposal:
       - review_cycle_id
       - repair_wave_id
   process_control:
-    evidence_plan_amendment: prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation
+    evidence_plan_amendment: prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation; unbound-planned-read-only-command-scope-correction-without-slot-or-waiver
     user_evidence: exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated
     waiver: user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass
     successor: explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required
@@ -527,7 +527,7 @@ proposal:
         - record-evidence-challenge
         - dismiss-evidence-challenge
       context_source: latest-recorded-execution
-      reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification
+      reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review
       change_set: runtime-owned-stable-id
       review_target: runtime-cumulative-before-after-file-delta
       result_storage: canonical-pending-review-result

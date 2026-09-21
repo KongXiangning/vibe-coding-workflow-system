@@ -6182,7 +6182,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.9";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.11";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -7318,7 +7318,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(findingQueueAdmission.required, "Runtime contract.proposal.finding_queue_admission.required"), ["cycle_phase", "finding_admission_wave_id"], "Runtime contract finding-queue admission fields");
   const processControl = expectRecord2(proposal.process_control, "Runtime process_control");
   const processSemantics = {
-    evidence_plan_amendment: "prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation",
+    evidence_plan_amendment: "prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation; unbound-planned-read-only-command-scope-correction-without-slot-or-waiver",
     user_evidence: "exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated",
     waiver: "user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass",
     successor: "explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required",
@@ -7508,7 +7508,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectExactKeys2(reviewChangeContract, ["semantic_adapter", "bound_actions"], "Runtime contract.proposal.review_change");
   const reviewChangeAdapter = expectRecord2(reviewChangeContract.semantic_adapter, "Runtime contract.proposal.review_change.semantic_adapter");
   expectExactKeys2(reviewChangeAdapter, ["input", "commands", "context_source", "reviewable_execution", "change_set", "review_target", "result_storage", "direct_product_writes", "advancement_owner"], "Runtime contract.proposal.review_change.semantic_adapter");
-  if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.reviewable_execution !== "implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification" || reviewChangeAdapter.change_set !== "runtime-owned-stable-id" || reviewChangeAdapter.review_target !== "runtime-cumulative-before-after-file-delta" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
+  if (reviewChangeAdapter.input !== "stdin-json" || reviewChangeAdapter.context_source !== "latest-recorded-execution" || reviewChangeAdapter.reviewable_execution !== "implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review" || reviewChangeAdapter.change_set !== "runtime-owned-stable-id" || reviewChangeAdapter.review_target !== "runtime-cumulative-before-after-file-delta" || reviewChangeAdapter.result_storage !== "canonical-pending-review-result" || reviewChangeAdapter.direct_product_writes !== "deny" || reviewChangeAdapter.advancement_owner !== "execute-step")
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime review-change adapter semantic boundary is invalid.");
   expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "review-read", "record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge"], "Runtime contract review-change commands");
   expectSetEqual(expectStringArray2(reviewChangeContract.bound_actions, "Runtime contract review-change actions"), ["record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge"], "Runtime contract review-change actions");
@@ -9667,8 +9667,8 @@ function assertReviewExecutionEligible(current, execution) {
   if (!execution.execution_result) {
     fail3("REVIEW_TARGET_REQUIRED", "review-change requires a structured Runtime-recorded execution result.");
   }
-  if (execution.execution_result.outcome === "blocked") {
-    fail3("REVIEW_EXECUTION_NOT_IMPLEMENTED", "a blocked execution is not reviewable.");
+  if (execution.execution_result.outcome === "blocked" && execution.mode !== "repair") {
+    fail3("REVIEW_EXECUTION_NOT_IMPLEMENTED", "a blocked ordinary execution is not reviewable; repair blockers require remediation review.");
   }
   if (execution.execution_result.outcome === "test-red") {
     const context = resolveTestStrategyExecutionContext(current);
@@ -15496,9 +15496,18 @@ function replaceValidation(root, rawInput, options = {}) {
 }
 function normalizeEvidencePlanAmendment(raw) {
   const input = expectRecord2(raw, "evidence-plan amendment");
-  expectExactKeys2(input, ["source_revision", "decision_source", "decision_text", "reason", "replacements", "command_replacements", ...input.validation_replacements === undefined ? [] : ["validation_replacements"]], "evidence-plan amendment");
-  if (!Array.isArray(input.replacements) || !input.replacements.length || input.replacements.length > MAX_CLAIM_EVIDENCE_RECORDS || !Array.isArray(input.command_replacements) || input.command_replacements.length > MAX_EXECUTION_RESULT_ITEMS) {
-    fail3("EVIDENCE_AMENDMENT_INVALID", "Supply a bounded nonempty check replacement set and bounded command replacements.");
+  expectExactKeys2(input, [
+    "source_revision",
+    "decision_source",
+    "decision_text",
+    "reason",
+    "replacements",
+    "command_replacements",
+    ...input.unbound_read_only_command_replacements === undefined ? [] : ["unbound_read_only_command_replacements"],
+    ...input.validation_replacements === undefined ? [] : ["validation_replacements"]
+  ], "evidence-plan amendment");
+  if (!Array.isArray(input.replacements) || input.replacements.length > MAX_CLAIM_EVIDENCE_RECORDS || !Array.isArray(input.command_replacements) || input.command_replacements.length > MAX_EXECUTION_RESULT_ITEMS || input.replacements.length === 0 && input.command_replacements.length === 0 && (!Array.isArray(input.unbound_read_only_command_replacements) || input.unbound_read_only_command_replacements.length === 0)) {
+    fail3("EVIDENCE_AMENDMENT_INVALID", "Supply a bounded nonempty check or planned read-only command replacement set.");
   }
   const replacements = input.replacements.map((raw2, index) => {
     const row = expectRecord2(raw2, `replacements[${index}]`);
@@ -15523,6 +15532,28 @@ function normalizeEvidencePlanAmendment(raw) {
   if (new Set(replacements.map((row) => `${row.claim_id}\x00${row.slot_id}`)).size !== replacements.length || new Set(commands.map((row) => `${row.step_id}\x00${row.old_command}`)).size !== commands.length) {
     fail3("EVIDENCE_AMENDMENT_INVALID", "Each slot and each step/command may be replaced only once.");
   }
+  const unboundCommands = input.unbound_read_only_command_replacements === undefined ? undefined : input.unbound_read_only_command_replacements.map((raw2) => {
+    const row = expectRecord2(raw2, "unbound_read_only_command_replacement");
+    expectExactKeys2(row, ["step_id", "old_command", "new_commands", "reason"], "unbound read-only command replacement");
+    const oldCommand = expectText(row.old_command, "old_command", 4096);
+    const newCommands = expectStringArray2(row.new_commands, "new_commands", false, 32);
+    if (/[\r\n]/u.test(oldCommand) || newCommands.some((command) => /[\r\n]/u.test(command)) || new Set(newCommands).size !== newCommands.length || newCommands.includes(oldCommand)) {
+      fail3("EVIDENCE_AMENDMENT_INVALID", "Unbound planned read-only replacements require a changed bounded set of literal single-line invocations.");
+    }
+    return {
+      step_id: expectString2(row.step_id, "step_id", STEP_ID_PATTERN2),
+      old_command: oldCommand,
+      new_commands: newCommands,
+      reason: expectText(row.reason, "unbound read-only command replacement reason")
+    };
+  });
+  const allCommandKeys = [
+    ...commands.map((row) => `${row.step_id}\x00${row.old_command}`),
+    ...(unboundCommands ?? []).map((row) => `${row.step_id}\x00${row.old_command}`)
+  ];
+  if (new Set(allCommandKeys).size !== allCommandKeys.length) {
+    fail3("EVIDENCE_AMENDMENT_INVALID", "Each step/command may be replaced only once across bound and unbound routes.");
+  }
   const validations = input.validation_replacements;
   if (validations !== undefined && (!Array.isArray(validations) || validations.length > MAX_EXECUTION_RESULT_ITEMS))
     fail3("EVIDENCE_AMENDMENT_INVALID", "Validation description changes must be bounded.");
@@ -15545,7 +15576,8 @@ function normalizeEvidencePlanAmendment(raw) {
     decision_text: expectVerbatim(input.decision_text, "decision_text", 32768),
     reason: expectText(input.reason, "reason"),
     replacements,
-    command_replacements: commands
+    command_replacements: commands,
+    ...unboundCommands === undefined ? {} : { unbound_read_only_command_replacements: unboundCommands }
   };
 }
 function evidenceAmendmentBasis(basis, source, text2) {
@@ -15690,6 +15722,42 @@ function buildEvidencePlanAmendment(root, current, input) {
     definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
 `));
   }
+  for (const row of input.unbound_read_only_command_replacements ?? []) {
+    if (steps.findIndex((step) => step.id === row.step_id) < currentIndex)
+      fail3("EVIDENCE_AMENDMENT_STEP_INVALID", "Only the active and future steps may change verification selection.");
+    const claimedCommands = new Set(oldClaims.flatMap((claim) => claim.slots.map((slot) => slot.check?.entry).filter((entry) => entry !== undefined)));
+    if (claimedCommands.has(row.old_command) || row.new_commands.some((command) => claimedCommands.has(command)) || row.new_commands.some((command) => input.replacements.some((change) => change.replacement_check.entry === command))) {
+      fail3("EVIDENCE_AMENDMENT_UNBOUND_COMMAND_CONFLICT", "An unbound read-only command cannot borrow or merge with any claim-evidence slot; use a bound replacement for that obligation.");
+    }
+    const block = implementationStepBlock(definition, row.step_id);
+    if (!block)
+      fail3("EVIDENCE_AMENDMENT_STEP_INVALID", "The selected step does not exist.");
+    const lines = block.split(`
+`);
+    const hits = lines.flatMap((line, index) => `- planned_command: ${row.old_command}` === line.trim() ? [index] : []);
+    if (hits.length !== 1 || lines[hits[0] + 1]?.trim() !== "- expected_repo_writes: none") {
+      fail3("EVIDENCE_AMENDMENT_WRITES_FORBIDDEN", "Replace only an exact planned read-only verification command, never an implementation command.");
+    }
+    const start = hits[0];
+    let end = start + 1;
+    while (end < lines.length && /^\s{4,}- /.test(lines[end]))
+      end++;
+    const retained = [...lines.slice(0, start), ...lines.slice(end)];
+    const additions = [];
+    for (const command of row.new_commands) {
+      const existing = retained.findIndex((line) => line.trim() === `- planned_command: ${command}`);
+      if (existing >= 0) {
+        if (retained[existing + 1]?.trim() !== "- expected_repo_writes: none") {
+          fail3("EVIDENCE_AMENDMENT_WRITES_FORBIDDEN", "An existing invocation can be reused only with its exact read-only footprint.");
+        }
+        continue;
+      }
+      additions.push(`  - planned_command: ${command}`, "    - expected_repo_writes: none", "    - transformation_kind: localized");
+    }
+    lines.splice(start, end - start, ...additions);
+    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
+`));
+  }
   for (const row of input.validation_replacements ?? []) {
     const oldStep = steps.find((step) => step.id === row.step_id);
     if (!oldStep || steps.indexOf(oldStep) < currentIndex)
@@ -15717,7 +15785,7 @@ function buildEvidencePlanAmendment(root, current, input) {
     definition.implementation_steps = definition.implementation_steps.replace(block, lines.join(`
 `));
   }
-  const revalidate = input.command_replacements.some((row) => row.step_id === state.active_step_id) || input.replacements.some((row) => oldClaims.find((c) => c.claim_id === row.claim_id)?.slots.find((s) => s.slot_id === row.slot_id)?.due_step_id === state.active_step_id);
+  const revalidate = [...input.command_replacements, ...input.unbound_read_only_command_replacements ?? []].some((row) => row.step_id === state.active_step_id) || input.replacements.some((row) => oldClaims.find((c) => c.claim_id === row.claim_id)?.slots.find((s) => s.slot_id === row.slot_id)?.due_step_id === state.active_step_id);
   const historicalReview = revalidate && state.pending_review_result?.verdict === "clean";
   if (historicalReview || revalidate && !state.pending_review_result && state.active_step_status !== "ready") {
     const block = implementationStepBlock(definition, state.active_step_id);
@@ -18140,6 +18208,15 @@ function currentDefinitionExecutionLog(current) {
   }
   return log.slice(Math.max(lastCorrection, lastScopeAmendment) + 1);
 }
+function outstandingRepairPreflight(current) {
+  const pending = current.runtimeState.pending_review_result;
+  const active = current.runtimeState.execution_preflight;
+  if (!pending || !["findings", "blocked"].includes(pending.verdict) || !active || active.mode !== "repair" || active.step_id !== current.runtimeState.active_step_id || active.review_id !== pending.review_id || active.change_set_id !== pending.change_set_id) {
+    return null;
+  }
+  const recorded = currentDefinitionExecutionLog(current).some((item) => !("action" in item) && item.mode === "repair" && item.step_id === active.step_id && item.execution_result?.execution_id === active.execution_id && item.review_receipt === undefined);
+  return recorded ? null : active;
+}
 function implementationStepBlock(definition, stepId) {
   return definition.implementation_steps.split(/(?=^-\s*[A-Za-z0-9][A-Za-z0-9._:-]*\s*[:：])/m).find((block) => block.startsWith(`- ${stepId}:`) || block.startsWith(`- ${stepId}：`))?.trimEnd();
 }
@@ -19629,6 +19706,9 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (!executionResult || execution.change_set_id !== review.change_set_id || executionResult.change_set_id !== review.change_set_id || executionResult.review_target.revision !== review.review_target_revision) {
       fail3("REVIEW_TARGET_CONFLICT", "review result does not bind the Runtime-recorded execution change set and review target.");
     }
+    if (execution.mode === "repair" && executionResult.outcome === "blocked" && review.verdict === "clean") {
+      fail3("REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION", "a blocked repair result must receive a remediation review before any clean acceptance review.");
+    }
     const currentTarget = captureReviewTarget(root, executionResult.review_target.entries.map((item) => item.path));
     if (currentTarget.revision !== review.review_target_revision) {
       fail3("REVIEW_TARGET_STALE", "product files changed after the reviewed execution target was recorded.");
@@ -20098,7 +20178,9 @@ function applyTaskStateDelta(root, current, proposal, now) {
         fail3("RETRY_PREFLIGHT_REQUIRED", "Recovery progress requires the durable current preflighted attempt, including through raw apply.");
     }
   }
-  if (delta.status === "completed" || delta.execution_result && delta.execution_result.outcome !== "blocked")
+  const executionMode = proposal.mode;
+  const repairBlockedResult = executionMode === "repair" && delta.execution_result?.outcome === "blocked";
+  if (!repairBlockedResult && (delta.status === "completed" || delta.execution_result && delta.execution_result.outcome !== "blocked"))
     assertArtifactRestoreCompleted(root, current);
   const currentClaimEvidenceEnabled = claimEvidenceStateEnabled(current.runtimeState);
   if (!currentClaimEvidenceEnabled && delta.claim_evidence !== undefined) {
@@ -20113,7 +20195,6 @@ function applyTaskStateDelta(root, current, proposal, now) {
   }
   if (proposal.mode !== "repair" && !delta.review_receipt)
     assertOrdinaryPreflight(current, root);
-  const executionMode = proposal.mode;
   assertStepProgressExecutionIdentity(current, delta);
   const stepResolution = resolveCanonicalTaskStep(current);
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
@@ -20164,8 +20245,18 @@ function applyTaskStateDelta(root, current, proposal, now) {
     if (currentTarget.revision !== delta.execution_result.review_target.revision) {
       fail3("REVIEW_TARGET_STALE", "product files changed while the execution result was being recorded.");
     }
-    if (delta.execution_result.outcome === "blocked" !== (newStatus === "blocked")) {
+    if (repairBlockedResult && newStatus !== "completed") {
+      fail3("RUNTIME_STATE_CONFLICT", "a blocked repair execution must retain the completed step progress status.");
+    }
+    if (!repairBlockedResult && delta.execution_result.outcome === "blocked" !== (newStatus === "blocked")) {
       fail3("RUNTIME_STATE_CONFLICT", "execution_result outcome must match the step-progress status.");
+    }
+    if (repairBlockedResult) {
+      const pending = current.runtimeState.pending_review_result;
+      const active = current.runtimeState.execution_preflight;
+      if (!pending || !["findings", "blocked"].includes(pending.verdict) || !active || active.mode !== "repair" || active.review_id !== pending.review_id || active.change_set_id !== pending.change_set_id) {
+        fail3("REPAIR_RESULT_RECOVERY_STATE_INVALID", "a blocked repair result must retain the exact pending review and repair preflight identity.");
+      }
     }
     const structuredEvidenceRefs = [...new Set([
       ...delta.execution_result.command_results.flatMap((item) => item.evidence_refs),
@@ -20268,7 +20359,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       }
     }
   }
-  if (newStatus === "completed" && !evaluateClaimEvidence(transitionClaimEvidence, { root, current, due_step_id: delta.step_id }).validation_complete)
+  if (newStatus === "completed" && !repairBlockedResult && !evaluateClaimEvidence(transitionClaimEvidence, { root, current, due_step_id: delta.step_id }).validation_complete)
     fail3("CLAIM_EVIDENCE_INCOMPLETE", "Every due slot must have applicable successful evidence before step completion.");
   let advancement = {
     outcome: "not-applicable",
@@ -20453,7 +20544,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: copyClaimEvidence(transitionClaimEvidence),
     ...newStatus === "completed" && unresolvedChallenges.length > 0 ? { evidence_challenges: (current.runtimeState.evidence_challenges ?? []).map((item) => unresolvedChallenges.some((challenge) => challenge.challenge_id === item.challenge_id) ? { ...item, status: "resolved" } : item) } : {},
-    pending_review_result: null,
+    pending_review_result: repairBlockedResult ? current.runtimeState.pending_review_result : null,
     ...coverage ? { review_coverage: coverage } : {},
     ...stepAttempts ? { step_attempts: stepAttempts } : {},
     ...retainExecutionPreflight && currentExecutionPreflight ? { execution_preflight: currentExecutionPreflight } : {},
@@ -27289,6 +27380,13 @@ function latestExecution(current) {
     result_id: record5(active.execution_result) ? active.execution_result.result_id ?? null : null
   };
 }
+function latestReviewableUnreviewedExecution(current) {
+  const pendingReview = current.runtimeState.pending_review_result;
+  const entry = currentDefinitionExecutionLog(current).findLast((item) => !("action" in item) && item.step_id === current.runtimeState.active_step_id && item.execution_result !== undefined && item.review_receipt === undefined && item.idempotency_key.startsWith("execute-step-result-"));
+  if (!entry || pendingReview?.execution_id === entry.idempotency_key || entry.execution_result?.outcome === "blocked" && entry.mode !== "repair")
+    return null;
+  return entry;
+}
 function pendingReplanCandidateCount(current) {
   const entries = Array.isArray(current.runtimeState.execution_log) ? current.runtimeState.execution_log.filter(record5) : [];
   const lastReplan = entries.findLastIndex((item) => item.action === "commit-replan");
@@ -27354,11 +27452,15 @@ function contextOverview(root, current, manifest2) {
   const budgetExtensionAvailable = budgetExtensionEligibility?.eligible === true;
   const controlledRecoveryEligibility = budgetExhausted ? controlledRepairRecoveryEligibility(current) : null;
   const controlledRecoveryAvailable = controlledRecoveryEligibility?.eligible === true;
+  const outstandingRepair = outstandingRepairPreflight(current);
+  const reviewableUnreviewedExecution = latestReviewableUnreviewedExecution(current);
+  const pendingRepair = pendingReview?.verdict === "findings";
+  const repairExecutionRequired = outstandingRepair !== null || pendingRepair;
   const retainedCleanReview = pendingReview?.verdict === "clean" && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === "findings" && state.scope_amendment_pending_review_step_id !== undefined;
   const dynamicReviewReady = dynamicReviewRequiredForCurrentExecution(current) && state.active_step_status === "in-progress" && latest?.execution_result_status !== null && latest?.execution_result_status !== undefined;
-  const nextEntry = state.resume_requires_review ? "prepare-task:clear-resume-review" : budgetContinuation || controlledRecoveryContinuation ? "execute-step:repair" : budgetExtensionAvailable ? "prepare-task:extend-repair-budget" : controlledRecoveryAvailable ? "prepare-task:authorize-controlled-repair-recovery" : budgetExhausted ? "debug-task" : retainedCleanReview ? "execute-step:complete-reviewed-step" : retainedFindingReview ? "execute-step:repair" : state.workflow_status === "blocked_by_replan" ? "prepare-task:amend-scope" : state.active_step_status === "blocked" ? "debug-task" : dynamicReviewReady ? "review-change" : "preflight-step";
-  const nextOptions = budgetContinuation || controlledRecoveryContinuation ? ["execute-step:repair"] : budgetExtensionAvailable ? ["prepare-task:extend-repair-budget", "debug-task"] : controlledRecoveryAvailable ? ["prepare-task:authorize-controlled-repair-recovery", "debug-task"] : budgetExhausted ? ["debug-task"] : state.workflow_status === "blocked_by_replan" ? ["prepare-task:amend-scope", "prepare-task:prepare-replan", "debug-task"] : state.active_step_status === "blocked" ? ["debug-task", "execute-step"] : [nextEntry];
+  const nextEntry = state.resume_requires_review ? "prepare-task:clear-resume-review" : reviewableUnreviewedExecution !== null ? "review-change" : budgetContinuation || controlledRecoveryContinuation ? "execute-step:repair" : repairExecutionRequired ? "execute-step:repair" : budgetExtensionAvailable ? "prepare-task:extend-repair-budget" : controlledRecoveryAvailable ? "prepare-task:authorize-controlled-repair-recovery" : budgetExhausted ? "debug-task" : retainedCleanReview ? "execute-step:complete-reviewed-step" : retainedFindingReview ? "execute-step:repair" : state.workflow_status === "blocked_by_replan" ? "prepare-task:amend-scope" : state.active_step_status === "blocked" ? "debug-task" : dynamicReviewReady ? "review-change" : "preflight-step";
+  const nextOptions = reviewableUnreviewedExecution !== null ? ["review-change"] : budgetContinuation || controlledRecoveryContinuation ? ["execute-step:repair"] : repairExecutionRequired ? ["execute-step:repair"] : budgetExtensionAvailable ? ["prepare-task:extend-repair-budget", "debug-task"] : controlledRecoveryAvailable ? ["prepare-task:authorize-controlled-repair-recovery", "debug-task"] : budgetExhausted ? ["debug-task"] : state.workflow_status === "blocked_by_replan" ? ["prepare-task:amend-scope", "prepare-task:prepare-replan", "debug-task"] : state.active_step_status === "blocked" ? ["debug-task", "execute-step"] : [nextEntry];
   return {
     identity: {
       task_id: state.task_id,
@@ -27432,6 +27534,19 @@ function contextOverview(root, current, manifest2) {
       dynamic_expansion_count: state.dynamic_expansions?.length ?? 0
     },
     latest_execution: latestIndex,
+    repair_execution_recovery: outstandingRepair === null ? null : {
+      required: true,
+      action: "record-step-result",
+      exact_retry: true,
+      preflight_id: outstandingRepair.preflight_id,
+      execution_id: outstandingRepair.execution_id,
+      review_id: outstandingRepair.review_id,
+      repair_wave_id: outstandingRepair.repair_wave_id,
+      change_set_id: outstandingRepair.change_set_id,
+      candidate_paths: [...outstandingRepair.candidate_paths],
+      repair_fingerprints: [...outstandingRepair.repair_fingerprints ?? []],
+      next_route: "execute-step:repair"
+    },
     budget_extension: budgetExtensionEligibility === null ? null : {
       eligible: budgetExtensionEligibility.eligible,
       extension_scope: budgetExtensionEligibility.extension_scope,
@@ -28618,6 +28733,43 @@ function currentStepResult(stepPlan, strategy) {
     persistent_tests: [...strategy.persistent_tests]
   };
 }
+function recoverOutstandingRepairReceipt(current, stepPlan, strategy, candidatePaths) {
+  const active = outstandingRepairPreflight(current);
+  if (!active)
+    return null;
+  if (digest5(active.candidate_paths) !== digest5(candidatePaths)) {
+    fail7("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", "the outstanding repair preflight owns a different candidate path set; reuse its exact paths.");
+  }
+  const pending = current.runtimeState.pending_review_result;
+  const reviewTargetPaths = active.review_target_paths;
+  const coverageTarget = current.runtimeState.review_coverage?.target;
+  const expectedBasePaths = [...new Set([...reviewTargetPaths ?? [], ...active.candidate_paths])].sort();
+  if (!pending || !reviewTargetPaths || !coverageTarget || digest5(coverageTarget.entries.map((item) => item.path).sort()) !== digest5(expectedBasePaths)) {
+    fail7("EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE", "the retained repair preflight has no exact Runtime review baseline; obtain a fresh review receipt before retrying.");
+  }
+  const receipt = {
+    kind: "execute-step-repair-preflight/v1",
+    preflight_id: active.preflight_id,
+    execution_id: active.execution_id,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    step_id: stepPlan.step.id,
+    plan_revision: active.plan_revision,
+    mode: "repair",
+    test_strategy_mode: strategy.mode,
+    execution_phase: active.execution_phase,
+    candidate_paths: [...active.candidate_paths],
+    repair_fingerprints: [...active.repair_fingerprints ?? []],
+    repair_wave_id: active.repair_wave_id,
+    change_set_id: active.change_set_id,
+    review_target_paths: [...reviewTargetPaths],
+    review_id: active.review_id,
+    ...active.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: active.controlled_recovery_grant_id },
+    review_base: coverageTarget
+  };
+  return receipt;
+}
 function beginRepair(root, input, options = {}) {
   const source = record6(input, "begin-repair input");
   exactKeys3(source, ["candidate_paths", ...source.blast_radius_assessments === undefined ? [] : ["blast_radius_assessments"]], "begin-repair input");
@@ -28635,7 +28787,8 @@ function beginRepair(root, input, options = {}) {
   const pending = current.runtimeState.pending_review_result;
   const budgetContinuation = repairBudgetContinuationForPendingReview(current);
   const controlledContinuation = controlledRepairContinuationForPendingReview(current);
-  if (!pending || pending.verdict !== "findings" && budgetContinuation === null && controlledContinuation === null) {
+  const outstandingPreflight = outstandingRepairPreflight(current);
+  if (!pending || pending.verdict !== "findings" && budgetContinuation === null && controlledContinuation === null && outstandingPreflight === null) {
     fail7("REVIEW_FINDINGS_REQUIRED", "begin-repair requires findings or an explicitly authorized continuation of the exact budget-blocked review.");
   }
   const reviewedExecution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : current.runtimeState.scope_amendment_pending_review_step_id !== undefined && item.idempotency_key === pending.execution_id ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
@@ -28649,6 +28802,18 @@ function beginRepair(root, input, options = {}) {
   assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths", root, assessments, "repair", phase);
   assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, "repair");
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
+  const recoveredReceipt = recoverOutstandingRepairReceipt(current, stepPlan, strategy, candidatePaths);
+  if (recoveredReceipt) {
+    return {
+      status: "pass",
+      operation_kind: "execute-step-repair-preflight",
+      committed: false,
+      read_back_verified: true,
+      current_step: currentStepResult(stepPlan, { ...strategy, phase: recoveredReceipt.execution_phase }),
+      context_projection: taskContextReferenceForCurrent(root, current, "preflight-step", "repair"),
+      receipt: recoveredReceipt
+    };
+  }
   const admissionWaveId = findingAdmissionWaveId(pending.review_id);
   const previousStepCompletion = currentDefinitionExecutionLog(current).findLast((item) => !("action" in item) && item.advancement === "advanced" && item.next_step_id === pending.step_id && item.review_receipt?.cycle_id === current.runtimeState.review_cycle.id);
   const admissionCycleId = pending.cycle_phase === "discovery" && pending.cycle_id === current.runtimeState.review_cycle.id && previousStepCompletion && !("action" in previousStepCompletion) ? reviewCycleForNextStep(current.runtimeState.review_cycle.id, pending.step_id, previousStepCompletion.idempotency_key).id : current.runtimeState.review_cycle.id;
@@ -29350,6 +29515,12 @@ function recordStepResult(root, input, options = {}) {
   assertExecutableTask(current);
   let stepPlan = currentStepPlan(current);
   assertCurrentReceipt(root, current, stepPlan, receipt);
+  if (receipt.mode === "repair") {
+    const priorResult = currentDefinitionExecutionLog(current).findLast((item) => !("action" in item) && item.mode === "repair" && item.step_id === receipt.step_id && item.execution_result?.execution_id === receipt.execution_id && item.review_receipt === undefined);
+    if (priorResult && priorResult.idempotency_key !== resultKey) {
+      fail7("EXECUTE_RESULT_REPLAY_CONFLICT", "this repair execution identity already has a different durable result; obtain a fresh repair preflight before submitting another result.");
+    }
+  }
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, "preflight_receipt.candidate_paths", root, [], receipt.mode, receipt.execution_phase);
@@ -29426,8 +29597,11 @@ function recordStepResult(root, input, options = {}) {
       fail7("EXECUTE_PREFLIGHT_STALE", "repair bookkeeping changed the active step plan unexpectedly.");
     }
   }
+  const blockedRepairResult = receipt.mode === "repair" && outcome === "blocked";
   let status;
-  if (outcome === "blocked")
+  if (blockedRepairResult)
+    status = "completed";
+  else if (outcome === "blocked")
     status = "blocked";
   else if (receipt.mode === "repair" || stepPlan.step.review_checkpoint === "not-required" && !dynamicReviewRequiredForCurrentExecution(current))
     status = "completed";
@@ -30457,6 +30631,9 @@ function recordReviewResult(root, input, options = {}) {
   const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
   const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
+  if (recordedExecution.execution_result?.outcome === "blocked" && verdict === "clean") {
+    fail8("REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION", "a blocked repair result must receive a remediation review before any clean acceptance review.");
+  }
   if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS3)
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "findings must be a bounded array.");
   const findings = source.findings.map((item, index) => normalizeFinding(item, index, current, root));

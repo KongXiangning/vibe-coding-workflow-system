@@ -133,7 +133,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.9';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.11';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -2758,7 +2758,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   );
   const processControl = expectRecord(proposal.process_control, 'Runtime process_control');
   const processSemantics = {
-    evidence_plan_amendment: 'prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation',
+    evidence_plan_amendment: 'prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation; unbound-planned-read-only-command-scope-correction-without-slot-or-waiver',
     user_evidence: 'exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated',
     waiver: 'user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass',
     successor: 'explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required',
@@ -3105,7 +3105,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (
     reviewChangeAdapter.input !== 'stdin-json'
     || reviewChangeAdapter.context_source !== 'latest-recorded-execution'
-    || reviewChangeAdapter.reviewable_execution !== 'implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification'
+    || reviewChangeAdapter.reviewable_execution !== 'implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review'
     || reviewChangeAdapter.change_set !== 'runtime-owned-stable-id'
     || reviewChangeAdapter.review_target !== 'runtime-cumulative-before-after-file-delta'
     || reviewChangeAdapter.result_storage !== 'canonical-pending-review-result'
@@ -5673,8 +5673,8 @@ export function assertReviewExecutionEligible(
   if (!execution.execution_result) {
     fail('REVIEW_TARGET_REQUIRED', 'review-change requires a structured Runtime-recorded execution result.');
   }
-  if (execution.execution_result.outcome === 'blocked') {
-    fail('REVIEW_EXECUTION_NOT_IMPLEMENTED', 'a blocked execution is not reviewable.');
+  if (execution.execution_result.outcome === 'blocked' && execution.mode !== 'repair') {
+    fail('REVIEW_EXECUTION_NOT_IMPLEMENTED', 'a blocked ordinary execution is not reviewable; repair blockers require remediation review.');
   }
   if (execution.execution_result.outcome === 'test-red') {
     const context = resolveTestStrategyExecutionContext(current);
@@ -11673,6 +11673,12 @@ export type EvidencePlanAmendmentInput = {
   reason: string;
   replacements: Array<{ claim_id: string; slot_id: string; replaces_check_id: string; replacement_check: EvidenceCheck }>;
   command_replacements: Array<{ step_id: string; old_command: string; new_commands: string[] }>;
+  /**
+   * A planned read-only invocation may be corrected even when it was never
+   * bound to a claim-evidence slot.  This is deliberately separate from
+   * command_replacements: it cannot borrow another slot's authority.
+   */
+  unbound_read_only_command_replacements?: Array<{ step_id: string; old_command: string; new_commands: string[]; reason: string }>;
   validation_replacements?: Array<{ step_id: string; old_validation: string; new_validation: string; check_ids: string[]; reason: string }>;
 };
 export type EvidencePlanAmendmentReceipt = {
@@ -11705,10 +11711,14 @@ type EvidencePlanAmendmentCandidate = {
 
 function normalizeEvidencePlanAmendment(raw: unknown): EvidencePlanAmendmentInput {
   const input = expectRecord(raw, 'evidence-plan amendment');
-  expectExactKeys(input, ['source_revision', 'decision_source', 'decision_text', 'reason', 'replacements', 'command_replacements', ...(input.validation_replacements === undefined ? [] : ['validation_replacements'])], 'evidence-plan amendment');
-  if (!Array.isArray(input.replacements) || !input.replacements.length || input.replacements.length > MAX_CLAIM_EVIDENCE_RECORDS
-    || !Array.isArray(input.command_replacements) || input.command_replacements.length > MAX_EXECUTION_RESULT_ITEMS) {
-    fail('EVIDENCE_AMENDMENT_INVALID', 'Supply a bounded nonempty check replacement set and bounded command replacements.');
+  expectExactKeys(input, ['source_revision', 'decision_source', 'decision_text', 'reason', 'replacements', 'command_replacements',
+    ...(input.unbound_read_only_command_replacements === undefined ? [] : ['unbound_read_only_command_replacements']),
+    ...(input.validation_replacements === undefined ? [] : ['validation_replacements'])], 'evidence-plan amendment');
+  if (!Array.isArray(input.replacements) || input.replacements.length > MAX_CLAIM_EVIDENCE_RECORDS
+    || !Array.isArray(input.command_replacements) || input.command_replacements.length > MAX_EXECUTION_RESULT_ITEMS
+    || (input.replacements.length === 0 && input.command_replacements.length === 0
+      && (!Array.isArray(input.unbound_read_only_command_replacements) || input.unbound_read_only_command_replacements.length === 0))) {
+    fail('EVIDENCE_AMENDMENT_INVALID', 'Supply a bounded nonempty check or planned read-only command replacement set.');
   }
   const replacements = input.replacements.map((raw, index) => {
     const row = expectRecord(raw, `replacements[${index}]`);
@@ -11733,6 +11743,25 @@ function normalizeEvidencePlanAmendment(raw: unknown): EvidencePlanAmendmentInpu
     || new Set(commands.map(row => `${row.step_id}\0${row.old_command}`)).size !== commands.length) {
     fail('EVIDENCE_AMENDMENT_INVALID', 'Each slot and each step/command may be replaced only once.');
   }
+  const unboundCommands = input.unbound_read_only_command_replacements === undefined ? undefined : input.unbound_read_only_command_replacements.map(raw => {
+    const row = expectRecord(raw, 'unbound_read_only_command_replacement');
+    expectExactKeys(row, ['step_id', 'old_command', 'new_commands', 'reason'], 'unbound read-only command replacement');
+    const oldCommand = expectText(row.old_command, 'old_command', 4096);
+    const newCommands = expectStringArray(row.new_commands, 'new_commands', false, 32);
+    if (/[\r\n]/u.test(oldCommand) || newCommands.some(command => /[\r\n]/u.test(command))
+      || new Set(newCommands).size !== newCommands.length || newCommands.includes(oldCommand)) {
+      fail('EVIDENCE_AMENDMENT_INVALID', 'Unbound planned read-only replacements require a changed bounded set of literal single-line invocations.');
+    }
+    return { step_id: expectString(row.step_id, 'step_id', STEP_ID_PATTERN), old_command: oldCommand, new_commands: newCommands,
+      reason: expectText(row.reason, 'unbound read-only command replacement reason') };
+  });
+  const allCommandKeys = [
+    ...commands.map(row => `${row.step_id}\0${row.old_command}`),
+    ...(unboundCommands ?? []).map(row => `${row.step_id}\0${row.old_command}`),
+  ];
+  if (new Set(allCommandKeys).size !== allCommandKeys.length) {
+    fail('EVIDENCE_AMENDMENT_INVALID', 'Each step/command may be replaced only once across bound and unbound routes.');
+  }
   const validations = input.validation_replacements;
   if (validations !== undefined && (!Array.isArray(validations) || validations.length > MAX_EXECUTION_RESULT_ITEMS)) fail('EVIDENCE_AMENDMENT_INVALID', 'Validation description changes must be bounded.');
   const validationChanges = (validations as unknown[] | undefined)?.map(raw => {
@@ -11748,7 +11777,8 @@ function normalizeEvidencePlanAmendment(raw: unknown): EvidencePlanAmendmentInpu
   return { ...(validationChanges === undefined ? {} : { validation_replacements: validationChanges }), source_revision: expectString(input.source_revision, 'source_revision', SHA256_PATTERN),
     decision_source: expectText(input.decision_source, 'decision_source', 1024),
     decision_text: expectVerbatim(input.decision_text, 'decision_text', 32768),
-    reason: expectText(input.reason, 'reason'), replacements, command_replacements: commands };
+    reason: expectText(input.reason, 'reason'), replacements, command_replacements: commands,
+    ...(unboundCommands === undefined ? {} : { unbound_read_only_command_replacements: unboundCommands }) };
 }
 
 function evidenceAmendmentBasis(basis: TaskBasis, source: string, text: string): TaskBasis {
@@ -11873,6 +11903,39 @@ function buildEvidencePlanAmendment(root: string, current: CanonicalCurrentTask,
     lines.splice(start, end - start, ...additions);
     definition.implementation_steps = definition.implementation_steps.replace(block, lines.join('\n'));
   }
+  for (const row of input.unbound_read_only_command_replacements ?? []) {
+    if (steps.findIndex(step => step.id === row.step_id) < currentIndex) fail('EVIDENCE_AMENDMENT_STEP_INVALID', 'Only the active and future steps may change verification selection.');
+    const claimedCommands = new Set(oldClaims.flatMap(claim => claim.slots.map(slot => slot.check?.entry).filter((entry): entry is string => entry !== undefined)));
+    if (claimedCommands.has(row.old_command)
+      || row.new_commands.some(command => claimedCommands.has(command))
+      || row.new_commands.some(command => input.replacements.some(change => change.replacement_check.entry === command))) {
+      fail('EVIDENCE_AMENDMENT_UNBOUND_COMMAND_CONFLICT', 'An unbound read-only command cannot borrow or merge with any claim-evidence slot; use a bound replacement for that obligation.');
+    }
+    const block = implementationStepBlock(definition, row.step_id);
+    if (!block) fail('EVIDENCE_AMENDMENT_STEP_INVALID', 'The selected step does not exist.');
+    const lines = block.split('\n');
+    const hits = lines.flatMap((line, index) => `- planned_command: ${row.old_command}` === line.trim() ? [index] : []);
+    if (hits.length !== 1 || lines[hits[0]! + 1]?.trim() !== '- expected_repo_writes: none') {
+      fail('EVIDENCE_AMENDMENT_WRITES_FORBIDDEN', 'Replace only an exact planned read-only verification command, never an implementation command.');
+    }
+    const start = hits[0]!;
+    let end = start + 1;
+    while (end < lines.length && /^\s{4,}- /.test(lines[end]!)) end++;
+    const retained = [...lines.slice(0, start), ...lines.slice(end)];
+    const additions: string[] = [];
+    for (const command of row.new_commands) {
+      const existing = retained.findIndex(line => line.trim() === `- planned_command: ${command}`);
+      if (existing >= 0) {
+        if (retained[existing + 1]?.trim() !== '- expected_repo_writes: none') {
+          fail('EVIDENCE_AMENDMENT_WRITES_FORBIDDEN', 'An existing invocation can be reused only with its exact read-only footprint.');
+        }
+        continue;
+      }
+      additions.push(`  - planned_command: ${command}`, '    - expected_repo_writes: none', '    - transformation_kind: localized');
+    }
+    lines.splice(start, end - start, ...additions);
+    definition.implementation_steps = definition.implementation_steps.replace(block, lines.join('\n'));
+  }
   for (const row of input.validation_replacements ?? []) {
     const oldStep = steps.find(step => step.id === row.step_id);
     if (!oldStep || steps.indexOf(oldStep) < currentIndex) fail('EVIDENCE_AMENDMENT_STEP_INVALID', 'Only current/future selection descriptions may change.');
@@ -11896,7 +11959,7 @@ function buildEvidencePlanAmendment(root: string, current: CanonicalCurrentTask,
   }
   // Past results remain tied to their immutable preimage. A new invocation
   // cannot borrow the old execution or its clean review as successful evidence.
-  const revalidate = input.command_replacements.some(row => row.step_id === state.active_step_id)
+  const revalidate = [...input.command_replacements, ...(input.unbound_read_only_command_replacements ?? [])].some(row => row.step_id === state.active_step_id)
     || input.replacements.some(row => oldClaims.find(c => c.claim_id === row.claim_id)?.slots.find(s => s.slot_id === row.slot_id)?.due_step_id === state.active_step_id);
   const historicalReview = revalidate && state.pending_review_result?.verdict === 'clean';
   if (historicalReview || (revalidate && !state.pending_review_result && state.active_step_status !== 'ready')) {
@@ -13987,6 +14050,34 @@ export function currentDefinitionExecutionLog(current: CanonicalCurrentTask): Ex
   return log.slice(Math.max(lastCorrection, lastScopeAmendment) + 1);
 }
 
+/**
+ * Return a repair preflight whose result has not been durably registered yet.
+ *
+ * A repair preflight is intentionally retained across a failed result
+ * registration.  That lets an upgraded Runtime reconstruct the exact receipt
+ * and retry the result transaction without creating another finding attempt or
+ * consuming a controlled-recovery grant a second time.
+ */
+export function outstandingRepairPreflight(current: CanonicalCurrentTask): ExecutionPreflightState | null {
+  const pending = current.runtimeState.pending_review_result;
+  const active = current.runtimeState.execution_preflight;
+  if (!pending || !['findings', 'blocked'].includes(pending.verdict)
+    || !active || active.mode !== 'repair'
+    || active.step_id !== current.runtimeState.active_step_id
+    || active.review_id !== pending.review_id
+    || active.change_set_id !== pending.change_set_id) {
+    return null;
+  }
+  const recorded = currentDefinitionExecutionLog(current).some(item =>
+    !('action' in item)
+    && item.mode === 'repair'
+    && item.step_id === active.step_id
+    && item.execution_result?.execution_id === active.execution_id
+    && item.review_receipt === undefined,
+  );
+  return recorded ? null : active;
+}
+
 function implementationStepBlock(definition: DraftTaskDefinition, stepId: string): string | undefined {
   return definition.implementation_steps.split(/(?=^-\s*[A-Za-z0-9][A-Za-z0-9._:-]*\s*[:：])/m)
     .find(block => block.startsWith(`- ${stepId}:`) || block.startsWith(`- ${stepId}：`))?.trimEnd();
@@ -15709,6 +15800,14 @@ function applyTaskStateDelta(
       || executionResult.review_target.revision !== review.review_target_revision) {
       fail('REVIEW_TARGET_CONFLICT', 'review result does not bind the Runtime-recorded execution change set and review target.');
     }
+    // Keep the remediation-only rule in the transaction kernel.  The
+    // review-change adapter performs the same check for its friendly input,
+    // but raw task-state proposals can reach this branch directly.  A failed
+    // repair execution is reviewable for diagnosis/remediation; it is never a
+    // clean acceptance receipt for the same execution.
+    if (execution.mode === 'repair' && executionResult.outcome === 'blocked' && review.verdict === 'clean') {
+      fail('REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION', 'a blocked repair result must receive a remediation review before any clean acceptance review.');
+    }
     const currentTarget = captureReviewTarget(root, executionResult.review_target.entries.map(item => item.path));
     if (currentTarget.revision !== review.review_target_revision) {
       fail('REVIEW_TARGET_STALE', 'product files changed after the reviewed execution target was recorded.');
@@ -16159,9 +16258,13 @@ function applyTaskStateDelta(
         || (delta.execution_result && delta.execution_result.attempt_id !== attempt.attempt_id)) fail('RETRY_PREFLIGHT_REQUIRED', 'Recovery progress requires the durable current preflighted attempt, including through raw apply.');
     }
   }
+  const executionMode = proposal.mode as VNextExecuteStepMode;
+  const repairBlockedResult = executionMode === 'repair' && delta.execution_result?.outcome === 'blocked';
   // Failed observations remain recordable; a successful result or completion
   // cannot substitute caller-reported command status for an actual restore.
-  if (delta.status === 'completed' || (delta.execution_result && delta.execution_result.outcome !== 'blocked')) assertArtifactRestoreCompleted(root, current);
+  // A blocked repair is a result fact attached to an already completed step,
+  // not a new artifact-restore completion claim.
+  if (!repairBlockedResult && (delta.status === 'completed' || (delta.execution_result && delta.execution_result.outcome !== 'blocked'))) assertArtifactRestoreCompleted(root, current);
   const currentClaimEvidenceEnabled = claimEvidenceStateEnabled(current.runtimeState);
   if (!currentClaimEvidenceEnabled && delta.claim_evidence !== undefined) {
     fail('CLAIM_EVIDENCE_MIGRATION_REQUIRED', 'execute-step cannot create a claim_evidence plan for a legacy task; prepare-task refinement/migration must persist the plan first.');
@@ -16174,7 +16277,6 @@ function applyTaskStateDelta(
     requireAcceptanceClaim(plannedClaimEvidence, 'current task claim_evidence');
   }
   if (proposal.mode !== 'repair' && !delta.review_receipt) assertOrdinaryPreflight(current, root);
-  const executionMode = proposal.mode as VNextExecuteStepMode;
   assertStepProgressExecutionIdentity(current, delta);
   const stepResolution = resolveCanonicalTaskStep(current);
   const checkpoint = effectiveCheckpointPolicy(stepResolution);
@@ -16221,8 +16323,21 @@ function applyTaskStateDelta(
     if (currentTarget.revision !== delta.execution_result.review_target.revision) {
       fail('REVIEW_TARGET_STALE', 'product files changed while the execution result was being recorded.');
     }
-    if ((delta.execution_result.outcome === 'blocked') !== (newStatus === 'blocked')) {
+    if (repairBlockedResult && newStatus !== 'completed') {
+      fail('RUNTIME_STATE_CONFLICT', 'a blocked repair execution must retain the completed step progress status.');
+    }
+    if (!repairBlockedResult && (delta.execution_result.outcome === 'blocked') !== (newStatus === 'blocked')) {
       fail('RUNTIME_STATE_CONFLICT', 'execution_result outcome must match the step-progress status.');
+    }
+    if (repairBlockedResult) {
+      const pending = current.runtimeState.pending_review_result;
+      const active = current.runtimeState.execution_preflight;
+      if (!pending || !['findings', 'blocked'].includes(pending.verdict)
+        || !active || active.mode !== 'repair'
+        || active.review_id !== pending.review_id
+        || active.change_set_id !== pending.change_set_id) {
+        fail('REPAIR_RESULT_RECOVERY_STATE_INVALID', 'a blocked repair result must retain the exact pending review and repair preflight identity.');
+      }
     }
     const structuredEvidenceRefs = [...new Set([
       ...delta.execution_result.command_results.flatMap(item => item.evidence_refs),
@@ -16325,7 +16440,8 @@ function applyTaskStateDelta(
       }
     }
   }
-  if (newStatus === 'completed' && !evaluateClaimEvidence(transitionClaimEvidence, { root, current, due_step_id: delta.step_id }).validation_complete) fail('CLAIM_EVIDENCE_INCOMPLETE', 'Every due slot must have applicable successful evidence before step completion.');
+  if (newStatus === 'completed' && !repairBlockedResult
+    && !evaluateClaimEvidence(transitionClaimEvidence, { root, current, due_step_id: delta.step_id }).validation_complete) fail('CLAIM_EVIDENCE_INCOMPLETE', 'Every due slot must have applicable successful evidence before step completion.');
   let advancement: StepAdvancementResult = {
     outcome: 'not-applicable',
     from_step_id: delta.step_id,
@@ -16511,7 +16627,11 @@ function applyTaskStateDelta(
     ...(newStatus === 'completed' && unresolvedChallenges.length > 0
       ? { evidence_challenges: (current.runtimeState.evidence_challenges ?? []).map(item => unresolvedChallenges.some(challenge => challenge.challenge_id === item.challenge_id) ? { ...item, status: 'resolved' as const } : item) }
       : {}),
-    pending_review_result: null,
+    // A blocked repair result cannot consume the review that authorized the
+    // repair. Retain that exact review until a remediation review replaces it,
+    // so the outstanding preflight/result can be retried or a fresh bounded
+    // repair wave can be admitted after diagnosis.
+    pending_review_result: repairBlockedResult ? current.runtimeState.pending_review_result : null,
     ...(coverage ? {review_coverage:coverage} : {}),
     ...(stepAttempts ? {step_attempts:stepAttempts} : {}),
     ...(retainExecutionPreflight && currentExecutionPreflight ? { execution_preflight: currentExecutionPreflight } : {}),

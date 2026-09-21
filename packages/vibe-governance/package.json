@@ -1,6 +1,6 @@
 {
   "name": "vibe-governance",
-  "version": "0.20.9",
+  "version": "0.20.11",
   "description": "Ephemeral Node installer for the Vibe Governance distribution.",
   "type": "module",
   "bin": {

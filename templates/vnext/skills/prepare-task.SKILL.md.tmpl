@@ -567,6 +567,14 @@ an affected old clean review and the required fresh verification. No product or
 test deletion is authorized. Existing invocation-only replace-validation remains
 narrow; policy/contract/prerequisite requirements are not waived.
 
+If a planned read-only command has no claim-evidence slot, use the same
+amendment with `unbound_read_only_command_replacements` and an explicit reason
+per command. Do not invent a slot, borrow another slot's authority, create a
+waiver, or claim evidence from the old failed invocation. Runtime accepts only
+an exact active/future planned command with `expected_repo_writes: none`; the
+old result remains history and the replacement requires fresh execution and
+review.
+
 When a frozen step label still names the former whole-suite invocation, include
 its selection-only `validation_replacements` in the same candidate instead of
 claiming the old suite ran. Bind the old check IDs, preserve independent behavior

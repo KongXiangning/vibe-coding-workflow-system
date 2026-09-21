@@ -23,6 +23,8 @@ import {
   repairBudgetExtensionEligibility,
   controlledRepairContinuationForPendingReview,
   controlledRepairRecoveryEligibility,
+  currentDefinitionExecutionLog,
+  outstandingRepairPreflight,
   readCanonicalCurrentTask,
   recoverPendingTaskStoreCommit,
   type CanonicalCurrentTask,
@@ -473,6 +475,20 @@ function latestExecution(current: CanonicalCurrentTask): AnyRecord | null {
   };
 }
 
+function latestReviewableUnreviewedExecution(current: CanonicalCurrentTask): AnyRecord | null {
+  const pendingReview = current.runtimeState.pending_review_result;
+  const entry = currentDefinitionExecutionLog(current).findLast(item =>
+    !('action' in item)
+    && item.step_id === current.runtimeState.active_step_id
+    && item.execution_result !== undefined
+    && item.review_receipt === undefined
+    && item.idempotency_key.startsWith('execute-step-result-'),
+  );
+  if (!entry || pendingReview?.execution_id === entry.idempotency_key
+    || (entry.execution_result?.outcome === 'blocked' && entry.mode !== 'repair')) return null;
+  return entry;
+}
+
 function pendingReplanCandidateCount(current: CanonicalCurrentTask): number {
   const entries = Array.isArray(current.runtimeState.execution_log) ? current.runtimeState.execution_log.filter(record) : [];
   const lastReplan = entries.findLastIndex(item => item.action === 'commit-replan');
@@ -548,6 +564,10 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const budgetExtensionAvailable = budgetExtensionEligibility?.eligible === true;
   const controlledRecoveryEligibility = budgetExhausted ? controlledRepairRecoveryEligibility(current) : null;
   const controlledRecoveryAvailable = controlledRecoveryEligibility?.eligible === true;
+  const outstandingRepair = outstandingRepairPreflight(current);
+  const reviewableUnreviewedExecution = latestReviewableUnreviewedExecution(current);
+  const pendingRepair = pendingReview?.verdict === 'findings';
+  const repairExecutionRequired = outstandingRepair !== null || pendingRepair;
   const retainedCleanReview = pendingReview?.verdict === 'clean' && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === 'findings' && state.scope_amendment_pending_review_step_id !== undefined;
   const dynamicReviewReady = dynamicReviewRequiredForCurrentExecution(current)
@@ -556,8 +576,12 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     && latest?.execution_result_status !== undefined;
   const nextEntry = state.resume_requires_review
     ? 'prepare-task:clear-resume-review'
+    : reviewableUnreviewedExecution !== null
+      ? 'review-change'
     : budgetContinuation || controlledRecoveryContinuation
       ? 'execute-step:repair'
+      : repairExecutionRequired
+        ? 'execute-step:repair'
       : budgetExtensionAvailable
         ? 'prepare-task:extend-repair-budget'
         : controlledRecoveryAvailable
@@ -575,8 +599,12 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
                   : dynamicReviewReady
                     ? 'review-change'
                     : 'preflight-step';
-  const nextOptions = budgetContinuation || controlledRecoveryContinuation
+  const nextOptions = reviewableUnreviewedExecution !== null
+    ? ['review-change']
+    : budgetContinuation || controlledRecoveryContinuation
     ? ['execute-step:repair']
+    : repairExecutionRequired
+      ? ['execute-step:repair']
     : budgetExtensionAvailable
       ? ['prepare-task:extend-repair-budget', 'debug-task']
       : controlledRecoveryAvailable
@@ -663,6 +691,19 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       dynamic_expansion_count: state.dynamic_expansions?.length ?? 0,
     },
     latest_execution: latestIndex,
+    repair_execution_recovery: outstandingRepair === null ? null : {
+      required: true,
+      action: 'record-step-result',
+      exact_retry: true,
+      preflight_id: outstandingRepair.preflight_id,
+      execution_id: outstandingRepair.execution_id,
+      review_id: outstandingRepair.review_id,
+      repair_wave_id: outstandingRepair.repair_wave_id,
+      change_set_id: outstandingRepair.change_set_id,
+      candidate_paths: [...outstandingRepair.candidate_paths],
+      repair_fingerprints: [...(outstandingRepair.repair_fingerprints ?? [])],
+      next_route: 'execute-step:repair',
+    },
     budget_extension: budgetExtensionEligibility === null ? null : {
       eligible: budgetExtensionEligibility.eligible,
       extension_scope: budgetExtensionEligibility.extension_scope,

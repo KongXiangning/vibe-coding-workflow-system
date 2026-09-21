@@ -1,4 +1,4 @@
-# vNext 0.20.7：任务纠错、执行恢复与有界上下文
+# vNext 0.20.11：任务纠错、执行恢复与有界上下文
 
 ## 适用范围
 
@@ -74,11 +74,22 @@
 
 受控授权集合与本轮修复集合严格分离：仍有普通预算的未解决 finding 仍进入完整修复集合，已验证解决项不会再次进入，审查新发现必须先经过正常 finding admission，不能因受控授权自动获得权限。精确授权重放为 no-op；过期 review、越权目标、重复增额、超出受控次数、重建任务、supersede 或直接改状态均拒绝。没有结构化 disposition 的旧 blocked review 只能在用户明确列出 exact target/basis/evidence 后使用 legacy-explicit-user 桥接，且 exact target 必须覆盖完整修复集合中所有已耗尽普通额度的现有未解决 finding；否则事务在持久化唯一 grant 前拒绝，之后仍可补交完整授权。Runtime 不从自由文本推断。
 
+### Repair 结果登记与格式检查范围
+
+Repair 执行结果与步骤进度是两个事实。步骤已经处于 `completed`、等待 verification 时，repair 的失败命令或阻断验证以 `execution_result.outcome: blocked` 如实写入；步骤进度仍保持 `completed`，原 pending review、repair preflight、execution、change set、finding 和证据绑定保留。普通步骤的 `completed -> blocked` 仍按原状态机拒绝。若旧版本曾在登记结果前先写入 repair attempt，升级后的 Runtime 会识别同一 `repair_wave_id`，精确重试不重复扣尝试次数或消费 grant；有 retained preflight 时 `task-context` 返回 `execute-step:repair`，`begin-repair` 只重建同一 receipt，随后用原 receipt 重新提交结果。已有不同结果的同一 execution identity 不得覆盖，必须取得新的 repair preflight。
+
+`git diff --check` 等格式门禁必须明确其检查对象。业务交付文件与 Runtime 管理的 `CURRENT_TASK`/Task Basis/逐字授权证据是不同对象：Runtime 不会删除、修剪或重写授权原文，也不会因为其中的行尾空格把整树失败改成通过；原整树检查结果和其证据仍保留为失败。若原计划错误地把治理原文包含在业务格式义务中，使用已有的 `prepare-evidence-plan-amendment` → `confirm-evidence-plan-amendment` 正式路线，提交精确的业务文件集合、旧 check ID/`replaces_check_id`、新 scoped invocation（例如 `git diff --check -- <exact business paths>`）和用户决定。该路线保留原失败报告、decision 原文及 `decision_sha256`，只改变后续检查选择并要求 fresh evidence；没有明确用户决定不能自动过滤治理文件。业务文件本身存在空白错误时，scoped check 仍必须失败，不能用 waiver 或“治理文件排除”掩盖。
+如果该格式命令本来就是已计划的只读命令、但从未绑定 evidence slot，不得虚构 slot 或引用其他 slot；在同一正式路线中使用 `unbound_read_only_command_replacements`，为精确的旧/新命令提供逐项理由。Runtime 只接受 active/future、`expected_repo_writes: none` 且新旧命令均不属于任何 slot 的修正；它不创建 waiver 或 evidence，旧失败执行保持历史，新命令必须重新执行并重新 review。
+
 0.19.1 会沿已确认候选的历史 execution 和后续步骤替代关系承接问题身份，包括旧 v2 候选；三次真实失败后，新恢复步骤的 preflight 仍拒绝。针对同一原报告的多个质疑可分批处理：保留原 result ID，通过已确认纠错结果建立关联，剩余质疑继续阻塞普通推进，每批都需新的结果与审查。
 
 ## 安装、升级和兼容
 
-使用发行报告列出的固定 `vibe-governance-0.20.7.tgz`，先核对 SHA-256。可在独立安装目录执行：
+使用固定 `vibe-governance-0.20.11.tgz`，先核对 SHA-256：
+
+`3A9DA6E77AD4A173D8F45775474D69A31D6ABFDE562DC5803E2F9F7B43474730`
+
+可在独立安装目录执行：
 
 ```powershell
 npm install --ignore-scripts --no-audit --no-fund <固定tgz绝对路径>

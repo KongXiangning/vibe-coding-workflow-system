@@ -6501,6 +6501,130 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   }, 60000);
 
+  test('evidence-plan amendment repairs a planned read-only command with no evidence slot', { timeout: 90_000 }, () => {
+    const businessFile = 'README.md';
+    const businessCommand = 'bun test test/vnext-runtime.test.ts';
+    const oldFormatCommand = 'git diff --check';
+    const scopedFormatCommand = 'git diff --check -- README.md';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const draft = evidenceAmendmentDraft();
+    draft.implementation_steps[0]!.commands.push({ command: oldFormatCommand, expected_repo_writes: 'none' });
+    const root = confirmedSemanticRoot(draft);
+    const product = path.join(root, businessFile);
+    fs.writeFileSync(product, 'before\n', 'utf8');
+    const initial = preflightStep(root, { candidate_paths: [businessFile] });
+    fs.writeFileSync(product, 'initial implementation\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: initial.receipt,
+      actual_changed_paths: [businessFile],
+      command_results: [
+        { command: businessCommand, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:unbound-initial-business'] },
+        { command: oldFormatCommand, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:unbound-initial-format'] },
+      ],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:unbound-initial-validation'] }],
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Initial execution includes an intentionally unbound planned format command.',
+    }).status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt,
+      verdict: 'findings',
+      findings: [{ category: 'correctness', file: businessFile,
+        failure_condition: 'The implementation still violates the admitted invariant.',
+        required_behavior: 'Preserve the admitted invariant during repair.', root_cause_status: 'confirmed',
+        evidence_refs: ['test:unbound-discovery-finding'] }],
+      unresolved_fingerprints: [], evidence_refs: ['test:unbound-discovery-review'], blocker: null,
+    }).status).toBe('success');
+    const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+    const repair = beginRepair(root, { candidate_paths: [businessFile] });
+    fs.writeFileSync(product, 'repair already applied\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: repair.receipt,
+      actual_changed_paths: [businessFile],
+      command_results: [
+        { command: businessCommand, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:unbound-repair-business'] },
+        { command: oldFormatCommand, status: 'failed', observed_repo_writes: [], evidence_refs: ['test:unbound-repair-whole-tree-format'] },
+      ],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:unbound-repair-validation'] }],
+      acceptance_evidence: [], outcome: 'blocked',
+      note: 'The whole-tree format command also inspects Runtime authorization evidence.',
+    }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const oldExecution = blocked.runtimeState.execution_log.findLast(item => !('action' in item))!;
+    const oldBasis = readCanonicalTaskBasis(root, blocked);
+    expect(blocked.runtimeState.claim_evidence!.flatMap(claim => claim.slots).some(slot => slot.check?.entry === oldFormatCommand)).toBe(false);
+    const remediation = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: remediation.receipt,
+      verdict: 'findings',
+      findings: [{ category: 'correctness', file: businessFile,
+        failure_condition: 'The implementation still violates the admitted invariant.',
+        required_behavior: 'Preserve the admitted invariant during repair.', root_cause_status: 'confirmed',
+        evidence_refs: ['test:unbound-remediation-finding'] }],
+      unresolved_fingerprints: [fingerprint], evidence_refs: ['test:unbound-remediation-review'], blocker: null,
+    }).status).toBe('success');
+    const pendingBefore = readCanonicalCurrentTask(root).runtimeState.pending_review_result!;
+    const current = readCanonicalCurrentTask(root);
+    const amendment = {
+      source_revision: current.sourceTuple.revision,
+      decision_source: 'conversation:format-scope-correction',
+      decision_text: 'Keep the business format gate. Exclude Runtime-managed authorization evidence from that planned read-only command, without changing the task goal or acceptance.',
+      reason: 'The existing planned command is read-only but has no evidence slot; replace it with the minimum exact business-path invocation instead of inventing a slot or borrowing another obligation.',
+      replacements: [],
+      command_replacements: [],
+      unbound_read_only_command_replacements: [{
+        step_id: 'step-1', old_command: oldFormatCommand, new_commands: [scopedFormatCommand],
+        reason: 'The old whole-tree check reports Runtime authorization bytes; the scoped command retains the business whitespace gate.',
+      }],
+    };
+    const borrowedSlot = structuredClone(amendment);
+    borrowedSlot.unbound_read_only_command_replacements![0]!.new_commands = [businessCommand];
+    expect(() => prepareEvidencePlanAmendment(root, borrowedSlot)).toThrow('EVIDENCE_AMENDMENT_UNBOUND_COMMAND_CONFLICT');
+    const prepared = prepareEvidencePlanAmendment(root, amendment);
+    expect(prepared.status).toBe('success');
+    const candidate = JSON.parse(fs.readFileSync(path.join(root, prepared.candidate_path), 'utf8')) as any;
+    expect(candidate.input.replacements).toEqual([]);
+    expect(candidate.input.unbound_read_only_command_replacements).toEqual(amendment.unbound_read_only_command_replacements);
+    expect(candidate.claim_evidence.flatMap((claim: any) => claim.slots).some((slot: any) => slot.check?.entry === scopedFormatCommand)).toBe(false);
+    expect(readCanonicalCurrentTask(root).raw).toBe(current.raw);
+    const approval = {
+      candidate_receipt: prepared.candidate_receipt,
+      decision_source: 'conversation:format-scope-confirmation',
+      decision_text: 'Confirm this exact read-only format command scope correction and retain the failed whole-tree result in history.',
+    };
+    expect(confirmEvidencePlanAmendment(root, approval).status).toBe('success');
+    const amended = readCanonicalCurrentTask(root);
+    expect(amended.runtimeState.pending_review_result).toEqual(pendingBefore);
+    expect(amended.runtimeState.execution_log).toEqual(blocked.runtimeState.execution_log);
+    expect(amended.runtimeState.execution_log.findLast(item => !('action' in item))).toEqual(oldExecution);
+    expect(readCanonicalTaskBasis(root, amended).basis.original_request).toEqual(oldBasis.basis.original_request);
+    expect(amended.runtimeState.claim_evidence!.flatMap(claim => claim.slots).some(slot => slot.check?.entry === scopedFormatCommand)).toBe(false);
+    expect(beginRepair(root, { candidate_paths: [businessFile] }).current_step.commands.map(item => item.command)).toContain(scopedFormatCommand);
+    const nextRepair = beginRepair(root, { candidate_paths: [businessFile] });
+    fs.writeFileSync(product, 'repair corrected\n', 'utf8');
+    const freshAcceptance = reportFixture(root);
+    freshAcceptance.report.result_id = 'result-unbound-recovery';
+    const recoveredResult = recordStepResult(root, {
+      preflight_receipt: nextRepair.receipt,
+      actual_changed_paths: [businessFile],
+      command_results: [
+        { command: businessCommand, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:unbound-recovery-business'] },
+        { command: scopedFormatCommand, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:unbound-recovery-scoped-format'] },
+      ],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:unbound-recovery-validation'] }],
+      acceptance_evidence: [freshAcceptance], outcome: 'implemented',
+      note: 'The corrected scoped format command passed without rewriting the old failed execution.',
+    });
+    expect(recoveredResult).toMatchObject({ status: 'success' });
+    const verification = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: verification.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['test:unbound-recovery-review'], blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Scoped format recovery received fresh execution and review.' }).status).toBe('success');
+  });
+
   test('evidence-plan amendment rejects obligation drift and shared or write-capable command loss', () => {
     const draft = evidenceAmendmentDraft();
     const second = structuredClone(draft.claim_evidence[0]!.slots[0]!); second.slot_id = 'other'; second.check!.check_id = 'other-check';
@@ -8811,6 +8935,263 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(completeReviewedStep(root, { step_id: 'step-1', note: 'bounded continuation verified' }).status).toBe('success');
   });
 
+  test('records a blocked repair result separately from completed step progress and recovers an interrupted registration', { timeout: 90_000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const formatCommand = 'git diff --check';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1',
+        description: 'Record and recover a truthful repair blocker',
+        mutation_scope: [file],
+        commands: [
+          { command, expected_repo_writes: 'none' },
+          { command: formatCommand, expected_repo_writes: 'none' },
+        ],
+        validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    fs.writeFileSync(product, 'before\n', 'utf8');
+
+    const initial = preflightStep(root, { candidate_paths: [file] });
+    fs.writeFileSync(product, 'initial implementation\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: initial.receipt,
+      actual_changed_paths: [file],
+      command_results: [
+        { command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:repair-blocker-initial-command'] },
+        { command: formatCommand, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:repair-blocker-initial-format'] },
+      ],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:repair-blocker-initial-validation'] }],
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Record the initial implementation before repair.',
+    }).status).toBe('success');
+
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness',
+        file,
+        failure_condition: 'the repaired behavior still violates the required invariant',
+        required_behavior: 'retain the invariant during the repair continuation',
+        root_cause_status: 'confirmed',
+        evidence_refs: ['test:repair-blocker-finding'],
+      }],
+      unresolved_fingerprints: [],
+      evidence_refs: ['test:repair-blocker-review'],
+      blocker: null,
+    }).status).toBe('success');
+    const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+
+    const repair = beginRepair(root, { candidate_paths: [file] });
+    fs.writeFileSync(product, 'repair already applied\n', 'utf8');
+
+    // Simulate the old two-phase failure boundary: the finding-attempt
+    // transaction committed, while the later step-progress transaction had
+    // not yet recorded the execution result.
+    const partial = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createFindingQueueProposal(partial, {
+      mode: 'repair',
+      delta: repairAttempt(fingerprint, partial.runtimeState.review_cycle.id, repair.receipt.repair_wave_id),
+      idempotency_key: 'repair-result-partial-attempt',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:repair', 'test:repair-blocker-partial-attempt'],
+    })).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({ repair_attempts: 1 });
+
+    const recoveredPreflight = beginRepair(root, { candidate_paths: [file] });
+    expect(recoveredPreflight.committed).toBe(false);
+    expect(recoveredPreflight.receipt).toMatchObject({
+      preflight_id: repair.receipt.preflight_id,
+      execution_id: repair.receipt.execution_id,
+      repair_wave_id: repair.receipt.repair_wave_id,
+      change_set_id: repair.receipt.change_set_id,
+    });
+    expect(taskContext(root, {}).overview.repair_execution_recovery).toMatchObject({
+      required: true,
+      exact_retry: true,
+      preflight_id: repair.receipt.preflight_id,
+      execution_id: repair.receipt.execution_id,
+    });
+
+    const blockedResult = {
+      preflight_receipt: recoveredPreflight.receipt,
+      actual_changed_paths: [file],
+      command_results: [
+        { command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:repair-blocker-business-tests'] },
+        { command: formatCommand, status: 'failed', observed_repo_writes: [], evidence_refs: ['test:repair-blocker-failed-format'] },
+      ],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:repair-blocker-passed-validation'] }],
+      acceptance_evidence: [],
+      outcome: 'blocked' as const,
+      note: 'git diff --check includes a Runtime authorization artifact; business validation passed.',
+    };
+    expect(recordStepResult(root, blockedResult)).toMatchObject({
+      status: 'success',
+      advancement: { outcome: 'repair-awaiting-verification' },
+    });
+    const blocked = readCanonicalCurrentTask(root);
+    expect(blocked.runtimeState.active_step_status).toBe('completed');
+    expect(blocked.runtimeState.pending_review_result).toMatchObject({ verdict: 'findings', review_id: repair.receipt.review_id });
+    expect(blocked.runtimeState.execution_preflight).toMatchObject({ execution_id: repair.receipt.execution_id, preflight_id: repair.receipt.preflight_id });
+    expect(blocked.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({ repair_attempts: 1 });
+    expect(blocked.runtimeState.execution_log.findLast(item => !('action' in item))!.execution_result).toMatchObject({
+      outcome: 'blocked',
+      command_results: [
+        { command, status: 'passed' },
+        { command: formatCommand, status: 'failed' },
+      ],
+      validation_results: [{ validation, status: 'passed' }],
+    });
+    expect(taskContext(root, {}).overview).toMatchObject({
+      next_entry: 'review-change',
+      repair_execution_recovery: null,
+    });
+
+    // Replaying the exact result is a no-op and does not increment the
+    // finding attempt or consume any grant a second time.
+    expect(recordStepResult(root, blockedResult)).toMatchObject({ status: 'no-op' });
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({ repair_attempts: 1 });
+
+    // A blocked repair result is reviewable for remediation, but it cannot be
+    // converted directly into a clean acceptance. Exercise the raw
+    // task-state proposal path as well as the adapter guard: the kernel must
+    // enforce this invariant even when the friendly adapter is bypassed.
+    const remediationReview = reviewContext(root, {});
+    const rawCurrent = readCanonicalCurrentTask(root);
+    const rawCleanEvidence = ['test:repair-blocker-raw-kernel-clean'];
+    const rawClean = createReviewResultProposal(rawCurrent, {
+      review_result: {
+        kind: 'review-result/v1',
+        review_id: 'review-repair-blocker-raw-kernel-clean',
+        execution_id: remediationReview.receipt.execution_id,
+        step_id: remediationReview.receipt.step_id,
+        cycle_id: remediationReview.receipt.cycle_id,
+        cycle_phase: remediationReview.receipt.cycle_phase,
+        change_set_id: remediationReview.recorded_execution.change_set_id,
+        review_target_revision: remediationReview.recorded_execution.review_target_revision,
+        verdict: 'clean',
+        findings: [],
+        unresolved_fingerprints: [],
+        resolved_fingerprints: [],
+        evidence_refs: rawCleanEvidence,
+        blocker: null,
+        test_assessment: {
+          applicable: true,
+          reason: 'The blocked repair still requires remediation review.',
+          evidence_refs: rawCleanEvidence,
+          necessity: 'Protect the repair verification gate.',
+          oracle: 'The recorded blocked execution is the review oracle.',
+          boundary: 'Isolated Runtime fixture.',
+          reuse: 'Reuse the recorded repair evidence.',
+          applicability: 'The current repair execution is in scope.',
+        },
+      },
+      evidence_refs: rawCleanEvidence,
+      idempotency_key: 'review-repair-blocker-raw-kernel-clean',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, rawClean)).toMatchObject({
+      status: 'blocked',
+      code: 'REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION',
+    });
+    expect(() => completeReviewedStep(root, { step_id: 'step-1', note: 'A rejected raw clean proposal cannot complete the task.' })).toThrow();
+    expect(() => recordReviewResult(root, {
+      context_receipt: remediationReview.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['test:repair-blocker-remediation-clean-attempt'],
+      blocker: null,
+    })).toThrow('REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION');
+    const retainedFinding = blocked.runtimeState.pending_review_result!.findings[0]!;
+    expect(recordReviewResult(root, {
+      context_receipt: remediationReview.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: retainedFinding.category,
+        file: retainedFinding.file,
+        failure_condition: retainedFinding.failure_condition,
+        required_behavior: retainedFinding.required_behavior,
+        root_cause_status: retainedFinding.root_cause_status,
+        evidence_refs: ['test:repair-blocker-remediation-finding'],
+      }],
+      unresolved_fingerprints: [fingerprint],
+      evidence_refs: ['test:repair-blocker-remediation-finding', 'test:repair-blocker-remediation-review'],
+      blocker: null,
+    }).status).toBe('success');
+
+    // A later repair wave may correct the business issue; the failed result
+    // remains in history and still requires the ordinary verification review.
+    const nextRepair = beginRepair(root, { candidate_paths: [file] });
+    expect(nextRepair.receipt.execution_id).not.toBe(repair.receipt.execution_id);
+    fs.writeFileSync(product, 'repair corrected\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: nextRepair.receipt,
+      actual_changed_paths: [file],
+      command_results: [
+        { command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:repair-blocker-recovery-command'] },
+        { command: formatCommand, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:repair-blocker-recovery-format'] },
+      ],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:repair-blocker-recovery-validation'] }],
+      acceptance_evidence: [],
+      outcome: 'implemented',
+      note: 'Correct the repair and retain the prior blocked execution.',
+    }).status).toBe('success');
+    const verification = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: verification.receipt,
+      verdict: 'clean',
+      findings: [],
+      unresolved_fingerprints: [],
+      evidence_refs: ['test:repair-blocker-clean-verification'],
+      blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Verify the recovered repair execution.' }).status).toBe('success');
+  });
+
+  test('keeps governance authorization whitespace outside business format scope while retaining real business failures', { timeout: 30_000 }, () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-format-scope-'));
+    const businessPath = 'src/product.ts';
+    const governancePath = 'docs/workflow/runtime-authorization.txt';
+    const business = path.join(root, ...businessPath.split('/'));
+    const governance = path.join(root, ...governancePath.split('/'));
+    fs.mkdirSync(path.dirname(business), { recursive: true });
+    fs.mkdirSync(path.dirname(governance), { recursive: true });
+    fs.writeFileSync(business, 'export const value = 1;\n', 'utf8');
+    const originalAuthorization = 'authorization decision\n';
+    fs.writeFileSync(governance, originalAuthorization, 'utf8');
+
+    const runGit = (args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    expect(runGit(['init', '--quiet']).status).toBe(0);
+    expect(runGit(['config', 'user.email', 'vnext-test@example.invalid']).status).toBe(0);
+    expect(runGit(['config', 'user.name', 'vNext test']).status).toBe(0);
+    expect(runGit(['add', '--', businessPath, governancePath]).status).toBe(0);
+    expect(runGit(['commit', '--quiet', '-m', 'baseline']).status).toBe(0);
+
+    fs.writeFileSync(business, 'export const value = 2;\n', 'utf8');
+    const authorizationWithExactOriginalBytes = 'authorization decision  \n';
+    fs.writeFileSync(governance, authorizationWithExactOriginalBytes, 'utf8');
+    const originalBytesHash = crypto.createHash('sha256').update(authorizationWithExactOriginalBytes, 'utf8').digest('hex');
+    const wholeTreeCheck = runGit(['diff', '--check']);
+    const scopedBusinessCheck = runGit(['diff', '--check', '--', businessPath]);
+    expect(wholeTreeCheck.status).not.toBe(0);
+    expect(scopedBusinessCheck.status).toBe(0);
+    expect(fs.readFileSync(governance, 'utf8')).toBe(authorizationWithExactOriginalBytes);
+    expect(crypto.createHash('sha256').update(fs.readFileSync(governance), 'buffer').digest('hex')).toBe(originalBytesHash);
+
+    fs.writeFileSync(business, 'export const value = 2;  \n', 'utf8');
+    const businessWhitespaceCheck = runGit(['diff', '--check', '--', businessPath]);
+    expect(businessWhitespaceCheck.status).not.toBe(0);
+  });
+
   test('reconciles review-verified resolutions before selecting the next repair set', { timeout: 60_000 }, () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
     const command = 'bun test test/vnext-runtime.test.ts';
@@ -9002,7 +9383,25 @@ describe('vNext Phase 2 Runtime contract', () => {
       extension_scope: 'repair-round', finding_budgets: [], previous_max_repair_rounds: 3, new_max_repair_rounds: 4,
     });
 
+    // Older installations can retain a repair preflight after the review has
+    // become blocked. The upgraded Runtime must recover that exact receipt
+    // before it considers any new wave or grant.
     const repairFour = beginRepair(root, { candidate_paths: [file] });
+    const repairFourRetry = beginRepair(root, { candidate_paths: [file] });
+    expect(repairFourRetry).toMatchObject({
+      status: 'pass', committed: false, read_back_verified: true,
+      receipt: {
+        preflight_id: repairFour.receipt.preflight_id,
+        execution_id: repairFour.receipt.execution_id,
+        repair_wave_id: repairFour.receipt.repair_wave_id,
+        change_set_id: repairFour.receipt.change_set_id,
+      },
+    });
+    expect(taskContext(root, {}).overview.repair_execution_recovery).toMatchObject({
+      required: true, exact_retry: true,
+      preflight_id: repairFour.receipt.preflight_id,
+      execution_id: repairFour.receipt.execution_id,
+    });
     expect(repairFour.receipt.repair_fingerprints).toEqual([b]);
     expect(execute(repairFour.receipt, 'repair four\n').status).toBe('success');
     const finalReview = reviewContext(root, {});
@@ -9256,12 +9655,13 @@ describe('vNext Phase 2 Runtime contract', () => {
       eligible: true, repair_fingerprints: [a, b, d].sort(), recovery_fingerprints: [a],
     });
 
+    const recoveryDecisionText = 'Finding A is a confirmed critical invariant blocker; authorize one bounded controlled recovery wave without changing ordinary maxima.  ';
     const recoveryAuthorization = {
       review_id: pending.review_id,
       recovery_fingerprints: [a],
       recovery_basis: 'critical-invariant' as const,
       decision_source: 'user:controlled-recovery-regression',
-      decision_text: 'Finding A is a confirmed critical invariant blocker; authorize one bounded controlled recovery wave without changing ordinary maxima.',
+      decision_text: recoveryDecisionText,
       evidence_refs: ['test:controlled-recovery-decision'],
     };
     expect(authorizeControlledRepairRecovery(root, {
@@ -9275,6 +9675,9 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(authorized.runtimeState.controlled_repair_grants![0]).toMatchObject({
       status: 'issued', recovery_fingerprints: [a], repair_fingerprints: [a, b, d].sort(),
     });
+    expect(authorized.runtimeState.controlled_repair_grants![0]!.decision_sha256).toBe(
+      crypto.createHash('sha256').update(recoveryDecisionText, 'utf8').digest('hex'),
+    );
     expect(authorizeControlledRepairRecovery(root, recoveryAuthorization)).toMatchObject({ status: 'no-op' });
     expect(authorizeControlledRepairRecovery(root, {
       ...recoveryAuthorization, review_id: 'review-stale-controlled-recovery',
@@ -9283,7 +9686,25 @@ describe('vNext Phase 2 Runtime contract', () => {
     const continuation = beginRepair(root, { candidate_paths: [file] });
     expect(continuation.receipt.repair_fingerprints).toEqual([a, b, d].sort());
     expect(continuation.receipt.controlled_recovery_grant_id).toBe(authorized.runtimeState.controlled_repair_grants![0]!.grant_id);
-    expect(execute(continuation.receipt, 'controlled recovery wave\n').status).toBe('success');
+    const partialRecovery = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createFindingQueueProposal(partialRecovery, {
+      mode: 'repair',
+      delta: repairAttempt(a, partialRecovery.runtimeState.review_cycle.id, continuation.receipt.repair_wave_id),
+      idempotency_key: 'controlled-recovery-partial-attempt',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:repair', 'test:controlled-recovery-partial-attempt'],
+    })).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({
+      repair_attempts: 8, controlled_repair_attempts: 1,
+    });
+    const recoveredContinuation = beginRepair(root, { candidate_paths: [file] });
+    expect(recoveredContinuation.committed).toBe(false);
+    expect(recoveredContinuation.receipt).toMatchObject({
+      preflight_id: continuation.receipt.preflight_id,
+      execution_id: continuation.receipt.execution_id,
+      controlled_recovery_grant_id: continuation.receipt.controlled_recovery_grant_id,
+    });
+    expect(execute(recoveredContinuation.receipt, 'controlled recovery wave\n').status).toBe('success');
     const afterRecoveryExecution = readCanonicalCurrentTask(root);
     expect(afterRecoveryExecution.runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({
       repair_attempts: 8, max_repair_attempts: 8, controlled_repair_attempts: 1,
@@ -10274,7 +10695,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       },
       non_red_outcome: 'implemented-with-passed-results-or-bound-reproduction',
     });
-    expect(contract.proposal.review_change.semantic_adapter.reviewable_execution).toBe('implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification');
+    expect(contract.proposal.review_change.semantic_adapter.reviewable_execution).toBe('implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review');
     expect(contract.proposal.review_change.semantic_adapter.review_target).toBe('runtime-cumulative-before-after-file-delta');
     expect(contract.proposal.prepare_task.semantic_adapter.decision_partition).toEqual({
       decided: 'confirmed_decisions',

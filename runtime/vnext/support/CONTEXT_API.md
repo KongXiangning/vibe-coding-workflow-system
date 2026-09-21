@@ -888,6 +888,11 @@ Agent/Runtime, never constructed by the user):
   "command_replacements": [{
     "step_id": "S1", "old_command": "<exact old read-only planned command>",
     "new_commands": ["<exact replacement check entry>"]
+  }],
+  "unbound_read_only_command_replacements": [{
+    "step_id": "S1", "old_command": "<exact planned read-only command with no slot>",
+    "new_commands": ["<exact scoped read-only command>"],
+    "reason": "<why this unbound planned command needs a scope correction>"
   }]
 }
 ```
@@ -901,6 +906,15 @@ For a confirmed legacy check that predates the modern `boundary` and
 amendment. Every obligation that the legacy check actually represented remains
 an exact comparison; compatibility does not permit changing its observation,
 required boundaries, subjects, result, substitutes or validation ownership.
+If a planned read-only invocation was never bound to a claim-evidence slot, use
+`unbound_read_only_command_replacements` instead of inventing a replacement slot
+or borrowing another slot's authority. The old and new commands must be absent
+from every existing slot (and from the new bound replacements), must be exact
+active/future planned invocations with `expected_repo_writes: none`, and must be
+covered by an explicit per-command reason. This route changes only the planned
+read-only scope; it does not create evidence, a waiver, a report, or a new
+permission to modify product files. The old failed execution remains immutable
+history and the amended command requires fresh execution and review.
 Every removed shared invocation must retain all its claim consumers; a command
 may split into several bound invocations or merge into an already planned
 read-only invocation. Include the affected current and future step invocations

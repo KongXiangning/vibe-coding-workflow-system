@@ -41,6 +41,7 @@ import {
   currentDefinitionExecutionLog,
   repairBudgetContinuationForPendingReview,
   repairFingerprintsForPendingReview,
+  outstandingRepairPreflight,
   reviewCycleForNextStep,
   cumulativeReviewExecution,
   createTaskStateProposal,
@@ -744,6 +745,49 @@ function currentStepResult(stepPlan: StepPlan, strategy: TestStrategyExecutionCo
   };
 }
 
+function recoverOutstandingRepairReceipt(
+  current: CanonicalCurrentTask,
+  stepPlan: StepPlan,
+  strategy: TestStrategyExecutionContext,
+  candidatePaths: string[],
+): ExecuteStepRepairPreflightReceipt | null {
+  const active = outstandingRepairPreflight(current);
+  if (!active) return null;
+  if (digest(active.candidate_paths) !== digest(candidatePaths)) {
+    fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', 'the outstanding repair preflight owns a different candidate path set; reuse its exact paths.');
+  }
+  const pending = current.runtimeState.pending_review_result;
+  const reviewTargetPaths = active.review_target_paths;
+  const coverageTarget = current.runtimeState.review_coverage?.target;
+  const expectedBasePaths = [...new Set([...(reviewTargetPaths ?? []), ...active.candidate_paths])].sort();
+  if (!pending || !reviewTargetPaths || !coverageTarget
+    || digest(coverageTarget.entries.map(item => item.path).sort()) !== digest(expectedBasePaths)) {
+    fail('EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE', 'the retained repair preflight has no exact Runtime review baseline; obtain a fresh review receipt before retrying.');
+  }
+  const receipt: ExecuteStepRepairPreflightReceipt = {
+    kind: 'execute-step-repair-preflight/v1',
+    preflight_id: active.preflight_id,
+    execution_id: active.execution_id,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    step_id: stepPlan.step.id,
+    plan_revision: active.plan_revision,
+    mode: 'repair',
+    test_strategy_mode: strategy.mode,
+    execution_phase: active.execution_phase,
+    candidate_paths: [...active.candidate_paths],
+    repair_fingerprints: [...(active.repair_fingerprints ?? [])],
+    repair_wave_id: active.repair_wave_id!,
+    change_set_id: active.change_set_id,
+    review_target_paths: [...reviewTargetPaths],
+    review_id: active.review_id!,
+    ...(active.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: active.controlled_recovery_grant_id }),
+    review_base: coverageTarget,
+  };
+  return receipt;
+}
+
 export function beginRepair(
   root: string,
   input: unknown,
@@ -762,7 +806,8 @@ export function beginRepair(
   const pending = current.runtimeState.pending_review_result;
   const budgetContinuation = repairBudgetContinuationForPendingReview(current);
   const controlledContinuation = controlledRepairContinuationForPendingReview(current);
-  if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null && controlledContinuation === null)) {
+  const outstandingPreflight = outstandingRepairPreflight(current);
+  if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null && controlledContinuation === null && outstandingPreflight === null)) {
     fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires findings or an explicitly authorized continuation of the exact budget-blocked review.');
   }
   const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item
@@ -784,6 +829,19 @@ export function beginRepair(
   assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'repair', phase);
   assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'repair');
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
+
+  const recoveredReceipt = recoverOutstandingRepairReceipt(current, stepPlan, strategy, candidatePaths);
+  if (recoveredReceipt) {
+    return {
+      status: 'pass',
+      operation_kind: 'execute-step-repair-preflight',
+      committed: false,
+      read_back_verified: true,
+      current_step: currentStepResult(stepPlan, { ...strategy, phase: recoveredReceipt.execution_phase }),
+      context_projection: taskContextReferenceForCurrent(root, current, 'preflight-step', 'repair'),
+      receipt: recoveredReceipt,
+    };
+  }
 
   const admissionWaveId = findingAdmissionWaveId(pending.review_id);
   // Older installations kept the previous step's converged repair budget when
@@ -1572,6 +1630,18 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   assertExecutableTask(current);
   let stepPlan = currentStepPlan(current);
   assertCurrentReceipt(root, current, stepPlan, receipt);
+  if (receipt.mode === 'repair') {
+    const priorResult = currentDefinitionExecutionLog(current).findLast(item =>
+      !('action' in item)
+      && item.mode === 'repair'
+      && item.step_id === receipt.step_id
+      && item.execution_result?.execution_id === receipt.execution_id
+      && item.review_receipt === undefined,
+    );
+    if (priorResult && priorResult.idempotency_key !== resultKey) {
+      fail('EXECUTE_RESULT_REPLAY_CONFLICT', 'this repair execution identity already has a different durable result; obtain a fresh repair preflight before submitting another result.');
+    }
+  }
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, 'preflight_receipt.candidate_paths', root, [], receipt.mode, receipt.execution_phase);
@@ -1661,8 +1731,13 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     }
   }
 
+  const blockedRepairResult = receipt.mode === 'repair' && outcome === 'blocked';
   let status: 'blocked' | 'completed' | 'in-progress';
-  if (outcome === 'blocked') status = 'blocked';
+  // Repair result status is separate from the progress status of the step.
+  // The step is already completed and remains awaiting verification even when
+  // this repair execution truthfully records a failed/blocked command.
+  if (blockedRepairResult) status = 'completed';
+  else if (outcome === 'blocked') status = 'blocked';
   else if (receipt.mode === 'repair' || (stepPlan.step.review_checkpoint === 'not-required' && !dynamicReviewRequiredForCurrentExecution(current))) status = 'completed';
   else status = 'in-progress';
   const proposal = createTaskStateProposal(current, {

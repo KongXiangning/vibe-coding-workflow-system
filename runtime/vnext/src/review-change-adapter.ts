@@ -895,6 +895,9 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
   const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
+  if (recordedExecution.execution_result?.outcome === 'blocked' && verdict === 'clean') {
+    fail('REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION', 'a blocked repair result must receive a remediation review before any clean acceptance review.');
+  }
   if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must be a bounded array.');
   const findings = source.findings.map((item, index) => normalizeFinding(item, index, current, root));
   if (new Set(findings.map(item => item.fingerprint)).size !== findings.length) fail('REVIEW_ADAPTER_INPUT_INVALID', 'findings must not contain duplicates.');
