@@ -378,6 +378,31 @@ also carry `resolved_fingerprints`; Runtime applies those verified resolutions t
 the finding queue atomically with the retained review, so they are not required
 to be submitted again as unresolved and are not scheduled for repair.
 
+The ordinary extension route is not available beyond the absolute limit: the
+candidate next repair round must be no greater than eight and every selected
+exhausted finding must be below eight attempts. `task-context` and the Runtime
+transaction use this same qualification. At the limit, report the structured
+reason and the user-owned diagnostic/controlled-recovery decision route; do not
+recommend an extension that the transaction will reject.
+
+For a confirmed must-fix blocker at that boundary, the separate
+`authorize-controlled-repair-recovery` command accepts exactly
+`{review_id, recovery_fingerprints, recovery_basis, decision_source,
+decision_text, evidence_refs}`. The latest review must provide the structured
+finding disposition, unless this is an old state using the explicit
+`legacy-explicit-user` bridge. Runtime binds the entire current repair set and
+all task/review/execution/cycle/change-set/target identities, grants one wave,
+and records at most two controlled attempts per selected finding. It retains
+ordinary maxima, cumulative attempts, resolved findings, pending review,
+evidence and Task Basis history. A normally-budgeted finding is not dropped,
+an already resolved finding is not requeued, and a new review finding must
+complete normal admission. Exact replay is a no-op; stale, duplicate,
+cross-task, over-target and over-quota requests stop at the transaction gate.
+For the legacy bridge, the explicit recovery target must cover every existing
+unresolved finding in the complete repair set with no ordinary attempt
+remaining; a partial request is rejected before the one-per-review grant is
+persisted.
+
 In `confirm` mode, submit the user's explicit confirmation through
 `confirm-draft` with the exact confirmation receipt returned by the committed
 draft; do not reconstruct it from the current task. Report the result and stop.

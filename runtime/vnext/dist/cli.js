@@ -219,18 +219,18 @@ ${body}`;
 function location(filePath, relativePath, documentId) {
   if (path.isAbsolute(relativePath) || relativePath.split("/").some((p) => !p || p === "." || p === "..") || !/^doc-[a-f0-9]{24}$/u.test(documentId))
     return invalid2("unsafe task location");
-  let root2 = path.resolve(filePath);
+  let root = path.resolve(filePath);
   for (const _part of relativePath.split("/"))
-    root2 = path.dirname(root2);
-  if (path.resolve(root2, relativePath) !== path.resolve(filePath))
+    root = path.dirname(root);
+  if (path.resolve(root, relativePath) !== path.resolve(filePath))
     return invalid2("task path mismatch");
-  return { root: root2, directory: path.join(root2, path.posix.dirname(relativePath), "task-data", documentId, "objects") };
+  return { root, directory: path.join(root, path.posix.dirname(relativePath), "task-data", documentId, "objects") };
 }
-function safePath(root2, target) {
-  const relative2 = path.relative(root2, target);
+function safePath(root, target) {
+  const relative2 = path.relative(root, target);
   if (relative2.startsWith("..") || path.isAbsolute(relative2))
     return invalid2("material escapes project");
-  let cursor = root2;
+  let cursor = root;
   for (const part of relative2.split(path.sep)) {
     cursor = path.join(cursor, part);
     if (fs.lstatSync(cursor, { throwIfNoEntry: false })?.isSymbolicLink())
@@ -241,12 +241,12 @@ function persistTaskProjection(prepared, filePath, relativePath) {
   if (!prepared.objects.length)
     return;
   const fm = frontmatterOf(prepared.content).frontmatter;
-  const { root: root2, directory } = location(filePath, relativePath, fm.document_id);
-  safePath(root2, directory);
+  const { root, directory } = location(filePath, relativePath, fm.document_id);
+  safePath(root, directory);
   fs.mkdirSync(directory, { recursive: true });
   for (const object of prepared.objects) {
     const file = path.join(directory, `${projectionDigest(object)}.json`);
-    safePath(root2, file);
+    safePath(root, file);
     const bytes = `${projectionJson(object)}
 `;
     if (fs.existsSync(file)) {
@@ -274,7 +274,7 @@ function expandTaskProjection(raw, filePath, relativePath, prepared) {
   const { frontmatter: fm, body: navigation } = frontmatterOf(raw);
   if (fm.task_store?.format !== ACTIVE_TASK_FORMAT)
     return { content: raw, expandedContent: raw, objects: [] };
-  const { root: root2, directory } = location(filePath, relativePath, fm.document_id);
+  const { root, directory } = location(filePath, relativePath, fm.document_id);
   if (fm.task_store.manifest_path !== `${path.posix.dirname(relativePath)}/task-data/${fm.document_id}/manifest.json`)
     return invalid2("manifest identity mismatch");
   const supplied = new Map((prepared?.objects ?? []).map((obj) => [projectionDigest(obj), obj]));
@@ -285,7 +285,7 @@ function expandTaskProjection(raw, filePath, relativePath, prepared) {
     let object = objects.get(ref.sha256) ?? supplied.get(ref.sha256);
     if (!object) {
       const file = path.join(directory, `${ref.sha256}.json`);
-      safePath(root2, file);
+      safePath(root, file);
       if (!fs.existsSync(file) || !fs.lstatSync(file).isFile())
         return invalid2(`missing material ${ref.sha256}`);
       object = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -384,14 +384,14 @@ function assertGovernanceReadable(currentPath) {
   if (fs2.existsSync(lock) && !heldGovernanceLocks.has(lock))
     throw new Error("GOVERNANCE_WRITE_LOCKED: publication is running or was interrupted; fail closed.");
 }
-function governanceWriteLockIsHeld(root2) {
-  const profile = loadProfile(getWorkflowProfilePath(root2));
-  const lock = getWorkflowDocPath(root2, profile, ".vnext-governance-write.lock");
+function governanceWriteLockIsHeld(root) {
+  const profile = loadProfile(getWorkflowProfilePath(root));
+  const lock = getWorkflowDocPath(root, profile, ".vnext-governance-write.lock");
   return heldGovernanceLocks.has(lock);
 }
-function withGovernanceWriteLock(root2, operation) {
-  const profile = loadProfile(getWorkflowProfilePath(root2));
-  const lock = getWorkflowDocPath(root2, profile, ".vnext-governance-write.lock");
+function withGovernanceWriteLock(root, operation) {
+  const profile = loadProfile(getWorkflowProfilePath(root));
+  const lock = getWorkflowDocPath(root, profile, ".vnext-governance-write.lock");
   fs2.mkdirSync(path2.dirname(lock), { recursive: true });
   let fd;
   try {
@@ -421,8 +421,8 @@ function readText(filePath) {
     throw new Error("Required file not found: " + filePath);
   return fs2.readFileSync(filePath, "utf8");
 }
-function getWorkflowProfilePath(root2) {
-  return path2.join(path2.resolve(root2), ...WORKFLOW_PROFILE_RELATIVE_PATH.split("/"));
+function getWorkflowProfilePath(root) {
+  return path2.join(path2.resolve(root), ...WORKFLOW_PROFILE_RELATIVE_PATH.split("/"));
 }
 function loadProfile(profilePath) {
   const profile = parse2(readText(profilePath));
@@ -444,10 +444,10 @@ function normalizeWorkflowHome(value) {
   }
   return normalized;
 }
-function getWorkflowDocPath(root2, profile, file) {
+function getWorkflowDocPath(root, profile, file) {
   const paths = profile.paths;
   const workflowHome = paths && typeof paths === "object" && !Array.isArray(paths) ? normalizeWorkflowHome(paths.workflow_home) : "";
-  return path2.join(path2.resolve(root2), ...[workflowHome, file].filter(Boolean).join("/").split("/"));
+  return path2.join(path2.resolve(root), ...[workflowHome, file].filter(Boolean).join("/").split("/"));
 }
 function executeWrites(operations, dryRun, _summary, _prepare, fileSystem = fs2) {
   if (dryRun || operations.length === 0)
@@ -509,8 +509,8 @@ function assertDigest(value) {
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_PATH_INVALID", "review preimage identity must be a lowercase SHA-256 digest.");
   return value;
 }
-function relativePath(root2, target) {
-  const resolvedRoot = path3.resolve(root2);
+function relativePath(root, target) {
+  const resolvedRoot = path3.resolve(root);
   const resolvedTarget = path3.resolve(target);
   const relative3 = path3.relative(resolvedRoot, resolvedTarget).replace(/\\/gu, "/");
   if (!relative3 || relative3 === ".." || relative3.startsWith("../") || path3.isAbsolute(relative3)) {
@@ -518,9 +518,9 @@ function relativePath(root2, target) {
   }
   return relative3;
 }
-function assertNoSymlink(root2, target) {
-  const relative3 = relativePath(root2, target);
-  let cursor = path3.resolve(root2);
+function assertNoSymlink(root, target) {
+  const relative3 = relativePath(root, target);
+  let cursor = path3.resolve(root);
   for (const component of relative3.split("/")) {
     cursor = path3.join(cursor, component);
     try {
@@ -534,17 +534,17 @@ function assertNoSymlink(root2, target) {
     }
   }
 }
-function reviewPreimageDirectory(root2) {
-  const profile = loadProfile(getWorkflowProfilePath(root2));
-  const directory = getWorkflowDocPath(root2, profile, REVIEW_PREIMAGE_DIRECTORY);
-  assertNoSymlink(root2, directory);
+function reviewPreimageDirectory(root) {
+  const profile = loadProfile(getWorkflowProfilePath(root));
+  const directory = getWorkflowDocPath(root, profile, REVIEW_PREIMAGE_DIRECTORY);
+  assertNoSymlink(root, directory);
   return directory;
 }
-function reviewPreimageBlobPath(root2, sha256) {
+function reviewPreimageBlobPath(root, sha256) {
   const digest = assertDigest(sha256);
-  const directory = reviewPreimageDirectory(root2);
+  const directory = reviewPreimageDirectory(root);
   const file = path3.join(directory, `${digest}.blob`);
-  assertNoSymlink(root2, file);
+  assertNoSymlink(root, file);
   return file;
 }
 function verifyContent(digest, content) {
@@ -576,13 +576,13 @@ function verifyExistingBlob(file, digest, expected) {
   if (!content.equals(expected))
     throw new ReviewPreimageStoreError("REVIEW_BASELINE_CORRUPT", `immutable review preimage blob conflicts with ${digest}.blob`);
 }
-function persistReviewPreimage(root2, digest, content) {
+function persistReviewPreimage(root, digest, content) {
   const address = assertDigest(digest);
   verifyContent(address, content);
-  const directory = reviewPreimageDirectory(root2);
+  const directory = reviewPreimageDirectory(root);
   fs3.mkdirSync(directory, { recursive: true });
-  assertNoSymlink(root2, directory);
-  const file = reviewPreimageBlobPath(root2, address);
+  assertNoSymlink(root, directory);
+  const file = reviewPreimageBlobPath(root, address);
   if (fs3.existsSync(file)) {
     verifyExistingBlob(file, address, content);
     return;
@@ -622,7 +622,7 @@ function persistReviewPreimage(root2, digest, content) {
     }
   }
 }
-function persistReviewPreimageWrites(root2, writes) {
+function persistReviewPreimageWrites(root, writes) {
   const unique = new Map;
   for (const write of writes) {
     const digest = assertDigest(write.sha256);
@@ -633,11 +633,11 @@ function persistReviewPreimageWrites(root2, writes) {
     unique.set(digest, Buffer.from(write.content));
   }
   for (const [digest, content] of unique)
-    persistReviewPreimage(root2, digest, content);
+    persistReviewPreimage(root, digest, content);
 }
-function readReviewPreimageBlob(root2, digest) {
+function readReviewPreimageBlob(root, digest) {
   const address = assertDigest(digest);
-  const file = reviewPreimageBlobPath(root2, address);
+  const file = reviewPreimageBlobPath(root, address);
   let stat;
   try {
     stat = fs3.lstatSync(file);
@@ -686,14 +686,14 @@ function decodeLegacyReviewPreimage(value) {
   verifyContent(item.sha256, content);
   return { sha256: item.sha256, content };
 }
-function persistLegacyReviewPreimages(root2, preimages) {
+function persistLegacyReviewPreimages(root, preimages) {
   const writes = [];
   for (const preimage of preimages) {
     const write = decodeLegacyReviewPreimage(preimage);
     if (write)
       writes.push(write);
   }
-  persistReviewPreimageWrites(root2, writes);
+  persistReviewPreimageWrites(root, writes);
 }
 
 // runtime/vnext/src/task-store.ts
@@ -764,8 +764,8 @@ function normalizeRelative(value, label) {
   }
   return normalized;
 }
-function workflowHomeForRoot(root2) {
-  const profilePath = path4.join(root2, ".workflow-system", "PROJECT_PROFILE.yaml");
+function workflowHomeForRoot(root) {
+  const profilePath = path4.join(root, ".workflow-system", "PROJECT_PROFILE.yaml");
   if (!fs4.existsSync(profilePath))
     return "docs/workflow";
   try {
@@ -778,17 +778,17 @@ function workflowHomeForRoot(root2) {
   }
 }
 function taskStorePaths(rootInput, documentId) {
-  const root2 = path4.resolve(rootInput);
+  const root = path4.resolve(rootInput);
   assertDocumentId(documentId);
-  const workflowHome = workflowHomeForRoot(root2);
+  const workflowHome = workflowHomeForRoot(root);
   const relativeRoot = normalizeRelative(path4.posix.join(workflowHome, "task-data", documentId), "task store root");
-  assertNoSymlink2(root2, relativeRoot);
-  const directory = path4.join(root2, ...relativeRoot.split("/"));
+  assertNoSymlink2(root, relativeRoot);
+  const directory = path4.join(root, ...relativeRoot.split("/"));
   const objects = path4.join(directory, "objects");
   const events = path4.join(directory, "events");
   const indexes = path4.join(directory, "indexes");
   return {
-    root: root2,
+    root,
     workflowHome,
     documentId,
     relativeRoot,
@@ -804,15 +804,15 @@ function taskStorePaths(rootInput, documentId) {
     legacyEventIndex: path4.join(indexes, "events.json")
   };
 }
-function relativePath2(root2, value) {
-  const relative4 = path4.relative(root2, value).replace(/\\/gu, "/");
+function relativePath2(root, value) {
+  const relative4 = path4.relative(root, value).replace(/\\/gu, "/");
   if (!relative4 || relative4.startsWith("../") || path4.isAbsolute(relative4)) {
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", `path escapes project root: ${value}`);
   }
   return relative4;
 }
-function assertNoSymlink2(root2, relative4) {
-  let cursor = path4.resolve(root2);
+function assertNoSymlink2(root, relative4) {
+  let cursor = path4.resolve(root);
   for (const part of relative4.split("/").filter(Boolean)) {
     cursor = path4.join(cursor, part);
     try {
@@ -1407,13 +1407,13 @@ function linkedTaskBasisReference(body) {
     return null;
   return { path: normalizeRelative(match[1].replace(/\\/gu, "/"), "task basis path"), revision: match[2] };
 }
-function taskBasisPayload(root2, current) {
+function taskBasisPayload(root, current) {
   const reference = linkedTaskBasisReference(current.body);
   if (!reference)
     return null;
-  const file = path4.resolve(root2, ...reference.path.split("/"));
-  const relative4 = relativePath2(path4.resolve(root2), file);
-  assertNoSymlink2(path4.resolve(root2), relative4);
+  const file = path4.resolve(root, ...reference.path.split("/"));
+  const relative4 = relativePath2(path4.resolve(root), file);
+  assertNoSymlink2(path4.resolve(root), relative4);
   if (!fs4.existsSync(file) || !fs4.statSync(file).isFile()) {
     return {
       schema_version: 1,
@@ -1440,8 +1440,8 @@ function taskBasisPayload(root2, current) {
     revision_matches: actualRevision === reference.revision
   };
 }
-function historyMaterialPayloads(root2, current) {
-  const resolvedRoot = path4.resolve(root2);
+function historyMaterialPayloads(root, current) {
+  const resolvedRoot = path4.resolve(root);
   const directory = path4.join(path4.dirname(current.filePath), "task-history", current.sourceTuple.document_id);
   const directoryRelative = relativePath2(resolvedRoot, directory);
   assertNoSymlink2(resolvedRoot, directoryRelative);
@@ -1514,7 +1514,7 @@ function legacyLocatorPayload(raw, sourceRevision, sourcePath, replacementSource
     line_map: legacyLineMap(raw, replacementSourceRevision)
   };
 }
-function collectObjectPayloads(current, includeExecutionLog = true, root2, compareTo) {
+function collectObjectPayloads(current, includeExecutionLog = true, root, compareTo) {
   const payloads = [];
   const seen = new Set;
   const add = (objectType, payload) => {
@@ -1530,13 +1530,13 @@ function collectObjectPayloads(current, includeExecutionLog = true, root2, compa
     if (!previousMaterial.has(projectionDigest(object)))
       add(object.object_type, object.payload);
   }
-  if (root2) {
-    const basis = taskBasisPayload(root2, current);
-    const previousBasis = compareTo ? taskBasisPayload(root2, compareTo) : null;
+  if (root) {
+    const basis = taskBasisPayload(root, current);
+    const previousBasis = compareTo ? taskBasisPayload(root, compareTo) : null;
     if (basis !== null && (!compareTo || optionalDigest(basis) !== optionalDigest(previousBasis)))
       add("task-basis", basis);
     if (includeExecutionLog) {
-      for (const history of historyMaterialPayloads(root2, current))
+      for (const history of historyMaterialPayloads(root, current))
         add("history-material", history);
     }
   }
@@ -1666,11 +1666,11 @@ function directoryBytes(directory) {
 class TaskStore {
   paths;
   newlyReferencedObjects = new Set;
-  constructor(root2, documentId) {
-    this.paths = taskStorePaths(root2, documentId);
+  constructor(root, documentId) {
+    this.paths = taskStorePaths(root, documentId);
   }
-  static forCurrent(root2, current) {
-    return new TaskStore(root2, current.sourceTuple.document_id);
+  static forCurrent(root, current) {
+    return new TaskStore(root, current.sourceTuple.document_id);
   }
   get exists() {
     return fs4.existsSync(this.paths.manifest);
@@ -2853,11 +2853,11 @@ function taskStoreDefinitionRevisionForManifest(current, manifest) {
 function taskStoreStateRevision(current) {
   return digest(stateSnapshotPayload(current));
 }
-function taskStoreHistoryPath(root2, current, sourceRevision) {
+function taskStoreHistoryPath(root, current, sourceRevision) {
   if (!SHA2562.test(sourceRevision))
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", "history source revision is invalid.");
   const directory = path4.join(path4.dirname(current.filePath), "task-history", current.sourceTuple.document_id);
-  const rootResolved = path4.resolve(root2);
+  const rootResolved = path4.resolve(root);
   const normalized = relativePath2(rootResolved, directory);
   return path4.join(rootResolved, ...path4.posix.join(normalized, `${sourceRevision}.json`).split("/"));
 }
@@ -2940,10 +2940,10 @@ function hasLegacyInlineReviewPreimages(current) {
   const coverage = record2(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
   return Array.isArray(coverage?.preimages) && coverage.preimages.some((item) => record2(item) && Object.prototype.hasOwnProperty.call(item, "content_base64"));
 }
-function readStorageMigrationLineage(root2, current, sourceRevision) {
+function readStorageMigrationLineage(root, current, sourceRevision) {
   if (!SHA2562.test(sourceRevision))
     return null;
-  const store = TaskStore.forCurrent(root2, current);
+  const store = TaskStore.forCurrent(root, current);
   const manifest = store.manifest;
   if (!manifest || store.hasPendingCommit || manifest.head.source_revision !== current.sourceTuple.revision || sha2562(current.raw) !== current.sourceTuple.revision)
     return null;
@@ -2964,8 +2964,8 @@ function readStorageMigrationLineage(root2, current, sourceRevision) {
   }
   return null;
 }
-function previewTaskStorageMigration(root2, current) {
-  const store = TaskStore.forCurrent(root2, current);
+function previewTaskStorageMigration(root, current) {
+  const store = TaskStore.forCurrent(root, current);
   const manifest = store.manifest;
   const legacyInlineReviewPreimages = hasLegacyInlineReviewPreimages(current);
   const definitionRevision = taskStoreDefinitionRevision(current);
@@ -2987,8 +2987,8 @@ function previewTaskStorageMigration(root2, current) {
     planned_events: manifest?.current_representation === ACTIVE_TASK_FORMAT && !legacyInlineReviewPreimages ? [] : [manifest ? "storage-migration" : "legacy-import", "storage-migration"]
   };
 }
-function commitTaskStorageMigration(root2, current, sourceRevision) {
-  const store = TaskStore.forCurrent(root2, current);
+function commitTaskStorageMigration(root, current, sourceRevision) {
+  const store = TaskStore.forCurrent(root, current);
   const existing = store.manifest;
   if (sourceRevision !== current.sourceTuple.revision) {
     const previous = SHA2562.test(sourceRevision) ? store.lookupIdempotency(`task-storage-migration-v3-${current.sourceTuple.document_id}-${sourceRevision.slice(0, 16)}`) : null;
@@ -3005,7 +3005,7 @@ function commitTaskStorageMigration(root2, current, sourceRevision) {
   }
   const coverage = record2(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
   if (coverage && Array.isArray(coverage.preimages))
-    persistLegacyReviewPreimages(root2, coverage.preimages);
+    persistLegacyReviewPreimages(root, coverage.preimages);
   store.ensureInitialized(current);
   const prepared = compactCurrentRaw(current, store);
   const compactRaw = prepared.content;
@@ -3118,14 +3118,14 @@ function taskStorageMetrics(rootInput, current) {
   const logical = attempt(() => logicalSizes(current));
   if (logical)
     Object.assign(result, logical);
-  const root2 = path5.resolve(rootInput);
+  const root = path5.resolve(rootInput);
   let readBytes = 0;
   let objectReads = 0;
   const safeStat = (file) => {
-    const relative5 = path5.relative(root2, file);
+    const relative5 = path5.relative(root, file);
     if (relative5.split(path5.sep).includes("..") || path5.isAbsolute(relative5))
       return unavailable("METRICS_UNSAFE_PATH");
-    let cursor = root2;
+    let cursor = root;
     for (const part of relative5.split(path5.sep).filter(Boolean)) {
       cursor = path5.join(cursor, part);
       const stat2 = fs5.lstatSync(cursor);
@@ -3144,7 +3144,7 @@ function taskStorageMetrics(rootInput, current) {
   };
   const basis = attempt(() => ({ reference: readTaskBasisReferenceFromBody(current.body) }))?.reference;
   result.task_basis_bytes = basis === undefined ? null : basis === null ? 0 : attempt(() => {
-    const file = path5.resolve(root2, basis.path.replace(/\\/gu, "/"));
+    const file = path5.resolve(root, basis.path.replace(/\\/gu, "/"));
     chargeRead(file);
     const content = fs5.readFileSync(file);
     if (sha2562(content) !== basis.revision)
@@ -3153,7 +3153,7 @@ function taskStorageMetrics(rootInput, current) {
   });
   let verifySample;
   attempt(() => {
-    const store = TaskStore.forCurrent(root2, current);
+    const store = TaskStore.forCurrent(root, current);
     const readManifest = () => {
       if (!fs5.existsSync(store.paths.manifest))
         return null;
@@ -3509,11 +3509,11 @@ var MAX_SNAPSHOT_BYTES = 8 * MAX_OBJECT_BYTES;
 function hash(bytes2) {
   return crypto4.createHash("sha256").update(bytes2).digest("hex");
 }
-function safeRepositoryFile(root2, relative6) {
+function safeRepositoryFile(root, relative6) {
   if (!relative6 || relative6.includes("\\") || relative6.startsWith("/") || relative6.includes(":") || relative6.split("/").some((part) => !part || part === "." || part === ".." || part.toLowerCase() === ".git" || /[. ]$/.test(part))) {
     throw new Error("EVIDENCE_OBJECT_PATH_INVALID: expected a bounded repository-relative file.");
   }
-  let cursor = path6.resolve(root2);
+  let cursor = path6.resolve(root);
   if (fs6.lstatSync(cursor).isSymbolicLink())
     throw new Error("EVIDENCE_OBJECT_PATH_INVALID: symbolic root.");
   for (const part of relative6.split("/")) {
@@ -3537,35 +3537,35 @@ function readBounded(file) {
     throw new Error("EVIDENCE_OBJECT_UNSUPPORTED: file exceeded the limit while reading.");
   return bytes2;
 }
-function describeEvidenceObjects(root2, paths) {
+function describeEvidenceObjects(root, paths) {
   const unique = [...new Set(paths.map((item) => item.split("#")[0]))].sort();
   if (unique.length > 128)
     throw new Error("EVIDENCE_OBJECT_BUDGET_EXHAUSTED: too many snapshot files.");
   let total = 0;
   return unique.map((relative6) => {
-    const bytes2 = readBounded(safeRepositoryFile(root2, relative6));
+    const bytes2 = readBounded(safeRepositoryFile(root, relative6));
     total += bytes2.length;
     if (total > MAX_SNAPSHOT_BYTES)
       throw new Error("EVIDENCE_OBJECT_BUDGET_EXHAUSTED: snapshot exceeds 8 MiB.");
     return { path: relative6, sha256: hash(bytes2), size: bytes2.length };
   });
 }
-function objectFile2(root2, currentPath, sha) {
+function objectFile2(root, currentPath, sha) {
   if (!/^[a-f0-9]{64}$/.test(sha))
     throw new Error("EVIDENCE_OBJECT_INVALID: invalid digest.");
-  const relative6 = path6.relative(root2, path6.join(path6.dirname(currentPath), "evidence-objects", `${sha}.blob`)).replace(/\\/g, "/");
-  return safeRepositoryFile(root2, relative6);
+  const relative6 = path6.relative(root, path6.join(path6.dirname(currentPath), "evidence-objects", `${sha}.blob`)).replace(/\\/g, "/");
+  return safeRepositoryFile(root, relative6);
 }
-function readEvidenceObject(root2, currentPath, object) {
-  verifyEvidenceObject(root2, currentPath, object);
-  return readBounded(objectFile2(root2, currentPath, object.sha256));
+function readEvidenceObject(root, currentPath, object) {
+  verifyEvidenceObject(root, currentPath, object);
+  return readBounded(objectFile2(root, currentPath, object.sha256));
 }
-function preserveEvidenceObjects(root2, currentPath, objects) {
+function preserveEvidenceObjects(root, currentPath, objects) {
   for (const object of objects) {
-    const bytes2 = readBounded(safeRepositoryFile(root2, object.path));
+    const bytes2 = readBounded(safeRepositoryFile(root, object.path));
     if (hash(bytes2) !== object.sha256 || bytes2.length !== object.size)
       throw new Error("EVIDENCE_OBJECT_STALE: source changed before preservation.");
-    const file = objectFile2(root2, currentPath, object.sha256);
+    const file = objectFile2(root, currentPath, object.sha256);
     fs6.mkdirSync(path6.dirname(file), { recursive: true });
     if (!fs6.existsSync(file)) {
       const fd = fs6.openSync(file, "wx");
@@ -3576,23 +3576,23 @@ function preserveEvidenceObjects(root2, currentPath, objects) {
         fs6.closeSync(fd);
       }
     }
-    verifyEvidenceObject(root2, currentPath, object);
+    verifyEvidenceObject(root, currentPath, object);
   }
 }
-function verifyEvidenceObject(root2, currentPath, object) {
-  const bytes2 = readBounded(objectFile2(root2, currentPath, object.sha256));
+function verifyEvidenceObject(root, currentPath, object) {
+  const bytes2 = readBounded(objectFile2(root, currentPath, object.sha256));
   if (hash(bytes2) !== object.sha256 || bytes2.length !== object.size)
     throw new Error("EVIDENCE_OBJECT_CORRUPT: immutable evidence object changed.");
 }
-function ingestEvidenceText(root2, currentPath, input, dryRun) {
+function ingestEvidenceText(root, currentPath, input, dryRun) {
   const bytes2 = Buffer.from(input.body, "utf8");
   if (!bytes2.length || bytes2.length > MAX_OBJECT_BYTES || input.source_locator.length > 2048)
     throw new Error("EVIDENCE_OBJECT_UNSUPPORTED: bounded evidence body and source locator required.");
   const sha = hash(bytes2);
-  const file = objectFile2(root2, currentPath, sha);
+  const file = objectFile2(root, currentPath, sha);
   const provenance = JSON.stringify({ kind: "ingested-evidence/v1", ...input, body: undefined, evidence_sha256: sha, assurance: "caller-reported" }) + `
 `;
-  const metadata = objectFile2(root2, currentPath, hash(Buffer.from(provenance)));
+  const metadata = objectFile2(root, currentPath, hash(Buffer.from(provenance)));
   if (!dryRun) {
     fs6.mkdirSync(path6.dirname(file), { recursive: true });
     for (const [target, content] of [[file, bytes2], [metadata, Buffer.from(provenance)]]) {
@@ -3609,7 +3609,7 @@ function ingestEvidenceText(root2, currentPath, input, dryRun) {
         throw new Error("EVIDENCE_OBJECT_CORRUPT: stored evidence differs.");
     }
   }
-  return { evidence_ref: path6.relative(root2, file).replace(/\\/g, "/"), evidence_sha256: sha, provenance_ref: path6.relative(root2, metadata).replace(/\\/g, "/") };
+  return { evidence_ref: path6.relative(root, file).replace(/\\/g, "/"), evidence_sha256: sha, provenance_ref: path6.relative(root, metadata).replace(/\\/g, "/") };
 }
 
 // runtime/vnext/src/artifact-checkpoints.ts
@@ -3626,21 +3626,21 @@ function digest2(value) {
   }
   return crypto5.createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 }
-function assertProductPath(root2, currentPath, relative7) {
-  const absolute = safeRepositoryFile(root2, relative7);
+function assertProductPath(root, currentPath, relative7) {
+  const absolute = safeRepositoryFile(root, relative7);
   const home = path7.dirname(currentPath);
   const local = path7.relative(home, absolute).replace(/\\/g, "/");
-  if (relative7.includes("#") || relative7.toLowerCase() === ".gitmodules" || /^(TASKS|\.agents\/skills|\.claude\/skills|\.codex\/skills)(\/|$)/i.test(relative7) || /^\.workflow-system(\/|$)/i.test(relative7) || path7.resolve(home) !== path7.resolve(root2) && local !== ".." && !local.startsWith("../") || !local.startsWith("../") && (/^(CURRENT_TASK|TASK_BASIS|STATUS|CONTRACTS|DECISIONS|LESSONS|PROJECT_PROFILE)([._/]|$)/i.test(local) || /^(task-history|task-candidates|evidence-objects|archive|archives|\.vnext)/i.test(local))) {
+  if (relative7.includes("#") || relative7.toLowerCase() === ".gitmodules" || /^(TASKS|\.agents\/skills|\.claude\/skills|\.codex\/skills)(\/|$)/i.test(relative7) || /^\.workflow-system(\/|$)/i.test(relative7) || path7.resolve(home) !== path7.resolve(root) && local !== ".." && !local.startsWith("../") || !local.startsWith("../") && (/^(CURRENT_TASK|TASK_BASIS|STATUS|CONTRACTS|DECISIONS|LESSONS|PROJECT_PROFILE)([._/]|$)/i.test(local) || /^(task-history|task-candidates|evidence-objects|archive|archives|\.vnext)/i.test(local))) {
     throw new Error("ARTIFACT_RESTORE_FORBIDDEN: governance and Runtime installation files cannot be restored.");
   }
   let parent = path7.dirname(absolute);
-  while (parent !== path7.resolve(root2)) {
+  while (parent !== path7.resolve(root)) {
     if (fs7.existsSync(path7.join(parent, ".git")))
       throw new Error("ARTIFACT_UNSUPPORTED: submodule files cannot be restored.");
     parent = path7.dirname(parent);
   }
   for (const registry of ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"]) {
-    const file = path7.join(root2, registry);
+    const file = path7.join(root, registry);
     if (fs7.existsSync(file) && fs7.readFileSync(file, "utf8").split(/\r?\n/).some((line) => line.includes(relative7) && !/^\s*[-#]*\s*(unfreeze|not frozen)/i.test(line)))
       throw new Error("ARTIFACT_FROZEN: path is in the freeze registry.");
   }
@@ -3656,27 +3656,27 @@ function assertProductPath(root2, currentPath, relative7) {
   }
   return absolute;
 }
-function captureArtifactImages(root2, currentPath, paths) {
+function captureArtifactImages(root, currentPath, paths) {
   const unique = [...new Set(paths)].sort();
   if (unique.length > 128)
     throw new Error("ARTIFACT_BUDGET_EXHAUSTED: at most 128 paths.");
-  const present = unique.filter((p) => fs7.existsSync(assertProductPath(root2, currentPath, p)));
-  const objects = describeEvidenceObjects(root2, present);
+  const present = unique.filter((p) => fs7.existsSync(assertProductPath(root, currentPath, p)));
+  const objects = describeEvidenceObjects(root, present);
   return unique.map((p) => ({ path: p, object: objects.find((object) => object.path === p) ?? null }));
 }
-function checkpointFile(root2, currentPath, documentId, id) {
+function checkpointFile(root, currentPath, documentId, id) {
   if (!/^doc-[a-f0-9]+$/.test(documentId) || !/^[a-f0-9]{64}$/.test(id))
     throw new Error("ARTIFACT_CHECKPOINT_INVALID: invalid identity.");
-  return safeRepositoryFile(root2, path7.relative(root2, path7.join(path7.dirname(currentPath), "task-history", documentId, "artifact-checkpoints", `${id}.json`)).replace(/\\/g, "/"));
+  return safeRepositoryFile(root, path7.relative(root, path7.join(path7.dirname(currentPath), "task-history", documentId, "artifact-checkpoints", `${id}.json`)).replace(/\\/g, "/"));
 }
-function saveArtifactCheckpoint(root2, currentPath, checkpoint, paths, dryRun = false) {
-  const images = captureArtifactImages(root2, currentPath, paths);
+function saveArtifactCheckpoint(root, currentPath, checkpoint, paths, dryRun = false) {
+  const images = captureArtifactImages(root, currentPath, paths);
   const payload = { kind: "artifact-checkpoint/v1", ...checkpoint, images };
   const id = digest2(payload);
   if (dryRun)
     return id;
-  preserveEvidenceObjects(root2, currentPath, images.flatMap((image) => image.object ? [image.object] : []));
-  const file = checkpointFile(root2, currentPath, checkpoint.document_id, id);
+  preserveEvidenceObjects(root, currentPath, images.flatMap((image) => image.object ? [image.object] : []));
+  const file = checkpointFile(root, currentPath, checkpoint.document_id, id);
   fs7.mkdirSync(path7.dirname(file), { recursive: true });
   const bytes2 = JSON.stringify(payload) + `
 `;
@@ -3693,8 +3693,8 @@ function saveArtifactCheckpoint(root2, currentPath, checkpoint, paths, dryRun = 
     throw new Error("ARTIFACT_CHECKPOINT_CORRUPT: immutable checkpoint changed.");
   return id;
 }
-function prepareArtifactRestore(root2, currentPath, taskId, documentId, checkpointId, paths) {
-  const file = checkpointFile(root2, currentPath, documentId, checkpointId);
+function prepareArtifactRestore(root, currentPath, taskId, documentId, checkpointId, paths) {
+  const file = checkpointFile(root, currentPath, documentId, checkpointId);
   const checkpoint = JSON.parse(fs7.readFileSync(file, "utf8"));
   if (digest2(checkpoint) !== checkpointId || checkpoint.kind !== "artifact-checkpoint/v1" || checkpoint.task_id !== taskId || checkpoint.document_id !== documentId || !["before", "after"].includes(checkpoint.phase))
     throw new Error("ARTIFACT_CHECKPOINT_INVALID: checkpoint identity or bytes differ.");
@@ -3704,25 +3704,25 @@ function prepareArtifactRestore(root2, currentPath, taskId, documentId, checkpoi
     const target = checkpoint.images.find((image) => image.path === p);
     if (!target)
       throw new Error("ARTIFACT_BASELINE_MISSING: path was not captured at this checkpoint.");
-    assertProductPath(root2, currentPath, p);
+    assertProductPath(root, currentPath, p);
     if (target.object)
-      readEvidenceObject(root2, currentPath, target.object);
+      readEvidenceObject(root, currentPath, target.object);
     return target;
   });
-  return { checkpoint_id: checkpointId, checkpoint, expected: captureArtifactImages(root2, currentPath, paths), targets };
+  return { checkpoint_id: checkpointId, checkpoint, expected: captureArtifactImages(root, currentPath, paths), targets };
 }
 function assertNoArtifactPublication(currentPath) {
   if (fs7.existsSync(path7.join(path7.dirname(currentPath), ".vnext-artifact-restore.lock")))
     throw new Error("ARTIFACT_RECOVERY_REQUIRED: interrupted restore is retained; ordinary execution is blocked.");
 }
-function publish(root2, currentPath, image) {
-  const file = assertProductPath(root2, currentPath, image.path);
+function publish(root, currentPath, image) {
+  const file = assertProductPath(root, currentPath, image.path);
   if (!image.object) {
     if (fs7.existsSync(file))
       fs7.unlinkSync(file);
     return;
   }
-  const bytes2 = readEvidenceObject(root2, currentPath, image.object);
+  const bytes2 = readEvidenceObject(root, currentPath, image.object);
   fs7.mkdirSync(path7.dirname(file), { recursive: true });
   const stage = `${file}.vnext-${crypto5.randomUUID()}.tmp`;
   const fd = fs7.openSync(stage, "wx");
@@ -3739,11 +3739,11 @@ function publish(root2, currentPath, image) {
       fs7.unlinkSync(stage);
   }
 }
-function applyArtifactRestore(root2, currentPath, plan, afterPublish, recordCompletion) {
+function applyArtifactRestore(root, currentPath, plan, afterPublish, recordCompletion) {
   assertNoArtifactPublication(currentPath);
-  if (digest2(captureArtifactImages(root2, currentPath, plan.expected.map((image) => image.path))) !== digest2(plan.expected))
+  if (digest2(captureArtifactImages(root, currentPath, plan.expected.map((image) => image.path))) !== digest2(plan.expected))
     throw new Error("ARTIFACT_RESTORE_STALE: current files differ; user changes were preserved.");
-  preserveEvidenceObjects(root2, currentPath, plan.expected.flatMap((image) => image.object ? [image.object] : []));
+  preserveEvidenceObjects(root, currentPath, plan.expected.flatMap((image) => image.object ? [image.object] : []));
   const lock = path7.join(path7.dirname(currentPath), ".vnext-artifact-restore.lock");
   const fd = fs7.openSync(lock, "wx");
   try {
@@ -3757,23 +3757,23 @@ function applyArtifactRestore(root2, currentPath, plan, afterPublish, recordComp
   try {
     for (const target of plan.targets) {
       const before = plan.expected.find((image) => image.path === target.path);
-      if (digest2(captureArtifactImages(root2, currentPath, [target.path])[0]) !== digest2(before))
+      if (digest2(captureArtifactImages(root, currentPath, [target.path])[0]) !== digest2(before))
         throw new Error("ARTIFACT_RESTORE_STALE: path changed during publication.");
-      publish(root2, currentPath, target);
+      publish(root, currentPath, target);
       applied.push(target);
       afterPublish?.();
     }
-    if (digest2(captureArtifactImages(root2, currentPath, plan.targets.map((image) => image.path))) !== digest2(plan.targets))
+    if (digest2(captureArtifactImages(root, currentPath, plan.targets.map((image) => image.path))) !== digest2(plan.targets))
       throw new Error("ARTIFACT_RESTORE_VERIFY_FAILED: restored files differ.");
     recordCompletion?.();
     fs7.unlinkSync(lock);
   } catch (error) {
     for (const target of applied.reverse()) {
-      if (digest2(captureArtifactImages(root2, currentPath, [target.path])[0]) !== digest2(target))
+      if (digest2(captureArtifactImages(root, currentPath, [target.path])[0]) !== digest2(target))
         throw new Error("ARTIFACT_RECOVERY_REQUIRED: drift during rollback; journal retained.");
-      publish(root2, currentPath, plan.expected.find((image) => image.path === target.path));
+      publish(root, currentPath, plan.expected.find((image) => image.path === target.path));
     }
-    if (digest2(captureArtifactImages(root2, currentPath, plan.expected.map((image) => image.path))) === digest2(plan.expected))
+    if (digest2(captureArtifactImages(root, currentPath, plan.expected.map((image) => image.path))) === digest2(plan.expected))
       fs7.unlinkSync(lock);
     throw error;
   }
@@ -5330,8 +5330,8 @@ function normalizeProjectMutationAuthority(value) {
   }
   return { domains };
 }
-function readProjectMutationAuthority(root2) {
-  const profilePath = getWorkflowProfilePath(root2);
+function readProjectMutationAuthority(root) {
+  const profilePath = getWorkflowProfilePath(root);
   if (!fs9.existsSync(profilePath))
     return null;
   let profile;
@@ -5369,9 +5369,9 @@ function normalizeTaskMutationAuthority(value) {
     forbidden: stringList(authority.forbidden, "mutation_authority.forbidden", { allowEmpty: true, max: MAX_FORBIDDEN, allowBoundedGlob: true })
   };
 }
-function validateTaskMutationAuthority(root2, value) {
+function validateTaskMutationAuthority(root, value) {
   const authority = normalizeTaskMutationAuthority(value);
-  const project = readProjectMutationAuthority(root2);
+  const project = readProjectMutationAuthority(root);
   if (!project)
     fail("MUTATION_AUTHORITY_PROJECT_REQUIRED", "v2 tasks require PROJECT_PROFILE.yaml.mutation_authority.domains.");
   const known = new Set(project.domains.map((domain) => domain.id));
@@ -5381,10 +5381,10 @@ function validateTaskMutationAuthority(root2, value) {
   return authority;
 }
 function authorityDomainForPath(project, target) {
-  const matches = project.domains.filter((domain) => domain.roots.some((root2) => {
-    if (root2.endsWith("/**"))
-      return target === root2.slice(0, -3) || target.startsWith(`${root2.slice(0, -3)}/`);
-    return target === root2;
+  const matches = project.domains.filter((domain) => domain.roots.some((root) => {
+    if (root.endsWith("/**"))
+      return target === root.slice(0, -3) || target.startsWith(`${root.slice(0, -3)}/`);
+    return target === root;
   }));
   if (matches.length > 1)
     fail("MUTATION_AUTHORITY_DOMAIN_AMBIGUOUS", `path ${target} maps to multiple authority domains: ${matches.map((domain) => domain.id).join(", ")}.`);
@@ -5450,7 +5450,7 @@ function projectDomainsContainingPattern(project, pattern) {
     const domain = authorityDomainForPath(project, pattern);
     return domain === null ? [] : project.domains.filter((item) => item.id === domain);
   }
-  return project.domains.filter((domain) => domain.roots.some((root2) => mutationAuthorityPatternIsSubset(pattern, root2)));
+  return project.domains.filter((domain) => domain.roots.some((root) => mutationAuthorityPatternIsSubset(pattern, root)));
 }
 function evaluateTaskAuthorityPattern(project, task, rawPattern, kind) {
   const pattern = normalizeAuthorityPath(rawPattern, `${kind} authority pattern`, true);
@@ -5484,10 +5484,10 @@ function evaluateTaskMutationAuthorityPlan(input) {
   const blockers = decisions.filter((item) => !item.admitted).map((item) => `${item.kind}: ${item.path} — ${item.reason}`);
   return { status: blockers.length === 0 ? "pass" : "blocked", decisions, blockers };
 }
-function firstTouchState(root2, target) {
-  if (!root2)
+function firstTouchState(root, target) {
+  if (!root)
     return;
-  const absolute = path10.resolve(root2, ...target.split("/"));
+  const absolute = path10.resolve(root, ...target.split("/"));
   if (!fs9.existsSync(absolute))
     return "absent";
   const stat = fs9.lstatSync(absolute);
@@ -5837,8 +5837,8 @@ function normalizePathArray(value, location2, allowEmpty = false) {
 function sha2564(value) {
   return crypto9.createHash("sha256").update(value).digest("hex");
 }
-function computeBootstrapTargetIdentity(root2) {
-  const resolved = path11.resolve(root2).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
+function computeBootstrapTargetIdentity(root) {
+  const resolved = path11.resolve(root).replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
   return sha2564(resolved).slice(0, 32);
 }
 function isAllowedAssetPath(value) {
@@ -6039,8 +6039,8 @@ function validateBootstrapProjectProposal(value) {
     fail2("BOOTSTRAP_SCOPE_BLOCKED", scopeResult.blockers.join(" "));
   return { proposal, scope: scopeResult };
 }
-function absoluteTarget(root2, relativePath3) {
-  const resolvedRoot = path11.resolve(root2);
+function absoluteTarget(root, relativePath3) {
+  const resolvedRoot = path11.resolve(root);
   const resolved = path11.resolve(resolvedRoot, ...relativePath3.split("/"));
   const prefix = resolvedRoot.endsWith(path11.sep) ? resolvedRoot : `${resolvedRoot}${path11.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
@@ -6050,8 +6050,8 @@ function absoluteTarget(root2, relativePath3) {
 function contentHash(content) {
   return sha2564(Buffer.from(content, "utf8"));
 }
-function applyAtomicBootstrapTransaction(root2, proposal, verify) {
-  const resolvedRoot = path11.resolve(root2);
+function applyAtomicBootstrapTransaction(root, proposal, verify) {
+  const resolvedRoot = path11.resolve(root);
   const stagingRoot = fs10.mkdtempSync(path11.join(path11.dirname(resolvedRoot), ".workflow-vnext-bootstrap-"));
   const backups = [];
   const newlyPromoted = [];
@@ -6104,10 +6104,10 @@ function applyAtomicBootstrapTransaction(root2, proposal, verify) {
     throw error;
   }
 }
-function applyBootstrapProjectProposal(root2, value, options = {}) {
+function applyBootstrapProjectProposal(root, value, options = {}) {
   const validation = validateBootstrapProjectProposal(value);
   const { proposal, scope } = validation;
-  if (computeBootstrapTargetIdentity(root2) !== proposal.target_identity)
+  if (computeBootstrapTargetIdentity(root) !== proposal.target_identity)
     fail2("BOOTSTRAP_IDENTITY_CONFLICT", "proposal target_identity does not match the target root.");
   const plannedWrites = proposal.assets.map((asset) => asset.path);
   const base = {
@@ -6122,7 +6122,7 @@ function applyBootstrapProjectProposal(root2, value, options = {}) {
   };
   if (options.dryRun)
     return { ...base, status: "ready", committed: false, read_back_verified: false, message: "bootstrap proposal validated; no files were written." };
-  applyAtomicBootstrapTransaction(root2, proposal, options.verify);
+  applyAtomicBootstrapTransaction(root, proposal, options.verify);
   return { ...base, status: "success", committed: true, read_back_verified: true, message: "bootstrap proposal committed and read-back verified." };
 }
 function parseJsonFile(filePath) {
@@ -6138,12 +6138,12 @@ function readFlag(argv, name) {
 }
 async function runBootstrapCli(argv = process.argv.slice(1)) {
   try {
-    const root2 = readFlag(argv, "--root") ?? process.cwd();
+    const root = readFlag(argv, "--root") ?? process.cwd();
     const proposalFile = readFlag(argv, "--proposal-file") ?? readFlag(argv, "--proposal");
     if (!proposalFile)
       throw new BootstrapRuntimeError("BOOTSTRAP_SCHEMA_INVALID", "bootstrap-project requires --proposal-file <json>.");
     const dryRun = argv.includes("--dry-run");
-    const result = applyBootstrapProjectProposal(root2, parseJsonFile(proposalFile), { dryRun });
+    const result = applyBootstrapProjectProposal(root, parseJsonFile(proposalFile), { dryRun });
     console.log(JSON.stringify(result, null, 2));
     return result.status === "ready" || result.status === "success" || result.status === "no-op" ? 0 : 1;
   } catch (error) {
@@ -6182,7 +6182,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.8";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.9";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -6232,6 +6232,7 @@ var RUNTIME_STATE_FIELDS = [
   "finding_queue_revision",
   "review_cycle",
   "findings",
+  "controlled_repair_grants",
   "execution_log",
   "applied_proposals",
   "claim_evidence_required",
@@ -6307,6 +6308,12 @@ var DRAFT_CLAIM_EVIDENCE_REQUIREMENT = "required-and-non-empty-for-new-or-refine
 var CLOSE_TASK_CLAIM_EVIDENCE_RULE = "derive acceptance_satisfied and validation_complete from the non-empty frozen CURRENT_TASK claim_evidence plan; require an acceptance claim; aggregate command success is insufficient";
 var MAX_REPAIR_ATTEMPTS = 2;
 var MAX_EXTENDED_REPAIR_ATTEMPTS = 8;
+var MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING = 2;
+var MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW = 1;
+var REPAIR_FINDING_DISPOSITIONS = ["must-fix", "normal-fix", "defer"];
+var REPAIR_FINDING_DISPOSITION_BASES = ["acceptance", "critical-invariant", "release-gate", "risk-reduction", "user-decision"];
+var CONTROLLED_RECOVERY_DISPOSITION_SOURCES = ["review-disposition", "legacy-explicit-user"];
+var CONTROLLED_RECOVERY_SCOPES = ["finding-attempts", "repair-round", "mixed"];
 var CURRENT_TASK_RELATIVE_FALLBACK = "docs/workflow/CURRENT_TASK.md";
 var INBOX_RECORD_ITEM_ID_PATTERN = /^(\d{8})-([a-z0-9]{4,})$/;
 var INBOX_RECORD_PATH_PATTERN = /^TASKS\/inbox\/INBOX-(\d{8})-([a-z0-9]{4,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
@@ -6518,8 +6525,8 @@ function stableValue2(value) {
 function digest3(value) {
   return sha2565(JSON.stringify(stableValue2(value)));
 }
-function captureReviewTarget(root2, paths) {
-  const resolvedRoot = path12.resolve(root2);
+function captureReviewTarget(root, paths) {
+  const resolvedRoot = path12.resolve(root);
   const normalizedPaths = [...new Set(paths.map((item, index) => normalizeRepoPath2(item, `review_target.paths[${index}]`)))].sort();
   const entries = normalizedPaths.map((relativePath3) => {
     const filePath = path12.resolve(resolvedRoot, ...relativePath3.split("/"));
@@ -6601,12 +6608,12 @@ function validateStepRepairDiagnosis(value) {
     fail3("RETRY_DIAGNOSIS_REQUIRED", "Same-plan repair requires a confirmed current-step diagnosis.");
   return { kind: "same-plan-repair/v1", status: "confirmed", owner: "current-step", failed_check: expectText(report.failed_check, "repair failed_check"), cause: expectText(report.cause, "repair cause"), repair_paths: expectStringArray2(report.repair_paths, "repair repair_paths", false, 256).map((p) => normalizeRepoPath2(p, "repair path")) };
 }
-function validateRetryResolution(root2, current, delta, failure) {
-  if (captureReviewTarget(root2, failure.subject_snapshot.entries.map((e) => e.path)).revision !== failure.subject_snapshot.revision)
+function validateRetryResolution(root, current, delta, failure) {
+  if (captureReviewTarget(root, failure.subject_snapshot.entries.map((e) => e.path)).revision !== failure.subject_snapshot.revision)
     fail3("RETRY_SUBJECT_STALE", "Declared code, fixture or check objects changed after failure; use authorized repair or replan.");
   const failures = [...failure.execution_result.command_results, ...failure.execution_result.validation_results].filter((item) => item.status === "failed" || item.status === "blocked");
-  if (!delta.repair_diagnosis && failures.length && failures.every((item) => applicableResultWaiver(root2, current, delta.step_id, item))) {
-    const basis = readCanonicalTaskBasis(root2, current);
+  if (!delta.repair_diagnosis && failures.length && failures.every((item) => applicableResultWaiver(root, current, delta.step_id, item))) {
+    const basis = readCanonicalTaskBasis(root, current);
     if (delta.blocker_resolution_refs.length !== 1 || delta.blocker_resolution_refs[0] !== basis.path) {
       fail3("RETRY_RESOLUTION_REQUIRED", "Risk-accepted retry cites the exact retained Task Basis, not a fabricated repair result.");
     }
@@ -6631,7 +6638,7 @@ function validateRetryResolution(root2, current, delta, failure) {
     fail3("RETRY_DIAGNOSIS_REQUIRED", "Environment retry requires a recorded environment blocker without failed checks.");
   for (const ref of delta.blocker_resolution_refs) {
     const relative9 = normalizeRepoPath2(ref, "blocker_resolution_ref");
-    const absolute = path12.resolve(root2, relative9);
+    const absolute = path12.resolve(root, relative9);
     if (!fs11.existsSync(absolute) || !fs11.statSync(absolute).isFile() || fs11.statSync(absolute).size > 65536)
       fail3("RETRY_RESOLUTION_REQUIRED", "Resolution must be a retained bounded JSON report.");
     let parsed;
@@ -6771,14 +6778,15 @@ function validateExecutionPreflight(value, location2 = "runtime_state.execution_
     "repair_fingerprints",
     "repair_wave_id",
     "review_id",
-    "review_target_paths"
+    "review_target_paths",
+    ...source.controlled_recovery_grant_id === undefined ? [] : ["controlled_recovery_grant_id"]
   ], location2);
   const mode = expectEnum(source.mode, VNEXT_EXECUTE_STEP_MODES, `${location2}.mode`);
   const repairFingerprints = source.repair_fingerprints === null ? null : expectStringArray2(source.repair_fingerprints, `${location2}.repair_fingerprints`, false, MAX_FINDINGS).map((item, index) => expectString2(item, `${location2}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
   const repairWaveId = source.repair_wave_id === null ? null : expectString2(source.repair_wave_id, `${location2}.repair_wave_id`, SAFE_KEY_PATTERN2);
   const reviewId = source.review_id === null ? null : expectString2(source.review_id, `${location2}.review_id`, SAFE_KEY_PATTERN2);
   const reviewTargetPaths = source.review_target_paths === null ? null : expectStringArray2(source.review_target_paths, `${location2}.review_target_paths`, true, 256).map((item) => normalizeRepoPath2(item, `${location2}.review_target_paths`));
-  if (mode === "default" && (repairFingerprints !== null || repairWaveId !== null || reviewId !== null || reviewTargetPaths !== null)) {
+  if (mode === "default" && (repairFingerprints !== null || repairWaveId !== null || reviewId !== null || reviewTargetPaths !== null || source.controlled_recovery_grant_id !== undefined)) {
     fail3("RUNTIME_STATE_CONFLICT", `${location2} default execution must not carry repair identity.`);
   }
   if (mode === "repair" && (repairFingerprints === null || repairFingerprints.length === 0 || repairWaveId === null || reviewId === null || reviewTargetPaths === null || reviewTargetPaths.length === 0)) {
@@ -6796,7 +6804,8 @@ function validateExecutionPreflight(value, location2 = "runtime_state.execution_
     repair_fingerprints: repairFingerprints === null ? null : [...new Set(repairFingerprints)],
     repair_wave_id: repairWaveId,
     review_id: reviewId,
-    review_target_paths: reviewTargetPaths
+    review_target_paths: reviewTargetPaths,
+    ...source.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: expectString2(source.controlled_recovery_grant_id, `${location2}.controlled_recovery_grant_id`, SAFE_KEY_PATTERN2) }
   };
 }
 function normalizeReviewPreimages(preimages) {
@@ -6811,33 +6820,33 @@ function normalizeReviewPreimages(preimages) {
   });
   return { entries, writes };
 }
-function reviewPreimageWrite(root2, entry) {
+function reviewPreimageWrite(root, entry) {
   if (entry.state === "absent")
     return null;
-  const absolute = path12.resolve(root2, entry.path);
+  const absolute = path12.resolve(root, entry.path);
   const content = entry.state === "symlink" ? Buffer.from(fs11.readlinkSync(absolute)) : fs11.readFileSync(absolute);
   if (!entry.sha256 || sha2565(content) !== entry.sha256)
     fail3("REVIEW_BASE_INVALID", `first-touch baseline hash changed while capturing ${entry.path}.`);
   return { sha256: entry.sha256, content };
 }
-function registerReviewCoverage(root2, current, paths) {
+function registerReviewCoverage(root, current, paths) {
   const old = current.runtimeState.review_coverage;
-  if (old && captureReviewTarget(root2, old.target.entries.map((e) => e.path)).revision !== old.target.revision)
+  if (old && captureReviewTarget(root, old.target.entries.map((e) => e.path)).revision !== old.target.revision)
     fail3("REVIEW_TARGET_STALE", "Unrecorded changes cannot refresh the cumulative review target.");
-  const added = captureReviewTarget(root2, paths.filter((p) => !old?.base.entries.some((e) => e.path === p)));
-  const additions = added.entries.map((entry) => ({ entry, write: reviewPreimageWrite(root2, entry) }));
+  const added = captureReviewTarget(root, paths.filter((p) => !old?.base.entries.some((e) => e.path === p)));
+  const additions = added.entries.map((entry) => ({ entry, write: reviewPreimageWrite(root, entry) }));
   const normalizedOld = normalizeReviewPreimages(old?.preimages ?? []);
   const preimages = [...normalizedOld.entries, ...additions.map(({ entry }) => ({ ...entry }))].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   const coverage = validateReviewCoverage({ change_set_id: old?.change_set_id ?? `change-set-${digest3({ document: current.sourceTuple.document_id, plan: current.runtimeState.evidence_plan_revision }).slice(0, 32)}`, base: manifest(preimages.map((entry) => ({ path: entry.path, state: entry.state, sha256: entry.sha256 }))), target: manifest([...old?.target.entries ?? [], ...added.entries]), preimages, pending_paths: old?.pending_paths ?? [], last_clean_revision: old?.last_clean_revision ?? null });
   return { coverage, preimageWrites: [...normalizedOld.writes, ...additions.flatMap(({ write }) => write ? [write] : [])] };
 }
-function extendReviewCoverage(root2, current, paths) {
+function extendReviewCoverage(root, current, paths) {
   const old = current.runtimeState.review_coverage;
   if (!old)
     fail3("EXECUTE_PREFLIGHT_REQUIRED", "extend-preflight requires an existing recorded preflight.");
   const newPaths = paths.filter((p) => !old.base.entries.some((entry) => entry.path === p));
-  const added = captureReviewTarget(root2, newPaths);
-  const additions = added.entries.map((entry) => ({ entry, write: reviewPreimageWrite(root2, entry) }));
+  const added = captureReviewTarget(root, newPaths);
+  const additions = added.entries.map((entry) => ({ entry, write: reviewPreimageWrite(root, entry) }));
   const normalizedOld = normalizeReviewPreimages(old.preimages);
   const preimages = [...normalizedOld.entries, ...additions.map(({ entry }) => ({ ...entry }))].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   const target = manifest([...old.target.entries, ...added.entries]);
@@ -6900,7 +6909,7 @@ function resolveNewExecutionPhase(current, strategy, declaredPhase) {
   }
   return phase;
 }
-function evaluateCurrentExecutionTargetAdmissions(root2, current, input) {
+function evaluateCurrentExecutionTargetAdmissions(root, current, input) {
   const strategy = resolveTestStrategyExecutionContext(current);
   const mode = input.mode ?? "default";
   const phase = executionPhaseForCurrentStep(current, strategy);
@@ -6918,7 +6927,7 @@ function evaluateCurrentExecutionTargetAdmissions(root2, current, input) {
   let project = null;
   if (current.mutationAuthority) {
     try {
-      project = readProjectMutationAuthority(root2);
+      project = readProjectMutationAuthority(root);
     } catch (error) {
       fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
     }
@@ -6935,7 +6944,7 @@ function evaluateCurrentExecutionTargetAdmissions(root2, current, input) {
   const legacyScope = current.mutationAuthority ? null : parseMutationScope(current.body, current.sourceTuple.revision);
   const evaluation = evaluateExecutionTargetAdmissions({
     version: current.mutationAuthority ? 2 : 1,
-    root: root2,
+    root,
     project_authority: project,
     task_authority: current.mutationAuthority,
     legacy_scope: legacyScope,
@@ -6944,15 +6953,15 @@ function evaluateCurrentExecutionTargetAdmissions(root2, current, input) {
     targets: input.target_paths,
     assessments,
     persistent_test_paths: strategy.persistent_tests,
-    non_executable_change_paths: phase === "not-applicable" ? nonExecutableChangePatterns(root2) : [],
+    non_executable_change_paths: phase === "not-applicable" ? nonExecutableChangePatterns(root) : [],
     phase,
     mode,
     governance_paths: [current.relativePath]
   });
   return evaluation;
 }
-function assertExecutionTargetAdmissions(root2, current, input) {
-  const evaluation = evaluateCurrentExecutionTargetAdmissions(root2, current, input);
+function assertExecutionTargetAdmissions(root, current, input) {
+  const evaluation = evaluateCurrentExecutionTargetAdmissions(root, current, input);
   assertExecutionAdmissionEvaluation(current, evaluation, input.location ?? "execution target");
   return evaluation;
 }
@@ -7088,16 +7097,16 @@ function readJsonObject(filePath, code) {
   }
   return expectRecord2(parsed, filePath);
 }
-function resolveRuntimeDistributionDirectory(root2) {
-  const resolvedRoot = path12.resolve(root2);
+function resolveRuntimeDistributionDirectory(root) {
+  const resolvedRoot = path12.resolve(root);
   const installedDirectory = path12.join(resolvedRoot, ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"));
   if (fs11.existsSync(path12.join(installedDirectory, "package.json"))) {
     return { directory: installedDirectory, installed: true };
   }
   return { directory: path12.join(resolvedRoot, "runtime", "vnext"), installed: false };
 }
-function validateVNextRuntimeDistribution(root2, contract, requireDependencies = false) {
-  const { directory } = resolveRuntimeDistributionDirectory(root2);
+function validateVNextRuntimeDistribution(root, contract, requireDependencies = false) {
+  const { directory } = resolveRuntimeDistributionDirectory(root);
   const packagePath = path12.join(directory, "package.json");
   const lockfilePath = path12.join(directory, "package-lock.json");
   const entrypointPath = path12.join(directory, "dist", "cli.js");
@@ -7282,15 +7291,15 @@ function validateBootstrapRuntimeContract(value) {
   expectSetEqual(expectStringArray2(readBack.required, "Runtime contract.bootstrap_project.read_back.required"), ["asset-checksums", "project-identity", "runtime-contract", "distribution-prerequisite", "canonical-CURRENT_TASK", "host-isolation"], "bootstrap read-back evidence");
   return bound;
 }
-function validateVNextRuntimeContract(root2, requireDependencies = false) {
-  const filePath = path12.join(path12.resolve(root2), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split("/"));
+function validateVNextRuntimeContract(root, requireDependencies = false) {
+  const filePath = path12.join(path12.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split("/"));
   const contract = parseYamlMappingFile(filePath);
   expectExactKeys2(contract, ["schema_version", "kind", "phase", "runtime_distribution", "task_context", "task_store", "proposal", "mutation_scope", "mutation_authority", "review_coverage_preimages", "canonical_current_task", "concurrency", "operations", "unbound_operations", "bootstrap_project"], "vNext Runtime contract");
   if (contract.schema_version !== 1 || contract.kind !== "vnext-runtime-contract" || contract.phase !== "Phase 2") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.");
   }
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
-  const distributionIdentity = validateVNextRuntimeDistribution(root2, runtimeDistribution, requireDependencies);
+  const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
   validateTaskContextContract(contract.task_context);
   validateTaskStoreContract(contract.task_store);
   const proposal = expectRecord2(contract.proposal, "Runtime contract.proposal");
@@ -7322,7 +7331,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   }
   const taskStateContract = expectRecord2(proposal.task_state, "Runtime contract.proposal.task_state");
   expectExactKeys2(taskStateContract, ["actions", "execution_admission", "retry_step", "step_progress", "preflight", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "review_result", "draft", "confirm"], "Runtime contract.proposal.task_state");
-  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "Runtime contract task-state actions");
+  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "Runtime contract task-state actions");
   const executionAdmissionContract = expectRecord2(taskStateContract.execution_admission, "Runtime contract.proposal.task_state.execution_admission");
   expectExactKeys2(executionAdmissionContract, ["evaluator", "question", "shared_by", "classifications", "mutation_order", "error_mapping", "semantic_boundary"], "Runtime contract.proposal.task_state.execution_admission");
   if (executionAdmissionContract.evaluator !== "runtime-owned-exact-target-admission/v1" || executionAdmissionContract.question !== "current-task-step-phase-target-assessment-may-enter-this-execution" || executionAdmissionContract.semantic_boundary !== "runtime-owns-structural-checks-agent-owns-blast-radius-judgment") {
@@ -7354,7 +7363,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   const extensionPreflight = expectRecord2(preflightContract.extension, "Runtime contract.proposal.task_state.preflight.extension");
   expectExactKeys2(extensionPreflight, ["action", "required", "optional", "same_attempt", "plan_revision_change", "retry_budget_change", "continuation", "replacement_receipt", "review", "repair", "first_touch"], "Runtime contract.proposal.task_state.preflight.extension");
   expectSetEqual(expectStringArray2(extensionPreflight.required, "Runtime contract.proposal.task_state.preflight.extension.required"), ["current_preflight_id", "additional_targets", "blast_radius_assessments", "evidence_refs"], "Runtime extend-preflight required fields");
-  expectSetEqual(expectStringArray2(extensionPreflight.optional, "Runtime contract.proposal.task_state.preflight.extension.optional", true), ["mode", "execution_id", "execution_phase", "repair_wave_id", "review_id"], "Runtime extend-preflight optional fields");
+  expectSetEqual(expectStringArray2(extensionPreflight.optional, "Runtime contract.proposal.task_state.preflight.extension.optional", true), ["mode", "execution_id", "execution_phase", "repair_wave_id", "review_id", "controlled_recovery_grant_id"], "Runtime extend-preflight optional fields");
   if (extensionPreflight.action !== "extend-preflight" || extensionPreflight.same_attempt !== true || extensionPreflight.plan_revision_change !== "forbidden" || extensionPreflight.retry_budget_change !== "forbidden" || extensionPreflight.continuation !== "forbidden" || extensionPreflight.replacement_receipt !== "required" || extensionPreflight.review !== "risk-selected-cumulative-review-for-self-admitted-expansion" || extensionPreflight.repair !== "same-evaluator-same-wave-no-retry-consumption" || extensionPreflight.first_touch !== "append-only-for-new-targets") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime extend-preflight semantics are invalid.");
   }
@@ -7408,7 +7417,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   const reviewResultContract = expectRecord2(taskStateContract.review_result, "Runtime contract.proposal.task_state.review_result");
   expectExactKeys2(reviewResultContract, ["stored_in", "verdicts", "binds", "blocked_diagnostics", "consumed_by", "test_assessment"], "Runtime contract.proposal.task_state.review_result");
   expectSetEqual(expectStringArray2(reviewResultContract.test_assessment, "review_result.test_assessment"), ["applicable", "reason", "evidence_refs", "necessity", "oracle", "boundary", "reuse", "applicability"], "test assessment fields");
-  expectSetEqual(expectStringArray2(reviewResultContract.blocked_diagnostics, "review_result.blocked_diagnostics"), ["findings", "unresolved_fingerprints", "resolved_fingerprints", "blocker"], "blocked review diagnostics");
+  expectSetEqual(expectStringArray2(reviewResultContract.blocked_diagnostics, "review_result.blocked_diagnostics"), ["findings", "unresolved_fingerprints", "resolved_fingerprints", "finding_dispositions", "blocker"], "blocked review diagnostics");
   if (reviewResultContract.stored_in !== "canonical CURRENT_TASK.runtime_state.pending_review_result")
     fail3("RUNTIME_CONTRACT_INVALID", "review result must use canonical pending review storage.");
   expectSetEqual(expectStringArray2(reviewResultContract.verdicts, "Runtime contract review-result verdicts"), [...REVIEW_RESULT_VERDICTS], "Runtime contract review-result verdicts");
@@ -7504,7 +7513,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   expectSetEqual(expectStringArray2(reviewChangeAdapter.commands, "Runtime contract review-change commands"), ["review-context", "review-read", "record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge"], "Runtime contract review-change commands");
   expectSetEqual(expectStringArray2(reviewChangeContract.bound_actions, "Runtime contract review-change actions"), ["record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge"], "Runtime contract review-change actions");
   const prepareTaskContract = expectRecord2(proposal.prepare_task, "Runtime contract.proposal.prepare_task");
-  expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions", "scope_amendment_mode", "scope_amendment_actions", "repair_budget_extension", "direct_replan_result", "task_history"], "Runtime contract.proposal.prepare_task");
+  expectExactKeys2(prepareTaskContract, ["semantic_adapter", "bound_actions", "draft_mode", "draft_actions", "confirm_mode", "confirm_actions", "migration_mode", "migration_actions", "replan_mode", "replan_actions", "scope_amendment_mode", "scope_amendment_actions", "repair_budget_extension", "controlled_repair_recovery", "direct_replan_result", "task_history"], "Runtime contract.proposal.prepare_task");
   const prepareTaskAdapter = expectRecord2(prepareTaskContract.semantic_adapter, "Runtime contract.proposal.prepare_task.semantic_adapter");
   expectExactKeys2(prepareTaskAdapter, [
     "input",
@@ -7525,7 +7534,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   ], "Runtime contract.proposal.prepare_task.semantic_adapter");
   if (prepareTaskAdapter.input !== "stdin-json")
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task adapter input must remain stdin-json.");
-  expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "prepare-successor", "record-human-acceptance", "record-evidence-waiver", "confirm-draft", "clear-resume-review", "extend-repair-budget", "replan", "prepare-replan", "confirm-replan", "discard-replan", "prepare-scope-amendment", "discard-scope-amendment", "initialize-preservation"], "Runtime contract prepare-task adapter commands");
+  expectSetEqual(expectStringArray2(prepareTaskAdapter.commands, "Runtime contract.proposal.prepare_task.semantic_adapter.commands"), ["prepare-draft", "prepare-successor", "record-human-acceptance", "record-evidence-waiver", "confirm-draft", "clear-resume-review", "extend-repair-budget", "authorize-controlled-repair-recovery", "replan", "prepare-replan", "confirm-replan", "discard-replan", "prepare-scope-amendment", "discard-scope-amendment", "initialize-preservation"], "Runtime contract prepare-task adapter commands");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.draft_fields, "Runtime contract.proposal.prepare_task.semantic_adapter.draft_fields"), ["task_basis", "goal", "acceptance", "out_of_scope", "design_decisions", "mutation_authority_version", "mutation_authority", "planned_mutation_targets", "test_strategy", "implementation_steps", "validation_plan", "persistent_tests"], "Runtime contract prepare-task adapter semantic fields");
   expectSetEqual(expectStringArray2(prepareTaskAdapter.optional_draft_fields, "prepare-task optional fields"), ["project_documents", "affected_contracts"], "prepare-task optional fields");
   if (prepareTaskAdapter.task_basis_storage !== "linked-TASK_BASIS-with-path-and-revision") {
@@ -7581,7 +7590,7 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   if (internalActionOwners["migrate-claim-evidence"] !== "runtime-compatibility" || internalActionOwners["mark-replan-blocked"] !== "runtime-convergence" || internalActionOwners["clear-replan-block"] !== "runtime-convergence") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime prepare-task internal action ownership is invalid.");
   }
-  expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", "record-user-evidence", "extend-repair-budget", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, "mark-replan-blocked", "clear-replan-block", "commit-scope-amendment"], "Runtime contract prepare-task bound actions");
+  expectSetEqual(expectStringArray2(prepareTaskContract.bound_actions, "Runtime contract.proposal.prepare_task.bound_actions"), ["clear-resume-review-gate", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, "mark-replan-blocked", "clear-replan-block", "commit-scope-amendment"], "Runtime contract prepare-task bound actions");
   if (prepareTaskContract.draft_mode !== "default" || prepareTaskContract.confirm_mode !== "confirm")
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime contract prepare-task draft/confirm modes are invalid.");
   expectSetEqual(expectStringArray2(prepareTaskContract.draft_actions, "Runtime contract.proposal.prepare_task.draft_actions"), ["create-draft", "update-draft"], "Runtime contract prepare-task draft actions");
@@ -7599,6 +7608,11 @@ function validateVNextRuntimeContract(root2, requireDependencies = false) {
   expectExactKeys2(repairBudgetExtension, ["route", "increment", "scopes", "eligibility", "preserves", "absolute_limits"], "Runtime contract.proposal.prepare_task.repair_budget_extension");
   if (repairBudgetExtension.route !== "extend-repair-budget" || repairBudgetExtension.increment !== "one-bounded-continuation-unit-finding-or-repair-round" || repairBudgetExtension.scopes !== "finding-attempts-or-repair-round" || repairBudgetExtension.eligibility !== "exact-pending-REPAIR_BUDGET_EXHAUSTED-review-and-latest-review-repair-set" || repairBudgetExtension.preserves !== "pending-review-findings-resolved-queue-state-attempt-counts-review-baseline-task-definition-and-identity" || repairBudgetExtension.absolute_limits !== "eight-attempts-per-finding-and-eight-repair-rounds-per-cycle") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime repair-budget extension contract is invalid.");
+  }
+  const controlledRecovery = expectRecord2(prepareTaskContract.controlled_repair_recovery, "Runtime contract.proposal.prepare_task.controlled_repair_recovery");
+  expectExactKeys2(controlledRecovery, ["route", "trigger", "authorization", "legacy_coverage", "quota", "preserves", "stops"], "Runtime controlled repair recovery contract");
+  if (controlledRecovery.route !== "authorize-controlled-repair-recovery" || controlledRecovery.trigger !== "exact-pending-REPAIR_BUDGET_EXHAUSTED-review-where-ordinary-extension-is-not-executable" || controlledRecovery.authorization !== "explicit-structured-must-fix-targets-plus-basis-evidence-and-user-decision" || controlledRecovery.legacy_coverage !== "exact-explicit-target-must-cover-every-existing-unresolved-finding-with-no-ordinary-budget-before-grant-persistence" || controlledRecovery.quota !== "one-review-bound-repair-wave-and-at-most-two-separate-controlled-attempts-per-finding" || controlledRecovery.preserves !== "ordinary-maxima-cumulative-attempts-review-history-resolved-findings-task-identity-and-change-set-binding" || controlledRecovery.stops !== "no-free-text-inference-no-new-task-no-supersede-no-reset-no-clean-or-close") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime controlled repair recovery contract is invalid.");
   }
   if (prepareTaskContract.direct_replan_result !== "REPLAN_CONFIRMATION_REQUIRED") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime contract must describe the disabled direct replan result.");
@@ -8462,9 +8476,9 @@ function assertPersistentTestAdmission(definition, records) {
       fail3("PERSISTENT_TEST_ADMISSION_INVALID", `${testPath}.proves must bind stable claim IDs.`);
   }
 }
-function recoveryEvidenceContextRevision(root2) {
+function recoveryEvidenceContextRevision(root) {
   return digest3([".workflow-system/PROJECT_PROFILE.yaml", ".workflow-system/vnext/RUNTIME_CONTRACT.yaml", ".workflow-system/runtime/package.json"].map((relative9) => {
-    const file = path12.resolve(root2, relative9);
+    const file = path12.resolve(root, relative9);
     return { path: relative9, sha256: fs11.existsSync(file) ? sha2565(fs11.readFileSync(file)) : null };
   }));
 }
@@ -8485,7 +8499,7 @@ function validateUserEvidenceDecision(value) {
     assurance: "caller-reported"
   };
 }
-function assertUserEvidenceApplicable(root2, current, slot) {
+function assertUserEvidenceApplicable(root, current, slot) {
   const d = slot.user_decision;
   if (!d || !slot.check || d.check_id !== slot.check.check_id) {
     fail3("USER_EVIDENCE_STALE", "The user decision is not bound to this exact check and current evidence plan.");
@@ -8503,18 +8517,18 @@ function assertUserEvidenceApplicable(root2, current, slot) {
     if (digest3(oldSlot?.user_decision) !== digest3(d) || digest3(oldSlot?.check) !== digest3(slot.check))
       fail3("USER_EVIDENCE_STALE", "The retained user decision or observation changed.");
   }
-  const basis = readCanonicalTaskBasis(root2, current).basis;
+  const basis = readCanonicalTaskBasis(root, current).basis;
   const statement = [basis.original_request, ...basis.user_decisions].find((item) => item.source === d.decision_source);
   if (!statement || sha2565(statement.verbatim) !== d.statement_sha256)
     fail3("USER_EVIDENCE_SOURCE_INVALID", "The exact user statement is not retained in the linked Task Basis.");
-  const snapshot = slot.prerequisite_receipt?.subject_snapshot ?? captureReviewTarget(root2, slot.check.subject_paths);
+  const snapshot = slot.prerequisite_receipt?.subject_snapshot ?? captureReviewTarget(root, slot.check.subject_paths);
   if (snapshot.revision !== d.subject_revision)
     fail3("USER_EVIDENCE_STALE", "The observed objects changed after the user decision.");
   if ((current.runtimeState.evidence_challenges ?? []).some((item) => item.slot_id === slot.slot_id && current.runtimeState.claim_evidence?.find((claim) => claim.claim_id === item.claim_id)?.slots.some((s) => s.slot_id === slot.slot_id && s.check?.check_id === slot.check?.check_id) && item.status !== "resolved"))
     fail3("USER_EVIDENCE_CHALLENGED", "A user decision cannot silently discharge a retained evidence challenge.");
 }
-function carryUserEvidenceDecision(root2, current, claimId, slot, newPlan, operation) {
-  assertUserEvidenceApplicable(root2, current, slot);
+function carryUserEvidenceDecision(root, current, claimId, slot, newPlan, operation) {
+  assertUserEvidenceApplicable(root, current, slot);
   const d = slot.user_decision;
   const origin = current.runtimeState.evidence_carry_forward?.find((p) => p.claim_id === claimId && p.slot_id === slot.slot_id && p.new_plan_revision === current.runtimeState.evidence_plan_revision && p.user_decision_sha256 === digest3(d));
   return {
@@ -8524,7 +8538,7 @@ function carryUserEvidenceDecision(root2, current, claimId, slot, newPlan, opera
     old_plan_revision: d.evidence_plan_revision,
     new_plan_revision: newPlan,
     receiving_source_revision: current.sourceTuple.revision,
-    context_revision: recoveryEvidenceContextRevision(root2),
+    context_revision: recoveryEvidenceContextRevision(root),
     evidence_objects: [],
     claim_id: claimId,
     slot_id: slot.slot_id,
@@ -8535,11 +8549,11 @@ function carryUserEvidenceDecision(root2, current, claimId, slot, newPlan, opera
     user_decision_sha256: digest3(d)
   };
 }
-function applicableResultWaiver(root2, current, stepId, result, decisionId) {
+function applicableResultWaiver(root, current, stepId, result, decisionId) {
   const slots = (current.runtimeState.claim_evidence ?? []).flatMap((claim) => claim.slots);
   const candidates = slots.filter((slot) => slot.due_step_id === stepId && slot.user_decision?.kind === "waiver" && (!decisionId || slot.user_decision.decision_id === decisionId) && ("command" in result ? slot.check?.method === "execution" && slot.check.entry === result.command : slot.user_decision.validation_items?.includes(result.validation) && slotOwnsValidation(current, slot, result.validation)));
   for (const slot of candidates) {
-    assertUserEvidenceApplicable(root2, current, slot);
+    assertUserEvidenceApplicable(root, current, slot);
     if ("command" in result) {
       const step = resolveCanonicalTaskStep(current).steps.find((item) => item.id === stepId);
       const lines = (step?.plan_text ?? "").split(`
@@ -8551,22 +8565,22 @@ function applicableResultWaiver(root2, current, stepId, result, decisionId) {
       if (consumers.some((other) => other.user_decision?.kind !== "waiver"))
         continue;
       for (const consumer of consumers)
-        assertUserEvidenceApplicable(root2, current, consumer);
+        assertUserEvidenceApplicable(root, current, consumer);
     }
     return slot.user_decision;
   }
   return null;
 }
-function assertExecutionResultWaivers(root2, current, stepId, result) {
+function assertExecutionResultWaivers(root, current, stepId, result) {
   for (const item of [...result.command_results, ...result.validation_results]) {
     if (!item.waiver_decision_id)
       continue;
-    if (item.status === "passed" || item.status === "expected-failure" || !applicableResultWaiver(root2, current, stepId, item, item.waiver_decision_id)) {
+    if (item.status === "passed" || item.status === "expected-failure" || !applicableResultWaiver(root, current, stepId, item, item.waiver_decision_id)) {
       fail3("EVIDENCE_WAIVER_RESULT_UNBOUND", "A nonpassing result needs its exact retained, applicable user waiver; a waiver is not PASS.");
     }
   }
 }
-function assertEvidenceReportApplicable(root2, current, slot) {
+function assertEvidenceReportApplicable(root, current, slot) {
   const report = slot.report;
   if (!report || !slot.check || report.actual_method !== slot.check.method)
     fail3("CLAIM_EVIDENCE_INCOMPLETE", "report must bind its frozen check and method.");
@@ -8588,49 +8602,49 @@ function assertEvidenceReportApplicable(root2, current, slot) {
       fail3("EVIDENCE_CARRY_FORWARD_STALE", "immutable source does not contain the exact unchanged report and check.");
     }
     if (proof.kind === "evidence-carry-forward/v2") {
-      if (proof.context_revision !== recoveryEvidenceContextRevision(root2))
+      if (proof.context_revision !== recoveryEvidenceContextRevision(root))
         fail3("EVIDENCE_CARRY_FORWARD_STALE", "Project configuration or installed Runtime context changed; reassess affected evidence.");
-      if (!slot.user_decision && digest3(describeEvidenceObjects(root2, slot.evidence_refs)) !== digest3(proof.evidence_objects))
+      if (!slot.user_decision && digest3(describeEvidenceObjects(root, slot.evidence_refs)) !== digest3(proof.evidence_objects))
         fail3("EVIDENCE_CARRY_FORWARD_STALE", "Evidence body changed; affected evidence needs reassessment.");
       for (const object of proof.evidence_objects)
-        verifyEvidenceObject(root2, current.filePath, object);
+        verifyEvidenceObject(root, current.filePath, object);
     }
   }
   if (report.actual_method === "human") {
     if (slot.user_decision?.kind !== "human-acceptance" || slot.user_decision.decision_id !== report.result_id) {
       fail3("EVIDENCE_AUTHORITY_UNSUPPORTED", "Human evidence requires the explicit record-human-acceptance route; a raw report is not a user statement.");
     }
-    assertUserEvidenceApplicable(root2, current, slot);
+    assertUserEvidenceApplicable(root, current, slot);
   }
   if (!slot.evidence_refs.length || slot.evidence_refs.some((ref) => {
     try {
       const p = normalizeRepoPath2(ref.split("#")[0], "evidence_ref");
-      return !fs11.statSync(path12.resolve(root2, p)).isFile();
+      return !fs11.statSync(path12.resolve(root, p)).isFile();
     } catch {
       return true;
     }
   }))
     fail3("EVIDENCE_ARTIFACT_UNAVAILABLE", "Each report needs retained repository-relative artifact files.");
-  const snapshot = slot.prerequisite_receipt?.subject_snapshot ?? captureReviewTarget(root2, slot.check.subject_paths);
+  const snapshot = slot.prerequisite_receipt?.subject_snapshot ?? captureReviewTarget(root, slot.check.subject_paths);
   if (snapshot.revision !== report.subject_revision || digest3(snapshot.entries.map((entry) => entry.path).sort()) !== digest3([...slot.check.subject_paths].sort()))
     fail3("CLAIM_EVIDENCE_STALE", "evidence subject changed or does not match the frozen object set.");
   if (slot.prerequisite_receipt && (slot.prerequisite_receipt.result_id !== report.result_id || slot.prerequisite_receipt.step_id !== slot.before_step_id))
     fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", "prerequisite receipt does not bind its original report.");
 }
-function assertEvidenceSlotSatisfied(root2, current, record4, slot, closing) {
+function assertEvidenceSlotSatisfied(root, current, record4, slot, closing) {
   if (slot.user_decision?.kind === "waiver") {
-    assertUserEvidenceApplicable(root2, current, slot);
+    assertUserEvidenceApplicable(root, current, slot);
     return;
   }
-  assertEvidenceReportApplicable(root2, current, slot);
+  assertEvidenceReportApplicable(root, current, slot);
   if (!isClaimEvidenceSlotComplete(slot) || slot.report.status !== slot.check.expected_result)
     fail3("CLAIM_EVIDENCE_INCOMPLETE", `unsatisfied slot ${record4.claim_id}/${slot.slot_id}`);
   if (closing && slot.applicability === "before-step" && !slot.prerequisite_receipt)
     fail3("PREREQUISITE_REQUIRED", "prerequisite has not been consumed before execution.");
 }
-function evaluateEvidenceSlotForContext(root2, current, claim, slot) {
+function evaluateEvidenceSlotForContext(root, current, claim, slot) {
   try {
-    assertEvidenceSlotSatisfied(root2, current, claim, slot, false);
+    assertEvidenceSlotSatisfied(root, current, claim, slot, false);
     return { satisfied: true, reason: null };
   } catch (error) {
     return { satisfied: false, reason: error instanceof Error ? error.message : String(error) };
@@ -8767,7 +8781,7 @@ function hasRemainingCorrectionTargets(current, stepId) {
   return challenges.some((item) => item.status === "invalidated" && item.correction_step_id === stepId) && challenges.some((item) => item.status === "contested" && item.correction_step_id === null);
 }
 function evaluateClaimEvidence(records, context) {
-  const { root: root2, current, due_step_id } = context;
+  const { root, current, due_step_id } = context;
   const incomplete = { validation_complete: false, acceptance_satisfied: false };
   try {
     assertBusinessEvidenceVersion(current);
@@ -8789,7 +8803,7 @@ function evaluateClaimEvidence(records, context) {
       if (completingCorrection && slot.due_step_id !== due_step_id && slot.before_step_id !== due_step_id && current.runtimeState.evidence_challenges?.some((challenge) => challenge.status === "contested" && challenge.correction_step_id === null && challenge.claim_id === record4.claim_id && challenge.slot_id === slot.slot_id))
         continue;
       try {
-        assertEvidenceSlotSatisfied(root2, current, record4, slot, due_step_id === undefined);
+        assertEvidenceSlotSatisfied(root, current, record4, slot, due_step_id === undefined);
       } catch {
         completion.validation_complete = false;
         if (record4.claim_kind === "acceptance")
@@ -8890,6 +8904,16 @@ function validateReviewFindingCandidate(value, location2) {
     evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location2}.evidence_refs`)
   };
 }
+function validateRepairFindingDisposition(value, location2) {
+  const record4 = expectRecord2(value, location2);
+  expectExactKeys2(record4, ["fingerprint", "disposition", "basis", "evidence_refs"], location2);
+  return {
+    fingerprint: expectString2(record4.fingerprint, `${location2}.fingerprint`, FINGERPRINT_PATTERN),
+    disposition: expectEnum(record4.disposition, REPAIR_FINDING_DISPOSITIONS, `${location2}.disposition`),
+    basis: expectEnum(record4.basis, REPAIR_FINDING_DISPOSITION_BASES, `${location2}.basis`),
+    evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location2}.evidence_refs`)
+  };
+}
 function validateReviewBlocker(value, location2) {
   const record4 = expectRecord2(value, location2);
   expectExactKeys2(record4, ["code", "summary", "next_route"], location2);
@@ -8914,6 +8938,7 @@ function validatePendingReviewResult(value, location2, includeRecordedAt) {
     "findings",
     "unresolved_fingerprints",
     ...record4.resolved_fingerprints === undefined ? [] : ["resolved_fingerprints"],
+    ...record4.finding_dispositions === undefined ? [] : ["finding_dispositions"],
     "evidence_refs",
     "blocker",
     ...record4.test_assessment === undefined ? [] : ["test_assessment"],
@@ -8943,6 +8968,17 @@ function validatePendingReviewResult(value, location2, includeRecordedAt) {
   if (resolvedFingerprints.some((fingerprint) => findings.some((item) => item.fingerprint === fingerprint))) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location2}.resolved_fingerprints must not overlap findings.`);
   }
+  const findingDispositions = record4.finding_dispositions === undefined ? undefined : (() => {
+    if (!Array.isArray(record4.finding_dispositions) || record4.finding_dispositions.length > MAX_FINDINGS) {
+      fail3("RUNTIME_SCHEMA_INVALID", `${location2}.finding_dispositions must be a bounded array.`);
+    }
+    const values = record4.finding_dispositions.map((item, index) => validateRepairFindingDisposition(item, `${location2}.finding_dispositions[${index}]`));
+    if (new Set(values.map((item) => item.fingerprint)).size !== values.length)
+      fail3("RUNTIME_SCHEMA_INVALID", `${location2}.finding_dispositions fingerprints must be unique.`);
+    if (values.map((item) => item.fingerprint).join("|") !== [...values].map((item) => item.fingerprint).sort().join("|"))
+      fail3("RUNTIME_SCHEMA_INVALID", `${location2}.finding_dispositions must use canonical fingerprint order.`);
+    return values;
+  })();
   const verdict = expectEnum(record4.verdict, REVIEW_RESULT_VERDICTS, `${location2}.verdict`);
   const blocker = record4.blocker === null ? null : validateReviewBlocker(record4.blocker, `${location2}.blocker`);
   if (verdict === "clean" && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker !== null)) {
@@ -8968,6 +9004,7 @@ function validatePendingReviewResult(value, location2, includeRecordedAt) {
     findings,
     unresolved_fingerprints: unresolvedFingerprints,
     resolved_fingerprints: resolvedFingerprints,
+    ...findingDispositions === undefined ? {} : { finding_dispositions: findingDispositions },
     evidence_refs: validateEvidenceRefs(record4.evidence_refs, `${location2}.evidence_refs`),
     blocker
   };
@@ -9271,14 +9308,14 @@ function definitionAuthorityPatterns(definition) {
   }
   return { planned_targets: plannedTargets, command_write_targets: commandWriteTargets };
 }
-function assertV2DraftDefinitionAuthority(root2, definition) {
+function assertV2DraftDefinitionAuthority(root, definition) {
   if (definition.mutation_authority_version !== MUTATION_AUTHORITY_VERSION || !definition.mutation_authority)
     return;
   let task;
   let project;
   try {
-    task = validateTaskMutationAuthority(root2, definition.mutation_authority);
-    project = readProjectMutationAuthority(root2);
+    task = validateTaskMutationAuthority(root, definition.mutation_authority);
+    project = readProjectMutationAuthority(root);
   } catch (error) {
     fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
   }
@@ -9299,12 +9336,12 @@ function assertV2DraftDefinitionAuthority(root2, definition) {
     fail3("MUTATION_AUTHORITY_PLANNING_BLOCKED", `v2 task definition failed authority planning proof: ${result.blockers.join(" ")}`);
   }
 }
-function currentAuthorityDomainRevision(root2, current) {
+function currentAuthorityDomainRevision(root, current) {
   if (!current.mutationAuthority)
     return;
   let project;
   try {
-    project = readProjectMutationAuthority(root2);
+    project = readProjectMutationAuthority(root);
   } catch (error) {
     fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
   }
@@ -9312,11 +9349,11 @@ function currentAuthorityDomainRevision(root2, current) {
     fail3("MUTATION_AUTHORITY_PROJECT_REQUIRED", "v2 task state requires PROJECT_PROFILE.yaml.mutation_authority.domains.");
   return projectMutationAuthorityRevision(project);
 }
-function assertV2AuthorityDomainRevisionFreshForTransition(root2, current, transition) {
+function assertV2AuthorityDomainRevisionFreshForTransition(root, current, transition) {
   if (!current.mutationAuthority)
     return;
   const boundRevision = current.runtimeState.authority_domain_revision;
-  const projectRevision = currentAuthorityDomainRevision(root2, current);
+  const projectRevision = currentAuthorityDomainRevision(root, current);
   if (!boundRevision) {
     fail3("MUTATION_AUTHORITY_DOMAIN_REVISION_REQUIRED", `${transition} cannot proceed without the task-bound project authority domain-map revision.`);
   }
@@ -9375,10 +9412,10 @@ function definitionMutationScope(definition) {
     throw error;
   }
 }
-function nonExecutableChangePatterns(root2) {
+function nonExecutableChangePatterns(root) {
   let profile;
   try {
-    profile = loadProfile(getWorkflowProfilePath(root2));
+    profile = loadProfile(getWorkflowProfilePath(root));
   } catch (error) {
     fail3("TEST_STRATEGY_NON_EXECUTABLE_UNPROVEN", `not-applicable requires a readable PROJECT_PROFILE.yaml non-executable boundary: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -9410,8 +9447,8 @@ function nonExecutableChangePatterns(root2) {
   }
   return patterns;
 }
-function assertNonExecutableChangeScope(root2, definition, stepScopes) {
-  const policyPatterns = nonExecutableChangePatterns(root2);
+function assertNonExecutableChangeScope(root, definition, stepScopes) {
+  const policyPatterns = nonExecutableChangePatterns(root);
   const taskScope = definitionMutationScope(definition);
   const declaredTargets = [...new Set([
     ...taskScope.allowed.map((entry) => entry.pattern),
@@ -9430,7 +9467,7 @@ function assertNonExecutableChangeScope(root2, definition, stepScopes) {
     fail3("TEST_STRATEGY_NON_EXECUTABLE_SCOPE_VIOLATION", `not-applicable contains mutation targets outside PROJECT_PROFILE.yaml boundaries.non_executable_change_paths: ${uncovered.join(", ")}.`);
   }
 }
-function assertTestStrategySource(root2, strategy, taskBasis) {
+function assertTestStrategySource(root, strategy, taskBasis) {
   if (strategy.source === "inferred-default") {
     if (strategy.source_ref !== "prepare-task-default") {
       fail3("TEST_STRATEGY_INVALID", "inferred-default requires source_ref=prepare-task-default.");
@@ -9443,9 +9480,9 @@ function assertTestStrategySource(root2, strategy, taskBasis) {
     }
     return;
   }
-  assertRepositoryAuthoritySource(root2, strategy.source_ref);
+  assertRepositoryAuthoritySource(root, strategy.source_ref);
 }
-function assertRepositoryAuthoritySource(root2, sourceRef) {
+function assertRepositoryAuthoritySource(root, sourceRef) {
   const [file, locator, ...extra] = sourceRef.split("#");
   if (extra.length || locator === "")
     fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "source reference must name a file and optionally one existing heading.");
@@ -9453,7 +9490,7 @@ function assertRepositoryAuthoritySource(root2, sourceRef) {
   if (normalized !== file || normalized.includes("*") || /^[A-Za-z]:[\\/]/u.test(normalized)) {
     fail3("TEST_STRATEGY_INVALID", "authority source must be a canonical repository-relative file.");
   }
-  const resolvedRoot = path12.resolve(root2);
+  const resolvedRoot = path12.resolve(root);
   const resolved = path12.resolve(resolvedRoot, ...normalized.split("/"));
   const relative9 = path12.relative(resolvedRoot, resolved);
   if (!relative9 || relative9.startsWith(`..${path12.sep}`) || path12.isAbsolute(relative9) || !fs11.existsSync(resolved) || !fs11.statSync(resolved).isFile()) {
@@ -9470,15 +9507,15 @@ function assertRepositoryAuthoritySource(root2, sourceRef) {
       fail3("CLAIM_EVIDENCE_AUTHORITY_INVALID", "source heading/record identity must exist and be unambiguous.");
   }
 }
-function assertPreparedTestStrategy(root2, definition, taskBasis) {
+function assertPreparedTestStrategy(root, definition, taskBasis) {
   const strategy = readTestStrategyDefinition(definition);
   const persistentTests = readPersistentTestPaths(definition);
   const scopes = strategyStepScopes(definition);
-  assertTestStrategySource(root2, strategy, taskBasis);
+  assertTestStrategySource(root, strategy, taskBasis);
   if (strategy.mode === "not-applicable") {
     if (persistentTests.length > 0)
       fail3("TEST_STRATEGY_INVALID", "not-applicable requires Persistent Tests to be none.");
-    assertNonExecutableChangeScope(root2, definition, scopes);
+    assertNonExecutableChangeScope(root, definition, scopes);
   }
   return strategy;
 }
@@ -9664,7 +9701,7 @@ function assertReviewExecutionEligible(current, execution) {
 function validateTaskStateDelta(value) {
   const record4 = expectRecord2(value, "semantic_delta");
   const kind = expectEnum(record4.kind, ["task-state"], "semantic_delta.kind");
-  const action = expectEnum(record4.action, ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", "extend-repair-budget", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "semantic_delta.action");
+  const action = expectEnum(record4.action, ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "semantic_delta.action");
   if (action === "extend-repair-budget") {
     expectExactKeys2(record4, ["kind", "action", "review_id", "finding_fingerprints", "additional_repair_attempts", "decision_source", "decision_text", "evidence_refs", ...record4.extension_scope === undefined ? [] : ["extension_scope"]], "extend-repair-budget");
     const findingFingerprints = expectStringArray2(record4.finding_fingerprints, "finding_fingerprints", true, MAX_FINDINGS).map((item, index) => expectString2(item, `finding_fingerprints[${index}]`, FINGERPRINT_PATTERN));
@@ -9686,6 +9723,58 @@ function validateTaskStateDelta(value) {
       finding_fingerprints: findingFingerprints,
       additional_repair_attempts: 1,
       extension_scope: extensionScope,
+      decision_source: expectText(record4.decision_source, "decision_source"),
+      decision_text: expectVerbatim(record4.decision_text, "decision_text", 32768),
+      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "evidence_refs")
+    };
+  }
+  if (action === "authorize-controlled-repair-recovery") {
+    expectExactKeys2(record4, [
+      "kind",
+      "action",
+      "review_id",
+      "execution_id",
+      "cycle_id",
+      "cycle_phase",
+      "change_set_id",
+      "review_target_revision",
+      "repair_fingerprints",
+      "recovery_fingerprints",
+      "recovery_scope",
+      "disposition_source",
+      "recovery_basis",
+      "grant_id",
+      "repair_wave_id",
+      "decision_source",
+      "decision_text",
+      "evidence_refs"
+    ], "authorize-controlled-repair-recovery");
+    const repairFingerprints = expectStringArray2(record4.repair_fingerprints, "repair_fingerprints", false, MAX_FINDINGS).map((item, index) => expectString2(item, `repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    const recoveryFingerprints = expectStringArray2(record4.recovery_fingerprints, "recovery_fingerprints", false, MAX_FINDINGS).map((item, index) => expectString2(item, `recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    for (const [name, values] of [["repair_fingerprints", repairFingerprints], ["recovery_fingerprints", recoveryFingerprints]]) {
+      if (new Set(values).size !== values.length)
+        fail3("RUNTIME_SCHEMA_INVALID", `${name} must be unique.`);
+      if (values.join("|") !== [...values].sort().join("|"))
+        fail3("RUNTIME_SCHEMA_INVALID", `${name} must use canonical sorted order.`);
+    }
+    if (recoveryFingerprints.some((fingerprint) => !repairFingerprints.includes(fingerprint)))
+      fail3("RUNTIME_SCHEMA_INVALID", "recovery_fingerprints must be a subset of repair_fingerprints.");
+    return {
+      kind,
+      action,
+      review_id: expectString2(record4.review_id, "review_id", SAFE_KEY_PATTERN2),
+      execution_id: expectString2(record4.execution_id, "execution_id", SAFE_KEY_PATTERN2),
+      cycle_id: expectString2(record4.cycle_id, "cycle_id", SAFE_KEY_PATTERN2),
+      cycle_phase: expectEnum(record4.cycle_phase, REVIEW_CYCLE_PHASES, "cycle_phase"),
+      change_set_id: expectString2(record4.change_set_id, "change_set_id", SAFE_KEY_PATTERN2),
+      review_target_revision: expectString2(record4.review_target_revision, "review_target_revision", SHA256_PATTERN2),
+      repair_fingerprints: repairFingerprints,
+      recovery_fingerprints: recoveryFingerprints,
+      recovery_scope: expectEnum(record4.recovery_scope, CONTROLLED_RECOVERY_SCOPES, "recovery_scope"),
+      disposition_source: expectEnum(record4.disposition_source, CONTROLLED_RECOVERY_DISPOSITION_SOURCES, "disposition_source"),
+      recovery_basis: expectEnum(record4.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, "recovery_basis"),
+      grant_id: expectString2(record4.grant_id, "grant_id", SAFE_KEY_PATTERN2),
+      repair_wave_id: expectString2(record4.repair_wave_id, "repair_wave_id", SAFE_KEY_PATTERN2),
       decision_source: expectText(record4.decision_source, "decision_source"),
       decision_text: expectVerbatim(record4.decision_text, "decision_text", 32768),
       evidence_refs: validateEvidenceRefs(record4.evidence_refs, "evidence_refs")
@@ -9738,7 +9827,8 @@ function validateTaskStateDelta(value) {
       ...record4.repair_wave_id === undefined ? [] : ["repair_wave_id"],
       ...record4.review_id === undefined ? [] : ["review_id"],
       ...record4.review_target_paths === undefined ? [] : ["review_target_paths"],
-      ...record4.change_set_id === undefined ? [] : ["change_set_id"]
+      ...record4.change_set_id === undefined ? [] : ["change_set_id"],
+      ...record4.controlled_recovery_grant_id === undefined ? [] : ["controlled_recovery_grant_id"]
     ], "semantic_delta");
     let assessments;
     if (record4.blast_radius_assessments !== undefined) {
@@ -9759,6 +9849,7 @@ function validateTaskStateDelta(value) {
     const reviewId = record4.review_id === undefined ? undefined : expectString2(record4.review_id, "review_id", SAFE_KEY_PATTERN2);
     const reviewTargetPaths = record4.review_target_paths === undefined ? undefined : expectStringArray2(record4.review_target_paths, "review_target_paths", true, 256).map((item) => normalizeRepoPath2(item, "review_target_paths"));
     const changeSetId = record4.change_set_id === undefined ? undefined : expectString2(record4.change_set_id, "change_set_id", SAFE_KEY_PATTERN2);
+    const controlledRecoveryGrantId = record4.controlled_recovery_grant_id === undefined ? undefined : expectString2(record4.controlled_recovery_grant_id, "controlled_recovery_grant_id", SAFE_KEY_PATTERN2);
     return {
       kind,
       action,
@@ -9774,7 +9865,8 @@ function validateTaskStateDelta(value) {
       ...repairWaveId === undefined ? {} : { repair_wave_id: repairWaveId },
       ...reviewId === undefined ? {} : { review_id: reviewId },
       ...reviewTargetPaths === undefined ? {} : { review_target_paths: reviewTargetPaths },
-      ...changeSetId === undefined ? {} : { change_set_id: changeSetId }
+      ...changeSetId === undefined ? {} : { change_set_id: changeSetId },
+      ...controlledRecoveryGrantId === undefined ? {} : { controlled_recovery_grant_id: controlledRecoveryGrantId }
     };
   }
   if (action === "extend-preflight") {
@@ -10706,7 +10798,7 @@ function validateRuntimeProposal(value) {
   const idempotencyKey = expectString2(proposal.idempotency_key, "proposal.idempotency_key", SAFE_KEY_PATTERN2);
   const requestedTargets = expectStringArray2(proposal.requested_write_targets, "proposal.requested_write_targets", false, 4).map((target, index) => normalizeRepoPath2(target, `proposal.requested_write_targets[${index}]`));
   const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
-  const writesTaskBasis = semanticDelta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan", "commit-scope-amendment", "record-user-evidence", "extend-repair-budget"].includes(semanticDelta.action);
+  const writesTaskBasis = semanticDelta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan", "commit-scope-amendment", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery"].includes(semanticDelta.action);
   const isSuccessor = semanticDelta.kind === "task-state" && semanticDelta.action === "create-draft" && semanticDelta.predecessor !== undefined;
   const targetCount = isSuccessor ? 3 : writesTaskBasis || operationKind === "lifecycle-transaction" && mode !== "supersede" || operationKind === "archive-transaction" ? 2 : 1;
   if (requestedTargets.length !== targetCount)
@@ -10721,8 +10813,8 @@ function validateRuntimeProposal(value) {
   if (operationKind === "task-state-transaction") {
     if (caller === "prepare-task") {
       if (mode === "default") {
-        if (semanticDelta.kind !== "task-state" || !["clear-resume-review-gate", "create-draft", "update-draft", "record-user-evidence", "extend-repair-budget", ...CLAIM_EVIDENCE_MIGRATION_ACTIONS].includes(semanticDelta.action)) {
-          fail3("RUNTIME_CALLER_NOT_BOUND", "prepare-task default mode is bound only to clear-resume-review-gate, create-draft, update-draft, migrate-claim-evidence, an explicit user-evidence decision, or a bounded repair-budget extension.");
+        if (semanticDelta.kind !== "task-state" || !["clear-resume-review-gate", "create-draft", "update-draft", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery", ...CLAIM_EVIDENCE_MIGRATION_ACTIONS].includes(semanticDelta.action)) {
+          fail3("RUNTIME_CALLER_NOT_BOUND", "prepare-task default mode is bound only to clear-resume-review-gate, create-draft, update-draft, migrate-claim-evidence, an explicit user-evidence decision, a bounded repair-budget extension, or an explicit controlled recovery authorization.");
         }
         if (semanticDelta.kind === "task-state" && semanticDelta.action === "migrate-claim-evidence") {
           const requiredPreconditions = ["current-task-is-active", "legacy-claim-evidence-state", "acceptance-bearing-plan"];
@@ -10819,7 +10911,7 @@ function validateRuntimeProposal(value) {
 }
 function validateFinding(value, location2) {
   const finding = expectRecord2(value, location2);
-  expectExactKeys2(finding, ["fingerprint", "category", "owner_task_id", "scope", "decision", "file", "failure_condition", "violated_invariant", "root_cause_status", "status", "repair_attempts", "max_repair_attempts", "evidence_refs", "review_cycle_id", "last_repair_wave_id", "admitted_at", "updated_at"], location2);
+  expectExactKeys2(finding, ["fingerprint", "category", "owner_task_id", "scope", "decision", "file", "failure_condition", "violated_invariant", "root_cause_status", "status", "repair_attempts", "max_repair_attempts", ...finding.controlled_repair_attempts === undefined ? [] : ["controlled_repair_attempts"], "evidence_refs", "review_cycle_id", "last_repair_wave_id", "admitted_at", "updated_at"], location2);
   return {
     fingerprint: expectString2(finding.fingerprint, `${location2}.fingerprint`, FINGERPRINT_PATTERN),
     category: expectText(finding.category, `${location2}.category`, 256),
@@ -10833,11 +10925,87 @@ function validateFinding(value, location2) {
     status: expectEnum(finding.status, FINDING_STATUSES, `${location2}.status`),
     repair_attempts: expectInteger(finding.repair_attempts, `${location2}.repair_attempts`, 0, MAX_EXTENDED_REPAIR_ATTEMPTS),
     max_repair_attempts: expectInteger(finding.max_repair_attempts, `${location2}.max_repair_attempts`, 1, MAX_EXTENDED_REPAIR_ATTEMPTS),
+    ...finding.controlled_repair_attempts === undefined ? {} : { controlled_repair_attempts: expectInteger(finding.controlled_repair_attempts, `${location2}.controlled_repair_attempts`, 0, MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING) },
     evidence_refs: validateEvidenceRefs(finding.evidence_refs, `${location2}.evidence_refs`),
     review_cycle_id: expectString2(finding.review_cycle_id, `${location2}.review_cycle_id`, SAFE_KEY_PATTERN2),
     last_repair_wave_id: expectNullableString(finding.last_repair_wave_id, `${location2}.last_repair_wave_id`, SAFE_KEY_PATTERN2),
     admitted_at: expectString2(finding.admitted_at, `${location2}.admitted_at`),
     updated_at: expectString2(finding.updated_at, `${location2}.updated_at`)
+  };
+}
+function validateControlledRepairRecoveryGrant(value, location2, taskId, taskSlug) {
+  const grant = expectRecord2(value, location2);
+  expectExactKeys2(grant, [
+    "kind",
+    "grant_id",
+    "task_id",
+    "task_slug",
+    "document_id",
+    "review_id",
+    "execution_id",
+    "cycle_id",
+    "cycle_phase",
+    "change_set_id",
+    "review_target_revision",
+    "repair_fingerprints",
+    "recovery_fingerprints",
+    "recovery_scope",
+    "disposition_source",
+    "recovery_basis",
+    "repair_wave_id",
+    "decision_source",
+    "decision_sha256",
+    "evidence_refs",
+    "issued_source_revision",
+    "status",
+    "consumed_fingerprints",
+    "issued_at",
+    ...grant.consumed_at === undefined ? [] : ["consumed_at"]
+  ], location2);
+  const repairFingerprints = expectStringArray2(grant.repair_fingerprints, `${location2}.repair_fingerprints`, false, MAX_FINDINGS).map((item, index) => expectString2(item, `${location2}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const recoveryFingerprints = expectStringArray2(grant.recovery_fingerprints, `${location2}.recovery_fingerprints`, false, MAX_FINDINGS).map((item, index) => expectString2(item, `${location2}.recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const consumedFingerprints = expectStringArray2(grant.consumed_fingerprints, `${location2}.consumed_fingerprints`, true, MAX_FINDINGS).map((item, index) => expectString2(item, `${location2}.consumed_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  for (const [name, values] of [["repair_fingerprints", repairFingerprints], ["recovery_fingerprints", recoveryFingerprints], ["consumed_fingerprints", consumedFingerprints]]) {
+    if (new Set(values).size !== values.length)
+      fail3("RUNTIME_SCHEMA_INVALID", `${location2}.${name} must be unique.`);
+    if (values.join("|") !== [...values].sort().join("|"))
+      fail3("RUNTIME_SCHEMA_INVALID", `${location2}.${name} must use canonical fingerprint order.`);
+  }
+  if (recoveryFingerprints.some((item) => !repairFingerprints.includes(item)) || consumedFingerprints.some((item) => !repairFingerprints.includes(item))) {
+    fail3("RUNTIME_STATE_CONFLICT", `${location2} recovery and consumed fingerprints must be subsets of repair_fingerprints.`);
+  }
+  if (grant.task_id !== taskId || grant.task_slug !== taskSlug) {
+    fail3("RUNTIME_STATE_CONFLICT", `${location2} task identity does not match runtime_state.`);
+  }
+  const status = expectEnum(grant.status, ["issued", "consumed"], `${location2}.status`);
+  if (status === "consumed" && consumedFingerprints.length !== repairFingerprints.length)
+    fail3("RUNTIME_STATE_CONFLICT", `${location2} consumed grants must record every repair fingerprint.`);
+  return {
+    kind: grant.kind === "controlled-repair-recovery/v1" ? grant.kind : fail3("RUNTIME_SCHEMA_INVALID", `${location2}.kind must be controlled-repair-recovery/v1.`),
+    grant_id: expectString2(grant.grant_id, `${location2}.grant_id`, SAFE_KEY_PATTERN2),
+    task_id: expectString2(grant.task_id, `${location2}.task_id`),
+    task_slug: expectString2(grant.task_slug, `${location2}.task_slug`),
+    document_id: expectString2(grant.document_id, `${location2}.document_id`, DOCUMENT_ID_PATTERN),
+    review_id: expectString2(grant.review_id, `${location2}.review_id`, SAFE_KEY_PATTERN2),
+    execution_id: expectString2(grant.execution_id, `${location2}.execution_id`, SAFE_KEY_PATTERN2),
+    cycle_id: expectString2(grant.cycle_id, `${location2}.cycle_id`, SAFE_KEY_PATTERN2),
+    cycle_phase: expectEnum(grant.cycle_phase, REVIEW_CYCLE_PHASES, `${location2}.cycle_phase`),
+    change_set_id: expectString2(grant.change_set_id, `${location2}.change_set_id`, SAFE_KEY_PATTERN2),
+    review_target_revision: expectString2(grant.review_target_revision, `${location2}.review_target_revision`, SHA256_PATTERN2),
+    repair_fingerprints: repairFingerprints,
+    recovery_fingerprints: recoveryFingerprints,
+    recovery_scope: expectEnum(grant.recovery_scope, CONTROLLED_RECOVERY_SCOPES, `${location2}.recovery_scope`),
+    disposition_source: expectEnum(grant.disposition_source, CONTROLLED_RECOVERY_DISPOSITION_SOURCES, `${location2}.disposition_source`),
+    recovery_basis: expectEnum(grant.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, `${location2}.recovery_basis`),
+    repair_wave_id: expectString2(grant.repair_wave_id, `${location2}.repair_wave_id`, SAFE_KEY_PATTERN2),
+    decision_source: expectText(grant.decision_source, `${location2}.decision_source`),
+    decision_sha256: expectString2(grant.decision_sha256, `${location2}.decision_sha256`, SHA256_PATTERN2),
+    evidence_refs: validateEvidenceRefs(grant.evidence_refs, `${location2}.evidence_refs`),
+    issued_source_revision: expectString2(grant.issued_source_revision, `${location2}.issued_source_revision`, SHA256_PATTERN2),
+    status,
+    consumed_fingerprints: consumedFingerprints,
+    issued_at: expectString2(grant.issued_at, `${location2}.issued_at`),
+    ...grant.consumed_at === undefined ? {} : { consumed_at: expectString2(grant.consumed_at, `${location2}.consumed_at`) }
   };
 }
 function validateReviewCycle(value, location2 = "runtime_state.review_cycle") {
@@ -11003,13 +11171,13 @@ function predecessorObligationKeys(current) {
     ...current.runtimeState.findings.filter((f) => !["resolved", "rejected"].includes(f.status)).map((f) => `finding:${f.fingerprint}`)
   ].sort();
 }
-function assertSuccessorDecision(root2, current, delta) {
+function assertSuccessorDecision(root, current, delta) {
   const d = delta.predecessor;
   if (delta.action !== "create-draft" || current.runtimeState.workflow_status !== "superseded" || current.runtimeState.lifecycle_state !== "active")
     fail3("SUCCESSOR_STATE_INVALID", "Only an already superseded task can have an explicitly requested successor.");
   if (d.task_id !== current.runtimeState.task_id || d.document_id !== current.sourceTuple.document_id || d.source_revision !== current.sourceTuple.revision)
     fail3("SUCCESSOR_SOURCE_STALE", "The successor decision must bind the exact superseded predecessor.");
-  const priorBasis = readCanonicalTaskBasis(root2, current);
+  const priorBasis = readCanonicalTaskBasis(root, current);
   if (priorBasis.revision !== d.basis_revision)
     fail3("SUCCESSOR_SOURCE_STALE", "The predecessor Task Basis changed.");
   if (!current.runtimeState.execution_log.some((e) => ("action" in e) && e.action === "supersede"))
@@ -11330,10 +11498,98 @@ function validateRepairBudgetExtensionAuditLogEntry(value, location2, taskId, ta
     recorded_at: expectString2(value.recorded_at, `${location2}.recorded_at`)
   };
 }
+function validateControlledRepairRecoveryAuditLogEntry(value, location2, taskId, taskSlug) {
+  const requiredKeys = [
+    "action",
+    "idempotency_key",
+    "operation_kind",
+    "caller",
+    "mode",
+    "task_id",
+    "task_slug",
+    "document_id",
+    "from_workflow_status",
+    "from_lifecycle_state",
+    "to_workflow_status",
+    "to_lifecycle_state",
+    "source_revision",
+    "authority_evidence",
+    "evidence_refs",
+    "review_id",
+    "execution_id",
+    "cycle_id",
+    "cycle_phase",
+    "change_set_id",
+    "review_target_revision",
+    "repair_fingerprints",
+    "recovery_fingerprints",
+    "recovery_scope",
+    "disposition_source",
+    "recovery_basis",
+    "grant_id",
+    "repair_wave_id",
+    "controlled_attempt_limit",
+    "decision_source",
+    "decision_sha256",
+    "recorded_at"
+  ];
+  expectExactKeys2(value, requiredKeys, location2);
+  if (value.action !== "authorize-controlled-repair-recovery" || value.operation_kind !== "task-state-transaction" || value.caller !== "prepare-task" || value.mode !== "default" || value.from_workflow_status !== "active" || value.from_lifecycle_state !== "active" || value.to_workflow_status !== "active" || value.to_lifecycle_state !== "active") {
+    fail3("RUNTIME_STATE_CONFLICT", `${location2} controlled recovery audit has an invalid operation or lifecycle binding.`);
+  }
+  const entryTaskId = expectString2(value.task_id, `${location2}.task_id`);
+  const entryTaskSlug = expectString2(value.task_slug, `${location2}.task_slug`);
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug)
+    fail3("RUNTIME_STATE_CONFLICT", `${location2} identity does not match runtime_state.`);
+  const repairFingerprints = expectStringArray2(value.repair_fingerprints, `${location2}.repair_fingerprints`, false, MAX_FINDINGS).map((item, index) => expectString2(item, `${location2}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const recoveryFingerprints = expectStringArray2(value.recovery_fingerprints, `${location2}.recovery_fingerprints`, false, MAX_FINDINGS).map((item, index) => expectString2(item, `${location2}.recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  if (new Set(repairFingerprints).size !== repairFingerprints.length || repairFingerprints.join("|") !== [...repairFingerprints].sort().join("|"))
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.repair_fingerprints must be unique and sorted.`);
+  if (new Set(recoveryFingerprints).size !== recoveryFingerprints.length || recoveryFingerprints.join("|") !== [...recoveryFingerprints].sort().join("|"))
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.recovery_fingerprints must be unique and sorted.`);
+  if (recoveryFingerprints.some((fingerprint) => !repairFingerprints.includes(fingerprint)))
+    fail3("RUNTIME_STATE_CONFLICT", `${location2}.recovery_fingerprints must be a subset of repair_fingerprints.`);
+  return {
+    action: "authorize-controlled-repair-recovery",
+    idempotency_key: expectString2(value.idempotency_key, `${location2}.idempotency_key`, SAFE_KEY_PATTERN2),
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "default",
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: expectString2(value.document_id, `${location2}.document_id`, DOCUMENT_ID_PATTERN),
+    from_workflow_status: "active",
+    from_lifecycle_state: "active",
+    to_workflow_status: "active",
+    to_lifecycle_state: "active",
+    source_revision: expectString2(value.source_revision, `${location2}.source_revision`, SHA256_PATTERN2),
+    authority_evidence: validateAuthorityEvidence2(value.authority_evidence),
+    evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location2}.evidence_refs`),
+    review_id: expectString2(value.review_id, `${location2}.review_id`, SAFE_KEY_PATTERN2),
+    execution_id: expectString2(value.execution_id, `${location2}.execution_id`, SAFE_KEY_PATTERN2),
+    cycle_id: expectString2(value.cycle_id, `${location2}.cycle_id`, SAFE_KEY_PATTERN2),
+    cycle_phase: expectEnum(value.cycle_phase, REVIEW_CYCLE_PHASES, `${location2}.cycle_phase`),
+    change_set_id: expectString2(value.change_set_id, `${location2}.change_set_id`, SAFE_KEY_PATTERN2),
+    review_target_revision: expectString2(value.review_target_revision, `${location2}.review_target_revision`, SHA256_PATTERN2),
+    repair_fingerprints: repairFingerprints,
+    recovery_fingerprints: recoveryFingerprints,
+    recovery_scope: expectEnum(value.recovery_scope, CONTROLLED_RECOVERY_SCOPES, `${location2}.recovery_scope`),
+    disposition_source: expectEnum(value.disposition_source, CONTROLLED_RECOVERY_DISPOSITION_SOURCES, `${location2}.disposition_source`),
+    recovery_basis: expectEnum(value.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, `${location2}.recovery_basis`),
+    grant_id: expectString2(value.grant_id, `${location2}.grant_id`, SAFE_KEY_PATTERN2),
+    repair_wave_id: expectString2(value.repair_wave_id, `${location2}.repair_wave_id`, SAFE_KEY_PATTERN2),
+    controlled_attempt_limit: expectInteger(value.controlled_attempt_limit, `${location2}.controlled_attempt_limit`, 1, MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING),
+    decision_source: expectText(value.decision_source, `${location2}.decision_source`),
+    decision_sha256: expectString2(value.decision_sha256, `${location2}.decision_sha256`, SHA256_PATTERN2),
+    recorded_at: expectString2(value.recorded_at, `${location2}.recorded_at`)
+  };
+}
 function validateExecutionLogEntry(value, location2, taskId, taskSlug) {
   const record4 = expectRecord2(value, location2);
   if (record4.action === "extend-repair-budget")
     return validateRepairBudgetExtensionAuditLogEntry(record4, location2, taskId, taskSlug);
+  if (record4.action === "authorize-controlled-repair-recovery")
+    return validateControlledRepairRecoveryAuditLogEntry(record4, location2, taskId, taskSlug);
   if (record4.action === "migrate-claim-evidence")
     return validateClaimEvidenceMigrationAuditLogEntry(record4, location2, taskId, taskSlug);
   if (DRAFT_AUDIT_ACTIONS.includes(record4.action))
@@ -11646,7 +11902,7 @@ function validateVNextRuntimeState(value, options = {}) {
   ];
   if (!options.storeBackedHistory)
     requiredRuntimeStateFields.push("execution_log", "applied_proposals");
-  const optionalRuntimeStateFields = ["business_evidence_version", "evidence_plan_revision", "task_evolution_version", "preservation_source_revision", "claim_evidence_required", "claim_evidence", "pending_review_result", "scope_amendment_pending_review_step_id", "review_coverage", "step_attempts", "evidence_challenges", "evidence_carry_forward", "artifact_checkpoint_ids", "dynamic_review_required", "dynamic_expansions", "execution_preflight", "authority_domain_revision"];
+  const optionalRuntimeStateFields = ["business_evidence_version", "evidence_plan_revision", "task_evolution_version", "preservation_source_revision", "claim_evidence_required", "claim_evidence", "pending_review_result", "scope_amendment_pending_review_step_id", "review_coverage", "step_attempts", "evidence_challenges", "evidence_carry_forward", "artifact_checkpoint_ids", "dynamic_review_required", "dynamic_expansions", "execution_preflight", "authority_domain_revision", "controlled_repair_grants"];
   if (options.storeBackedHistory)
     optionalRuntimeStateFields.push("execution_log", "applied_proposals");
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter((field) => !(field in runtime));
@@ -11724,6 +11980,14 @@ function validateVNextRuntimeState(value, options = {}) {
     if (finding.repair_attempts > finding.max_repair_attempts)
       fail3("RUNTIME_SCHEMA_INVALID", `finding ${finding.fingerprint} exceeds its declared repair budget.`);
   }
+  const controlledRepairGrants = runtime.controlled_repair_grants === undefined ? [] : (() => {
+    if (!Array.isArray(runtime.controlled_repair_grants) || runtime.controlled_repair_grants.length > MAX_EXECUTION_LOG)
+      fail3("RUNTIME_SCHEMA_INVALID", "runtime_state.controlled_repair_grants must be a bounded array.");
+    const grants = runtime.controlled_repair_grants.map((item, index) => validateControlledRepairRecoveryGrant(item, `runtime_state.controlled_repair_grants[${index}]`, taskId, taskSlug));
+    if (new Set(grants.map((item) => item.grant_id)).size !== grants.length)
+      fail3("RUNTIME_SCHEMA_INVALID", "controlled recovery grant IDs must be unique.");
+    return grants;
+  })();
   const executionLogValue = runtime.execution_log;
   if (options.storeBackedHistory && executionLogValue !== undefined) {
     fail3("RUNTIME_STORAGE_COMPACT_INVALID", "compact CURRENT_TASK must not inline execution_log; use task-read against the committed store.");
@@ -11789,6 +12053,7 @@ function validateVNextRuntimeState(value, options = {}) {
     finding_queue_revision: expectInteger(runtime.finding_queue_revision, "runtime_state.finding_queue_revision"),
     review_cycle: reviewCycle,
     findings,
+    ...runtime.controlled_repair_grants === undefined ? {} : { controlled_repair_grants: controlledRepairGrants },
     execution_log: executionLog,
     applied_proposals: appliedProposals,
     claim_evidence_required: claimEvidenceRequired,
@@ -12152,6 +12417,19 @@ function renderExecutionAuditRecord(audit, includeEmptyKnowledge = true) {
     lines.push(`  new_max_repair_rounds: ${extensionAudit.new_max_repair_rounds}`);
     lines.push(`  decision_source: ${JSON.stringify(extensionAudit.decision_source)}`);
     lines.push(`  decision_sha256: ${extensionAudit.decision_sha256}`);
+  } else if (audit.action === "authorize-controlled-repair-recovery") {
+    const recoveryAudit = audit;
+    lines.push(`  review_id: ${recoveryAudit.review_id}`);
+    lines.push(`  recovery_scope: ${recoveryAudit.recovery_scope}`);
+    lines.push(`  repair_fingerprints: ${JSON.stringify(recoveryAudit.repair_fingerprints)}`);
+    lines.push(`  recovery_fingerprints: ${JSON.stringify(recoveryAudit.recovery_fingerprints)}`);
+    lines.push(`  grant_id: ${recoveryAudit.grant_id}`);
+    lines.push(`  repair_wave_id: ${recoveryAudit.repair_wave_id}`);
+    lines.push(`  disposition_source: ${recoveryAudit.disposition_source}`);
+    lines.push(`  recovery_basis: ${recoveryAudit.recovery_basis}`);
+    lines.push(`  controlled_attempt_limit: ${recoveryAudit.controlled_attempt_limit}`);
+    lines.push(`  decision_source: ${JSON.stringify(recoveryAudit.decision_source)}`);
+    lines.push(`  decision_sha256: ${recoveryAudit.decision_sha256}`);
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action)) {
     const draftAudit = audit;
     lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
@@ -12227,9 +12505,9 @@ ${rendered}
 
 ` + body.slice(section.contentEnd);
 }
-function assertExecutionAudit(root2, current, audit) {
+function assertExecutionAudit(root, current, audit) {
   if (current.frontmatter.task_store !== undefined) {
-    const history = TaskStore.forCurrent(root2, current).readExecutionLog();
+    const history = TaskStore.forCurrent(root, current).readExecutionLog();
     if (!history.some((entry) => digest3(entry) === digest3(audit))) {
       fail3("RUNTIME_REPLAY_INCOMPLETE", `replay is missing the durable task-store audit for ${audit.action}.`);
     }
@@ -12258,8 +12536,8 @@ function taskBasisRelativePath(currentTaskPath, taskId) {
   const directory = path12.posix.dirname(normalizeRepoPath2(currentTaskPath, "CURRENT_TASK source path"));
   return path12.posix.join(directory, "task-basis", `TASK_BASIS-${taskId}.md`);
 }
-function taskBasisFilePath(root2, relativePath3) {
-  const resolvedRoot = path12.resolve(root2);
+function taskBasisFilePath(root, relativePath3) {
+  const resolvedRoot = path12.resolve(root);
   const filePath = path12.resolve(resolvedRoot, ...normalizeRepoPath2(relativePath3, "task basis path").split("/"));
   const relative9 = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
   if (!relative9 || relative9.startsWith("../") || path12.isAbsolute(relative9)) {
@@ -12288,12 +12566,12 @@ function renderTaskBasisContent(identity, basis) {
   ].join(`
 `);
 }
-function materializeTaskBasis(root2, current, identity, basis) {
+function materializeTaskBasis(root, current, identity, basis) {
   const relativePath3 = taskBasisRelativePath(current.relativePath, identity.task_id);
   const content = renderTaskBasisContent(identity, basis);
   return {
     path: relativePath3,
-    filePath: taskBasisFilePath(root2, relativePath3),
+    filePath: taskBasisFilePath(root, relativePath3),
     revision: sha2565(content),
     content,
     basis
@@ -12488,8 +12766,8 @@ ${stringify4(nextFrontmatter).trimEnd()}
 ${nextBody}`;
   return compact && (options.draftDocumentId !== undefined || isRecord4(existingBinding) && existingBinding.format === ACTIVE_TASK_FORMAT) ? prepareTaskProjection(expandedContent) : { content: expandedContent, expandedContent, objects: [] };
 }
-function currentTaskPathForRoot(root2) {
-  const resolvedRoot = path12.resolve(root2);
+function currentTaskPathForRoot(root) {
+  const resolvedRoot = path12.resolve(root);
   const profilePath = getWorkflowProfilePath(resolvedRoot);
   if (!fs11.existsSync(profilePath))
     fail3("RUNTIME_SOURCE_MISSING", `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
@@ -12516,14 +12794,14 @@ function walkMarkdownFiles(directory) {
   visit(directory);
   return files;
 }
-function allocateNextTaskId(root2, currentTaskId) {
+function allocateNextTaskId(root, currentTaskId) {
   try {
     validateTaskId(currentTaskId);
   } catch (error) {
     fail3("RUNTIME_IDENTITY_INVALID", error instanceof Error ? error.message : String(error));
   }
   const current = BigInt(currentTaskId);
-  const taskDirectory = path12.join(path12.resolve(root2), "TASKS");
+  const taskDirectory = path12.join(path12.resolve(root), "TASKS");
   const usedIds = new Set([current]);
   const taskFilePattern = /^TASK-([0-9]{3,})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
   for (const taskFile of walkMarkdownFiles(taskDirectory)) {
@@ -12538,10 +12816,10 @@ function allocateNextTaskId(root2, currentTaskId) {
   }
   return next.toString().padStart(Math.max(3, currentTaskId.length), "0");
 }
-function collectTaskDocumentIds(root2) {
-  const { filePath } = currentTaskPathForRoot(root2);
+function collectTaskDocumentIds(root) {
+  const { filePath } = currentTaskPathForRoot(root);
   const documentIds = new Set;
-  const allFiles = [filePath, ...walkMarkdownFiles(path12.join(path12.resolve(root2), "TASKS"))];
+  const allFiles = [filePath, ...walkMarkdownFiles(path12.join(path12.resolve(root), "TASKS"))];
   for (const file of allFiles) {
     if (!fs11.existsSync(file))
       continue;
@@ -12670,10 +12948,10 @@ function parseCanonicalCurrentTaskContent(raw, filePath, relativePath3, prepared
   };
   return { filePath, relativePath: relativePath3, raw, frontmatter, body, runtimeState, mutationAuthority, sourceTuple };
 }
-function taskSourceRevisionMatches(root2, current, sourceRevision) {
+function taskSourceRevisionMatches(root, current, sourceRevision) {
   if (sourceRevision === current.sourceTuple.revision)
     return true;
-  const preimages = readStorageMigrationLineage(root2, current, sourceRevision);
+  const preimages = readStorageMigrationLineage(root, current, sourceRevision);
   if (!preimages)
     return false;
   const expected = digest3(migrationSemanticModel(current));
@@ -12682,9 +12960,9 @@ function taskSourceRevisionMatches(root2, current, sourceRevision) {
     return digest3(migrationSemanticModel(previous)) === expected;
   });
 }
-function hydrateCompactRuntimeHistory(root2, current) {
+function hydrateCompactRuntimeHistory(root, current) {
   const binding = current.frontmatter.task_store;
-  const store = TaskStore.forCurrent(root2, current);
+  const store = TaskStore.forCurrent(root, current);
   let manifest2;
   try {
     manifest2 = store.manifest;
@@ -12722,8 +13000,8 @@ function hydrateCompactRuntimeHistory(root2, current) {
   if (validation.status !== "valid")
     fail3("RUNTIME_STORAGE_RECOVERY_REQUIRED", `compact task-store validation failed: ${validation.errors.join(" | ")}`);
 }
-function readCanonicalCurrentTask(root2) {
-  const { filePath, relativePath: relativePath3 } = currentTaskPathForRoot(root2);
+function readCanonicalCurrentTask(root) {
+  const { filePath, relativePath: relativePath3 } = currentTaskPathForRoot(root);
   assertGovernanceReadable(filePath);
   assertNoArtifactPublication(filePath);
   recoverTaskEvolution(filePath);
@@ -12731,17 +13009,17 @@ function readCanonicalCurrentTask(root2) {
     fail3("RUNTIME_SOURCE_MISSING", `CURRENT_TASK.md is missing: ${relativePath3}`);
   const current = parseCanonicalCurrentTaskContent(fs11.readFileSync(filePath, "utf8"), filePath, relativePath3);
   if (current.mutationAuthority) {
-    current.mutationAuthority = validateTaskMutationAuthority(root2, current.mutationAuthority);
+    current.mutationAuthority = validateTaskMutationAuthority(root, current.mutationAuthority);
   }
   if (current.frontmatter.task_store !== undefined)
-    hydrateCompactRuntimeHistory(root2, current);
+    hydrateCompactRuntimeHistory(root, current);
   else {
-    const legacyStore = TaskStore.forCurrent(root2, current);
-    if (legacyStore.hasPendingCommit && !governanceWriteLockIsHeld(root2)) {
+    const legacyStore = TaskStore.forCurrent(root, current);
+    if (legacyStore.hasPendingCommit && !governanceWriteLockIsHeld(root)) {
       fail3("RUNTIME_STORAGE_RECOVERY_REQUIRED", "CURRENT_TASK has a pending task-store commit; recover it before reading or executing the task.");
     }
   }
-  assertRecoveryHistory(root2, current);
+  assertRecoveryHistory(root, current);
   if (current.runtimeState.preservation_source_revision) {
     assertTaskHistoryForRevision(filePath, current.sourceTuple.document_id, current.runtimeState.task_id, current.runtimeState.preservation_source_revision, "initialize-preservation");
   }
@@ -12757,13 +13035,13 @@ function recoveryCurrentFromRaw(raw, filePath, relativePath3, runtimeState) {
   }
   return parsed;
 }
-function recoverPendingTaskStoreCommit(root2) {
-  const { filePath, relativePath: relativePath3 } = currentTaskPathForRoot(root2);
+function recoverPendingTaskStoreCommit(root) {
+  const { filePath, relativePath: relativePath3 } = currentTaskPathForRoot(root);
   if (!fs11.existsSync(filePath))
     return;
   const raw = fs11.readFileSync(filePath, "utf8");
   const parsed = parseCanonicalCurrentTaskContent(raw, filePath, relativePath3);
-  const store = TaskStore.forCurrent(root2, parsed);
+  const store = TaskStore.forCurrent(root, parsed);
   const pending = store.pendingCommit;
   if (!isRecord4(pending))
     return;
@@ -12783,7 +13061,7 @@ function recoverPendingTaskStoreCommit(root2) {
     if (parsed.sourceTuple.revision !== resultingRevision) {
       throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", "CURRENT_TASK does not match the already-published pending task-store head.");
     }
-    reconcilePendingWriteSet(root2, parsed.sourceTuple.revision, pending);
+    reconcilePendingWriteSet(root, parsed.sourceTuple.revision, pending);
     store.clearPendingForNoCommit();
     return;
   }
@@ -12791,7 +13069,7 @@ function recoverPendingTaskStoreCommit(root2) {
     throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "pending task-store commit is not directly after the committed aggregate head.");
   }
   if (parsed.sourceTuple.revision === sourceRevision) {
-    reconcilePendingWriteSet(root2, parsed.sourceTuple.revision, pending);
+    reconcilePendingWriteSet(root, parsed.sourceTuple.revision, pending);
     store.clearPendingForNoCommit();
     return;
   }
@@ -12824,7 +13102,7 @@ function recoverPendingTaskStoreCommit(root2) {
   if (before.sourceTuple.revision !== sourceRevision || after.sourceTuple.revision !== resultingRevision || before.sourceTuple.document_id !== parsed.sourceTuple.document_id || after.sourceTuple.document_id !== parsed.sourceTuple.document_id) {
     throw new TaskStoreError("TASK_STORE_IDENTITY_CONFLICT", "pending task-store recovery images do not describe one task aggregate.");
   }
-  reconcilePendingWriteSet(root2, parsed.sourceTuple.revision, pending);
+  reconcilePendingWriteSet(root, parsed.sourceTuple.revision, pending);
   store.markCurrentPublished(resultingRevision);
   const recovered = store.recordCommit({
     before,
@@ -12836,7 +13114,7 @@ function recoverPendingTaskStoreCommit(root2) {
     throw new TaskStoreError("TASK_STORE_EVENT_CONFLICT", "pending task-store recovery did not publish the expected aggregate head.");
   }
 }
-function readCanonicalTaskBasis(root2, current = readCanonicalCurrentTask(root2)) {
+function readCanonicalTaskBasis(root, current = readCanonicalCurrentTask(root)) {
   const reference = readTaskBasisReferenceFromBody(current.body);
   if (!reference)
     fail3("TASK_BASIS_MISSING", "CURRENT_TASK does not link an exact task basis.");
@@ -12844,7 +13122,7 @@ function readCanonicalTaskBasis(root2, current = readCanonicalCurrentTask(root2)
   if (reference.path !== expectedPath) {
     fail3("TASK_BASIS_REFERENCE_INVALID", `CURRENT_TASK task basis path must be ${expectedPath}.`);
   }
-  const filePath = taskBasisFilePath(root2, reference.path);
+  const filePath = taskBasisFilePath(root, reference.path);
   if (!fs11.existsSync(filePath))
     fail3("TASK_BASIS_MISSING", `Linked task basis is missing: ${reference.path}`);
   const content = fs11.readFileSync(filePath, "utf8");
@@ -12876,8 +13154,8 @@ function readCanonicalTaskBasis(root2, current = readCanonicalCurrentTask(root2)
     document_id: documentId
   };
 }
-function workflowDocPathForRoot(root2, file, missingCode = "RUNTIME_SOURCE_MISSING") {
-  const resolvedRoot = path12.resolve(root2);
+function workflowDocPathForRoot(root, file, missingCode = "RUNTIME_SOURCE_MISSING") {
+  const resolvedRoot = path12.resolve(root);
   const profilePath = getWorkflowProfilePath(resolvedRoot);
   if (!fs11.existsSync(profilePath))
     fail3(missingCode, `PROJECT_PROFILE.yaml is missing: ${profilePath}`);
@@ -12889,14 +13167,14 @@ function workflowDocPathForRoot(root2, file, missingCode = "RUNTIME_SOURCE_MISSI
   }
   return { filePath, relativePath: relativePath3 };
 }
-function archivePathForTask(root2, current) {
+function archivePathForTask(root, current) {
   let relativePath3;
   try {
     relativePath3 = getTaskArtifactPath(current.runtimeState.task_id, current.runtimeState.task_slug, "archive");
   } catch (error) {
     fail3("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const resolvedRoot = path12.resolve(root2);
+  const resolvedRoot = path12.resolve(root);
   const filePath = path12.resolve(resolvedRoot, ...relativePath3.split("/"));
   const relativeCheck = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
   if (relativeCheck !== relativePath3 || relativeCheck.startsWith("../") || path12.isAbsolute(relativeCheck)) {
@@ -12904,7 +13182,7 @@ function archivePathForTask(root2, current) {
   }
   return { filePath, relativePath: relativePath3 };
 }
-function canonicalInboxRecordTarget(root2, delta) {
+function canonicalInboxRecordTarget(root, delta) {
   const itemId = validateInboxItemId(delta.record.item_id, "semantic_delta.record.item_id");
   const itemSlug = expectString2(delta.item_slug, "semantic_delta.item_slug");
   try {
@@ -12916,7 +13194,7 @@ function canonicalInboxRecordTarget(root2, delta) {
   if (delta.target_path !== relativePath3) {
     fail3("RUNTIME_PATH_INVALID", "inbox target_path is not the canonical identity-derived path.");
   }
-  const resolvedRoot = path12.resolve(root2);
+  const resolvedRoot = path12.resolve(root);
   const filePath = path12.resolve(resolvedRoot, ...relativePath3.split("/"));
   const relativeCheck = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
   if (relativeCheck !== relativePath3 || relativeCheck.startsWith("../") || path12.isAbsolute(relativeCheck)) {
@@ -13021,8 +13299,8 @@ function readInboxProvenanceMarkers(content, location2) {
   }
   return markers;
 }
-function scanInboxRecordFiles(root2) {
-  const resolvedRoot = path12.resolve(root2);
+function scanInboxRecordFiles(root) {
+  const resolvedRoot = path12.resolve(root);
   const inboxRoot = path12.join(resolvedRoot, "TASKS", "inbox");
   return walkMarkdownFiles(inboxRoot).map((filePath) => {
     const relativePath3 = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
@@ -13057,9 +13335,9 @@ function assertCanonicalInboxRecordContent(content, proposal, location2) {
   }
   validateInboxRecord(proposal.semantic_delta.record, `${location2}.record`);
 }
-function inspectInboxRecordTransaction(root2, proposal) {
+function inspectInboxRecordTransaction(root, proposal) {
   const delta = proposal.semantic_delta;
-  const target = canonicalInboxRecordTarget(root2, delta);
+  const target = canonicalInboxRecordTarget(root, delta);
   if (fs11.existsSync(target.filePath)) {
     if (!fs11.statSync(target.filePath).isFile()) {
       fail3("INBOX_IDENTITY_CONFLICT", `${target.relativePath} exists but is not a regular inbox record file.`);
@@ -13074,7 +13352,7 @@ function inspectInboxRecordTransaction(root2, proposal) {
     }
     return { ...target, nextContent: existingContent, existing: true };
   }
-  const files = scanInboxRecordFiles(root2);
+  const files = scanInboxRecordFiles(root);
   for (const file of files) {
     if (file.itemId === delta.record.item_id && file.relativePath !== target.relativePath) {
       fail3("INBOX_IDENTITY_CONFLICT", `inbox item identity ${delta.record.item_id} is already claimed by ${file.relativePath}.`);
@@ -13085,7 +13363,7 @@ function inspectInboxRecordTransaction(root2, proposal) {
   }
   return { ...target, nextContent: renderInboxRecord(proposal), existing: false };
 }
-function prepareInboxRecordTransaction(root2, current, proposal) {
+function prepareInboxRecordTransaction(root, current, proposal) {
   ensureAuthorityKinds(proposal, ["evidence-admission"]);
   if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
     fail3("INBOX_CAPTURE_BLOCKED", "inbox record capture requires an active + active current task.");
@@ -13094,7 +13372,7 @@ function prepareInboxRecordTransaction(root2, current, proposal) {
   if (delta.record.current_task_id !== current.runtimeState.task_id) {
     fail3("INBOX_RELATION_INVALID", "inbox record current_task_id does not match the canonical active task.");
   }
-  return inspectInboxRecordTransaction(root2, proposal);
+  return inspectInboxRecordTransaction(root, proposal);
 }
 function yamlScalar(value) {
   if (/^[A-Za-z0-9][A-Za-z0-9._:/+@ -]*$/.test(value) && !value.endsWith(" ") && !value.includes("  "))
@@ -13172,8 +13450,8 @@ function requiredArchiveSections(raw) {
   }
   return result;
 }
-function readCanonicalArchive(root2, current, expectedPath) {
-  const expected = archivePathForTask(root2, current);
+function readCanonicalArchive(root, current, expectedPath) {
+  const expected = archivePathForTask(root, current);
   if (expectedPath !== undefined && expectedPath !== expected.relativePath) {
     fail3("RUNTIME_PATH_INVALID", "archive path is not the exact identity-derived path.");
   }
@@ -13245,20 +13523,20 @@ function assertArchiveReceiptMatches(current, receipt, audit) {
     fail3("ARCHIVE_PROVENANCE_MISMATCH", "archive knowledge admission does not match the durable CURRENT_TASK archive audit.");
   }
 }
-function matchingArchiveReceipt(root2, current) {
+function matchingArchiveReceipt(root, current) {
   const audits = archiveAudits(current);
   if (audits.length !== 1)
     fail3("LIFECYCLE_REPLAY_INCOMPLETE", "CURRENT_TASK must contain exactly one durable archive audit for reconciliation.");
   const audit = audits[0];
-  assertExecutionAudit(root2, current, audit);
+  assertExecutionAudit(root, current, audit);
   if (audit.from_workflow_status !== "active" || audit.from_lifecycle_state !== "active" || audit.to_workflow_status !== "closed" || audit.to_lifecycle_state !== "archived") {
     fail3("LIFECYCLE_REPLAY_INCOMPLETE", "archive audit does not describe the frozen active + active to closed + archived transition.");
   }
-  const receipt = readCanonicalArchive(root2, current, audit.archive_path);
+  const receipt = readCanonicalArchive(root, current, audit.archive_path);
   assertArchiveReceiptMatches(current, receipt, audit);
   return { audit, receipt };
 }
-function closureEligibilityBlockers(root2, current, delta, archiveAlreadyExists) {
+function closureEligibilityBlockers(root, current, delta, archiveAlreadyExists) {
   const blockers = [];
   try {
     assertTestStrategySequenceReady(current);
@@ -13266,7 +13544,7 @@ function closureEligibilityBlockers(root2, current, delta, archiveAlreadyExists)
     blockers.push(error instanceof Error ? error.message : String(error));
   }
   const coverage = current.runtimeState.review_coverage;
-  if (coverage && (coverage.pending_paths.length || coverage.last_clean_revision !== coverage.target.revision || captureReviewTarget(root2, coverage.target.entries.map((e) => e.path)).revision !== coverage.target.revision))
+  if (coverage && (coverage.pending_paths.length || coverage.last_clean_revision !== coverage.target.revision || captureReviewTarget(root, coverage.target.entries.map((e) => e.path)).revision !== coverage.target.revision))
     blockers.push("cumulative review coverage is pending or stale.");
   const identity = extractTaskIdentityFromCurrentTask(current.body);
   if (identity.id === null || identity.slug === null || identity.title === null)
@@ -13319,7 +13597,7 @@ function closureEligibilityBlockers(root2, current, delta, archiveAlreadyExists)
   if (!claimEvidenceStateEnabled(current.runtimeState)) {
     blockers.push("structured claim-bound evidence migration is required before terminal closure; legacy CURRENT_TASK completion evidence is not sufficient.");
   } else {
-    const durableClaimEvidence = evaluateClaimEvidence(current.runtimeState.claim_evidence ?? [], { root: root2, current });
+    const durableClaimEvidence = evaluateClaimEvidence(current.runtimeState.claim_evidence ?? [], { root, current });
     if (delta.closure_evidence.acceptance_satisfied !== durableClaimEvidence.acceptance_satisfied) {
       blockers.push("closure acceptance_satisfied does not match durable claim-bound evidence state.");
     }
@@ -13355,8 +13633,8 @@ function closureEligibilityBlockers(root2, current, delta, archiveAlreadyExists)
     blockers.push("the canonical archive path is already occupied before the first close.");
   return blockers;
 }
-function assertArchiveReplay(root2, current, proposal) {
-  const { audit, receipt } = matchingArchiveReceipt(root2, current);
+function assertArchiveReplay(root, current, proposal) {
+  const { audit, receipt } = matchingArchiveReceipt(root, current);
   if (audit.idempotency_key !== proposal.idempotency_key || audit.source_revision !== proposal.source_tuple.revision || audit.task_id !== proposal.source_tuple.task_id || audit.task_slug !== proposal.source_tuple.task_slug || audit.document_id !== proposal.source_tuple.document_id || audit.closure_delta_digest !== digest3(proposal.semantic_delta) || audit.evidence_refs.join("|") !== proposal.semantic_delta.evidence_refs.join("|") || digest3(audit.authority_evidence) !== digest3(proposal.authority_evidence) || digest3(audit.knowledge_admissions) !== digest3(proposal.semantic_delta.knowledge_admissions ?? emptyKnowledgeAdmissionBundle()) || receipt.revision !== audit.archive_revision) {
     fail3("LIFECYCLE_REPLAY_INCOMPLETE", "archive replay identity, source revision, closure evidence, or archive revision does not match the committed receipt.");
   }
@@ -13509,11 +13787,11 @@ function makeArchiveAudit(current, proposal, delta, archiveRelativePath, archive
     recorded_at: now
   };
 }
-function prepareArchiveTransaction(root2, current, proposal, now) {
+function prepareArchiveTransaction(root, current, proposal, now) {
   const delta = proposal.semantic_delta;
   ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission"]);
   if (current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived") {
-    const { audit: audit2, receipt } = matchingArchiveReceipt(root2, current);
+    const { audit: audit2, receipt } = matchingArchiveReceipt(root, current);
     if (digest3(delta) !== audit2.closure_delta_digest) {
       fail3("ARCHIVE_PROVENANCE_MISMATCH", "reconciliation closure evidence does not match the committed archive receipt.");
     }
@@ -13530,8 +13808,8 @@ function prepareArchiveTransaction(root2, current, proposal, now) {
   if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
     fail3("CLOSURE_TUPLE_INVALID", "first successful close requires active + active.");
   }
-  const archiveTarget = archivePathForTask(root2, current);
-  const blockers = closureEligibilityBlockers(root2, current, delta, fs11.existsSync(archiveTarget.filePath));
+  const archiveTarget = archivePathForTask(root, current);
+  const blockers = closureEligibilityBlockers(root, current, delta, fs11.existsSync(archiveTarget.filePath));
   if (blockers.length > 0)
     fail3("CLOSURE_NOT_ELIGIBLE", blockers.join(" "));
   const closureDeltaDigest = digest3(delta);
@@ -13947,10 +14225,10 @@ ${existing.trim().length > 0 ? `${existing}
 ` : ""}${marker}
 ` + content.slice(section.contentEnd);
 }
-function prepareProjectStatusTransaction(root2, current, proposal) {
+function prepareProjectStatusTransaction(root, current, proposal) {
   ensureAuthorityKinds(proposal, ["evidence-admission"]);
-  const { receipt } = matchingArchiveReceipt(root2, current);
-  const target = workflowDocPathForRoot(root2, "STATUS.md");
+  const { receipt } = matchingArchiveReceipt(root, current);
+  const target = workflowDocPathForRoot(root, "STATUS.md");
   if (!fs11.existsSync(target.filePath))
     fail3("RUNTIME_SOURCE_MISSING", `STATUS.md is missing: ${target.relativePath}`);
   const originalStatusContent = fs11.readFileSync(target.filePath, "utf8");
@@ -14451,9 +14729,9 @@ ${markerText}` + nextContent.slice(insertionIndex);
   }
   return nextContent;
 }
-function prepareLessonRecordTransaction(root2, current, proposal) {
+function prepareLessonRecordTransaction(root, current, proposal) {
   ensureAuthorityKinds(proposal, ["evidence-admission"]);
-  const { receipt } = matchingArchiveReceipt(root2, current);
+  const { receipt } = matchingArchiveReceipt(root, current);
   if (receipt.lessonAdmission.decision !== "admit") {
     fail3("KNOWLEDGE_ADMISSION_INVALID", "lesson-record-transaction is allowed only when the durable archive lesson admission is admit.");
   }
@@ -14469,7 +14747,7 @@ function prepareLessonRecordTransaction(root2, current, proposal) {
   if (!receipt.lessonAdmission.evidence_refs.every((ref) => delta.evidence_refs.includes(ref))) {
     fail3("KNOWLEDGE_ADMISSION_INVALID", "lesson-record evidence_refs must cover the durable archive lesson admission evidence_refs.");
   }
-  const target = workflowDocPathForRoot(root2, "LESSONS.md");
+  const target = workflowDocPathForRoot(root, "LESSONS.md");
   if (!fs11.existsSync(target.filePath))
     fail3("RUNTIME_SOURCE_MISSING", `LESSONS.md is missing: ${target.relativePath}`);
   const originalLessonsContent = fs11.readFileSync(target.filePath, "utf8");
@@ -14580,8 +14858,8 @@ function prepareLessonRecordTransaction(root2, current, proposal) {
     candidateCount
   };
 }
-function knowledgeTarget(root2, knowledgeKind) {
-  return workflowDocPathForRoot(root2, knowledgeKind === "contract" ? "CONTRACTS.md" : "DECISIONS.md");
+function knowledgeTarget(root, knowledgeKind) {
+  return workflowDocPathForRoot(root, knowledgeKind === "contract" ? "CONTRACTS.md" : "DECISIONS.md");
 }
 function knowledgeSectionTitle(knowledgeKind) {
   return knowledgeKind === "contract" ? "vNext Contract Records" : "vNext Decision Records";
@@ -14792,10 +15070,10 @@ function knowledgeAdmissionFromArchive(archive, knowledgeKind, candidateId) {
     fail3("KNOWLEDGE_PROVENANCE_MISMATCH", `archive does not contain exactly one ${knowledgeKind} admission for ${candidateId}.`);
   return matches[0];
 }
-function scanKnowledgeRecords(root2) {
+function scanKnowledgeRecords(root) {
   const result = [];
   for (const knowledgeKind of ["contract", "decision"]) {
-    const target = knowledgeTarget(root2, knowledgeKind);
+    const target = knowledgeTarget(root, knowledgeKind);
     if (!fs11.existsSync(target.filePath))
       continue;
     if (!fs11.statSync(target.filePath).isFile())
@@ -14804,19 +15082,19 @@ function scanKnowledgeRecords(root2) {
   }
   return result;
 }
-function inspectKnowledgeRecordTransaction(root2, current, proposal) {
-  const { receipt } = matchingArchiveReceipt(root2, current);
+function inspectKnowledgeRecordTransaction(root, current, proposal) {
+  const { receipt } = matchingArchiveReceipt(root, current);
   const delta = proposal.semantic_delta;
   const archiveAdmission = knowledgeAdmissionFromArchive(receipt, delta.knowledge_kind, delta.admission.candidate.candidateId);
   if (!knowledgeAdmissionMatches(archiveAdmission, delta.admission))
     fail3("KNOWLEDGE_PROVENANCE_MISMATCH", "knowledge proposal admission does not match the archived close-task admission decision.");
   const expectedRecord = durableKnowledgeRecordFromProposal(proposal, receipt);
-  const target = knowledgeTarget(root2, delta.knowledge_kind);
+  const target = knowledgeTarget(root, delta.knowledge_kind);
   if (!fs11.existsSync(target.filePath))
     fail3("RUNTIME_SOURCE_MISSING", `knowledge target is missing: ${target.relativePath}`);
   const originalContent = fs11.readFileSync(target.filePath, "utf8");
   const records = readDurableKnowledgeRecords(originalContent, target.relativePath, delta.knowledge_kind);
-  const allRecords = scanKnowledgeRecords(root2);
+  const allRecords = scanKnowledgeRecords(root);
   const sameIdempotency = allRecords.filter((record4) => record4.proposal_idempotency_key === proposal.idempotency_key);
   if (sameIdempotency.some((record4) => JSON.stringify(record4) !== JSON.stringify(expectedRecord))) {
     fail3("IDEMPOTENCY_CONFLICT", "knowledge idempotency key is already durably bound to a different candidate or target.");
@@ -14877,26 +15155,26 @@ function inspectKnowledgeRecordTransaction(root2, current, proposal) {
     existing: false
   };
 }
-function prepareKnowledgeRecordTransaction(root2, current, proposal) {
+function prepareKnowledgeRecordTransaction(root, current, proposal) {
   ensureAuthorityKinds(proposal, ["evidence-admission"]);
   if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived") {
     fail3("KNOWLEDGE_ADMISSION_INVALID", "knowledge promotion requires a closed + archived task.");
   }
-  return inspectKnowledgeRecordTransaction(root2, current, proposal);
+  return inspectKnowledgeRecordTransaction(root, current, proposal);
 }
-function assertRequestedInboxTargets(root2, current, proposal) {
+function assertRequestedInboxTargets(root, current, proposal) {
   if (proposal.source_tuple.path !== current.relativePath)
     fail3("RUNTIME_PATH_INVALID", "capture proposal source path is not the exact canonical CURRENT_TASK path.");
-  const target = canonicalInboxRecordTarget(root2, proposal.semantic_delta);
+  const target = canonicalInboxRecordTarget(root, proposal.semantic_delta);
   if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== target.relativePath) {
     fail3("RUNTIME_PATH_INVALID", "capture proposal must name only its exact identity-derived inbox path.");
   }
 }
-function assertRequestedCloseTargets(root2, current, proposal) {
+function assertRequestedCloseTargets(root, current, proposal) {
   if (proposal.source_tuple.path !== current.relativePath)
     fail3("RUNTIME_PATH_INVALID", "close-task proposal source path is not the exact canonical CURRENT_TASK path.");
   if (proposal.operation_kind === "archive-transaction") {
-    const archive = archivePathForTask(root2, current);
+    const archive = archivePathForTask(root, current);
     if (proposal.requested_write_targets.length !== 2 || proposal.requested_write_targets[0] !== current.relativePath || proposal.requested_write_targets[1] !== archive.relativePath) {
       fail3("RUNTIME_PATH_INVALID", "archive proposal must name CURRENT_TASK and its exact identity-derived archive path.");
     }
@@ -14905,12 +15183,12 @@ function assertRequestedCloseTargets(root2, current, proposal) {
   const file = proposal.operation_kind === "project-status-transaction" ? "STATUS.md" : proposal.operation_kind === "lesson-record-transaction" ? "LESSONS.md" : proposal.operation_kind === "contract-candidate-commit" ? "CONTRACTS.md" : proposal.operation_kind === "decision-record-transaction" ? "DECISIONS.md" : null;
   if (file === null)
     fail3("RUNTIME_PATH_INVALID", `${proposal.operation_kind} is not a close-task document operation.`);
-  const target = workflowDocPathForRoot(root2, file);
+  const target = workflowDocPathForRoot(root, file);
   if (proposal.requested_write_targets.length !== 1 || proposal.requested_write_targets[0] !== target.relativePath) {
     fail3("RUNTIME_PATH_INVALID", `${file} proposal must name only its exact canonical path.`);
   }
 }
-function assertPreviousTaskReconciliationComplete(root2, current, receipt) {
+function assertPreviousTaskReconciliationComplete(root, current, receipt) {
   const knowledgeAdmissions = [
     ...receipt.knowledgeAdmissions.contracts,
     ...receipt.knowledgeAdmissions.decisions
@@ -14918,7 +15196,7 @@ function assertPreviousTaskReconciliationComplete(root2, current, receipt) {
   if (knowledgeAdmissions.length > 0) {
     for (const admission of knowledgeAdmissions) {
       const knowledgeKind = admission.candidate.kind;
-      const target = knowledgeTarget(root2, knowledgeKind);
+      const target = knowledgeTarget(root, knowledgeKind);
       if (!fs11.existsSync(target.filePath)) {
         fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} ${knowledgeKind} reconciliation is incomplete: ${target.relativePath} does not exist.`);
       }
@@ -14935,7 +15213,7 @@ function assertPreviousTaskReconciliationComplete(root2, current, receipt) {
     }
   }
   if (receipt.lessonAdmission.decision === "admit") {
-    const lessonsTarget = workflowDocPathForRoot(root2, "LESSONS.md");
+    const lessonsTarget = workflowDocPathForRoot(root, "LESSONS.md");
     if (!fs11.existsSync(lessonsTarget.filePath)) {
       fail3("PREVIOUS_TASK_RECONCILIATION_INCOMPLETE", `previous task ${current.runtimeState.task_id} lesson reconciliation is incomplete: LESSONS.md does not exist.`);
     }
@@ -14996,15 +15274,15 @@ function appendExecutionLogEntry(current, entry) {
   const next = [...current.execution_log, entry];
   return current.__vnext_compact_history === true ? next : next.slice(-MAX_EXECUTION_LOG);
 }
-function replaceValidation(root2, rawInput, options = {}) {
-  return withGovernanceWriteLock(root2, () => {
+function replaceValidation(root, rawInput, options = {}) {
+  return withGovernanceWriteLock(root, () => {
     const input = expectRecord2(rawInput, "replace-validation");
     expectExactKeys2(input, ["source_revision", "claim_id", "slot_id", "replaces_check_id", "replacement_check", "reason"], "replace-validation");
     const sourceRevision = expectString2(input.source_revision, "source_revision", SHA256_PATTERN2);
     const reason = expectText(input.reason, "reason");
     if (!options.dryRun)
-      recoverPendingTaskStoreCommit(root2);
-    const current = readCanonicalCurrentTask(root2);
+      recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
     const key = `replace-validation-${digest3({ document: current.sourceTuple.document_id, input }).slice(0, 40)}`;
     const prior = current.runtimeState.applied_proposals.find((p) => p.idempotency_key === key);
     if (prior) {
@@ -15078,8 +15356,8 @@ function replaceValidation(root2, rawInput, options = {}) {
     target.report = null;
     target.evidence_refs = [];
     target.disposition = "missing";
-    const basis = readCanonicalTaskBasis(root2, current);
-    const newPlan = assertEvidencePlan(definition, claims, false, { root: root2, taskBasis: basis.basis, previous: state.claim_evidence ?? [] });
+    const basis = readCanonicalTaskBasis(root, current);
+    const newPlan = assertEvidencePlan(definition, claims, false, { root, taskBasis: basis.basis, previous: state.claim_evidence ?? [] });
     const carry = [];
     for (const c of claims)
       for (const slot of c.slots) {
@@ -15088,12 +15366,12 @@ function replaceValidation(root2, rawInput, options = {}) {
         const before = state.claim_evidence.find((x) => x.claim_id === c.claim_id).slots.find((x) => x.slot_id === slot.slot_id);
         if (before.user_decision) {
           try {
-            carry.push(carryUserEvidenceDecision(root2, current, c.claim_id, before, newPlan, "replace-validation"));
+            carry.push(carryUserEvidenceDecision(root, current, c.claim_id, before, newPlan, "replace-validation"));
           } catch {}
           continue;
         }
         try {
-          assertEvidenceReportApplicable(root2, current, before);
+          assertEvidenceReportApplicable(root, current, before);
         } catch {
           continue;
         }
@@ -15106,8 +15384,8 @@ function replaceValidation(root2, rawInput, options = {}) {
           old_plan_revision: slot.report?.evidence_plan_revision ?? slot.user_decision.evidence_plan_revision,
           new_plan_revision: newPlan,
           receiving_source_revision: sourceRevision,
-          context_revision: recoveryEvidenceContextRevision(root2),
-          evidence_objects: slot.user_decision ? [] : describeEvidenceObjects(root2, slot.evidence_refs),
+          context_revision: recoveryEvidenceContextRevision(root),
+          evidence_objects: slot.user_decision ? [] : describeEvidenceObjects(root, slot.evidence_refs),
           claim_id: c.claim_id,
           slot_id: slot.slot_id,
           check_id: slot.check.check_id,
@@ -15184,8 +15462,8 @@ function replaceValidation(root2, rawInput, options = {}) {
         evidence_assurance: "caller-reported"
       };
     for (const proof of carry)
-      preserveEvidenceObjects(root2, current.filePath, proof.evidence_objects ?? []);
-    const staged = stageTaskEvolutionStoreCommit(root2, current, nextContent, next, proposal, [{ path: history.path, content: history.content }, { path: current.filePath, content: nextContent }], prepared);
+      preserveEvidenceObjects(root, current.filePath, proof.evidence_objects ?? []);
+    const staged = stageTaskEvolutionStoreCommit(root, current, nextContent, next, proposal, [{ path: history.path, content: history.content }, { path: current.filePath, content: nextContent }], prepared);
     try {
       commitTaskEvolutionWithHistory(historyInput, (raw) => {
         const parsed = parseCanonicalCurrentTaskContent(raw, current.filePath, current.relativePath);
@@ -15194,10 +15472,10 @@ function replaceValidation(root2, rawInput, options = {}) {
       });
     } catch (error) {
       if (fs11.readFileSync(current.filePath, "utf8") === current.raw)
-        clearPendingTaskStoreAfterRollback(root2, current);
+        clearPendingTaskStoreAfterRollback(root, current);
       throw error;
     }
-    completeTaskEvolutionStoreCommit(root2, current, staged, proposal, { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: key });
+    completeTaskEvolutionStoreCommit(root, current, staged, proposal, { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: key });
     return {
       status: "success",
       operation_kind: "task-state-transaction",
@@ -15279,10 +15557,10 @@ function evidenceAmendmentBasis(basis, source, text2) {
     user_decisions: prior.length ? [...basis.user_decisions] : [...basis.user_decisions, { source, verbatim: text2 }]
   };
 }
-function evidenceAmendmentLocation(root2, current, hash3) {
+function evidenceAmendmentLocation(root, current, hash3) {
   expectString2(hash3, "candidate_digest", SHA256_PATTERN2);
   const relativePath3 = path12.posix.join(path12.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${hash3}.evidence.json`);
-  return { relativePath: relativePath3, filePath: safeRepositoryFile(root2, relativePath3) };
+  return { relativePath: relativePath3, filePath: safeRepositoryFile(root, relativePath3) };
 }
 function evidenceAmendmentReceipt(candidate) {
   return {
@@ -15319,10 +15597,10 @@ function evidenceAmendmentObligation(value, boundaryFrozen) {
     validation_items: value.validation_items
   };
 }
-function readEvidenceAmendment(root2, current, receipt) {
+function readEvidenceAmendment(root, current, receipt) {
   if (receipt.document_id !== current.sourceTuple.document_id || receipt.task_id !== current.runtimeState.task_id)
     fail3("EVIDENCE_AMENDMENT_IDENTITY_CONFLICT", "The candidate belongs to another task.");
-  const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
+  const location2 = evidenceAmendmentLocation(root, current, receipt.candidate_digest);
   if (!fs11.existsSync(location2.filePath) || fs11.existsSync(`${location2.filePath}.discarded`))
     fail3("EVIDENCE_AMENDMENT_CANDIDATE_MISSING", "The candidate is absent or discarded.");
   const candidate = JSON.parse(fs11.readFileSync(location2.filePath, "utf8"));
@@ -15330,15 +15608,15 @@ function readEvidenceAmendment(root2, current, receipt) {
     fail3("EVIDENCE_AMENDMENT_CANDIDATE_INVALID", "The candidate bytes or receipt coordinates changed.");
   return candidate;
 }
-function buildEvidencePlanAmendment(root2, current, input) {
+function buildEvidencePlanAmendment(root, current, input) {
   assertBusinessEvidenceVersion(current);
-  assertV2AuthorityDomainRevisionFreshForTransition(root2, current, "Evidence-plan amendment");
+  assertV2AuthorityDomainRevisionFreshForTransition(root, current, "Evidence-plan amendment");
   const state = current.runtimeState;
   if (state.workflow_status !== "active" || state.lifecycle_state !== "active" || state.resume_requires_review)
     fail3("EVIDENCE_AMENDMENT_STATE_INVALID", "A confirmed active task is required; an evidence amendment cannot clear lifecycle/resume gates.");
-  if (!taskSourceRevisionMatches(root2, current, input.source_revision))
+  if (!taskSourceRevisionMatches(root, current, input.source_revision))
     fail3("EVIDENCE_AMENDMENT_SOURCE_STALE", "The decision must bind the current task or its exact storage-only alias.");
-  const basis = readCanonicalTaskBasis(root2, current);
+  const basis = readCanonicalTaskBasis(root, current);
   const nextBasis = evidenceAmendmentBasis(basis.basis, input.decision_source, input.decision_text);
   const definition = readDraftDefinitionFromBody(current.body);
   const steps = parseImplementationSteps(definition.implementation_steps);
@@ -15445,9 +15723,9 @@ function buildEvidencePlanAmendment(root2, current, input) {
     const block = implementationStepBlock(definition, state.active_step_id);
     definition.implementation_steps = definition.implementation_steps.replace(block, block.replace(/^\s*- review_checkpoint:.*$/mu, "  - review_checkpoint: required: fresh verification after user-authorized evidence selection change"));
   }
-  assertV2DraftDefinitionAuthority(root2, definition);
-  assertPreparedTestStrategy(root2, definition, nextBasis);
-  const newPlan = assertEvidencePlan(definition, claims, false, { root: root2, taskBasis: nextBasis, previous: oldClaims });
+  assertV2DraftDefinitionAuthority(root, definition);
+  assertPreparedTestStrategy(root, definition, nextBasis);
+  const newPlan = assertEvidencePlan(definition, claims, false, { root, taskBasis: nextBasis, previous: oldClaims });
   if (newPlan === state.evidence_plan_revision)
     fail3("EVIDENCE_AMENDMENT_NO_CHANGE", "The candidate must change the verification plan.");
   const subjects = [...new Set([
@@ -15465,21 +15743,21 @@ function buildEvidencePlanAmendment(root2, current, input) {
     input,
     definition,
     claim_evidence: claims,
-    workspace_target: captureReviewTarget(root2, subjects),
+    workspace_target: captureReviewTarget(root, subjects),
     retained_obligations_digest: digest3(correctionObligations(current)),
     retained_review: state.pending_review_result ?? null,
     review_disposition: historicalReview ? "historical-revalidation-required" : "preserve",
     revalidate_current_step: revalidate
   };
 }
-function prepareEvidencePlanAmendment(root2, raw, options = {}) {
-  return withGovernanceWriteLock(root2, () => {
+function prepareEvidencePlanAmendment(root, raw, options = {}) {
+  return withGovernanceWriteLock(root, () => {
     if (!options.dryRun)
-      recoverPendingTaskStoreCommit(root2);
-    const current = readCanonicalCurrentTask(root2);
-    const candidate = buildEvidencePlanAmendment(root2, current, normalizeEvidencePlanAmendment(raw));
+      recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    const candidate = buildEvidencePlanAmendment(root, current, normalizeEvidencePlanAmendment(raw));
     const receipt = evidenceAmendmentReceipt(candidate);
-    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
+    const location2 = evidenceAmendmentLocation(root, current, receipt.candidate_digest);
     const content = JSON.stringify(candidate, null, 2) + `
 `;
     const exists = fs11.existsSync(location2.filePath);
@@ -15508,18 +15786,18 @@ function prepareEvidencePlanAmendment(root2, raw, options = {}) {
     };
   });
 }
-function confirmEvidencePlanAmendment(root2, raw, options = {}) {
-  return withGovernanceWriteLock(root2, () => {
+function confirmEvidencePlanAmendment(root, raw, options = {}) {
+  return withGovernanceWriteLock(root, () => {
     const input = expectRecord2(raw, "confirm-evidence-plan-amendment");
     expectExactKeys2(input, ["candidate_receipt", "decision_source", "decision_text"], "confirm-evidence-plan-amendment");
     const receipt = normalizeEvidenceAmendmentReceipt(input.candidate_receipt);
     const approval = { decision_source: expectText(input.decision_source, "decision_source", 1024), decision_text: expectVerbatim(input.decision_text, "decision_text", 32768) };
     if (!options.dryRun)
-      recoverPendingTaskStoreCommit(root2);
-    const current = readCanonicalCurrentTask(root2);
-    const saved = readEvidenceAmendment(root2, current, receipt);
+      recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    const saved = readEvidenceAmendment(root, current, receipt);
     const key = `evidence-amend-${receipt.candidate_digest}-${digest3(approval).slice(0, 24)}`;
-    const store = TaskStore.forCurrent(root2, current);
+    const store = TaskStore.forCurrent(root, current);
     const prior = current.runtimeState.applied_proposals.find((item) => item.idempotency_key === key) ?? store.lookupIdempotency(key);
     if (prior) {
       assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, prior.source_revision, "amend-evidence-plan");
@@ -15538,7 +15816,7 @@ function confirmEvidencePlanAmendment(root2, raw, options = {}) {
         state: resultState(current.runtimeState)
       };
     }
-    const rebuilt = buildEvidencePlanAmendment(root2, current, saved.input);
+    const rebuilt = buildEvidencePlanAmendment(root, current, saved.input);
     if (digest3(rebuilt) !== receipt.candidate_digest)
       fail3("EVIDENCE_AMENDMENT_CANDIDATE_STALE", "The task, obligations, user source, workspace or review changed after preparation.");
     const state = current.runtimeState;
@@ -15548,9 +15826,9 @@ function confirmEvidencePlanAmendment(root2, raw, options = {}) {
       fail3("EXECUTE_ATTEMPT_OUTSTANDING", "Record the actual in-flight execution before committing a changed verification plan. Pending recorded findings are allowed.");
     if (!preflight && ledger?.attempts.at(-1)?.status === "preflighted")
       fail3("EXECUTE_ATTEMPT_OUTSTANDING", "Record the actual preflighted attempt before changing its plan.");
-    const basis = readCanonicalTaskBasis(root2, current);
+    const basis = readCanonicalTaskBasis(root, current);
     const nextBasis = evidenceAmendmentBasis(evidenceAmendmentBasis(basis.basis, saved.input.decision_source, saved.input.decision_text), approval.decision_source, approval.decision_text);
-    const basisArtifact = materializeTaskBasis(root2, current, {
+    const basisArtifact = materializeTaskBasis(root, current, {
       task_id: state.task_id,
       task_slug: state.task_slug,
       task_title: extractTaskIdentityFromCurrentTask(current.body).title ?? fail3("RUNTIME_IDENTITY_INVALID", "Task title is missing."),
@@ -15566,11 +15844,11 @@ function confirmEvidencePlanAmendment(root2, raw, options = {}) {
         const before = state.claim_evidence.find((c) => c.claim_id === claim.claim_id).slots.find((s) => s.slot_id === slot.slot_id);
         if (before.user_decision) {
           try {
-            carry.push(carryUserEvidenceDecision(root2, current, claim.claim_id, before, saved.new_plan_revision, "amend-evidence-plan"));
+            carry.push(carryUserEvidenceDecision(root, current, claim.claim_id, before, saved.new_plan_revision, "amend-evidence-plan"));
           } catch {}
         } else {
           try {
-            assertEvidenceReportApplicable(root2, current, before);
+            assertEvidenceReportApplicable(root, current, before);
           } catch {
             continue;
           }
@@ -15582,8 +15860,8 @@ function confirmEvidencePlanAmendment(root2, raw, options = {}) {
             old_plan_revision: slot.report.evidence_plan_revision,
             new_plan_revision: saved.new_plan_revision,
             receiving_source_revision: current.sourceTuple.revision,
-            context_revision: recoveryEvidenceContextRevision(root2),
-            evidence_objects: describeEvidenceObjects(root2, slot.evidence_refs),
+            context_revision: recoveryEvidenceContextRevision(root),
+            evidence_objects: describeEvidenceObjects(root, slot.evidence_refs),
             claim_id: claim.claim_id,
             slot_id: slot.slot_id,
             check_id: slot.check.check_id,
@@ -15593,7 +15871,7 @@ function confirmEvidencePlanAmendment(root2, raw, options = {}) {
           });
         }
       }
-    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
+    const location2 = evidenceAmendmentLocation(root, current, receipt.candidate_digest);
     const proposal = {
       schema_version: 1,
       kind: VNEXT_RUNTIME_PROPOSAL_KIND,
@@ -15666,20 +15944,20 @@ function confirmEvidencePlanAmendment(root2, raw, options = {}) {
         evidence_assurance: "caller-reported"
       };
     for (const proof of carry)
-      preserveEvidenceObjects(root2, current.filePath, proof.evidence_objects ?? []);
-    const staged = stageTaskEvolutionStoreCommit(root2, current, prepared.content, next, proposal, [{ path: history.path, content: history.content }, { path: basisArtifact.filePath, content: basisArtifact.content }, { path: current.filePath, content: prepared.content }], prepared);
+      preserveEvidenceObjects(root, current.filePath, proof.evidence_objects ?? []);
+    const staged = stageTaskEvolutionStoreCommit(root, current, prepared.content, next, proposal, [{ path: history.path, content: history.content }, { path: basisArtifact.filePath, content: basisArtifact.content }, { path: current.filePath, content: prepared.content }], prepared);
     try {
       commitTaskEvolutionWithHistory(historyInput, (raw2) => {
         const parsed = parseCanonicalCurrentTaskContent(raw2, current.filePath, current.relativePath);
-        if (parsed.runtimeState.evidence_plan_revision !== saved.new_plan_revision || digest3(parsed.runtimeState.findings) !== digest3(state.findings) || readCanonicalTaskBasis(root2, parsed).revision !== basisArtifact.revision)
+        if (parsed.runtimeState.evidence_plan_revision !== saved.new_plan_revision || digest3(parsed.runtimeState.findings) !== digest3(state.findings) || readCanonicalTaskBasis(root, parsed).revision !== basisArtifact.revision)
           fail3("EVIDENCE_AMENDMENT_READ_BACK_FAILED", "Evidence amendment read-back changed protected state.");
       });
     } catch (error) {
       if (fs11.readFileSync(current.filePath, "utf8") === current.raw)
-        clearPendingTaskStoreAfterRollback(root2, current);
+        clearPendingTaskStoreAfterRollback(root, current);
       throw error;
     }
-    completeTaskEvolutionStoreCommit(root2, current, staged, proposal, { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: key });
+    completeTaskEvolutionStoreCommit(root, current, staged, proposal, { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: key });
     return {
       status: "success",
       operation_kind: "task-state-transaction",
@@ -15698,21 +15976,21 @@ function confirmEvidencePlanAmendment(root2, raw, options = {}) {
     };
   });
 }
-function discardEvidencePlanAmendment(root2, raw, options = {}) {
-  return withGovernanceWriteLock(root2, () => {
+function discardEvidencePlanAmendment(root, raw, options = {}) {
+  return withGovernanceWriteLock(root, () => {
     const input = expectRecord2(raw, "discard-evidence-plan-amendment");
     expectExactKeys2(input, ["candidate_receipt"], "discard-evidence-plan-amendment");
     const receipt = normalizeEvidenceAmendmentReceipt(input.candidate_receipt);
     if (!options.dryRun)
-      recoverPendingTaskStoreCommit(root2);
-    const current = readCanonicalCurrentTask(root2);
+      recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
     if (receipt.document_id !== current.sourceTuple.document_id || receipt.task_id !== current.runtimeState.task_id)
       fail3("EVIDENCE_AMENDMENT_IDENTITY_CONFLICT", "The candidate belongs to another task.");
     const prefix = `evidence-amend-${receipt.candidate_digest}-`;
-    const store = TaskStore.forCurrent(root2, current);
+    const store = TaskStore.forCurrent(root, current);
     if ([...current.runtimeState.applied_proposals, ...store.readAppliedProposals()].some((item) => isRecord4(item) && typeof item.idempotency_key === "string" && item.idempotency_key.startsWith(prefix)))
       fail3("EVIDENCE_AMENDMENT_ALREADY_COMMITTED", "Discard cannot undo a committed amendment.");
-    const location2 = evidenceAmendmentLocation(root2, current, receipt.candidate_digest);
+    const location2 = evidenceAmendmentLocation(root, current, receipt.candidate_digest);
     const marker = `${location2.filePath}.discarded`;
     if (fs11.existsSync(marker))
       return {
@@ -15728,7 +16006,7 @@ function discardEvidencePlanAmendment(root2, raw, options = {}) {
         read_back_verified: true,
         evidence_assurance: "caller-reported"
       };
-    readEvidenceAmendment(root2, current, receipt);
+    readEvidenceAmendment(root, current, receipt);
     const content = JSON.stringify({ kind: "evidence-plan-amendment-discard/v1", candidate_digest: receipt.candidate_digest }) + `
 `;
     if (!options.dryRun)
@@ -15748,23 +16026,23 @@ function discardEvidencePlanAmendment(root2, raw, options = {}) {
     };
   });
 }
-function initializeTaskPreservation(root2, rawInput, options = {}) {
-  return withGovernanceWriteLock(root2, () => initializeTaskPreservationLocked(root2, rawInput, options));
+function initializeTaskPreservation(root, rawInput, options = {}) {
+  return withGovernanceWriteLock(root, () => initializeTaskPreservationLocked(root, rawInput, options));
 }
-function initializeTaskPreservationLocked(root2, rawInput, options) {
+function initializeTaskPreservationLocked(root, rawInput, options) {
   const input = expectRecord2(rawInput, "initialize-preservation input");
   expectExactKeys2(input, ["source_revision", "basis_revision"], "initialize-preservation input");
   const sourceRevision = expectString2(input.source_revision, "source_revision", /^[a-f0-9]{64}$/);
   const basisRevision = expectString2(input.basis_revision, "basis_revision", /^[a-f0-9]{64}$/);
   if (!options.dryRun)
-    recoverPendingTaskStoreCommit(root2);
-  const current = readCanonicalCurrentTask(root2);
+    recoverPendingTaskStoreCommit(root);
+  const current = readCanonicalCurrentTask(root);
   const idempotencyKey = `initialize-preservation-${current.sourceTuple.document_id}`;
   if (current.runtimeState.task_evolution_version === 2) {
     if (sourceRevision !== (current.runtimeState.preservation_source_revision ?? current.sourceTuple.revision)) {
       fail3("TASK_EVOLUTION_SOURCE_STALE", "Preservation replay does not name the initialized source revision.");
     }
-    const boundBasisRevision = current.runtimeState.preservation_source_revision ? JSON.parse(fs11.readFileSync(path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${current.runtimeState.preservation_source_revision}.json`), "utf8")).task_basis_revision : readCanonicalTaskBasis(root2, current).revision;
+    const boundBasisRevision = current.runtimeState.preservation_source_revision ? JSON.parse(fs11.readFileSync(path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${current.runtimeState.preservation_source_revision}.json`), "utf8")).task_basis_revision : readCanonicalTaskBasis(root, current).revision;
     if (basisRevision !== boundBasisRevision)
       fail3("TASK_EVOLUTION_BASIS_STALE", "Preservation replay does not name the initialized Task Basis revision.");
     return {
@@ -15787,7 +16065,7 @@ function initializeTaskPreservationLocked(root2, rawInput, options) {
   if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
     fail3("TASK_EVOLUTION_STATE_INVALID", "Preservation initialization requires a confirmed active task.");
   }
-  const basis = readCanonicalTaskBasis(root2, current);
+  const basis = readCanonicalTaskBasis(root, current);
   if (basis.revision !== basisRevision)
     fail3("TASK_EVOLUTION_BASIS_STALE", "Task Basis changed after preservation admission.");
   assertTestStrategySequenceReady(current);
@@ -15842,7 +16120,7 @@ function initializeTaskPreservationLocked(root2, rawInput, options) {
     };
   let stagedAfter;
   try {
-    stagedAfter = stageTaskEvolutionStoreCommit(root2, current, nextContent, nextState, idempotencyProposal, [
+    stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, idempotencyProposal, [
       { path: history.path, content: history.content },
       { path: current.filePath, content: nextContent }
     ], prepared);
@@ -15869,7 +16147,7 @@ function initializeTaskPreservationLocked(root2, rawInput, options) {
     });
   } catch (error) {
     if (fs11.existsSync(current.filePath) && sha2565(fs11.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision) {
-      clearPendingTaskStoreAfterRollback(root2, current);
+      clearPendingTaskStoreAfterRollback(root, current);
     }
     throw error;
   }
@@ -15881,8 +16159,8 @@ function initializeTaskPreservationLocked(root2, rawInput, options) {
     message: "Original task and Task Basis were preserved; versioned task protection is active."
   };
   try {
-    const manifest2 = completeTaskEvolutionStoreCommit(root2, current, stagedAfter, idempotencyProposal, storeResult);
-    const readBack = readCanonicalCurrentTask(root2);
+    const manifest2 = completeTaskEvolutionStoreCommit(root, current, stagedAfter, idempotencyProposal, storeResult);
+    const readBack = readCanonicalCurrentTask(root);
     return {
       status: "success",
       operation_kind: "task-state-transaction",
@@ -16074,7 +16352,7 @@ function correctionCandidateLocation(current, candidateDigest) {
   const filePath = path12.join(directory, `${candidateDigest}.json`);
   return { filePath, relativePath: path12.posix.join(path12.posix.dirname(current.relativePath), "task-candidates", current.sourceTuple.document_id, `${candidateDigest}.json`) };
 }
-function pendingCorrectionCandidates(root2, current) {
+function pendingCorrectionCandidates(root, current) {
   const directory = path12.join(path12.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
   if (!fs11.existsSync(directory))
     return [];
@@ -16088,7 +16366,7 @@ function pendingCorrectionCandidates(root2, current) {
       return [];
     try {
       const value = JSON.parse(fs11.readFileSync(location2.filePath, "utf8"));
-      if (!taskSourceRevisionMatches(root2, current, value.source_revision) || value.document_id !== current.sourceTuple.document_id)
+      if (!taskSourceRevisionMatches(root, current, value.source_revision) || value.document_id !== current.sourceTuple.document_id)
         return [];
       const { candidate_digest: _marker, ...payload } = value;
       return [{
@@ -16518,7 +16796,7 @@ function replaceScopeAmendmentStep(definition, previousStepId, step, v2 = false)
   assertReplacementActiveStep(step.id, next.implementation_steps);
   return next;
 }
-function assertScopeAmendmentPathSafe(root2, current, paths) {
+function assertScopeAmendmentPathSafe(root, current, paths) {
   const legacyScope = current.mutationAuthority ? null : parseMutationScope(current.body);
   for (const file of paths) {
     if (file === current.relativePath || file.startsWith(".workflow-system/") || file.startsWith(".git/") || file.startsWith(".agents/") || file.startsWith(".claude/") || file.startsWith(".codex/") || file.startsWith("runtime/vnext/dist/") || file.startsWith("packages/vibe-governance/") || file.startsWith("node_modules/") || file.includes("/task-history/") || file.includes("/task-candidates/") || file.includes("/task-data/")) {
@@ -16528,8 +16806,8 @@ function assertScopeAmendmentPathSafe(root2, current, paths) {
     if (forbidden) {
       fail3("SCOPE_AMENDMENT_SCOPE_INVALID", `Scope amendment path ${file} is already forbidden.`);
     }
-    const absolute = path12.resolve(root2, ...file.split("/"));
-    const relative9 = path12.relative(path12.resolve(root2), absolute).replace(/\\/g, "/");
+    const absolute = path12.resolve(root, ...file.split("/"));
+    const relative9 = path12.relative(path12.resolve(root), absolute).replace(/\\/g, "/");
     if (relative9 !== file || relative9.startsWith("../") || path12.isAbsolute(relative9))
       fail3("SCOPE_AMENDMENT_SCOPE_INVALID", `Scope amendment path escapes the repository: ${file}.`);
     if (fs11.existsSync(absolute)) {
@@ -16566,8 +16844,8 @@ function assertV2AuthorityAmendmentExecutionSettled(current) {
     fail3("SCOPE_AMENDMENT_EXECUTION_GATE", "A v2 authority amendment requires the latest preflighted attempt to have a matching recorded result first.");
   }
 }
-function buildScopeAmendmentCandidate(root2, current, input) {
-  assertV2AuthorityDomainRevisionFreshForTransition(root2, current, "Scope amendment");
+function buildScopeAmendmentCandidate(root, current, input) {
+  assertV2AuthorityDomainRevisionFreshForTransition(root, current, "Scope amendment");
   if (!["active", "blocked_by_replan"].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== "active") {
     fail3("SCOPE_AMENDMENT_STATE_INVALID", "Scope amendment requires an active or blocked_by_replan task with an active lifecycle.");
   }
@@ -16580,7 +16858,7 @@ function buildScopeAmendmentCandidate(root2, current, input) {
     fail3("SCOPE_AMENDMENT_STATE_INVALID", "Scope amendment requires a usable current step.");
   assertBusinessEvidenceVersion(current);
   assertTestStrategySequenceReady(current);
-  assertScopeAmendmentPathSafe(root2, current, input.added_paths);
+  assertScopeAmendmentPathSafe(root, current, input.added_paths);
   const legacyPersistentTestPaths = input.persistent_test_paths ?? [];
   const persistentTestAdmissions = input.persistent_test_admissions ?? [];
   if (legacyPersistentTestPaths.some((item) => !isLikelyPersistentTestPath(item))) {
@@ -16590,7 +16868,7 @@ function buildScopeAmendmentCandidate(root2, current, input) {
   if (current.mutationAuthority) {
     let projectAuthority;
     try {
-      projectAuthority = readProjectMutationAuthority(root2);
+      projectAuthority = readProjectMutationAuthority(root);
     } catch (error) {
       fail3(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
     }
@@ -16602,7 +16880,7 @@ function buildScopeAmendmentCandidate(root2, current, input) {
     });
     const admissionPaths = persistentTestAdmissions.map((item) => item.path);
     for (const admission of persistentTestAdmissions) {
-      const absolute = path12.resolve(root2, ...admission.path.split("/"));
+      const absolute = path12.resolve(root, ...admission.path.split("/"));
       if (fs11.existsSync(absolute)) {
         fail3("PERSISTENT_TEST_ADMISSION_INVALID", `persistent test ${admission.path} already exists; only an absent new persistent test needs P-12 admission.`);
       }
@@ -16610,7 +16888,7 @@ function buildScopeAmendmentCandidate(root2, current, input) {
     const missingPersistentAdmissions = input.added_paths.filter((target) => {
       if (!isLikelyPersistentTestPath(target) || admissionPaths.includes(target))
         return false;
-      return !fs11.existsSync(path12.resolve(root2, ...target.split("/")));
+      return !fs11.existsSync(path12.resolve(root, ...target.split("/")));
     });
     if (missingPersistentAdmissions.length > 0) {
       fail3("PERSISTENT_TEST_ADMISSION_REQUIRED", `absent new persistent test path(s) require complete persistent_test_admissions records: ${missingPersistentAdmissions.join(", ")}.`);
@@ -16641,7 +16919,7 @@ function buildScopeAmendmentCandidate(root2, current, input) {
   const pendingFindingPaths = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status)).map((item) => item.file);
   const pendingReviewFindingPaths = current.runtimeState.pending_review_result?.findings.map((item) => item.file) ?? [];
   const requiredPaths = [...new Set([...input.added_paths, ...pendingFindingPaths, ...pendingReviewFindingPaths])];
-  assertScopeAmendmentPathSafe(root2, current, requiredPaths);
+  assertScopeAmendmentPathSafe(root, current, requiredPaths);
   const activeStep = resolveCanonicalTaskStep(current).current;
   const currentStepScope = (activeStep.mutation_scope ?? "").split(",").map((value) => value.trim().replace(/^`|`$/g, "")).filter(Boolean);
   const taskScope = parseMutationScope(current.body);
@@ -16656,7 +16934,7 @@ function buildScopeAmendmentCandidate(root2, current, input) {
   if (amendmentStep.commands.some((command) => command.expected_repo_writes !== "none" && command.expected_repo_writes.some((item) => !amendmentStep.mutation_scope.some((pattern) => pattern === item || mutationScopePatternMatchesPath(item, pattern))))) {
     fail3("SCOPE_AMENDMENT_SCOPE_INVALID", "Amendment command writes must remain inside the retained or newly authorized step scope.");
   }
-  const basis = readCanonicalTaskBasis(root2, current);
+  const basis = readCanonicalTaskBasis(root, current);
   const oldObligations = correctionObligations(current);
   const oldDefinition = readDraftDefinitionFromBody(current.body);
   const retainedStepIds = parseImplementationSteps(oldDefinition.implementation_steps).map((item) => item.id);
@@ -16714,8 +16992,8 @@ function buildScopeAmendmentCandidate(root2, current, input) {
     ...readDraftDefinitionFromBody(replaceReplanDefinitionSections(current.body, amendedDefinitionDraft)),
     ...amendedAuthority ? { mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: amendedAuthority } : {}
   };
-  assertV2DraftDefinitionAuthority(root2, amendedDefinition);
-  assertPreparedTestStrategy(root2, amendedDefinition, basis.basis);
+  assertV2DraftDefinitionAuthority(root, amendedDefinition);
+  assertPreparedTestStrategy(root, amendedDefinition, basis.basis);
   for (const record4 of claims)
     for (const slot of record4.slots) {
       if (slot.due_step_id === current.runtimeState.active_step_id) {
@@ -16731,7 +17009,7 @@ function buildScopeAmendmentCandidate(root2, current, input) {
         delete slot.prerequisite_receipt;
       }
     }
-  const newPlanRevision = assertEvidencePlan(amendedDefinition, claims, false, { root: root2, taskBasis: basis.basis, previous: current.runtimeState.claim_evidence ?? [] });
+  const newPlanRevision = assertEvidencePlan(amendedDefinition, claims, false, { root, taskBasis: basis.basis, previous: current.runtimeState.claim_evidence ?? [] });
   const findingFingerprints = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status)).map((item) => item.fingerprint).sort();
   const authorization = input.authorization === null ? null : {
     ...input.authorization,
@@ -16763,7 +17041,7 @@ function buildScopeAmendmentCandidate(root2, current, input) {
       finding_fingerprints: findingFingerprints,
       pending_review_preserved: current.runtimeState.pending_review_result !== null
     },
-    workspace_target: captureReviewTarget(root2, [...new Set([
+    workspace_target: captureReviewTarget(root, [...new Set([
       ...currentStepScope.filter((item) => !item.includes("*")),
       ...requiredPaths
     ])]),
@@ -16777,11 +17055,11 @@ function buildScopeAmendmentCandidate(root2, current, input) {
     permission_change: "additive-scope"
   };
 }
-function prepareScopeAmendment(root2, rawInput, options = {}) {
-  return withGovernanceWriteLock(root2, () => {
+function prepareScopeAmendment(root, rawInput, options = {}) {
+  return withGovernanceWriteLock(root, () => {
     if (!options.dryRun)
-      recoverPendingTaskStoreCommit(root2);
-    const current = readCanonicalCurrentTask(root2);
+      recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
     const pendingCorrection = unconfirmedCorrectionCandidatePaths(current);
     if (pendingCorrection.length > 0) {
       fail3("SCOPE_AMENDMENT_CANDIDATE_CONFLICT", `An unconfirmed correction candidate is already in flight (${pendingCorrection[0]}); discard it before preparing a scope amendment.`);
@@ -16825,7 +17103,7 @@ function prepareScopeAmendment(root2, rawInput, options = {}) {
         };
       }
     }
-    const candidate = buildScopeAmendmentCandidate(root2, current, input);
+    const candidate = buildScopeAmendmentCandidate(root, current, input);
     const candidateDigest = digest3(candidate);
     const location2 = scopeAmendmentCandidateLocation(current, candidateDigest);
     const content = JSON.stringify({ ...candidate, candidate_digest: candidateDigest }, null, 2) + `
@@ -16878,7 +17156,7 @@ function prepareScopeAmendment(root2, rawInput, options = {}) {
         candidate_receipt: receipt
       };
     }
-    const committed = commitScopeAmendmentLocked(root2, {
+    const committed = commitScopeAmendmentLocked(root, {
       candidate_receipt: receipt,
       authorization: input.authorization ? { decision_source: input.authorization.decision_source, decision_text: input.authorization.decision_text } : null
     }, options);
@@ -16892,7 +17170,7 @@ function prepareScopeAmendment(root2, rawInput, options = {}) {
     };
   });
 }
-function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
+function commitScopeAmendmentLocked(root, rawInput, options = {}) {
   const source = expectRecord2(rawInput, "internal scope-amendment commit input");
   expectExactKeys2(source, ["candidate_receipt", "authorization"], "internal scope-amendment commit input");
   const receipt = expectRecord2(source.candidate_receipt, "candidate_receipt");
@@ -16937,8 +17215,8 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
   if (approval)
     expectExactKeys2(approval, ["decision_source", "decision_text"], "authorization");
   if (!options.dryRun)
-    recoverPendingTaskStoreCommit(root2);
-  const current = readCanonicalCurrentTask(root2);
+    recoverPendingTaskStoreCommit(root);
+  const current = readCanonicalCurrentTask(root);
   const location2 = scopeAmendmentCandidateLocation(current, candidateDigest);
   const idempotencyKey = `scope-amendment-${digest3({ receipt, authorization: approval ? { decision_source: decisionSource, decision_text: decisionText } : null }).slice(0, 40)}`;
   const previousCommit = current.runtimeState.execution_log.find((item) => ("action" in item) && item.action === "commit-scope-amendment" && item.candidate_digest === candidateDigest);
@@ -16952,9 +17230,9 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
     fail3("SCOPE_AMENDMENT_STATE_INVALID", "Scope amendment commit requires active or blocked_by_replan + active.");
   if (current.runtimeState.resume_requires_review)
     fail3("SCOPE_AMENDMENT_STATE_INVALID", "Scope amendment commit cannot clear a resume-review gate.");
-  if (!taskSourceRevisionMatches(root2, current, sourceRevision))
+  if (!taskSourceRevisionMatches(root, current, sourceRevision))
     fail3("SCOPE_AMENDMENT_SOURCE_STALE", "CURRENT_TASK changed after scope-amendment preparation.");
-  const basis = readCanonicalTaskBasis(root2, current);
+  const basis = readCanonicalTaskBasis(root, current);
   if (basis.revision !== basisRevision || (current.runtimeState.evidence_plan_revision ?? oldPlanRevision) !== oldPlanRevision || digest3(correctionObligations(current)) !== obligationsDigest)
     fail3("SCOPE_AMENDMENT_OBLIGATIONS_STALE", "Task Basis, plan revision, or old obligations changed after candidate preparation.");
   if (!fs11.existsSync(location2.filePath) || fs11.existsSync(`${location2.filePath}.discarded`))
@@ -16966,7 +17244,7 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
   if (digest3(storedCandidate) !== candidateDigest)
     fail3("SCOPE_AMENDMENT_CANDIDATE_INVALID", "Candidate content changed after preparation.");
   const candidateSource = { ...current, sourceTuple: { ...current.sourceTuple, revision: sourceRevision } };
-  const rebuilt = buildScopeAmendmentCandidate(root2, candidateSource, normalizeScopeAmendmentInput(saved.input, { allowExistingWildcardScope: true }));
+  const rebuilt = buildScopeAmendmentCandidate(root, candidateSource, normalizeScopeAmendmentInput(saved.input, { allowExistingWildcardScope: true }));
   const rebuiltAuthorityDiff = rebuilt.authority_diff ?? null;
   const rebuiltPersistentAdmissionPaths = rebuilt.persistent_test_admission ? { added_paths: rebuilt.persistent_test_admission.added.map((item) => item.path) } : null;
   if (digest3(rebuilt) !== candidateDigest || rebuilt.new_plan_revision !== newPlanRevision || rebuilt.old_plan_revision !== oldPlanRevision || rebuilt.basis_revision !== basisRevision || (rebuilt.authorization?.digest ?? digest3(null)) !== authorizationDigest || digest3(rebuilt.input.added_paths) !== digest3(addedPaths) || receipt.authority_diff !== undefined && digest3(receipt.authority_diff) !== digest3(rebuiltAuthorityDiff) || receipt.persistent_test_admission !== undefined && digest3(receipt.persistent_test_admission) !== digest3(rebuiltPersistentAdmissionPaths)) {
@@ -16987,7 +17265,7 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
     original_request: basis.basis.original_request,
     user_decisions: !approval || basis.basis.user_decisions.some((item) => item.source === decisionSource && item.verbatim === decisionText) ? [...basis.basis.user_decisions] : [...basis.basis.user_decisions, { source: decisionSource, verbatim: decisionText }]
   };
-  const nextBasisArtifact = materializeTaskBasis(root2, current, { task_id: current.runtimeState.task_id, task_slug: current.runtimeState.task_slug, task_title: extractTaskIdentityFromCurrentTask(current.body).title, document_id: current.sourceTuple.document_id }, nextBasis);
+  const nextBasisArtifact = materializeTaskBasis(root, current, { task_id: current.runtimeState.task_id, task_slug: current.runtimeState.task_slug, task_title: extractTaskIdentityFromCurrentTask(current.body).title, document_id: current.sourceTuple.document_id }, nextBasis);
   const evidenceRefs = [
     location2.relativePath,
     ...approval ? [`caller-reported-scope-authorization:${digest3({ decisionSource, decisionText })}`] : [],
@@ -17007,7 +17285,7 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
     ...rebuilt.continuation.finding_fingerprints.map((fingerprint) => oldState.findings.find((item) => item.fingerprint === fingerprint)?.file).filter((item) => Boolean(item)),
     ...(oldState.pending_review_result?.findings ?? []).map((item) => item.file)
   ])].sort();
-  const amendedReviewAdmission = oldState.review_coverage ? registerReviewCoverage(root2, current, amendmentReviewPaths) : undefined;
+  const amendedReviewAdmission = oldState.review_coverage ? registerReviewCoverage(root, current, amendmentReviewPaths) : undefined;
   const amendedReviewCoverage = amendedReviewAdmission?.coverage;
   const retainedPendingPaths = amendedReviewCoverage ? [...new Set([...amendedReviewCoverage.pending_paths, ...amendmentReviewPaths])].sort() : undefined;
   const { execution_preflight: _amendmentExecutionPreflight, ...stateWithoutExecutionPreflight } = oldState;
@@ -17039,7 +17317,7 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
   if (options.dryRun)
     return { status: "success", operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: true, committed: false, message: "Scope-amendment commit dry run passed; no live task was changed.", planned_writes: plannedWrites, governed_mutation_count: 0, read_back_verified: false, evidence_assurance: "caller-reported" };
   try {
-    persistReviewPreimageWrites(root2, amendedReviewAdmission?.preimageWrites ?? []);
+    persistReviewPreimageWrites(root, amendedReviewAdmission?.preimageWrites ?? []);
   } catch (error) {
     return buildResult("blocked", proposal, current, options, `review baseline persistence failed: ${error instanceof Error ? error.message : String(error)}`, {
       code: error instanceof ReviewPreimageStoreError ? error.code : "REVIEW_BASELINE_PERSISTENCE_FAILED"
@@ -17047,7 +17325,7 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
   }
   let stagedAfter;
   try {
-    stagedAfter = stageTaskEvolutionStoreCommit(root2, current, nextContent, nextState, proposal, [{ path: history.path, content: history.content }, { path: nextBasisArtifact.filePath, content: nextBasisArtifact.content }, { path: current.filePath, content: nextContent }], prepared);
+    stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, proposal, [{ path: history.path, content: history.content }, { path: nextBasisArtifact.filePath, content: nextBasisArtifact.content }, { path: current.filePath, content: nextContent }], prepared);
   } catch (error) {
     return buildResult("blocked", proposal, current, options, `task-store precommit staging failed: ${error instanceof Error ? error.message : String(error)}`, { code: error instanceof TaskStoreError ? error.code : "TASK_STORE_COMMIT_FAILED" });
   }
@@ -17059,25 +17337,25 @@ function commitScopeAmendmentLocked(root2, rawInput, options = {}) {
     });
   } catch (error) {
     if (fs11.existsSync(current.filePath) && sha2565(fs11.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision)
-      clearPendingTaskStoreAfterRollback(root2, current);
+      clearPendingTaskStoreAfterRollback(root, current);
     throw error;
   }
   const storeResult = { status: "success", committed: true, operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, message: "Scope amendment committed; prior review, findings, obligations, and budget were retained." };
   try {
-    const manifest2 = completeTaskEvolutionStoreCommit(root2, current, stagedAfter, proposal, storeResult);
-    const readBack = readCanonicalCurrentTask(root2);
+    const manifest2 = completeTaskEvolutionStoreCommit(root, current, stagedAfter, proposal, storeResult);
+    const readBack = readCanonicalCurrentTask(root);
     return { status: "success", operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: false, committed: true, message: storeResult.message, planned_writes: plannedWrites, governed_mutation_count: 3, read_back_verified: readBack.raw === nextContent, previous_revision: current.sourceTuple.revision, resulting_revision: readBack.sourceTuple.revision, evidence_assurance: "caller-reported", state: resultState(readBack.runtimeState), task_store: { manifest_path: `${manifest2.storage_root}/manifest.json`, source_revision: manifest2.head.source_revision, definition_revision: manifest2.head.definition_revision, state_revision: manifest2.head.state_revision, event_sequence: manifest2.head.event_sequence } };
   } catch (error) {
     return { status: "blocked", operation_kind: "task-state-transaction", idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: false, committed: true, message: `Scope amendment committed but task-store publication needs recovery: ${error instanceof Error ? error.message : String(error)}`, planned_writes: plannedWrites, governed_mutation_count: 3, read_back_verified: false, previous_revision: current.sourceTuple.revision, resulting_revision: stagedAfter.sourceTuple.revision, evidence_assurance: "caller-reported", code: error instanceof TaskStoreError ? error.code : "TASK_STORE_COMMIT_FAILED", state: resultState(stagedAfter.runtimeState) };
   }
 }
-function discardScopeAmendment(root2, rawInput, options = {}) {
-  return withGovernanceWriteLock(root2, () => {
+function discardScopeAmendment(root, rawInput, options = {}) {
+  return withGovernanceWriteLock(root, () => {
     if (!options.dryRun)
-      recoverPendingTaskStoreCommit(root2);
+      recoverPendingTaskStoreCommit(root);
     const input = expectRecord2(rawInput, "discard-scope-amendment input");
     expectExactKeys2(input, ["candidate_digest"], "discard-scope-amendment input");
-    const current = readCanonicalCurrentTask(root2);
+    const current = readCanonicalCurrentTask(root);
     const candidateDigest = expectString2(input.candidate_digest, "candidate_digest", SHA256_PATTERN2);
     const location2 = scopeAmendmentCandidateLocation(current, candidateDigest);
     const committed = current.runtimeState.execution_log.some((item) => ("action" in item) && item.action === "commit-scope-amendment" && item.candidate_digest === candidateDigest);
@@ -17094,8 +17372,8 @@ function discardScopeAmendment(root2, rawInput, options = {}) {
     return { status: existed ? "no-op" : "success", operation_kind: "task-state-transaction", idempotency_key: `discard-scope-amendment-${candidateDigest.slice(0, 40)}`, target_path: location2.relativePath, dry_run: options.dryRun === true, committed: !options.dryRun && !existed, message: "Scope-amendment candidate discarded; CURRENT_TASK was not changed.", planned_writes: [`${location2.relativePath}.discarded`], governed_mutation_count: options.dryRun || existed ? 0 : 1, read_back_verified: options.dryRun !== true, evidence_assurance: "caller-reported" };
   });
 }
-function buildCorrectionCandidate(root2, current, input) {
-  assertV2AuthorityDomainRevisionFreshForTransition(root2, current, "Correction replan");
+function buildCorrectionCandidate(root, current, input) {
+  assertV2AuthorityDomainRevisionFreshForTransition(root, current, "Correction replan");
   const suspended = current.runtimeState.workflow_status === "blocked_by_replan";
   if (!["active", "superseded", "blocked_by_replan"].includes(current.runtimeState.workflow_status) || current.runtimeState.lifecycle_state !== "active" || current.runtimeState.resume_requires_review || !suspended && !["ready", "completed"].includes(current.runtimeState.active_step_status) || !suspended && current.runtimeState.pending_review_result || current.runtimeState.findings.some((item) => ["admitted", "in-progress"].includes(item.status))) {
     fail3("REPLAN_CANDIDATE_STATE_INVALID", "Restricted correction requires a ready active/superseded task without a competing review, finding, or resume gate.");
@@ -17110,7 +17388,7 @@ function buildCorrectionCandidate(root2, current, input) {
     fail3("REPLAN_CHALLENGE_REQUIRED", "Every target must bind an unresolved, unassigned challenge.");
   }
   for (const challenge of challenges) {
-    const evidencePath = path12.resolve(root2, challenge.evidence_ref);
+    const evidencePath = path12.resolve(root, challenge.evidence_ref);
     if (!fs11.existsSync(evidencePath) || sha2565(fs11.readFileSync(evidencePath)) !== challenge.evidence_sha256)
       fail3("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge evidence changed.");
   }
@@ -17126,7 +17404,7 @@ function buildCorrectionCandidate(root2, current, input) {
     fail3("REPLAN_SCOPE_EXPANSION", "Recovery paths exceed the old task scope.");
   }
   if (input.mode === "conclusion-correction") {
-    const boundaries = nonExecutableChangePatterns(root2);
+    const boundaries = nonExecutableChangePatterns(root);
     if (writes.some((p) => !boundaries.some((boundary) => mutationScopePatternIsSubset(p, boundary))))
       fail3("REPLAN_SCOPE_EXPANSION", "Conclusion correction requires project-declared non-executable paths within original task authority.");
   }
@@ -17134,18 +17412,18 @@ function buildCorrectionCandidate(root2, current, input) {
     const execution = current.runtimeState.execution_log.find((item) => !("action" in item) && item.idempotency_key === target.execution_id);
     if (!execution || "action" in execution || !execution.execution_result)
       fail3("RECOVERY_TARGET_INVALID", "Execution target must name a real retained result in this task.");
-    if (describeEvidenceObjects(root2, [target.evidence_ref])[0]?.sha256 !== target.evidence_sha256)
+    if (describeEvidenceObjects(root, [target.evidence_ref])[0]?.sha256 !== target.evidence_sha256)
       fail3("RECOVERY_TARGET_STALE", "Execution diagnosis evidence changed.");
     return execution;
   });
-  const restorePlan = input.restore_plan ? prepareArtifactRestore(root2, current.filePath, current.runtimeState.task_id, current.sourceTuple.document_id, input.restore_plan.checkpoint_id, input.restore_plan.paths) : null;
+  const restorePlan = input.restore_plan ? prepareArtifactRestore(root, current.filePath, current.runtimeState.task_id, current.sourceTuple.document_id, input.restore_plan.checkpoint_id, input.restore_plan.paths) : null;
   if (restorePlan) {
     if (!current.runtimeState.artifact_checkpoint_ids?.includes(restorePlan.checkpoint_id))
       fail3("ARTIFACT_CHECKPOINT_UNCOMMITTED", "Checkpoint digest does not bind a committed task execution or preflight.");
     if (restorePlan.targets.some((item) => !step.mutation_scope.includes(item.path)) || !step.commands.some((command) => command.command === "runtime:artifact-restore" && command.expected_repo_writes !== "none" && digest3([...command.expected_repo_writes].sort()) === digest3(restorePlan.targets.map((item) => item.path))))
       fail3("ARTIFACT_RESTORE_FOOTPRINT_REQUIRED", "First recovery step must declare runtime:artifact-restore with the exact restore paths.");
   }
-  const basis = readCanonicalTaskBasis(root2, current);
+  const basis = readCanonicalTaskBasis(root, current);
   const oldObligations = correctionObligations(current);
   const retainedStepIds = parseImplementationSteps(readDraftDefinitionFromBody(current.body).implementation_steps).map((item) => item.id);
   const append = current.runtimeState.active_step_status === "completed";
@@ -17159,14 +17437,14 @@ function buildCorrectionCandidate(root2, current, input) {
   const appendRecovery = input.pending_step_changes ? !pendingAnchor : append;
   for (const recoveryStep of recoverySteps)
     definition = insertCorrectionStep(definition, anchor, recoveryStep, appendRecovery);
-  assertPreparedTestStrategy(root2, definition, basis.basis);
-  assertV2DraftDefinitionAuthority(root2, definition);
+  assertPreparedTestStrategy(root, definition, basis.basis);
+  assertV2DraftDefinitionAuthority(root, definition);
   const records = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
   const correctedSlots = new Set;
   for (const challenge of challenges) {
     const corrected = records.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id);
     const sourceSlot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id);
-    if (!sourceSlot?.report || !corrected?.check || !challengeReportIsRetained(root2, current, challenge, sourceSlot.report.result_id))
+    if (!sourceSlot?.report || !corrected?.check || !challengeReportIsRetained(root, current, challenge, sourceSlot.report.result_id))
       fail3("REPLAN_CHALLENGE_STALE", "The challenged report has no verified correction relationship to the current report.");
     if (corrected && correctedSlots.has(corrected))
       continue;
@@ -17222,7 +17500,7 @@ function buildCorrectionCandidate(root2, current, input) {
       correctedSlots.add(slot);
     }
   }
-  const newPlan = assertEvidencePlan(definition, records, false, { root: root2, taskBasis: basis.basis, previous: current.runtimeState.claim_evidence ?? [] });
+  const newPlan = assertEvidencePlan(definition, records, false, { root, taskBasis: basis.basis, previous: current.runtimeState.claim_evidence ?? [] });
   const carry = [];
   for (const record4 of records)
     for (const slot of record4.slots) {
@@ -17232,7 +17510,7 @@ function buildCorrectionCandidate(root2, current, input) {
         const oldSlot2 = current.runtimeState.claim_evidence?.find((c) => c.claim_id === record4.claim_id)?.slots.find((s) => s.slot_id === slot.slot_id);
         if (oldSlot2 && digest3(oldSlot2.check) === digest3(slot.check)) {
           try {
-            carry.push(carryUserEvidenceDecision(root2, current, record4.claim_id, oldSlot2, newPlan, "confirm-replan"));
+            carry.push(carryUserEvidenceDecision(root, current, record4.claim_id, oldSlot2, newPlan, "confirm-replan"));
           } catch {}
         }
         continue;
@@ -17250,7 +17528,7 @@ function buildCorrectionCandidate(root2, current, input) {
         slot.disposition = "missing";
         continue;
       }
-      assertEvidenceReportApplicable(root2, current, oldSlot);
+      assertEvidenceReportApplicable(root, current, oldSlot);
       const origin = (current.runtimeState.evidence_carry_forward ?? []).find((item) => item.claim_id === record4.claim_id && item.slot_id === slot.slot_id && item.result_id === slot.report.result_id && item.new_plan_revision === current.runtimeState.evidence_plan_revision);
       if (origin?.kind === "evidence-carry-forward/v1")
         fail3("EVIDENCE_CARRY_FORWARD_UPGRADE_REQUIRED", "The v1 source lacks preserved evidence bodies; revalidate this affected slot before carrying it again.");
@@ -17262,8 +17540,8 @@ function buildCorrectionCandidate(root2, current, input) {
         old_plan_revision: slot.report.evidence_plan_revision,
         new_plan_revision: newPlan,
         receiving_source_revision: current.sourceTuple.revision,
-        evidence_objects: slot.user_decision ? [] : describeEvidenceObjects(root2, slot.evidence_refs),
-        context_revision: recoveryEvidenceContextRevision(root2),
+        evidence_objects: slot.user_decision ? [] : describeEvidenceObjects(root, slot.evidence_refs),
+        context_revision: recoveryEvidenceContextRevision(root),
         claim_id: record4.claim_id,
         slot_id: slot.slot_id,
         check_id: slot.check.check_id,
@@ -17302,8 +17580,8 @@ function buildCorrectionCandidate(root2, current, input) {
       due_step_id: slot.due_step_id,
       ...explicitMap.find((item) => item.claim_id === record4.claim_id && item.slot_id === slot.slot_id)
     })),
-    evidence_objects: describeEvidenceObjects(root2, [
-      ...writes.filter((p) => fs11.existsSync(path12.resolve(root2, p))),
+    evidence_objects: describeEvidenceObjects(root, [
+      ...writes.filter((p) => fs11.existsSync(path12.resolve(root, p))),
       ...(current.runtimeState.claim_evidence ?? []).flatMap((record4) => record4.slots.flatMap((slot) => slot.evidence_refs))
     ]),
     source_revision: current.sourceTuple.revision,
@@ -17322,19 +17600,19 @@ function buildCorrectionCandidate(root2, current, input) {
     permission_change: "none"
   };
 }
-function prepareCorrectionReplan(root2, rawInput, options = {}) {
-  return withGovernanceWriteLock(root2, () => prepareCorrectionReplanLocked(root2, rawInput, options));
+function prepareCorrectionReplan(root, rawInput, options = {}) {
+  return withGovernanceWriteLock(root, () => prepareCorrectionReplanLocked(root, rawInput, options));
 }
-function prepareCorrectionReplanLocked(root2, rawInput, options) {
+function prepareCorrectionReplanLocked(root, rawInput, options) {
   if (!options.dryRun)
-    recoverPendingTaskStoreCommit(root2);
-  const current = readCanonicalCurrentTask(root2);
+    recoverPendingTaskStoreCommit(root);
+  const current = readCanonicalCurrentTask(root);
   const pendingScope = pendingScopeAmendmentCandidates(current);
   if (pendingScope.length > 0) {
     fail3("REPLAN_CANDIDATE_CONFLICT", `An unconfirmed scope-amendment candidate is already in flight (${pendingScope[0].candidate_path}); discard it before preparing restricted correction.`);
   }
   const input = normalizeCorrectionInput(rawInput);
-  const candidate = buildCorrectionCandidate(root2, current, input);
+  const candidate = buildCorrectionCandidate(root, current, input);
   const candidateDigest = digest3(candidate);
   const location2 = correctionCandidateLocation(current, candidateDigest);
   const content = JSON.stringify({ ...candidate, candidate_digest: candidateDigest }, null, 2) + `
@@ -17375,7 +17653,7 @@ function prepareCorrectionReplanLocked(root2, rawInput, options) {
       fail3("REPLAN_CANDIDATE_BUDGET_EXHAUSTED", "Eight candidates already address these task claim/slot or historical-step identities; renaming evidence or recovery IDs cannot reset this budget.");
   }
   if (!options.dryRun) {
-    preserveEvidenceObjects(root2, current.filePath, candidate.evidence_objects);
+    preserveEvidenceObjects(root, current.filePath, candidate.evidence_objects);
     fs11.mkdirSync(path12.dirname(location2.filePath), { recursive: true });
     if (existed) {
       if (fs11.readFileSync(location2.filePath, "utf8") !== content)
@@ -17416,10 +17694,10 @@ function prepareCorrectionReplanLocked(root2, rawInput, options) {
     }
   };
 }
-function confirmCorrectionReplan(root2, rawInput, options = {}) {
-  return withGovernanceWriteLock(root2, () => confirmCorrectionReplanLocked(root2, rawInput, options));
+function confirmCorrectionReplan(root, rawInput, options = {}) {
+  return withGovernanceWriteLock(root, () => confirmCorrectionReplanLocked(root, rawInput, options));
 }
-function confirmCorrectionReplanLocked(root2, rawInput, options) {
+function confirmCorrectionReplanLocked(root, rawInput, options) {
   const source = expectRecord2(rawInput, "confirm-replan input");
   expectExactKeys2(source, ["candidate_receipt", "authorization"], "confirm-replan input");
   const receipt = expectRecord2(source.candidate_receipt, "candidate_receipt");
@@ -17436,8 +17714,8 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
   const decisionText = expectText(approval.decision_text, "authorization.decision_text", 4096);
   const invalidationReason = expectText(approval.invalidation_reason, "authorization.invalidation_reason", 1024);
   if (!options.dryRun)
-    recoverPendingTaskStoreCommit(root2);
-  const current = readCanonicalCurrentTask(root2);
+    recoverPendingTaskStoreCommit(root);
+  const current = readCanonicalCurrentTask(root);
   const candidateDigest = receipt.candidate_digest;
   const location2 = correctionCandidateLocation(current, candidateDigest);
   const idempotencyKey = `confirm-replan-${digest3({ receipt, approval }).slice(0, 40)}`;
@@ -17472,9 +17750,9 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
   } else if (approval.reactivate_superseded !== undefined) {
     fail3("REPLAN_CONFIRMATION_INVALID", "An active task cannot carry superseded-reactivation approval.");
   }
-  if (!taskSourceRevisionMatches(root2, current, receipt.source_revision))
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision))
     fail3("REPLAN_SOURCE_STALE", "CURRENT_TASK changed after candidate preparation.");
-  const basis = readCanonicalTaskBasis(root2, current);
+  const basis = readCanonicalTaskBasis(root, current);
   if (basis.revision !== receipt.basis_revision || digest3(correctionObligations(current)) !== receipt.obligations_digest)
     fail3("REPLAN_OBLIGATIONS_STALE", "Task Basis or old obligations changed after candidate preparation.");
   if (!fs11.existsSync(location2.filePath) || fs11.existsSync(`${location2.filePath}.discarded`))
@@ -17486,7 +17764,7 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
   if (digest3(storedCandidate) !== candidateDigest)
     fail3("REPLAN_CANDIDATE_INVALID", "Candidate content changed after preparation.");
   const candidateSource = { ...current, sourceTuple: { ...current.sourceTuple, revision: receipt.source_revision } };
-  const rebuilt = buildCorrectionCandidate(root2, candidateSource, normalizeCorrectionInput(saved.input));
+  const rebuilt = buildCorrectionCandidate(root, candidateSource, normalizeCorrectionInput(saved.input));
   if (digest3(rebuilt) !== candidateDigest || rebuilt.new_plan_revision !== receipt.new_plan_revision || rebuilt.old_obligations_digest !== receipt.obligations_digest || rebuilt.basis_revision !== receipt.basis_revision) {
     fail3("REPLAN_CANDIDATE_STALE", "Candidate no longer matches the Runtime-computed source, obligations, and evidence.");
   }
@@ -17502,7 +17780,7 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
   const challenges = (current.runtimeState.evidence_challenges ?? []).filter((item) => rebuilt.input.challenge_ids.includes(item.challenge_id));
   const challengeRefs = challenges.map((item) => item.evidence_ref);
   const nextBasis = { original_request: basis.basis.original_request, user_decisions: [...basis.basis.user_decisions, { source: decisionSource, verbatim: decisionText }] };
-  const nextBasisArtifact = materializeTaskBasis(root2, current, {
+  const nextBasisArtifact = materializeTaskBasis(root, current, {
     task_id: current.runtimeState.task_id,
     task_slug: current.runtimeState.task_slug,
     task_title: extractTaskIdentityFromCurrentTask(current.body).title,
@@ -17589,7 +17867,7 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
     };
   let stagedAfter;
   try {
-    stagedAfter = stageTaskEvolutionStoreCommit(root2, current, nextContent, nextState, proposal, [
+    stagedAfter = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, proposal, [
       { path: history.path, content: history.content },
       { path: nextBasisArtifact.filePath, content: nextBasisArtifact.content },
       { path: current.filePath, content: nextContent }
@@ -17614,12 +17892,12 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
       referencedEvidence: challengeRefs
     }, (content) => {
       const parsed = parseCanonicalCurrentTaskContent(content, current.filePath, current.relativePath);
-      if (parsed.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || parsed.runtimeState.active_step_id !== rebuilt.input.correction_step.id || readCanonicalTaskBasis(root2, parsed).revision !== nextBasisArtifact.revision)
+      if (parsed.runtimeState.evidence_plan_revision !== rebuilt.new_plan_revision || parsed.runtimeState.active_step_id !== rebuilt.input.correction_step.id || readCanonicalTaskBasis(root, parsed).revision !== nextBasisArtifact.revision)
         fail3("REPLAN_READ_BACK_FAILED", "Correction task/Basis read-back is inconsistent.");
     });
   } catch (error) {
     if (fs11.existsSync(current.filePath) && sha2565(fs11.readFileSync(current.filePath, "utf8")) === current.sourceTuple.revision) {
-      clearPendingTaskStoreAfterRollback(root2, current);
+      clearPendingTaskStoreAfterRollback(root, current);
     }
     throw error;
   }
@@ -17631,8 +17909,8 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
     message: "Restricted correction confirmed; old obligations, original next step, and immutable preimage retained."
   };
   try {
-    const manifest2 = completeTaskEvolutionStoreCommit(root2, current, stagedAfter, proposal, storeResult);
-    const readBack = readCanonicalCurrentTask(root2);
+    const manifest2 = completeTaskEvolutionStoreCommit(root, current, stagedAfter, proposal, storeResult);
+    const readBack = readCanonicalCurrentTask(root);
     return {
       status: "success",
       operation_kind: "task-state-transaction",
@@ -17676,15 +17954,15 @@ function confirmCorrectionReplanLocked(root2, rawInput, options) {
     };
   }
 }
-function discardCorrectionReplan(root2, rawInput, options = {}) {
-  return withGovernanceWriteLock(root2, () => discardCorrectionReplanLocked(root2, rawInput, options));
+function discardCorrectionReplan(root, rawInput, options = {}) {
+  return withGovernanceWriteLock(root, () => discardCorrectionReplanLocked(root, rawInput, options));
 }
-function discardCorrectionReplanLocked(root2, rawInput, options) {
+function discardCorrectionReplanLocked(root, rawInput, options) {
   if (!options.dryRun)
-    recoverPendingTaskStoreCommit(root2);
+    recoverPendingTaskStoreCommit(root);
   const input = expectRecord2(rawInput, "discard-replan input");
   expectExactKeys2(input, ["candidate_digest"], "discard-replan input");
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   const candidateDigest = expectString2(input.candidate_digest, "candidate_digest", /^[a-f0-9]{64}$/);
   const location2 = correctionCandidateLocation(current, candidateDigest);
   if (!fs11.existsSync(location2.filePath))
@@ -17708,7 +17986,7 @@ function discardCorrectionReplanLocked(root2, rawInput, options) {
     evidence_assurance: "caller-reported"
   };
 }
-function artifactRestoreCompletion(root2, current, candidate, attempt = current.runtimeState.step_attempts?.[candidate.input.correction_step.id]?.attempts.at(-1), originCompletion) {
+function artifactRestoreCompletion(root, current, candidate, attempt = current.runtimeState.step_attempts?.[candidate.input.correction_step.id]?.attempts.at(-1), originCompletion) {
   if (!attempt)
     fail3("ARTIFACT_RESTORE_PREFLIGHT_REQUIRED", "Restore requires a durable attempt.");
   const receipt = {
@@ -17725,29 +18003,29 @@ function artifactRestoreCompletion(root2, current, candidate, attempt = current.
   };
   const id = digest3(receipt);
   const location2 = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, "artifact-restores", `${id}.json`);
-  const file = safeRepositoryFile(root2, path12.relative(root2, location2).replace(/\\/g, "/"));
+  const file = safeRepositoryFile(root, path12.relative(root, location2).replace(/\\/g, "/"));
   return { id, file, bytes: JSON.stringify(receipt) + `
 ` };
 }
 function restoreCompletionMatches(completion) {
   return fs11.existsSync(completion.file) && fs11.statSync(completion.file).size === Buffer.byteLength(completion.bytes) && fs11.readFileSync(completion.file, "utf8") === completion.bytes;
 }
-function restoreCompletionOrigin(root2, current, candidate) {
+function restoreCompletionOrigin(root, current, candidate) {
   for (const attempt of current.runtimeState.step_attempts?.[candidate.input.correction_step.id]?.attempts ?? []) {
-    const origin = artifactRestoreCompletion(root2, current, candidate, attempt);
+    const origin = artifactRestoreCompletion(root, current, candidate, attempt);
     if (restoreCompletionMatches(origin))
       return origin;
   }
   return null;
 }
-function currentRestoreCompletion(root2, current, candidate) {
-  const direct = artifactRestoreCompletion(root2, current, candidate);
+function currentRestoreCompletion(root, current, candidate) {
+  const direct = artifactRestoreCompletion(root, current, candidate);
   if (fs11.existsSync(direct.file))
     return restoreCompletionMatches(direct) ? direct : null;
-  const origin = restoreCompletionOrigin(root2, current, candidate);
+  const origin = restoreCompletionOrigin(root, current, candidate);
   if (!origin)
     return null;
-  const revalidated = artifactRestoreCompletion(root2, current, candidate, undefined, origin.id);
+  const revalidated = artifactRestoreCompletion(root, current, candidate, undefined, origin.id);
   return restoreCompletionMatches(revalidated) ? revalidated : null;
 }
 function persistRestoreCompletion(completion) {
@@ -17764,23 +18042,23 @@ function persistRestoreCompletion(completion) {
   if (!restoreCompletionMatches(completion))
     fail3("ARTIFACT_RESTORE_COMPLETION_INVALID", "Immutable restore completion differs.");
 }
-function assertArtifactRestoreCompleted(root2, current) {
+function assertArtifactRestoreCompleted(root, current) {
   const candidate = confirmedRecoveryCandidates(current).find((item) => item.input.correction_step.id === current.runtimeState.active_step_id && item.restore_plan);
   if (!candidate)
     return;
-  if (!currentRestoreCompletion(root2, current, candidate))
+  if (!currentRestoreCompletion(root, current, candidate))
     fail3("ARTIFACT_RESTORE_COMPLETION_REQUIRED", "Run or revalidate the confirmed Runtime restore for this exact attempt before reporting success.");
-  if (digest3(captureArtifactImages(root2, current.filePath, candidate.restore_plan.targets.map((image) => image.path))) !== digest3(candidate.restore_plan.targets))
+  if (digest3(captureArtifactImages(root, current.filePath, candidate.restore_plan.targets.map((image) => image.path))) !== digest3(candidate.restore_plan.targets))
     fail3("ARTIFACT_RESTORE_TARGET_STALE", "Restored paths changed; the confirmed target images are required at result and completion. Put forward edits in a subsequent recovery step.");
 }
-function executeConfirmedArtifactRestore(root2, sourceRevision, stepId, candidatePaths, dryRun = false) {
-  return withGovernanceWriteLock(root2, () => {
+function executeConfirmedArtifactRestore(root, sourceRevision, stepId, candidatePaths, dryRun = false) {
+  return withGovernanceWriteLock(root, () => {
     if (!dryRun)
-      recoverPendingTaskStoreCommit(root2);
-    const current = readCanonicalCurrentTask(root2);
-    if (!taskSourceRevisionMatches(root2, current, sourceRevision) || current.runtimeState.active_step_id !== stepId)
+      recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    if (!taskSourceRevisionMatches(root, current, sourceRevision) || current.runtimeState.active_step_id !== stepId)
       fail3("ARTIFACT_RESTORE_STALE", "Preflight task source changed.");
-    assertOrdinaryPreflight(current, root2);
+    assertOrdinaryPreflight(current, root);
     const audit = current.runtimeState.execution_log.findLast((item) => ("action" in item) && item.action === "commit-replan");
     if (!audit || !("candidate_digest" in audit) || !audit.candidate_digest)
       fail3("ARTIFACT_RESTORE_UNAUTHORIZED", "No confirmed recovery candidate.");
@@ -17793,16 +18071,16 @@ function executeConfirmedArtifactRestore(root2, sourceRevision, stepId, candidat
       fail3("ARTIFACT_RESTORE_SCOPE", "Restore writes exceed current preflight or task scope.");
     if (current.runtimeState.step_attempts?.[stepId]?.attempts.at(-1)?.status !== "preflighted")
       fail3("ARTIFACT_RESTORE_PREFLIGHT_REQUIRED", "Restore needs the current recorded preflight.");
-    const checked = prepareArtifactRestore(root2, current.filePath, current.runtimeState.task_id, current.sourceTuple.document_id, candidate.restore_plan.checkpoint_id, paths);
+    const checked = prepareArtifactRestore(root, current.filePath, current.runtimeState.task_id, current.sourceTuple.document_id, candidate.restore_plan.checkpoint_id, paths);
     if (digest3(checked.checkpoint) !== digest3(candidate.restore_plan.checkpoint) || digest3(checked.targets) !== digest3(candidate.restore_plan.targets))
       fail3("ARTIFACT_RESTORE_STALE", "The confirmed checkpoint changed.");
     if (digest3(checked.expected) === digest3(candidate.restore_plan.targets)) {
-      const existing = currentRestoreCompletion(root2, current, candidate);
+      const existing = currentRestoreCompletion(root, current, candidate);
       if (existing)
         return { status: "no-op", committed: false, evidence_assurance: "caller-reported", execution_kind: "revalidated", restored_paths: paths };
-      const origin = restoreCompletionOrigin(root2, current, candidate);
+      const origin = restoreCompletionOrigin(root, current, candidate);
       if (origin) {
-        const completion2 = artifactRestoreCompletion(root2, current, candidate, undefined, origin.id);
+        const completion2 = artifactRestoreCompletion(root, current, candidate, undefined, origin.id);
         if (!dryRun)
           persistRestoreCompletion(completion2);
         return {
@@ -17820,9 +18098,9 @@ function executeConfirmedArtifactRestore(root2, sourceRevision, stepId, candidat
     }
     if (digest3(checked.expected) !== digest3(candidate.restore_plan.expected))
       fail3("ARTIFACT_RESTORE_STALE", "Current files changed after confirmation.");
-    const completion = artifactRestoreCompletion(root2, current, candidate);
+    const completion = artifactRestoreCompletion(root, current, candidate);
     if (!dryRun)
-      applyArtifactRestore(root2, current.filePath, candidate.restore_plan, undefined, () => persistRestoreCompletion(completion));
+      applyArtifactRestore(root, current.filePath, candidate.restore_plan, undefined, () => persistRestoreCompletion(completion));
     return {
       status: "success",
       committed: !dryRun,
@@ -17833,8 +18111,8 @@ function executeConfirmedArtifactRestore(root2, sourceRevision, stepId, candidat
     };
   });
 }
-function listArtifactCheckpoints(root2) {
-  const current = readCanonicalCurrentTask(root2);
+function listArtifactCheckpoints(root) {
+  const current = readCanonicalCurrentTask(root);
   const directory = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, "artifact-checkpoints");
   const names = fs11.existsSync(directory) ? fs11.readdirSync(directory).filter((name) => /^[a-f0-9]{64}\.json$/.test(name)) : [];
   if (names.length > 256)
@@ -17901,7 +18179,7 @@ function inheritedRecoveryProblemKeys(current, stepId) {
   }
   return [...keys];
 }
-function challengeReportIsRetained(root2, current, challenge, currentResultId) {
+function challengeReportIsRetained(root, current, challenge, currentResultId) {
   if (challenge.result_id === currentResultId)
     return true;
   const edges = new Map;
@@ -17925,7 +18203,7 @@ function challengeReportIsRetained(root2, current, challenge, currentResultId) {
     const historyRevision = confirmation.source_revision;
     assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, historyRevision, "confirm-replan");
     const historyPath = path12.join(path12.dirname(current.filePath), "task-history", current.sourceTuple.document_id, `${historyRevision}.json`);
-    const history = JSON.parse(fs11.readFileSync(safeRepositoryFile(root2, path12.relative(root2, historyPath).replace(/\\/g, "/")), "utf8"));
+    const history = JSON.parse(fs11.readFileSync(safeRepositoryFile(root, path12.relative(root, historyPath).replace(/\\/g, "/")), "utf8"));
     const source = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
     const replaced = source.runtimeState.claim_evidence?.find((item) => item.claim_id === challenge.claim_id)?.slots.find((item) => item.slot_id === challenge.slot_id)?.report;
     if (!replaced)
@@ -17986,7 +18264,7 @@ function recoveryProblemBudget(current) {
   const failedAttempts = [...steps].reduce((count, id) => count + (current.runtimeState.step_attempts?.[id]?.attempts.filter((attempt) => attempt.blocker !== null).length ?? 0), 0);
   return { failedAttempts, repairWaves };
 }
-function inheritedScopeAmendmentAttemptLedger(root2, current, stepId) {
+function inheritedScopeAmendmentAttemptLedger(root, current, stepId) {
   let childStepId = stepId;
   const visited = new Set;
   const audits = current.runtimeState.execution_log.filter((item) => ("action" in item) && item.action === "commit-scope-amendment" && item.candidate_digest);
@@ -18027,12 +18305,12 @@ function inheritedScopeAmendmentAttemptLedger(root2, current, stepId) {
   }
   fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Scope-amendment continuation ancestry exceeds the supported depth.");
 }
-function assertRecoveryHistory(root2, current) {
+function assertRecoveryHistory(root, current) {
   for (const event of current.runtimeState.execution_log) {
     if (!("action" in event) || event.action !== "create-draft" || !event.predecessor)
       continue;
     const d = event.predecessor;
-    const file = safeRepositoryFile(root2, successorSnapshotPath(current.relativePath, d.document_id, d.source_revision));
+    const file = safeRepositoryFile(root, successorSnapshotPath(current.relativePath, d.document_id, d.source_revision));
     if (sha2565(fs11.readFileSync(file, "utf8")) !== d.source_revision)
       fail3("SUCCESSOR_HISTORY_CONFLICT", "The exact predecessor task must remain retained.");
   }
@@ -18063,7 +18341,7 @@ function assertRecoveryHistory(root2, current) {
     const history = JSON.parse(fs11.readFileSync(historyFile, "utf8"));
     const old = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, "base64").toString("utf8"), current.filePath, current.relativePath);
     if (old.frontmatter.task_store !== undefined) {
-      const store = TaskStore.forCurrent(root2, current);
+      const store = TaskStore.forCurrent(root, current);
       old.runtimeState = {
         ...old.runtimeState,
         execution_log: store.readExecutionLogAtSourceRevision(entry.source_revision)
@@ -18157,6 +18435,46 @@ function makeRepairBudgetExtensionAudit(current, proposal, next, now, findingBud
     recorded_at: now
   };
 }
+function makeControlledRepairRecoveryAudit(current, proposal, now) {
+  if (proposal.semantic_delta.kind !== "task-state" || proposal.semantic_delta.action !== "authorize-controlled-repair-recovery") {
+    fail3("RUNTIME_SCHEMA_INVALID", "Only controlled recovery authorization may create a controlled recovery audit record.");
+  }
+  const delta = proposal.semantic_delta;
+  return {
+    action: "authorize-controlled-repair-recovery",
+    idempotency_key: proposal.idempotency_key,
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "default",
+    task_id: current.runtimeState.task_id,
+    task_slug: current.runtimeState.task_slug,
+    document_id: current.sourceTuple.document_id,
+    from_workflow_status: "active",
+    from_lifecycle_state: "active",
+    to_workflow_status: "active",
+    to_lifecycle_state: "active",
+    source_revision: current.sourceTuple.revision,
+    authority_evidence: proposal.authority_evidence.map((item) => ({ ...item })),
+    evidence_refs: [...delta.evidence_refs],
+    review_id: delta.review_id,
+    execution_id: delta.execution_id,
+    cycle_id: delta.cycle_id,
+    cycle_phase: delta.cycle_phase,
+    change_set_id: delta.change_set_id,
+    review_target_revision: delta.review_target_revision,
+    repair_fingerprints: [...delta.repair_fingerprints],
+    recovery_fingerprints: [...delta.recovery_fingerprints],
+    recovery_scope: delta.recovery_scope,
+    disposition_source: delta.disposition_source,
+    recovery_basis: delta.recovery_basis,
+    grant_id: delta.grant_id,
+    repair_wave_id: delta.repair_wave_id,
+    controlled_attempt_limit: MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING,
+    decision_source: delta.decision_source,
+    decision_sha256: sha2565(delta.decision_text),
+    recorded_at: now
+  };
+}
 function repairBudgetContinuationForPendingReview(current) {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== "blocked" || pending.blocker?.code !== "REPAIR_BUDGET_EXHAUSTED")
@@ -18179,26 +18497,196 @@ function repairFingerprintsForPendingReview(current) {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== "findings" && pending.verdict !== "blocked")
     return [];
-  const resolved = new Set(pending.resolved_fingerprints);
+  const deferred = new Set((pending.finding_dispositions ?? []).filter((item) => item.disposition === "defer").map((item) => item.fingerprint));
+  const resolved = new Set([
+    ...pending.resolved_fingerprints,
+    ...current.runtimeState.findings.filter((item) => item.status === "resolved").map((item) => item.fingerprint)
+  ]);
   return [...new Set([
     ...pending.unresolved_fingerprints,
     ...pending.findings.map((item) => item.fingerprint)
-  ])].filter((fingerprint) => !resolved.has(fingerprint)).sort();
+  ])].filter((fingerprint) => !resolved.has(fingerprint) && !deferred.has(fingerprint)).sort();
 }
-function repairBudgetExtensionTargets(current) {
+function repairBudgetExtensionEligibility(current) {
+  const pending = current.runtimeState.pending_review_result;
+  const repairRound = current.runtimeState.review_cycle.repair_round;
+  const repairRoundLimitValue = repairRoundLimit(current.runtimeState.review_cycle);
+  const nextRepairRoundLimit = Math.max(repairRoundLimitValue, repairRound + 1);
+  const repairFingerprints = repairFingerprintsForPendingReview(current);
+  const base = {
+    repair_round: repairRound,
+    repair_round_limit: repairRoundLimitValue,
+    next_repair_round_limit: nextRepairRoundLimit,
+    absolute_limits: {
+      max_repair_attempts: MAX_EXTENDED_REPAIR_ATTEMPTS,
+      max_repair_rounds: MAX_EXTENDED_REPAIR_ROUNDS
+    },
+    repair_fingerprints: repairFingerprints
+  };
+  if (!pending || pending.verdict !== "blocked" || pending.blocker?.code !== "REPAIR_BUDGET_EXHAUSTED") {
+    return {
+      ...base,
+      eligible: false,
+      extension_scope: null,
+      finding_fingerprints: [],
+      blocking_reasons: [{
+        code: "not-pending-budget-review",
+        message: "An exact pending REPAIR_BUDGET_EXHAUSTED review is required before an ordinary budget extension can be authorized."
+      }]
+    };
+  }
+  const reviewTargets = new Set(repairFingerprints);
+  const currentFindings = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status) && item.review_cycle_id === pending.cycle_id && reviewTargets.has(item.fingerprint));
+  const pendingCandidates = pending.findings.some((item) => {
+    if (!reviewTargets.has(item.fingerprint))
+      return false;
+    const existing = current.runtimeState.findings.find((candidate) => candidate.fingerprint === item.fingerprint);
+    return existing === undefined;
+  });
+  const hasRepairTarget = currentFindings.length > 0 || pendingCandidates;
+  const exhausted = currentFindings.filter((item) => item.repair_attempts >= item.max_repair_attempts).map((item) => item.fingerprint).sort();
+  const absoluteFindingTargets = currentFindings.filter((item) => item.repair_attempts >= item.max_repair_attempts && item.max_repair_attempts >= MAX_EXTENDED_REPAIR_ATTEMPTS).map((item) => item.fingerprint).sort();
+  const blockingReasons = [];
+  if (!hasRepairTarget) {
+    blockingReasons.push({
+      code: "no-repair-target",
+      message: "The pending review has no admitted or normally admissible unresolved repair target after verified resolutions were applied."
+    });
+  } else if (exhausted.length > 0) {
+    if (absoluteFindingTargets.length > 0) {
+      blockingReasons.push({
+        code: "finding-attempt-absolute-limit",
+        message: `The following unresolved finding(s) already reached the absolute repair-attempt limit of ${MAX_EXTENDED_REPAIR_ATTEMPTS}: ${absoluteFindingTargets.join(", ")}.`,
+        fingerprints: absoluteFindingTargets
+      });
+    }
+    if (nextRepairRoundLimit > MAX_EXTENDED_REPAIR_ROUNDS) {
+      blockingReasons.push({
+        code: "repair-round-absolute-limit",
+        message: `The next repair round would exceed the absolute repair-round limit of ${MAX_EXTENDED_REPAIR_ROUNDS} (current round ${repairRound}).`
+      });
+    }
+    if (blockingReasons.length === 0) {
+      return {
+        ...base,
+        eligible: true,
+        extension_scope: "finding-attempts",
+        finding_fingerprints: exhausted,
+        blocking_reasons: []
+      };
+    }
+  } else if (repairRound < repairRoundLimitValue) {
+    blockingReasons.push({
+      code: "repair-round-not-exhausted",
+      message: "No finding-attempt budget is exhausted and the repair-wave quota is not exhausted; an ordinary budget extension is not applicable."
+    });
+  } else if (nextRepairRoundLimit > MAX_EXTENDED_REPAIR_ROUNDS) {
+    blockingReasons.push({
+      code: "repair-round-absolute-limit",
+      message: `The next repair round would exceed the absolute repair-round limit of ${MAX_EXTENDED_REPAIR_ROUNDS} (current round ${repairRound}).`
+    });
+  } else {
+    return {
+      ...base,
+      eligible: true,
+      extension_scope: "repair-round",
+      finding_fingerprints: [],
+      blocking_reasons: []
+    };
+  }
+  return {
+    ...base,
+    eligible: false,
+    extension_scope: null,
+    finding_fingerprints: [],
+    blocking_reasons: blockingReasons
+  };
+}
+function repairWaveIdForRepairSet(reviewId, fingerprints) {
+  return `repair-wave-${digest3({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
+}
+function pendingReviewDispositionMap(pending) {
+  return new Map((pending.finding_dispositions ?? []).map((item) => [item.fingerprint, item]));
+}
+function controlledRepairRecoveryEligibility(current) {
+  const pending = current.runtimeState.pending_review_result;
+  const repairFingerprints = repairFingerprintsForPendingReview(current);
+  const reviewCycle = current.runtimeState.review_cycle;
+  const base = {
+    repair_fingerprints: repairFingerprints,
+    candidate_recovery_fingerprints: [],
+    repair_round: reviewCycle.repair_round,
+    repair_round_limit: repairRoundLimit(reviewCycle),
+    controlled_attempt_limit: MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING
+  };
+  const blocked2 = (code, message, fingerprints) => ({
+    ...base,
+    eligible: false,
+    recovery_scope: null,
+    recovery_fingerprints: [],
+    disposition_source: null,
+    blocking_reasons: [{ code, message, ...fingerprints && fingerprints.length ? { fingerprints } : {} }]
+  });
+  if (!pending || pending.verdict !== "blocked" || pending.blocker?.code !== "REPAIR_BUDGET_EXHAUSTED") {
+    return blocked2("not-pending-budget-review", "An exact pending REPAIR_BUDGET_EXHAUSTED review is required before controlled recovery can be authorized.");
+  }
+  const ordinary = repairBudgetExtensionEligibility(current);
+  if (ordinary.eligible) {
+    return blocked2("ordinary-extension-available", "Ordinary bounded budget extension is still executable; controlled recovery is reserved for the ordinary-limit boundary.");
+  }
+  if (repairFingerprints.length === 0)
+    return blocked2("no-repair-target", "The pending review has no unresolved repair target after verified resolutions were applied.");
+  const currentFindings = current.runtimeState.findings.filter((item) => repairFingerprints.includes(item.fingerprint) && ["admitted", "in-progress"].includes(item.status));
+  const exhausted = currentFindings.filter((item) => item.repair_attempts >= item.max_repair_attempts).map((item) => item.fingerprint).sort();
+  const absoluteFindingTargets = currentFindings.filter((item) => item.max_repair_attempts >= MAX_EXTENDED_REPAIR_ATTEMPTS && item.repair_attempts >= item.max_repair_attempts).map((item) => item.fingerprint).sort();
+  const roundAtAbsolute = reviewCycle.repair_round >= MAX_EXTENDED_REPAIR_ROUNDS && repairRoundLimit(reviewCycle) >= MAX_EXTENDED_REPAIR_ROUNDS;
+  const dispositionMap = pendingReviewDispositionMap(pending);
+  const hasStructuredDispositions = pending.finding_dispositions !== undefined;
+  const dispositionSource = hasStructuredDispositions ? "review-disposition" : "legacy-explicit-user";
+  const candidateRecoveryFingerprints = (hasStructuredDispositions ? repairFingerprints.filter((fingerprint) => dispositionMap.get(fingerprint)?.disposition === "must-fix") : roundAtAbsolute ? repairFingerprints : exhausted).sort();
+  if (!roundAtAbsolute && absoluteFindingTargets.length === 0) {
+    return blocked2("controlled-recovery-not-at-ordinary-limit", "The ordinary extension is blocked for a non-absolute reason; controlled recovery cannot be used as an alternate budget path.");
+  }
+  if (candidateRecoveryFingerprints.length === 0) {
+    return blocked2("must-fix-disposition-required", "At least one unresolved target must be explicitly classified as must-fix before controlled recovery can add quota.");
+  }
+  if (hasStructuredDispositions) {
+    const unclassifiedExhausted = exhausted.filter((fingerprint) => !candidateRecoveryFingerprints.includes(fingerprint));
+    if (unclassifiedExhausted.length > 0) {
+      return blocked2("must-fix-disposition-required", `Every exhausted unresolved finding must be explicitly classified as must-fix for controlled recovery: ${unclassifiedExhausted.join(", ")}.`, unclassifiedExhausted);
+    }
+  }
+  const grantsForReview = (current.runtimeState.controlled_repair_grants ?? []).filter((grant) => grant.review_id === pending.review_id && grant.task_id === current.runtimeState.task_id);
+  if (grantsForReview.length >= MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW) {
+    return blocked2("controlled-recovery-grant-already-issued", "This exact pending review already has its one controlled recovery grant; review the resulting execution before requesting a later grant.");
+  }
+  const exhaustedControlledLimit = currentFindings.filter((item) => candidateRecoveryFingerprints.includes(item.fingerprint) && (item.controlled_repair_attempts ?? 0) >= MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING).map((item) => item.fingerprint).sort();
+  if (exhaustedControlledLimit.length > 0) {
+    return blocked2("controlled-recovery-attempt-limit", `Controlled recovery attempts are exhausted for: ${exhaustedControlledLimit.join(", ")}. A new task or budget reset is not permitted.`, exhaustedControlledLimit);
+  }
+  const recoveryScope = roundAtAbsolute && exhausted.length > 0 ? "mixed" : roundAtAbsolute ? "repair-round" : "finding-attempts";
+  return {
+    ...base,
+    eligible: true,
+    recovery_scope: recoveryScope,
+    recovery_fingerprints: candidateRecoveryFingerprints,
+    candidate_recovery_fingerprints: candidateRecoveryFingerprints,
+    disposition_source: dispositionSource,
+    blocking_reasons: []
+  };
+}
+function controlledRepairContinuationForPendingReview(current) {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== "blocked" || pending.blocker?.code !== "REPAIR_BUDGET_EXHAUSTED")
     return null;
-  const repairTargets = new Set(repairFingerprintsForPendingReview(current));
-  const fingerprints = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status) && item.review_cycle_id === pending.cycle_id && repairTargets.has(item.fingerprint) && item.repair_attempts >= item.max_repair_attempts).map((item) => item.fingerprint).sort();
-  if (fingerprints.length > 0)
-    return fingerprints;
-  const cycleExhausted = current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle);
-  const hasRepairTarget = repairTargets.size > 0 && [...repairTargets].some((fingerprint) => {
-    const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
-    return finding !== undefined && ["admitted", "in-progress"].includes(finding.status) && finding.review_cycle_id === pending.cycle_id && finding.repair_attempts < finding.max_repair_attempts || pending.findings.some((item) => item.fingerprint === fingerprint);
-  });
-  return cycleExhausted && hasRepairTarget ? [] : null;
+  const repairFingerprints = repairFingerprintsForPendingReview(current);
+  const waveId = repairWaveIdForRepairSet(pending.review_id, repairFingerprints);
+  const grant = (current.runtimeState.controlled_repair_grants ?? []).find((item) => item.status === "issued" && item.task_id === current.runtimeState.task_id && item.task_slug === current.runtimeState.task_slug && item.document_id === current.sourceTuple.document_id && item.review_id === pending.review_id && item.execution_id === pending.execution_id && item.cycle_id === pending.cycle_id && item.cycle_phase === pending.cycle_phase && item.change_set_id === pending.change_set_id && item.review_target_revision === pending.review_target_revision && digest3(item.repair_fingerprints) === digest3(repairFingerprints) && item.repair_wave_id === waveId && item.recovery_fingerprints.every((fingerprint) => repairFingerprints.includes(fingerprint)) && item.consumed_fingerprints.length < item.repair_fingerprints.length);
+  return grant ? { ...grant, repair_fingerprints: [...grant.repair_fingerprints] } : null;
+}
+function controlledGrantForRepairWave(current, repairWaveId) {
+  const continuation = controlledRepairContinuationForPendingReview(current);
+  return continuation && continuation.repair_wave_id === repairWaveId ? continuation : null;
 }
 function ensureAnyAuthorityKind(proposal, allowed) {
   if (!proposal.authority_evidence.some((item) => allowed.includes(item.kind))) {
@@ -18316,16 +18804,16 @@ function assertNoUnresolvedDraftQuestions(body) {
     return;
   fail3("DRAFT_DECISION_UNRESOLVED", "draft confirmation is blocked by unresolved user-owned questions.");
 }
-function assertDraftDefinitionReady(root2, current) {
+function assertDraftDefinitionReady(root, current) {
   assertBusinessEvidenceVersion(current);
   const activeStepId = current.runtimeState.active_step_id;
   const body = current.body;
   const definition = readDraftDefinitionFromBody(body);
-  assertV2DraftDefinitionAuthority(root2, definition);
+  assertV2DraftDefinitionAuthority(root, definition);
   assertStrictDraftImplementationSteps(activeStepId, definition.implementation_steps);
-  const taskBasis = readCanonicalTaskBasis(root2, current).basis;
-  assertPreparedTestStrategy(root2, definition, taskBasis);
-  assertEvidencePlan(definition, current.runtimeState.claim_evidence ?? [], true, { root: root2, taskBasis, previous: [] });
+  const taskBasis = readCanonicalTaskBasis(root, current).basis;
+  assertPreparedTestStrategy(root, definition, taskBasis);
+  assertEvidencePlan(definition, current.runtimeState.claim_evidence ?? [], true, { root, taskBasis, previous: [] });
   assertNoUnresolvedDraftQuestions(body);
   return definition;
 }
@@ -18335,12 +18823,12 @@ function expectedDraftReplayAudit(current, proposal) {
     fail3("RUNTIME_REPLAY_INCOMPLETE", "draft replay is missing its durable execution audit record.");
   return entry;
 }
-function assertDraftTaskReplay(root2, current, proposal) {
+function assertDraftTaskReplay(root, current, proposal) {
   if (proposal.semantic_delta.kind !== "task-state" || !DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action))
     return;
   const delta = proposal.semantic_delta;
   const audit = expectedDraftReplayAudit(current, proposal);
-  assertExecutionAudit(root2, current, audit);
+  assertExecutionAudit(root, current, audit);
   const targetIdentity = extractTaskIdentityFromCurrentTask(current.body);
   if (targetIdentity.id !== delta.task_id || targetIdentity.slug !== delta.task_slug) {
     fail3("RUNTIME_REPLAY_INCOMPLETE", "draft replay no longer has the proposal identity in the canonical task document.");
@@ -18369,7 +18857,7 @@ function assertDraftTaskReplay(root2, current, proposal) {
         fail3("RUNTIME_REPLAY_INCOMPLETE", `${delta.action} replay no longer has the proposal claim evidence in canonical CURRENT_TASK.`);
       }
     }
-    const basis = readCanonicalTaskBasis(root2, current);
+    const basis = readCanonicalTaskBasis(root, current);
     if (digest3(basis.basis) !== digest3(draftDelta.task_basis)) {
       fail3("RUNTIME_REPLAY_INCOMPLETE", `${delta.action} replay no longer has the proposal task basis.`);
     }
@@ -18393,12 +18881,12 @@ function expectedClaimEvidenceMigrationReplayAudit(current, proposal) {
     fail3("RUNTIME_REPLAY_INCOMPLETE", "claim evidence migration replay is missing its durable execution audit record.");
   return entry;
 }
-function assertClaimEvidenceMigrationReplay(root2, current, proposal) {
+function assertClaimEvidenceMigrationReplay(root, current, proposal) {
   if (proposal.semantic_delta.kind !== "task-state" || proposal.semantic_delta.action !== "migrate-claim-evidence")
     return;
   const delta = proposal.semantic_delta;
   const audit = expectedClaimEvidenceMigrationReplayAudit(current, proposal);
-  assertExecutionAudit(root2, current, audit);
+  assertExecutionAudit(root, current, audit);
   if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
     fail3("RUNTIME_REPLAY_INCOMPLETE", "claim evidence migration replay no longer has the active + active tuple.");
   }
@@ -18473,9 +18961,9 @@ function assertReviewResultReplay(current, proposal) {
     fail3("RUNTIME_REPLAY_INCOMPLETE", "review-result replay does not match the durable pending result.");
   }
 }
-function assertTaskStateReplay(root2, current, proposal) {
+function assertTaskStateReplay(root, current, proposal) {
   if (proposal.semantic_delta.kind === "task-state" && DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action)) {
-    assertDraftTaskReplay(root2, current, proposal);
+    assertDraftTaskReplay(root, current, proposal);
     return;
   }
   if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "step-progress") {
@@ -18487,7 +18975,7 @@ function assertTaskStateReplay(root2, current, proposal) {
     return;
   }
   if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "migrate-claim-evidence") {
-    assertClaimEvidenceMigrationReplay(root2, current, proposal);
+    assertClaimEvidenceMigrationReplay(root, current, proposal);
     return;
   }
   if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "record-review-result") {
@@ -18499,11 +18987,25 @@ function assertTaskStateReplay(root2, current, proposal) {
     const audit2 = current.runtimeState.execution_log.find((entry) => ("action" in entry) && entry.action === "extend-repair-budget" && entry.idempotency_key === proposal.idempotency_key);
     if (!audit2)
       fail3("RUNTIME_REPLAY_INCOMPLETE", "repair-budget replay is missing its durable audit record.");
-    assertExecutionAudit(root2, current, audit2);
-    const basis = readCanonicalTaskBasis(root2, current).basis;
+    assertExecutionAudit(root, current, audit2);
+    const basis = readCanonicalTaskBasis(root, current).basis;
     const decision = [basis.original_request, ...basis.user_decisions].find((item) => item.source === delta2.decision_source);
     if (!decision || sha2565(decision.verbatim) !== audit2.decision_sha256 || audit2.review_id !== delta2.review_id || audit2.extension_scope !== delta2.extension_scope || digest3(audit2.finding_budgets.map((item) => item.fingerprint)) !== digest3(delta2.finding_fingerprints) || delta2.extension_scope === "repair-round" && audit2.finding_budgets.length !== 0 || audit2.finding_budgets.some((budget) => current.runtimeState.findings.find((item) => item.fingerprint === budget.fingerprint)?.max_repair_attempts !== budget.new_max)) {
       fail3("RUNTIME_REPLAY_INCOMPLETE", "repair-budget replay no longer matches the retained decision or finding budgets.");
+    }
+    return;
+  }
+  if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "authorize-controlled-repair-recovery") {
+    const delta2 = proposal.semantic_delta;
+    const audit2 = current.runtimeState.execution_log.find((entry) => ("action" in entry) && entry.action === "authorize-controlled-repair-recovery" && entry.idempotency_key === proposal.idempotency_key);
+    if (!audit2)
+      fail3("RUNTIME_REPLAY_INCOMPLETE", "controlled recovery replay is missing its durable audit record.");
+    assertExecutionAudit(root, current, audit2);
+    const grant = current.runtimeState.controlled_repair_grants?.find((item) => item.grant_id === delta2.grant_id);
+    const basis = readCanonicalTaskBasis(root, current).basis;
+    const decision = [basis.original_request, ...basis.user_decisions].find((item) => item.source === delta2.decision_source);
+    if (!grant || grant.review_id !== delta2.review_id || !["issued", "consumed"].includes(grant.status) || grant.decision_sha256 !== sha2565(delta2.decision_text) || !decision || audit2.grant_id !== delta2.grant_id || digest3(grant.repair_fingerprints) !== digest3(delta2.repair_fingerprints) || digest3(grant.recovery_fingerprints) !== digest3(delta2.recovery_fingerprints) || grant.repair_wave_id !== delta2.repair_wave_id) {
+      fail3("RUNTIME_REPLAY_INCOMPLETE", "controlled recovery replay no longer matches the retained decision, grant, or review target set.");
     }
     return;
   }
@@ -18511,7 +19013,7 @@ function assertTaskStateReplay(root2, current, proposal) {
     return;
   const delta = proposal.semantic_delta;
   const audit = expectedReplanReplayAudit(current, proposal);
-  assertExecutionAudit(root2, current, audit);
+  assertExecutionAudit(root, current, audit);
   assertNoLaterReplanAudit(current, audit);
   if (delta.action === "mark-replan-blocked") {
     if (current.runtimeState.workflow_status !== "blocked_by_replan" || current.runtimeState.lifecycle_state !== "active")
@@ -18529,7 +19031,7 @@ function assertTaskStateReplay(root2, current, proposal) {
     if (current.runtimeState.resume_requires_review || current.runtimeState.resume_review_reasons.length > 0)
       fail3("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has a cleared resume gate.");
     assertReplanDefinitionSections(current.body, commitDelta.replacement_definition);
-    const basis = readCanonicalTaskBasis(root2, current);
+    const basis = readCanonicalTaskBasis(root, current);
     if (digest3(basis.basis) !== digest3(commitDelta.task_basis)) {
       fail3("RUNTIME_REPLAY_INCOMPLETE", "commit-replan replay no longer has the proposal task basis.");
     }
@@ -18542,7 +19044,7 @@ function assertTaskStateReplay(root2, current, proposal) {
     fail3("RUNTIME_REPLAY_INCOMPLETE", "replan replay audit does not match the proposal identity or evidence.");
   }
 }
-function applyTaskStateDelta(root2, current, proposal, now) {
+function applyTaskStateDelta(root, current, proposal, now) {
   if (proposal.semantic_delta.kind !== "task-state")
     fail3("RUNTIME_SCHEMA_INVALID", "Expected task-state delta.");
   const delta = proposal.semantic_delta;
@@ -18555,8 +19057,17 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     if (!pending || pending.review_id !== delta.review_id || pending.verdict !== "blocked" || pending.blocker?.code !== "REPAIR_BUDGET_EXHAUSTED") {
       fail3("REPAIR_BUDGET_EXTENSION_STATE_INVALID", "The exact pending REPAIR_BUDGET_EXHAUSTED review is required.");
     }
-    const exhausted = repairBudgetExtensionTargets(current);
-    if (exhausted === null || digest3(exhausted) !== digest3(delta.finding_fingerprints)) {
+    const eligibility = repairBudgetExtensionEligibility(current);
+    if (!eligibility.eligible) {
+      const reason = eligibility.blocking_reasons[0];
+      const limitReason = reason?.code === "finding-attempt-absolute-limit" || reason?.code === "repair-round-absolute-limit";
+      fail3(limitReason ? "REPAIR_BUDGET_EXTENSION_LIMIT" : "REPAIR_BUDGET_EXTENSION_TARGET_INVALID", reason?.message ?? "The pending review is not eligible for an ordinary budget extension.");
+    }
+    const exhausted = eligibility.finding_fingerprints;
+    if (delta.extension_scope !== eligibility.extension_scope) {
+      fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", `The requested extension scope does not match the current eligible scope (${eligibility.extension_scope}).`);
+    }
+    if (digest3(exhausted) !== digest3(delta.finding_fingerprints)) {
       fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "The decision must bind every and only currently exhausted finding in the pending review cycle.");
     }
     const selected = exhausted.map((fingerprint) => current.runtimeState.findings.find((item) => item.fingerprint === fingerprint));
@@ -18570,13 +19081,13 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "A finding-attempt extension must authorize an exhausted finding.");
     }
     const priorRoundLimit = repairRoundLimit(current.runtimeState.review_cycle);
-    const nextRoundLimit = Math.max(priorRoundLimit, current.runtimeState.review_cycle.repair_round + 1);
+    const nextRoundLimit = eligibility.next_repair_round_limit;
     if (nextRoundLimit > MAX_EXTENDED_REPAIR_ROUNDS)
       fail3("REPAIR_BUDGET_EXTENSION_LIMIT", "The review cycle reached the absolute bounded repair-round limit.");
     if (delta.extension_scope === "repair-round" && nextRoundLimit <= priorRoundLimit) {
       fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "A repair-round-only extension requires the current repair-wave quota to be exhausted.");
     }
-    const retained = readCanonicalTaskBasis(root2, current);
+    const retained = readCanonicalTaskBasis(root, current);
     const basis = structuredClone(retained.basis);
     const priorDecision = [basis.original_request, ...basis.user_decisions].find((item) => item.source === delta.decision_source);
     if (priorDecision && priorDecision.verbatim !== delta.decision_text)
@@ -18604,6 +19115,105 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       audit
     };
   }
+  if (delta.action === "authorize-controlled-repair-recovery") {
+    ensureAuthorityKinds(proposal, ["active-task-owner", "finding-admission", "evidence-admission", "user-confirmation"]);
+    if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active" || current.runtimeState.resume_requires_review) {
+      fail3("CONTROLLED_RECOVERY_STATE_INVALID", "Controlled recovery requires an active task without a resume-review gate.");
+    }
+    const pending = current.runtimeState.pending_review_result;
+    if (!pending || pending.review_id !== delta.review_id || pending.verdict !== "blocked" || pending.blocker?.code !== "REPAIR_BUDGET_EXHAUSTED") {
+      fail3("CONTROLLED_RECOVERY_STATE_INVALID", "The exact pending REPAIR_BUDGET_EXHAUSTED review is required for controlled recovery.");
+    }
+    const eligibility = controlledRepairRecoveryEligibility(current);
+    if (!eligibility.eligible) {
+      fail3("CONTROLLED_RECOVERY_NOT_ELIGIBLE", eligibility.blocking_reasons[0]?.message ?? "The pending review is not eligible for controlled recovery.");
+    }
+    const recoveryTargetsAllowed = eligibility.disposition_source === "legacy-explicit-user" ? delta.recovery_fingerprints.length > 0 && delta.recovery_fingerprints.every((fingerprint) => eligibility.recovery_fingerprints.includes(fingerprint)) : digest3(delta.recovery_fingerprints) === digest3(eligibility.recovery_fingerprints);
+    const recoveryTargetSet = new Set(delta.recovery_fingerprints);
+    const uncoveredExhaustedTargets = eligibility.repair_fingerprints.filter((fingerprint) => {
+      if (recoveryTargetSet.has(fingerprint))
+        return false;
+      const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
+      return finding !== undefined && ["admitted", "in-progress"].includes(finding.status) && finding.repair_attempts >= finding.max_repair_attempts;
+    }).sort();
+    if (uncoveredExhaustedTargets.length > 0) {
+      fail3("CONTROLLED_RECOVERY_TARGET_INVALID", `Controlled recovery must cover every unresolved finding with no ordinary budget before the grant is issued: ${uncoveredExhaustedTargets.join(", ")}.`);
+    }
+    if (digest3(delta.repair_fingerprints) !== digest3(eligibility.repair_fingerprints) || !recoveryTargetsAllowed || delta.recovery_scope !== eligibility.recovery_scope || delta.disposition_source !== eligibility.disposition_source) {
+      fail3("CONTROLLED_RECOVERY_TARGET_INVALID", "Controlled recovery must bind the complete current repair set and an explicitly authorized recovery target subset.");
+    }
+    if (delta.execution_id !== pending.execution_id || delta.cycle_id !== pending.cycle_id || delta.cycle_phase !== pending.cycle_phase || delta.change_set_id !== pending.change_set_id || delta.review_target_revision !== pending.review_target_revision) {
+      fail3("CONTROLLED_RECOVERY_IDENTITY_INVALID", "Controlled recovery must bind the exact pending review execution, cycle, change set, and reviewed target revision.");
+    }
+    const expectedWaveId = repairWaveIdForRepairSet(pending.review_id, eligibility.repair_fingerprints);
+    if (delta.repair_wave_id !== expectedWaveId)
+      fail3("CONTROLLED_RECOVERY_IDENTITY_INVALID", "Controlled recovery repair wave is not Runtime-derived from the exact review target set.");
+    const expectedGrantId = `controlled-recovery-${digest3({
+      task_id: current.runtimeState.task_id,
+      document_id: current.sourceTuple.document_id,
+      review_id: pending.review_id,
+      execution_id: pending.execution_id,
+      cycle_id: pending.cycle_id,
+      change_set_id: pending.change_set_id,
+      review_target_revision: pending.review_target_revision,
+      repair_fingerprints: eligibility.repair_fingerprints,
+      recovery_fingerprints: delta.recovery_fingerprints,
+      recovery_scope: eligibility.recovery_scope,
+      disposition_source: eligibility.disposition_source,
+      recovery_basis: delta.recovery_basis,
+      decision_source: delta.decision_source,
+      decision_text: delta.decision_text
+    }).slice(0, 40)}`;
+    if (delta.grant_id !== expectedGrantId)
+      fail3("CONTROLLED_RECOVERY_IDENTITY_INVALID", "Controlled recovery grant identity is not Runtime-derived from the exact decision and review binding.");
+    if (current.runtimeState.controlled_repair_grants?.some((grant2) => grant2.review_id === pending.review_id)) {
+      fail3("CONTROLLED_RECOVERY_DUPLICATE", "A controlled recovery grant is already recorded for this pending review.");
+    }
+    const retained = readCanonicalTaskBasis(root, current);
+    const basis = structuredClone(retained.basis);
+    const priorDecision = [basis.original_request, ...basis.user_decisions].find((item) => item.source === delta.decision_source);
+    if (priorDecision && priorDecision.verbatim !== delta.decision_text)
+      fail3("CONTROLLED_RECOVERY_AUTHORITY_INVALID", "An existing decision source cannot be assigned different text.");
+    if (!priorDecision)
+      basis.user_decisions.push({ source: delta.decision_source, verbatim: delta.decision_text });
+    const grant = {
+      kind: "controlled-repair-recovery/v1",
+      grant_id: delta.grant_id,
+      task_id: current.runtimeState.task_id,
+      task_slug: current.runtimeState.task_slug,
+      document_id: current.sourceTuple.document_id,
+      review_id: pending.review_id,
+      execution_id: pending.execution_id,
+      cycle_id: pending.cycle_id,
+      cycle_phase: pending.cycle_phase,
+      change_set_id: pending.change_set_id,
+      review_target_revision: pending.review_target_revision,
+      repair_fingerprints: [...eligibility.repair_fingerprints],
+      recovery_fingerprints: [...delta.recovery_fingerprints],
+      recovery_scope: eligibility.recovery_scope,
+      disposition_source: eligibility.disposition_source,
+      recovery_basis: delta.recovery_basis,
+      repair_wave_id: expectedWaveId,
+      decision_source: delta.decision_source,
+      decision_sha256: sha2565(delta.decision_text),
+      evidence_refs: [...new Set(delta.evidence_refs)],
+      issued_source_revision: current.sourceTuple.revision,
+      status: "issued",
+      consumed_fingerprints: [],
+      issued_at: now
+    };
+    const nextWithoutAudit = {
+      ...current.runtimeState,
+      controlled_repair_grants: [...current.runtimeState.controlled_repair_grants ?? [], grant],
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
+    };
+    const audit = makeControlledRepairRecoveryAudit(current, proposal, now);
+    return {
+      next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
+      taskBasis: basis,
+      audit
+    };
+  }
   if (delta.action === "record-user-evidence") {
     assertBusinessEvidenceVersion(current);
     ensureAuthorityKinds(proposal, ["active-task-owner", "evidence-admission", "user-confirmation"]);
@@ -18613,11 +19223,11 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     const slot = claim?.slots.find((item) => item.slot_id === delta.slot_id);
     if (!claim || !slot?.check || slot.check.check_id !== delta.check_id)
       fail3("USER_EVIDENCE_TARGET_INVALID", "The exact claim/slot/check must already be frozen.");
-    if (delta.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || captureReviewTarget(root2, slot.check.subject_paths).revision !== delta.subject_revision)
+    if (delta.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || captureReviewTarget(root, slot.check.subject_paths).revision !== delta.subject_revision)
       fail3("USER_EVIDENCE_STALE", "The plan or observed objects changed; do not rebind the old user statement.");
     if ((current.runtimeState.evidence_challenges ?? []).some((item) => item.claim_id === claim.claim_id && item.slot_id === slot.slot_id && item.status !== "resolved"))
       fail3("USER_EVIDENCE_CHALLENGED", "Resolve the counterexample through its retained owner; a user evidence decision does not dismiss it.");
-    const retained = readCanonicalTaskBasis(root2, current);
+    const retained = readCanonicalTaskBasis(root, current);
     const basis = structuredClone(retained.basis);
     const prior = [basis.original_request, ...basis.user_decisions].find((item) => item.source === delta.decision_source);
     if (prior && prior.verbatim !== delta.decision_text)
@@ -18727,7 +19337,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     if (!reviewedExecution?.execution_result || reviewedExecution.change_set_id !== pending.change_set_id || reviewedExecution.execution_result.review_target.revision !== pending.review_target_revision) {
       fail3("RETAINED_REVIEW_TARGET_CONFLICT", "The retained clean review no longer binds its Runtime-recorded execution target.");
     }
-    if (captureReviewTarget(root2, reviewedExecution.execution_result.review_target.entries.map((item) => item.path)).revision !== pending.review_target_revision) {
+    if (captureReviewTarget(root, reviewedExecution.execution_result.review_target.entries.map((item) => item.path)).revision !== pending.review_target_revision) {
       fail3("RETAINED_REVIEW_TARGET_STALE", "Product files changed after the retained clean review was recorded.");
     }
     const openFindings2 = current.runtimeState.findings.filter((item) => ["admitted", "in-progress"].includes(item.status));
@@ -18762,31 +19372,31 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     ensureAuthorityKinds(proposal, ["scope-admission", "evidence-admission"]);
     ensureAnyAuthorityKind(proposal, ["user-confirmation", "authorized-caller"]);
     if (delta.predecessor)
-      assertSuccessorDecision(root2, current, delta);
+      assertSuccessorDecision(root, current, delta);
     else if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived") {
       fail3("DRAFT_CREATION_BLOCKED", "Ordinary create-draft requires closed + archived; a superseded predecessor needs the explicit successor route.");
     }
-    const expectedTaskId = allocateNextTaskId(root2, current.runtimeState.task_id);
+    const expectedTaskId = allocateNextTaskId(root, current.runtimeState.task_id);
     if (delta.task_id !== expectedTaskId) {
       fail3("TASK_ID_ALLOCATION_CONFLICT", `create-draft must allocate the next unused task identity ${expectedTaskId}.`);
     }
-    if (delta.document_id === current.sourceTuple.document_id || collectTaskDocumentIds(root2).has(delta.document_id)) {
+    if (delta.document_id === current.sourceTuple.document_id || collectTaskDocumentIds(root).has(delta.document_id)) {
       fail3("DOCUMENT_ID_COLLISION", "create-draft document_id must be fresh across canonical task artifacts.");
     }
     if (delta.predecessor) {} else if (current.runtimeState.task_id === "000") {
-      const bootstrapArchive = archivePathForTask(root2, current);
+      const bootstrapArchive = archivePathForTask(root, current);
       if (fs11.existsSync(bootstrapArchive.filePath))
         fail3("TASK_ARCHIVE_CONFLICT", "bootstrap TASK-000 must not already have a canonical archive before the first ordinary draft.");
     } else {
-      const { receipt } = matchingArchiveReceipt(root2, current);
-      assertPreviousTaskReconciliationComplete(root2, current, receipt);
+      const { receipt } = matchingArchiveReceipt(root, current);
+      assertPreviousTaskReconciliationComplete(root, current, receipt);
     }
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
-    assertV2DraftDefinitionAuthority(root2, delta.draft_definition);
-    assertPreparedTestStrategy(root2, delta.draft_definition, delta.task_basis);
+    assertV2DraftDefinitionAuthority(root, delta.draft_definition);
+    assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "create-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "create-draft claim_evidence");
-    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true, { root: root2, taskBasis: delta.task_basis, previous: [] });
+    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true, { root, taskBasis: delta.task_basis, previous: [] });
     const draftIdentity = {
       task_id: delta.task_id,
       task_slug: delta.task_slug,
@@ -18823,7 +19433,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     };
     let auditRecordedAt = now;
     if (delta.predecessor) {
-      const store = new TaskStore(root2, delta.document_id);
+      const store = new TaskStore(root, delta.document_id);
       const manifest2 = store.manifest;
       if (manifest2) {
         const history = store.readExecutionLog();
@@ -18859,11 +19469,11 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     if (currentIdentity.title !== delta.task_title)
       fail3("DRAFT_IDENTITY_IMMUTABLE", "update-draft must preserve the task title identity.");
     assertStrictDraftImplementationSteps(delta.active_step_id, delta.draft_definition.implementation_steps);
-    assertV2DraftDefinitionAuthority(root2, delta.draft_definition);
-    assertPreparedTestStrategy(root2, delta.draft_definition, delta.task_basis);
+    assertV2DraftDefinitionAuthority(root, delta.draft_definition);
+    assertPreparedTestStrategy(root, delta.draft_definition, delta.task_basis);
     const claimEvidence = requireClaimEvidencePlan(delta.claim_evidence, "update-draft claim_evidence");
     requireAcceptanceClaim(claimEvidence, "update-draft claim_evidence");
-    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true, { root: root2, taskBasis: delta.task_basis, previous: current.runtimeState.claim_evidence ?? [] });
+    const planRevision = assertEvidencePlan(delta.draft_definition, claimEvidence, true, { root, taskBasis: delta.task_basis, previous: current.runtimeState.claim_evidence ?? [] });
     for (const claim of claimEvidence) {
       const previous = current.runtimeState.claim_evidence?.find((item) => item.claim_id === claim.claim_id);
       if (previous && (previous.requirement !== claim.requirement || previous.source_ref !== claim.source_ref || previous.claim_kind !== claim.claim_kind || previous.boundary !== claim.boundary))
@@ -18919,7 +19529,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (auth.document_id !== current.sourceTuple.document_id) {
         fail3("DRAFT_IDENTITY_CONFLICT", `confirm-draft authority document_id ${auth.document_id} does not match current document ${current.sourceTuple.document_id}.`);
       }
-      if (!taskSourceRevisionMatches(root2, current, auth.draft_revision)) {
+      if (!taskSourceRevisionMatches(root, current, auth.draft_revision)) {
         fail3("DRAFT_REVISION_CONFLICT", `confirm-draft authority draft_revision ${auth.draft_revision} does not match current draft revision ${current.sourceTuple.revision}.`);
       }
     }
@@ -18929,20 +19539,20 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     if (delta.task_id !== current.runtimeState.task_id || delta.task_slug !== current.runtimeState.task_slug || delta.document_id !== current.sourceTuple.document_id) {
       fail3("DRAFT_IDENTITY_CONFLICT", "confirm-draft identity does not match the current draft.");
     }
-    if (!taskSourceRevisionMatches(root2, current, delta.draft_revision)) {
+    if (!taskSourceRevisionMatches(root, current, delta.draft_revision)) {
       fail3("DRAFT_REVISION_CONFLICT", "confirm-draft must bind the exact current draft source revision.");
     }
     if (current.runtimeState.active_step_status !== "ready") {
       fail3("DRAFT_CONFIRMATION_BLOCKED", "confirm-draft requires the admitted draft step to remain ready.");
     }
-    readCanonicalTaskBasis(root2, current);
-    assertDraftDefinitionReady(root2, current);
+    readCanonicalTaskBasis(root, current);
+    assertDraftDefinitionReady(root, current);
     if (current.runtimeState.claim_evidence_required !== true) {
       fail3("CLAIM_EVIDENCE_MIGRATION_REQUIRED", "prepare-task refinement must persist a strict claim_evidence plan before confirm-draft; legacy tasks are readable but not terminal-completion compatible.");
     }
     const claimEvidence = requireClaimEvidencePlan(current.runtimeState.claim_evidence, "confirm-draft claim_evidence", "CLAIM_EVIDENCE_MIGRATION_REQUIRED");
     requireAcceptanceClaim(claimEvidence, "confirm-draft claim_evidence");
-    const domainRevision = currentAuthorityDomainRevision(root2, current);
+    const domainRevision = currentAuthorityDomainRevision(root, current);
     const nextWithoutAudit = {
       ...current.runtimeState,
       workflow_status: "active",
@@ -18964,7 +19574,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (auth.task_id !== current.runtimeState.task_id || auth.document_id !== current.sourceTuple.document_id) {
         fail3("RESUME_READINESS_IDENTITY_CONFLICT", "clear-resume-review-gate caller authority does not identify the current task document.");
       }
-      if (!taskSourceRevisionMatches(root2, current, auth.source_revision)) {
+      if (!taskSourceRevisionMatches(root, current, auth.source_revision)) {
         fail3("RESUME_READINESS_REVISION_CONFLICT", "clear-resume-review-gate caller authority does not bind the exact current source revision.");
       }
     }
@@ -19019,7 +19629,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     if (!executionResult || execution.change_set_id !== review.change_set_id || executionResult.change_set_id !== review.change_set_id || executionResult.review_target.revision !== review.review_target_revision) {
       fail3("REVIEW_TARGET_CONFLICT", "review result does not bind the Runtime-recorded execution change set and review target.");
     }
-    const currentTarget = captureReviewTarget(root2, executionResult.review_target.entries.map((item) => item.path));
+    const currentTarget = captureReviewTarget(root, executionResult.review_target.entries.map((item) => item.path));
     if (currentTarget.revision !== review.review_target_revision) {
       fail3("REVIEW_TARGET_STALE", "product files changed after the reviewed execution target was recorded.");
     }
@@ -19038,7 +19648,19 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (!openFingerprints.has(fingerprint))
         fail3("FINDING_NOT_FOUND", `review result resolves non-open finding ${fingerprint}.`);
     }
-    const nestedEvidence = [...review.findings.flatMap((item) => item.evidence_refs), ...review.test_assessment?.evidence_refs ?? []];
+    const dispositionFingerprints = review.finding_dispositions ?? [];
+    for (const disposition of dispositionFingerprints) {
+      if (!review.unresolved_fingerprints.includes(disposition.fingerprint) && !review.findings.some((item) => item.fingerprint === disposition.fingerprint)) {
+        fail3("REVIEW_DISPOSITION_TARGET_INVALID", `finding disposition ${disposition.fingerprint} must describe an unresolved finding in the same review.`);
+      }
+      if (review.resolved_fingerprints.includes(disposition.fingerprint))
+        fail3("REVIEW_DISPOSITION_TARGET_INVALID", `finding disposition ${disposition.fingerprint} cannot describe a verified resolved finding.`);
+    }
+    const nestedEvidence = [
+      ...review.findings.flatMap((item) => item.evidence_refs),
+      ...(review.finding_dispositions ?? []).flatMap((item) => item.evidence_refs),
+      ...review.test_assessment?.evidence_refs ?? []
+    ];
     if (![...nestedEvidence, ...review.evidence_refs].every((ref) => delta.evidence_refs.includes(ref))) {
       fail3("RUNTIME_EVIDENCE_INVALID", "record-review-result evidence_refs must cover the review result and every finding.");
     }
@@ -19081,7 +19703,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       lifecycle_state: "active",
       ...current.runtimeState.review_coverage ? { review_coverage: {
         ...current.runtimeState.review_coverage,
-        target: captureReviewTarget(root2, current.runtimeState.review_coverage.target.entries.map((item) => item.path)),
+        target: captureReviewTarget(root, current.runtimeState.review_coverage.target.entries.map((item) => item.path)),
         pending_paths: [...new Set([
           ...current.runtimeState.review_coverage.pending_paths,
           ...current.runtimeState.review_coverage.target.entries.map((item) => item.path)
@@ -19129,7 +19751,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       fail3("EVIDENCE_CHALLENGE_TARGET_INVALID", "Challenge must bind an existing claim, slot, and report result.");
     if (!delta.evidence_refs.includes(delta.evidence_ref) || !proposal.evidence_refs.includes(delta.evidence_ref))
       fail3("EVIDENCE_CHALLENGE_ADMISSION_REQUIRED", "Challenge evidence must be admitted by both proposal and delta.");
-    const evidencePath = path12.resolve(root2, delta.evidence_ref);
+    const evidencePath = path12.resolve(root, delta.evidence_ref);
     if (!fs11.existsSync(evidencePath) || !fs11.statSync(evidencePath).isFile() || crypto10.createHash("sha256").update(fs11.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
       fail3("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge artifact is missing or changed.");
     const challengeId = `challenge-${digest3({ task: current.runtimeState.task_id, claim: delta.claim_id, slot: delta.slot_id, result: delta.result_id, evidence_sha256: delta.evidence_sha256 }).slice(0, 32)}`;
@@ -19160,7 +19782,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       fail3("EVIDENCE_CHALLENGE_STATE_INVALID", "Only an unresolved contested challenge may be dismissed.");
     if (!delta.evidence_refs.includes(delta.evidence_ref) || !proposal.evidence_refs.includes(delta.evidence_ref))
       fail3("EVIDENCE_CHALLENGE_ADMISSION_REQUIRED", "Challenge assessment evidence must be admitted by both proposal and delta.");
-    const evidencePath = path12.resolve(root2, delta.evidence_ref);
+    const evidencePath = path12.resolve(root, delta.evidence_ref);
     if (!fs11.existsSync(evidencePath) || !fs11.statSync(evidencePath).isFile() || crypto10.createHash("sha256").update(fs11.readFileSync(evidencePath)).digest("hex") !== delta.evidence_sha256)
       fail3("EVIDENCE_CHALLENGE_SOURCE_STALE", "Challenge assessment artifact is missing or changed.");
     const resolution = {
@@ -19193,7 +19815,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       fail3("RETRY_BUDGET_EXHAUSTED", "Three attempts exhausted; route to debug-task or the user.");
     if (!delta.blocker_resolution_refs.every((ref) => delta.evidence_refs.includes(ref) && proposal.evidence_refs.includes(ref)))
       fail3("RETRY_RESOLUTION_REQUIRED", "Retry evidence must cover resolution artifacts.");
-    validateRetryResolution(root2, current, delta, failed.blocker);
+    validateRetryResolution(root, current, delta, failed.blocker);
     const attempt = { attempt_id: `attempt-${digest3({ document: current.sourceTuple.document_id, plan: ledger.evidence_plan_revision, step: delta.step_id, n: ledger.attempts.length + 1 }).slice(0, 40)}`, idempotency_key: proposal.idempotency_key, request_digest: retryRequestDigest(current, delta), status: "ready", blocker: null, ...delta.repair_diagnosis ? { recovery: delta.repair_diagnosis } : {}, evidence_refs: [...delta.blocker_resolution_refs] };
     const { execution_preflight: _staleExecutionPreflight, ...stateWithoutExecutionPreflight } = current.runtimeState;
     return { next: { ...stateWithoutExecutionPreflight, active_step_status: "ready", step_attempts: { ...current.runtimeState.step_attempts, [delta.step_id]: { ...ledger, attempts: [...ledger.attempts, attempt] } }, ...current.runtimeState.review_coverage ? { review_coverage: { ...current.runtimeState.review_coverage, last_clean_revision: null } } : {}, applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) } };
@@ -19206,14 +19828,14 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     if (delta.step_id !== current.runtimeState.active_step_id)
       fail3("ACTIVE_STEP_CONFLICT", "preflight must bind the current active step.");
     if (executionMode2 === "default")
-      assertOrdinaryPreflight(current, root2);
+      assertOrdinaryPreflight(current, root);
     else if (executionMode2 !== "repair")
       fail3("RUNTIME_MODE_INVALID", "record-step-preflight mode is invalid.");
     assertTestStrategySequenceReady(current);
     const step = resolveCanonicalTaskStep(current).steps.find((step2) => step2.id === delta.step_id);
     const strategy = resolveTestStrategyExecutionContext(current);
     const executionPhase = resolveNewExecutionPhase(current, strategy, delta.execution_phase);
-    const authorityEvaluation = evaluateCurrentExecutionTargetAdmissions(root2, current, {
+    const authorityEvaluation = evaluateCurrentExecutionTargetAdmissions(root, current, {
       target_paths: delta.candidate_paths,
       planned_targets: current.mutationAuthority ? v2StepPlannedTargets(current) : undefined,
       step_mutation_scope: (step.mutation_scope ?? "").split(",").map((value) => value.trim().replace(/^`|`$/gu, "")).filter(Boolean),
@@ -19227,7 +19849,8 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       const pending = current.runtimeState.pending_review_result;
       const repairFingerprints = delta.repair_fingerprints ?? [];
       const budgetContinuation = repairBudgetContinuationForPendingReview(current);
-      if (!pending || pending.verdict !== "findings" && budgetContinuation === null || !delta.review_id || delta.review_id !== pending.review_id) {
+      const controlledContinuation = controlledRepairContinuationForPendingReview(current);
+      if (!pending || pending.verdict !== "findings" && budgetContinuation === null && controlledContinuation === null || !delta.review_id || delta.review_id !== pending.review_id) {
         fail3("REVIEW_FINDINGS_REQUIRED", "repair preflight requires the current findings review identity or its explicitly authorized budget continuation.");
       }
       const reviewFingerprints = repairFingerprintsForPendingReview(current);
@@ -19236,6 +19859,16 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       }
       if (budgetContinuation && budgetContinuation.finding_fingerprints.some((fingerprint) => !repairFingerprints.includes(fingerprint))) {
         fail3("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "repair preflight must include every finding authorized by the budget extension.");
+      }
+      if (controlledContinuation) {
+        if (delta.controlled_recovery_grant_id !== controlledContinuation.grant_id)
+          fail3("CONTROLLED_RECOVERY_IDENTITY_INVALID", "repair preflight must bind the active controlled recovery grant.");
+        if (delta.repair_wave_id !== controlledContinuation.repair_wave_id)
+          fail3("CONTROLLED_RECOVERY_IDENTITY_INVALID", "repair preflight must bind the Runtime-derived controlled recovery wave.");
+        if (digest3(controlledContinuation.repair_fingerprints) !== digest3(repairFingerprints))
+          fail3("CONTROLLED_RECOVERY_TARGET_INVALID", "controlled recovery preflight must consume the complete latest review repair set.");
+      } else if (delta.controlled_recovery_grant_id !== undefined) {
+        fail3("CONTROLLED_RECOVERY_IDENTITY_INVALID", "repair preflight references a controlled recovery grant that is not active for the pending review.");
       }
       if (repairFingerprints.length === 0 || !delta.repair_wave_id || !delta.change_set_id || delta.change_set_id !== pending.change_set_id || !delta.review_target_paths || delta.review_target_paths.length === 0) {
         fail3("REPAIR_PREFLIGHT_IDENTITY_REQUIRED", "repair preflight must bind findings, repair wave, review, target paths, and change set.");
@@ -19252,15 +19885,15 @@ function applyTaskStateDelta(root2, current, proposal, now) {
         for (const slot of record4.slots) {
           if (slot.before_step_id !== delta.step_id || slot.prerequisite_receipt)
             continue;
-          assertEvidenceSlotSatisfied(root2, current, record4, slot, false);
-          slot.prerequisite_receipt = { step_id: delta.step_id, preflight_id: proposal.idempotency_key, result_id: slot.report.result_id, subject_snapshot: captureReviewTarget(root2, slot.check.subject_paths) };
+          assertEvidenceSlotSatisfied(root, current, record4, slot, false);
+          slot.prerequisite_receipt = { step_id: delta.step_id, preflight_id: proposal.idempotency_key, result_id: slot.report.result_id, subject_snapshot: captureReviewTarget(root, slot.check.subject_paths) };
         }
-    const coverageAdmission = registerReviewCoverage(root2, current, delta.candidate_paths);
+    const coverageAdmission = registerReviewCoverage(root, current, delta.candidate_paths);
     const coverage2 = coverageAdmission.coverage;
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
     let stepAttempts2 = current.runtimeState.step_attempts;
     if (executionMode2 === "default") {
-      const inherited = ledger === undefined ? inheritedScopeAmendmentAttemptLedger(root2, current, delta.step_id) : null;
+      const inherited = ledger === undefined ? inheritedScopeAmendmentAttemptLedger(root, current, delta.step_id) : null;
       const recovery = ledger?.attempts.at(-1)?.recovery;
       if (recovery && delta.candidate_paths.some((p) => !recovery.repair_paths.includes(p)))
         fail3("RETRY_SCOPE_BLOCKED", "Recovered preflight candidates must stay within the admitted diagnosis paths.");
@@ -19326,7 +19959,8 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       repair_fingerprints: executionMode2 === "repair" ? [...delta.repair_fingerprints ?? []] : null,
       repair_wave_id: executionMode2 === "repair" ? delta.repair_wave_id : null,
       review_id: executionMode2 === "repair" ? delta.review_id : null,
-      review_target_paths: executionMode2 === "repair" ? [...delta.review_target_paths] : null
+      review_target_paths: executionMode2 === "repair" ? [...delta.review_target_paths] : null,
+      ...executionMode2 === "repair" && delta.controlled_recovery_grant_id ? { controlled_recovery_grant_id: delta.controlled_recovery_grant_id } : {}
     } : undefined;
     return { next: {
       ...current.runtimeState,
@@ -19350,7 +19984,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     if (executionMode2 === "default" && (recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3)
       fail3("RETRY_BUDGET_EXHAUSTED", "The same recovery problem has exhausted three retained failed attempts across plans.");
     if (executionMode2 === "default")
-      assertOrdinaryPreflight(current, root2);
+      assertOrdinaryPreflight(current, root);
     assertTestStrategySequenceReady(current);
     ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
     if (delta.step_id !== current.runtimeState.active_step_id)
@@ -19385,7 +20019,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     const step = resolveCanonicalTaskStep(current).current;
     const strategy = resolveTestStrategyExecutionContext(current);
     const executionPhase = activePreflight?.execution_phase ?? delta.execution_phase ?? executionPhaseForCurrentStep(current, strategy);
-    const authorityEvaluation = evaluateCurrentExecutionTargetAdmissions(root2, current, {
+    const authorityEvaluation = evaluateCurrentExecutionTargetAdmissions(root, current, {
       target_paths: [...existingPaths, ...delta.additional_targets],
       planned_targets: v2StepPlannedTargets(current),
       step_mutation_scope: (step.mutation_scope ?? "").split(",").map((value) => value.trim().replace(/^`|`$/gu, "")).filter(Boolean),
@@ -19395,7 +20029,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       location: `${executionMode2} preflight extension`
     });
     assertExecutionAdmissionEvaluation(current, authorityEvaluation, `${executionMode2} preflight extension`);
-    const coverageAdmission = extendReviewCoverage(root2, current, delta.additional_targets);
+    const coverageAdmission = extendReviewCoverage(root, current, delta.additional_targets);
     const coverage2 = coverageAdmission.coverage;
     const existingExpansions = current.runtimeState.dynamic_expansions ?? [];
     const executionId = activePreflight?.execution_id ?? delta.execution_id ?? `execution-${digest3({ proposal: current.runtimeState.execution_preflight?.preflight_id ?? delta.current_preflight_id, step: delta.step_id, mode: executionMode2 })}`;
@@ -19465,7 +20099,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     }
   }
   if (delta.status === "completed" || delta.execution_result && delta.execution_result.outcome !== "blocked")
-    assertArtifactRestoreCompleted(root2, current);
+    assertArtifactRestoreCompleted(root, current);
   const currentClaimEvidenceEnabled = claimEvidenceStateEnabled(current.runtimeState);
   if (!currentClaimEvidenceEnabled && delta.claim_evidence !== undefined) {
     fail3("CLAIM_EVIDENCE_MIGRATION_REQUIRED", "execute-step cannot create a claim_evidence plan for a legacy task; prepare-task refinement/migration must persist the plan first.");
@@ -19478,7 +20112,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     requireAcceptanceClaim(plannedClaimEvidence, "current task claim_evidence");
   }
   if (proposal.mode !== "repair" && !delta.review_receipt)
-    assertOrdinaryPreflight(current, root2);
+    assertOrdinaryPreflight(current, root);
   const executionMode = proposal.mode;
   assertStepProgressExecutionIdentity(current, delta);
   const stepResolution = resolveCanonicalTaskStep(current);
@@ -19521,12 +20155,12 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     fail3("REVIEWED_COMPLETION_EXECUTION_RESULT_FORBIDDEN", "reviewed step completion cannot record a new execution result or acceptance evidence.");
   }
   if (delta.execution_result !== undefined) {
-    assertExecutionResultWaivers(root2, current, delta.step_id, delta.execution_result);
+    assertExecutionResultWaivers(root, current, delta.step_id, delta.execution_result);
     if (!executionChangeSetId || delta.execution_result.change_set_id !== executionChangeSetId) {
       fail3("REVIEW_TARGET_CONFLICT", "execution_result must bind the step-progress Runtime change_set_id.");
     }
     const targetPaths = delta.execution_result.review_target.entries.map((item) => item.path);
-    const currentTarget = captureReviewTarget(root2, targetPaths);
+    const currentTarget = captureReviewTarget(root, targetPaths);
     if (currentTarget.revision !== delta.execution_result.review_target.revision) {
       fail3("REVIEW_TARGET_STALE", "product files changed while the execution result was being recorded.");
     }
@@ -19547,7 +20181,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       const observedWritePaths = delta.execution_result.command_results.flatMap((item) => item.observed_repo_writes);
       const executionTargetPaths = [...new Set([...targetPaths, ...observedWritePaths])];
       const executionPhase = current.runtimeState.execution_preflight?.step_id === delta.step_id ? current.runtimeState.execution_preflight.execution_phase : executionPhaseForCurrentStep(current, strategy);
-      const executionEvaluation = evaluateCurrentExecutionTargetAdmissions(root2, current, {
+      const executionEvaluation = evaluateCurrentExecutionTargetAdmissions(root, current, {
         target_paths: executionTargetPaths,
         planned_targets: current.mutationAuthority ? v2StepPlannedTargets(current) : undefined,
         step_mutation_scope: (step.mutation_scope ?? "").split(",").map((value) => value.trim().replace(/^`|`$/gu, "")).filter(Boolean),
@@ -19578,7 +20212,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
           fail3("CLAIM_EVIDENCE_RESULT_UNBOUND", "A new execution report requires its exact invocation result; raw progress cannot invent evidence.");
       }
       if (slot.report && digest3(old) !== digest3(slot))
-        assertEvidenceReportApplicable(root2, current, slot);
+        assertEvidenceReportApplicable(root, current, slot);
       if (old?.report && slot.report?.result_id === old.report.result_id && (digest3(old.report) !== digest3(slot.report) || digest3(old.evidence_refs) !== digest3(slot.evidence_refs)))
         fail3("CLAIM_EVIDENCE_PLAN_CONFLICT", "A changed report or artifact mapping requires a new result_id.");
       if (slot.before_step_id === delta.step_id && !slot.prerequisite_receipt)
@@ -19599,7 +20233,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (!slot?.report || !slot.check || slot.report.result_id === challenge.result_id || slot.report.status !== slot.check.expected_result || !COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition)) {
         fail3("EVIDENCE_CHALLENGE_UNRESOLVED", "Correction must provide a new successful report for the exact challenged slot.");
       }
-      assertEvidenceReportApplicable(root2, current, slot);
+      assertEvidenceReportApplicable(root, current, slot);
     }
   }
   for (const result of [...delta.execution_result?.command_results ?? [], ...delta.execution_result?.validation_results ?? []]) {
@@ -19634,7 +20268,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       }
     }
   }
-  if (newStatus === "completed" && !evaluateClaimEvidence(transitionClaimEvidence, { root: root2, current, due_step_id: delta.step_id }).validation_complete)
+  if (newStatus === "completed" && !evaluateClaimEvidence(transitionClaimEvidence, { root, current, due_step_id: delta.step_id }).validation_complete)
     fail3("CLAIM_EVIDENCE_INCOMPLETE", "Every due slot must have applicable successful evidence before step completion.");
   let advancement = {
     outcome: "not-applicable",
@@ -19670,7 +20304,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (!reviewedExecution?.execution_result || reviewedExecution.change_set_id !== pendingReview.change_set_id || reviewedExecution.execution_result.review_target.revision !== pendingReview.review_target_revision) {
         fail3("REVIEW_TARGET_CONFLICT", "canonical clean review no longer binds its recorded execution target.");
       }
-      const currentTarget = captureReviewTarget(root2, reviewedExecution.execution_result.review_target.entries.map((item) => item.path));
+      const currentTarget = captureReviewTarget(root, reviewedExecution.execution_result.review_target.entries.map((item) => item.path));
       if (currentTarget.revision !== pendingReview.review_target_revision) {
         fail3("REVIEW_TARGET_STALE", "product files changed after the clean review was recorded.");
       }
@@ -19729,7 +20363,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (delta.claim_evidence === undefined) {
         fail3("CLAIM_EVIDENCE_REQUIRED", "the final task-complete step-progress must carry the durable claim_evidence snapshot.");
       }
-      const completion = evaluateClaimEvidence(transitionClaimEvidence, { root: root2, current });
+      const completion = evaluateClaimEvidence(transitionClaimEvidence, { root, current });
       if (!completion.validation_complete) {
         fail3("CLAIM_EVIDENCE_INCOMPLETE", "task-complete requires every planned claim evidence slot to be existing, reused, or newly-executed with evidence_refs.");
       }
@@ -19758,7 +20392,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
     }
     if (current.runtimeState.evidence_plan_revision && result.attempt_id) {
       const paths = [...new Set([...current.runtimeState.review_coverage?.target.entries.map((e) => e.path) ?? [], ...result.review_target.entries.map((e) => e.path), ...(current.runtimeState.claim_evidence ?? []).flatMap((c) => c.slots.flatMap((s) => s.check?.subject_paths ?? []))])];
-      const attempt = { attempt_id: result.attempt_id, idempotency_key: activeAttempt?.idempotency_key ?? proposal.idempotency_key, request_digest: activeAttempt?.request_digest ?? null, status: result.outcome === "blocked" ? "blocked" : "implemented", blocker: result.outcome === "blocked" ? { kind: result.blocker_kind ?? "unknown", execution_result: result, subject_snapshot: captureReviewTarget(root2, paths) } : null, ...activeAttempt?.recovery ? { recovery: activeAttempt.recovery } : {}, evidence_refs: [...new Set([...activeAttempt?.evidence_refs ?? [], ...delta.evidence_refs])] };
+      const attempt = { attempt_id: result.attempt_id, idempotency_key: activeAttempt?.idempotency_key ?? proposal.idempotency_key, request_digest: activeAttempt?.request_digest ?? null, status: result.outcome === "blocked" ? "blocked" : "implemented", blocker: result.outcome === "blocked" ? { kind: result.blocker_kind ?? "unknown", execution_result: result, subject_snapshot: captureReviewTarget(root, paths) } : null, ...activeAttempt?.recovery ? { recovery: activeAttempt.recovery } : {}, evidence_refs: [...new Set([...activeAttempt?.evidence_refs ?? [], ...delta.evidence_refs])] };
       stepAttempts = { ...stepAttempts, [delta.step_id]: { evidence_plan_revision: current.runtimeState.evidence_plan_revision, max_attempts: 3, attempts: ledger ? [...ledger.attempts.slice(0, -1), attempt] : [attempt] } };
     }
   }
@@ -19773,7 +20407,7 @@ function applyTaskStateDelta(root2, current, proposal, now) {
       if (digest3(entry) !== digest3(coverage.target.entries.find((e) => e.path === entry.path)))
         fail3("REVIEW_PREFLIGHT_REQUIRED", "Execution base must match the registered before-state.");
     }
-    const target = captureReviewTarget(root2, coverage.base.entries.map((e) => e.path));
+    const target = captureReviewTarget(root, coverage.base.entries.map((e) => e.path));
     const changed = createReviewChangeDelta(coverage.target, target).entries.map((e) => e.path);
     if (digest3([...changed].sort()) !== digest3([...result.actual_changed_paths].sort()))
       fail3("REVIEW_TARGET_CONFLICT", "Execution must account for all changes in the cumulative target.");
@@ -19852,6 +20486,7 @@ function applyFindingQueueDelta(current, proposal, now) {
     ...current.runtimeState.review_cycle,
     counted_repair_wave_ids: [...current.runtimeState.review_cycle.counted_repair_wave_ids]
   };
+  let controlledRepairGrants = current.runtimeState.controlled_repair_grants;
   let pendingReview = current.runtimeState.pending_review_result;
   if (delta.action === "admit") {
     const candidate = delta.finding;
@@ -19942,15 +20577,19 @@ function applyFindingQueueDelta(current, proposal, now) {
       fail3("FINDING_NOT_FOUND", `finding ${delta.fingerprint} is not present in the current queue.`);
     const finding = findings[index];
     if (delta.action === "record-repair-attempt") {
+      const controlledGrant = controlledGrantForRepairWave(current, delta.repair_wave_id);
       const recoveryBudget = recoveryProblemBudget(current);
-      if (recoveryBudget && !recoveryBudget.repairWaves.has(delta.repair_wave_id) && recoveryBudget.repairWaves.size >= repairRoundLimit(reviewCycle))
+      if (recoveryBudget && !controlledGrant && !recoveryBudget.repairWaves.has(delta.repair_wave_id) && recoveryBudget.repairWaves.size >= repairRoundLimit(reviewCycle))
         fail3("REPAIR_BUDGET_EXHAUSTED", "The same recovery problem has exhausted its retained repair waves across plans.");
       if (proposal.mode !== "repair")
         fail3("RUNTIME_MODE_INVALID", "record-repair-attempt requires execute-step:repair.");
       if (!["admitted", "in-progress"].includes(finding.status))
         fail3("FINDING_STATE_INVALID", `finding ${finding.fingerprint} is not repairable from ${finding.status}.`);
-      if (finding.repair_attempts >= finding.max_repair_attempts)
-        fail3("REPAIR_BUDGET_EXHAUSTED", `finding ${finding.fingerprint} has exhausted its repair budget.`);
+      const ordinaryAttemptAvailable = finding.repair_attempts < finding.max_repair_attempts;
+      const controlledAttemptAvailable = controlledGrant?.recovery_fingerprints.includes(finding.fingerprint) && (finding.controlled_repair_attempts ?? 0) < MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING;
+      if (!ordinaryAttemptAvailable && !controlledAttemptAvailable) {
+        fail3("REPAIR_BUDGET_EXHAUSTED", `finding ${finding.fingerprint} has exhausted both its ordinary and controlled repair budget.`);
+      }
       if (delta.review_cycle_id !== reviewCycle.id) {
         fail3("REVIEW_CYCLE_CONFLICT", "record-repair-attempt must target the current review cycle; only finding admission may start a new cycle.");
       }
@@ -19964,23 +20603,37 @@ function applyFindingQueueDelta(current, proposal, now) {
         fail3("REPAIR_WAVE_FINDING_DUPLICATE", `finding ${finding.fingerprint} already has an attempt in repair wave ${delta.repair_wave_id}.`);
       }
       if (reviewCycle.active_repair_wave_id !== delta.repair_wave_id) {
-        if (reviewCycle.repair_round >= repairRoundLimit(reviewCycle))
-          fail3("REPAIR_BUDGET_EXHAUSTED", "review-cycle repair round budget is exhausted.");
-        reviewCycle = {
-          ...reviewCycle,
-          repair_round: reviewCycle.repair_round + 1,
-          counted_repair_wave_ids: [...reviewCycle.counted_repair_wave_ids, delta.repair_wave_id],
-          active_repair_wave_id: delta.repair_wave_id
-        };
+        const controlledOutsideRound = controlledGrant !== null && reviewCycle.repair_round >= repairRoundLimit(reviewCycle);
+        if (!controlledOutsideRound) {
+          if (reviewCycle.repair_round >= repairRoundLimit(reviewCycle))
+            fail3("REPAIR_BUDGET_EXHAUSTED", "review-cycle repair round budget is exhausted.");
+          reviewCycle = {
+            ...reviewCycle,
+            repair_round: reviewCycle.repair_round + 1,
+            counted_repair_wave_ids: [...reviewCycle.counted_repair_wave_ids, delta.repair_wave_id],
+            active_repair_wave_id: delta.repair_wave_id
+          };
+        }
       }
       if (reviewCycle.verification_new_finding_wave_id !== null) {
         reviewCycle = { ...reviewCycle, verification_new_finding_wave_id: null };
       }
-      finding.repair_attempts += 1;
+      if (ordinaryAttemptAvailable)
+        finding.repair_attempts += 1;
+      else
+        finding.controlled_repair_attempts = (finding.controlled_repair_attempts ?? 0) + 1;
       finding.last_repair_wave_id = delta.repair_wave_id;
       finding.status = "in-progress";
       finding.updated_at = now;
       finding.evidence_refs = [...new Set([...finding.evidence_refs, ...delta.evidence_refs])];
+      if (controlledGrant) {
+        controlledRepairGrants = (current.runtimeState.controlled_repair_grants ?? []).map((grant) => {
+          if (grant.grant_id !== controlledGrant.grant_id)
+            return grant;
+          const consumedFingerprints = [...new Set([...grant.consumed_fingerprints, finding.fingerprint])].sort();
+          return consumedFingerprints.length === grant.repair_fingerprints.length ? { ...grant, consumed_fingerprints: consumedFingerprints, status: "consumed", consumed_at: now } : { ...grant, consumed_fingerprints: consumedFingerprints };
+        });
+      }
     } else if (delta.action === "resolve") {
       if (proposal.mode !== "repair")
         fail3("RUNTIME_MODE_INVALID", "resolve requires execute-step:repair.");
@@ -20006,6 +20659,7 @@ function applyFindingQueueDelta(current, proposal, now) {
     review_cycle: reviewCycle,
     pending_review_result: pendingReview,
     findings,
+    ...controlledRepairGrants === undefined ? {} : { controlled_repair_grants: controlledRepairGrants },
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
   };
   return { next, findingStatus };
@@ -20036,15 +20690,15 @@ function requiredPackageField(fields, field, location2) {
     fail3("RUNTIME_SCHEMA_INVALID", `${location2} is missing required field ${field}.`);
   return value.trim();
 }
-function packagePathForTask(root2, taskId, taskSlug, artifactKind) {
+function packagePathForTask(root, taskId, taskSlug, artifactKind) {
   let relativePath3;
   try {
     relativePath3 = getTaskArtifactPath(taskId, taskSlug, artifactKind);
   } catch (error) {
     fail3("RUNTIME_PATH_INVALID", error instanceof Error ? error.message : String(error));
   }
-  const filePath = path12.resolve(path12.resolve(root2), ...relativePath3.split("/"));
-  const resolvedRoot = path12.resolve(root2);
+  const filePath = path12.resolve(path12.resolve(root), ...relativePath3.split("/"));
+  const resolvedRoot = path12.resolve(root);
   const relativeCheck = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
   if (relativeCheck !== relativePath3 || relativeCheck.startsWith("../") || path12.isAbsolute(relativeCheck)) {
     fail3("RUNTIME_PATH_INVALID", `suspended package path escapes the target root: ${relativePath3}`);
@@ -20058,7 +20712,7 @@ function replacePackageField(content, field, value) {
     fail3("RUNTIME_SCHEMA_INVALID", `suspended package must contain exactly one ${field} field.`);
   return content.replace(pattern, `- ${field}: ${value}`);
 }
-function parseSuspendedPackage(root2, current, relativePath3, expectedKind) {
+function parseSuspendedPackage(root, current, relativePath3, expectedKind) {
   const normalizedPath = normalizeRepoPath2(relativePath3, "suspended package path");
   const pathMatch = /^TASKS\/(paused|interrupted)\/TASK-([0-9]{3,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/.exec(normalizedPath);
   if (!pathMatch)
@@ -20071,7 +20725,7 @@ function parseSuspendedPackage(root2, current, relativePath3, expectedKind) {
   if (pathTaskId !== current.runtimeState.task_id || pathTaskSlug !== current.runtimeState.task_slug) {
     fail3("RUNTIME_IDENTITY_CONFLICT", "suspended package path identity does not match the canonical current task.");
   }
-  const canonicalExpectedPath = packagePathForTask(root2, pathTaskId, pathTaskSlug, pathKind);
+  const canonicalExpectedPath = packagePathForTask(root, pathTaskId, pathTaskSlug, pathKind);
   if (normalizedPath !== canonicalExpectedPath.relativePath)
     fail3("RUNTIME_PATH_INVALID", "suspended package path is not the canonical identity-derived path.");
   const filePath = canonicalExpectedPath.filePath;
@@ -20284,7 +20938,7 @@ function lifecycleArtifactKind(delta) {
     return delta.artifact_kind;
   return null;
 }
-function assertLifecycleReplayArtifacts(root2, current, proposal) {
+function assertLifecycleReplayArtifacts(root, current, proposal) {
   const delta = proposal.semantic_delta;
   const artifactKind = lifecycleArtifactKind(delta);
   if (artifactKind === null) {
@@ -20296,14 +20950,14 @@ function assertLifecycleReplayArtifacts(root2, current, proposal) {
       if (!audit || audit.invalidation_kind !== delta.invalidation_kind || audit.invalidation_reason !== delta.invalidation_reason || audit.source_revision !== proposal.source_tuple.revision || audit.evidence_refs.join("|") !== delta.evidence_refs.join("|") || digest3(audit.partial_diff_disposition) !== digest3(delta.partial_diff_disposition)) {
         fail3("LIFECYCLE_REPLAY_INCOMPLETE", "supersede replay is missing its durable invalidation audit record.");
       }
-      assertExecutionAudit(root2, current, audit);
+      assertExecutionAudit(root, current, audit);
       assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id, proposal.source_tuple.revision);
       assertNoLaterReplanAudit(current, audit, "LIFECYCLE_REPLAY_INCOMPLETE");
     }
     return;
   }
-  const expected = packagePathForTask(root2, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
-  const packageArtifact = parseSuspendedPackage(root2, current, expected.relativePath, artifactKind);
+  const expected = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
+  const packageArtifact = parseSuspendedPackage(root, current, expected.relativePath, artifactKind);
   if (delta.action === "pause" || delta.action === "interrupt") {
     if (packageArtifact.rehydrationStatus !== "ready_for_resume" || packageArtifact.ownershipState !== "recovery_only") {
       fail3("LIFECYCLE_REPLAY_INCOMPLETE", "lifecycle replay requires the original suspended package to remain ready_for_resume + recovery_only.");
@@ -20324,21 +20978,21 @@ function assertLifecycleReplayArtifacts(root2, current, proposal) {
     fail3("LIFECYCLE_REPLAY_INCOMPLETE", "resume replay no longer has an active + active CURRENT_TASK tuple.");
   }
 }
-function assertSiblingRecoveryIsReconciled(root2, current, artifactKind) {
+function assertSiblingRecoveryIsReconciled(root, current, artifactKind) {
   const siblingKind = artifactKind === "paused" ? "interrupted" : "paused";
-  const sibling = packagePathForTask(root2, current.runtimeState.task_id, current.runtimeState.task_slug, siblingKind);
+  const sibling = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, siblingKind);
   if (!fs11.existsSync(sibling.filePath))
     return;
-  const siblingArtifact = parseSuspendedPackage(root2, current, sibling.relativePath, siblingKind);
+  const siblingArtifact = parseSuspendedPackage(root, current, sibling.relativePath, siblingKind);
   if (siblingArtifact.rehydrationStatus === "rehydrated" && siblingArtifact.ownershipState === "rehydrated")
     return;
   fail3("SUSPENDED_PACKAGE_AMBIGUOUS", "another ready or incomplete suspended package for the same task is present; reconcile the sibling before continuing.");
 }
-function prepareExistingPackageForReplacement(root2, current, packageRelativePath, artifactKind) {
-  const expected = packagePathForTask(root2, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
+function prepareExistingPackageForReplacement(root, current, packageRelativePath, artifactKind) {
+  const expected = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
   if (!fs11.existsSync(expected.filePath))
     return;
-  const existing = parseSuspendedPackage(root2, current, packageRelativePath, artifactKind);
+  const existing = parseSuspendedPackage(root, current, packageRelativePath, artifactKind);
   if (existing.rehydrationStatus === "rehydrated" && existing.ownershipState === "rehydrated")
     return existing.raw;
   if (existing.rehydrationStatus === "write_incomplete") {
@@ -20346,7 +21000,7 @@ function prepareExistingPackageForReplacement(root2, current, packageRelativePat
   }
   fail3("SUSPENDED_PACKAGE_CONFLICT", `suspended package is already ready_for_resume: ${packageRelativePath}`);
 }
-function assertRequestedLifecycleTargets(root2, current, proposal) {
+function assertRequestedLifecycleTargets(root, current, proposal) {
   if (proposal.requested_write_targets[0] !== current.relativePath)
     fail3("RUNTIME_PATH_INVALID", "lifecycle proposal must target the exact canonical CURRENT_TASK path first.");
   const delta = proposal.semantic_delta;
@@ -20356,7 +21010,7 @@ function assertRequestedLifecycleTargets(root2, current, proposal) {
     return {};
   }
   const artifactKind = delta.action === "pause" ? "paused" : delta.action === "interrupt" ? "interrupted" : delta.artifact_kind;
-  const expected = packagePathForTask(root2, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
+  const expected = packagePathForTask(root, current.runtimeState.task_id, current.runtimeState.task_slug, artifactKind);
   if (delta.action === "resume-paused" || delta.action === "resume-interrupted") {
     if (delta.recovery_package_path !== expected.relativePath)
       fail3("RUNTIME_PATH_INVALID", "resume must use the exact identity-derived suspended package path.");
@@ -20366,7 +21020,7 @@ function assertRequestedLifecycleTargets(root2, current, proposal) {
   }
   return { packageFilePath: expected.filePath, packageRelativePath: expected.relativePath };
 }
-function prepareLifecycleTransaction(root2, current, proposal, now) {
+function prepareLifecycleTransaction(root, current, proposal, now) {
   const delta = proposal.semantic_delta;
   if (delta.action === "supersede") {
     if (![1, 2].includes(current.runtimeState.task_evolution_version ?? 0))
@@ -20390,7 +21044,7 @@ function prepareLifecycleTransaction(root2, current, proposal, now) {
     const nextContent2 = prepared2.content;
     return { next: next2, nextContent: nextContent2, prepared: prepared2, audit };
   }
-  const target = assertRequestedLifecycleTargets(root2, current, proposal);
+  const target = assertRequestedLifecycleTargets(root, current, proposal);
   const packageFilePath = target.packageFilePath;
   const packageRelativePath = target.packageRelativePath;
   const activeTuple = current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active";
@@ -20398,8 +21052,8 @@ function prepareLifecycleTransaction(root2, current, proposal, now) {
     ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission"]);
     if (!activeTuple)
       fail3("LIFECYCLE_TRANSITION_INVALID", `${delta.action} requires the current task to be active + active.`);
-    assertSiblingRecoveryIsReconciled(root2, current, delta.action === "pause" ? "paused" : "interrupted");
-    const originalPackageContent = prepareExistingPackageForReplacement(root2, current, packageRelativePath, delta.action === "pause" ? "paused" : "interrupted");
+    assertSiblingRecoveryIsReconciled(root, current, delta.action === "pause" ? "paused" : "interrupted");
+    const originalPackageContent = prepareExistingPackageForReplacement(root, current, packageRelativePath, delta.action === "pause" ? "paused" : "interrupted");
     const next2 = {
       ...current.runtimeState,
       workflow_status: "suspended",
@@ -20421,7 +21075,7 @@ function prepareLifecycleTransaction(root2, current, proposal, now) {
     fail3("LIFECYCLE_TRANSITION_INVALID", "resume mode does not match the current suspended lifecycle state.");
   if (!fs11.existsSync(packageFilePath))
     fail3("SUSPENDED_PACKAGE_MISSING", `suspended package is missing: ${packageRelativePath}`);
-  const packageArtifact = parseSuspendedPackage(root2, current, packageRelativePath, delta.artifact_kind);
+  const packageArtifact = parseSuspendedPackage(root, current, packageRelativePath, delta.artifact_kind);
   if (packageArtifact.rehydrationStatus !== "ready_for_resume" || packageArtifact.ownershipState !== "recovery_only") {
     fail3("SUSPENDED_PACKAGE_NOT_READY", "resume accepts only ready_for_resume + recovery_only packages.");
   }
@@ -20434,7 +21088,7 @@ function prepareLifecycleTransaction(root2, current, proposal, now) {
     fail3("LIFECYCLE_SOURCE_CONFLICT", "package lifecycle state conflicts with CURRENT_TASK.");
   if (packageArtifact.resumeReviewReasons.join("|") !== delta.resume_review_reasons.join("|"))
     fail3("RESUME_GATE_DRIFT", "resume review reasons drifted between proposal and suspended package.");
-  assertSiblingRecoveryIsReconciled(root2, current, delta.artifact_kind);
+  assertSiblingRecoveryIsReconciled(root, current, delta.artifact_kind);
   if (packageArtifact.documentId !== String(current.frontmatter.document_id))
     fail3("RUNTIME_SOURCE_CONFLICT", "resume package document_id conflicts with CURRENT_TASK.");
   const next = {
@@ -20491,9 +21145,9 @@ function resultState(state, findingStatus, recoveryPackagePath) {
     ...recoveryPackagePath === undefined ? {} : { recovery_package_path: recoveryPackagePath }
   };
 }
-function exactPendingFileContent(root2, relativePath3) {
+function exactPendingFileContent(root, relativePath3) {
   const normalized = normalizeRepoPath2(relativePath3, "task-store pending write path");
-  const resolvedRoot = path12.resolve(root2);
+  const resolvedRoot = path12.resolve(root);
   const filePath = path12.resolve(resolvedRoot, ...normalized.split("/"));
   const check = path12.relative(resolvedRoot, filePath).replace(/\\/g, "/");
   if (check !== normalized || check.startsWith("../") || path12.isAbsolute(check)) {
@@ -20508,8 +21162,8 @@ function exactPendingFileContent(root2, relativePath3) {
     throw new TaskStoreError("TASK_STORE_PATH_INVALID", `pending write target is not a regular file: ${normalized}`);
   return fs11.readFileSync(filePath, "utf8");
 }
-function pendingWriteSetForOperations(root2, operations) {
-  const resolvedRoot = path12.resolve(root2);
+function pendingWriteSetForOperations(root, operations) {
+  const resolvedRoot = path12.resolve(root);
   const seen = new Set;
   return operations.map((operation) => {
     const relativePath3 = path12.relative(resolvedRoot, path12.resolve(operation.path)).replace(/\\/g, "/");
@@ -20520,7 +21174,7 @@ function pendingWriteSetForOperations(root2, operations) {
     return { path: normalized, before_content: exactPendingFileContent(resolvedRoot, normalized), after_content: operation.content };
   });
 }
-function stageTaskEvolutionStoreCommit(root2, current, nextContent, nextState, proposal, writeOperations, prepared) {
+function stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, proposal, writeOperations, prepared) {
   if (prepared)
     persistTaskProjection(prepared, current.filePath, current.relativePath);
   const after = parseCanonicalCurrentTaskContent(nextContent, current.filePath, current.relativePath);
@@ -20528,7 +21182,7 @@ function stageTaskEvolutionStoreCommit(root2, current, nextContent, nextState, p
   if (after.frontmatter.task_store !== undefined) {
     Object.defineProperty(after.runtimeState, "__vnext_compact_history", { value: true, enumerable: false, configurable: true });
   }
-  const store = TaskStore.forCurrent(root2, current);
+  const store = TaskStore.forCurrent(root, current);
   store.stageCommit({
     before: current,
     after,
@@ -20540,13 +21194,13 @@ function stageTaskEvolutionStoreCommit(root2, current, nextContent, nextState, p
       operation_kind: "task-state-transaction",
       idempotency_key: isRecord4(proposal) && typeof proposal.idempotency_key === "string" ? proposal.idempotency_key : undefined
     },
-    write_targets: writeOperations.map((operation) => path12.relative(path12.resolve(root2), path12.resolve(operation.path)).replace(/\\/g, "/")),
-    write_set: pendingWriteSetForOperations(root2, writeOperations)
+    write_targets: writeOperations.map((operation) => path12.relative(path12.resolve(root), path12.resolve(operation.path)).replace(/\\/g, "/")),
+    write_set: pendingWriteSetForOperations(root, writeOperations)
   });
   return after;
 }
-function completeTaskEvolutionStoreCommit(root2, current, after, proposal, result) {
-  const store = TaskStore.forCurrent(root2, current);
+function completeTaskEvolutionStoreCommit(root, current, after, proposal, result) {
+  const store = TaskStore.forCurrent(root, current);
   store.markCurrentPublished(after.sourceTuple.revision);
   const manifest2 = store.recordCommit({
     before: current,
@@ -20557,13 +21211,13 @@ function completeTaskEvolutionStoreCommit(root2, current, after, proposal, resul
   if (!manifest2 || manifest2.head.source_revision !== after.sourceTuple.revision) {
     throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", "task-evolution store publication did not advance to the exact after-image.");
   }
-  const readBack = readCanonicalCurrentTask(root2);
+  const readBack = readCanonicalCurrentTask(root);
   if (readBack.raw !== after.raw || readBack.sourceTuple.revision !== after.sourceTuple.revision) {
     throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", "task-evolution store publication read-back differs from the exact after-image.");
   }
   return manifest2;
 }
-function reconcilePendingWriteSet(root2, canonicalRevision, pending) {
+function reconcilePendingWriteSet(root, canonicalRevision, pending) {
   if (pending.write_set === undefined)
     return;
   if (!Array.isArray(pending.write_set))
@@ -20576,7 +21230,7 @@ function reconcilePendingWriteSet(root2, canonicalRevision, pending) {
   }
   const restoreBefore = canonicalRevision === sourceRevision;
   for (const write of writes) {
-    const actual = exactPendingFileContent(root2, write.path);
+    const actual = exactPendingFileContent(root, write.path);
     const expected = restoreBefore ? write.before_content : write.after_content;
     const alternate = restoreBefore ? write.after_content : write.before_content;
     if (actual === expected)
@@ -20584,7 +21238,7 @@ function reconcilePendingWriteSet(root2, canonicalRevision, pending) {
     if (actual !== alternate) {
       throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", `pending write target ${write.path} contains neither its exact before nor after bytes.`);
     }
-    const target = path12.resolve(root2, ...normalizeRepoPath2(write.path, "task-store pending write path").split("/"));
+    const target = path12.resolve(root, ...normalizeRepoPath2(write.path, "task-store pending write path").split("/"));
     if (restoreBefore && expected === null) {
       fs11.rmSync(target, { force: true });
     } else if (!restoreBefore && expected !== null) {
@@ -20594,9 +21248,9 @@ function reconcilePendingWriteSet(root2, canonicalRevision, pending) {
     }
   }
 }
-function clearPendingTaskStoreAfterRollback(root2, current) {
+function clearPendingTaskStoreAfterRollback(root, current) {
   try {
-    TaskStore.forCurrent(root2, current).clearPendingForNoCommit();
+    TaskStore.forCurrent(root, current).clearPendingForNoCommit();
   } catch {}
 }
 function fileRevisionForPath(filePath) {
@@ -20604,10 +21258,10 @@ function fileRevisionForPath(filePath) {
     fail3("RUNTIME_SOURCE_MISSING", `Required file is missing: ${filePath}`);
   return sha2565(fs11.readFileSync(filePath, "utf8"));
 }
-function rollbackCurrentTaskAndVerify(root2, current, readCurrentTask) {
+function rollbackCurrentTaskAndVerify(root, current, readCurrentTask) {
   try {
     executeWrites([{ path: current.filePath, content: current.raw }], false, "vNext Runtime rollback after read-back failure");
-    clearPendingTaskStoreAfterRollback(root2, current);
+    clearPendingTaskStoreAfterRollback(root, current);
   } catch (error) {
     return {
       verified: false,
@@ -20615,7 +21269,7 @@ function rollbackCurrentTaskAndVerify(root2, current, readCurrentTask) {
     };
   }
   try {
-    const rollbackReadBack = readCurrentTask(root2);
+    const rollbackReadBack = readCurrentTask(root);
     if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
       return {
         verified: false,
@@ -20630,7 +21284,7 @@ function rollbackCurrentTaskAndVerify(root2, current, readCurrentTask) {
     };
   }
 }
-function rollbackDraftTransactionAndVerify(root2, current, artifact, originalTaskBasisContent, readCurrentTask) {
+function rollbackDraftTransactionAndVerify(root, current, artifact, originalTaskBasisContent, readCurrentTask) {
   try {
     const writes = [{ path: current.filePath, content: current.raw }];
     if (originalTaskBasisContent !== undefined) {
@@ -20640,12 +21294,12 @@ function rollbackDraftTransactionAndVerify(root2, current, artifact, originalTas
     if (originalTaskBasisContent === undefined && fs11.existsSync(artifact.filePath)) {
       fs11.rmSync(artifact.filePath, { force: true });
     }
-    clearPendingTaskStoreAfterRollback(root2, current);
+    clearPendingTaskStoreAfterRollback(root, current);
   } catch (error) {
     return { verified: false, detail: `rollback failed: ${error instanceof Error ? error.message : String(error)}` };
   }
   try {
-    const rollbackReadBack = readCurrentTask(root2);
+    const rollbackReadBack = readCurrentTask(root);
     if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
       return { verified: false, detail: "rollback read-back did not restore the original canonical CURRENT_TASK document." };
     }
@@ -20660,9 +21314,9 @@ function rollbackDraftTransactionAndVerify(root2, current, artifact, originalTas
     return { verified: false, detail: `rollback read-back failed: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
-function rollbackLifecycleTransactionAndVerify(root2, current, plan, readCurrentTask) {
+function rollbackLifecycleTransactionAndVerify(root, current, plan, readCurrentTask) {
   if (!plan.packageFilePath) {
-    return rollbackCurrentTaskAndVerify(root2, current, readCurrentTask);
+    return rollbackCurrentTaskAndVerify(root, current, readCurrentTask);
   }
   try {
     const rollbackOperations = [{ path: current.filePath, content: current.raw }];
@@ -20673,7 +21327,7 @@ function rollbackLifecycleTransactionAndVerify(root2, current, plan, readCurrent
     if (plan.originalPackageContent === undefined && fs11.existsSync(plan.packageFilePath)) {
       fs11.rmSync(plan.packageFilePath, { force: true });
     }
-    clearPendingTaskStoreAfterRollback(root2, current);
+    clearPendingTaskStoreAfterRollback(root, current);
   } catch (error) {
     return {
       verified: false,
@@ -20681,7 +21335,7 @@ function rollbackLifecycleTransactionAndVerify(root2, current, plan, readCurrent
     };
   }
   try {
-    const rollbackReadBack = readCurrentTask(root2);
+    const rollbackReadBack = readCurrentTask(root);
     if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
       return { verified: false, detail: "rollback read-back did not restore the original canonical CURRENT_TASK document." };
     }
@@ -20697,7 +21351,7 @@ function rollbackLifecycleTransactionAndVerify(root2, current, plan, readCurrent
     return { verified: false, detail: `rollback read-back failed: ${error instanceof Error ? error.message : String(error)}` };
   }
 }
-function rollbackArchiveTransactionAndVerify(root2, current, plan, readCurrentTask) {
+function rollbackArchiveTransactionAndVerify(root, current, plan, readCurrentTask) {
   try {
     executeWrites([{ path: current.filePath, content: current.raw }], false, "vNext Runtime archive rollback CURRENT_TASK");
     if (plan.originalArchiveContent === undefined) {
@@ -20706,12 +21360,12 @@ function rollbackArchiveTransactionAndVerify(root2, current, plan, readCurrentTa
     } else {
       executeWrites([{ path: plan.archiveFilePath, content: plan.originalArchiveContent }], false, "vNext Runtime archive rollback archive");
     }
-    clearPendingTaskStoreAfterRollback(root2, current);
+    clearPendingTaskStoreAfterRollback(root, current);
   } catch (error) {
     return { verified: false, detail: `rollback failed: ${error instanceof Error ? error.message : String(error)}` };
   }
   try {
-    const rollbackReadBack = readCurrentTask(root2);
+    const rollbackReadBack = readCurrentTask(root);
     if (rollbackReadBack.raw !== current.raw || rollbackReadBack.sourceTuple.revision !== current.sourceTuple.revision) {
       return { verified: false, detail: "archive rollback read-back did not restore the original CURRENT_TASK document." };
     }
@@ -20760,8 +21414,8 @@ class GovernanceTransactionKernel {
   lastApplyCurrent;
   lastApplyAfter;
   lastApplyProposal;
-  constructor(root2, readCurrentTask = readCanonicalCurrentTask, readFile = (filePath) => fs11.readFileSync(filePath, "utf8"), writeFiles = (operations, dryRun, summary) => executeWrites(operations, dryRun, summary)) {
-    this.root = path12.resolve(root2);
+  constructor(root, readCurrentTask = readCanonicalCurrentTask, readFile = (filePath) => fs11.readFileSync(filePath, "utf8"), writeFiles = (operations, dryRun, summary) => executeWrites(operations, dryRun, summary)) {
+    this.root = path12.resolve(root);
     this.readCurrentTask = readCurrentTask;
     this.readFile = readFile;
     this.writeFiles = writeFiles;
@@ -21340,7 +21994,7 @@ class GovernanceTransactionKernel {
         assertRequestedInboxTargets(this.root, current, proposal);
       } else if (proposal.operation_kind === "archive-transaction" || proposal.operation_kind === "project-status-transaction" || proposal.operation_kind === "lesson-record-transaction" || proposal.operation_kind === "contract-candidate-commit" || proposal.operation_kind === "decision-record-transaction") {
         assertRequestedCloseTargets(this.root, current, proposal);
-      } else if (proposal.operation_kind === "task-state-transaction" && proposal.semantic_delta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan", "record-user-evidence", "extend-repair-budget"].includes(proposal.semantic_delta.action)) {
+      } else if (proposal.operation_kind === "task-state-transaction" && proposal.semantic_delta.kind === "task-state" && ["create-draft", "update-draft", "commit-replan", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery"].includes(proposal.semantic_delta.action)) {
         const taskId = proposal.semantic_delta.action === "create-draft" || proposal.semantic_delta.action === "update-draft" ? proposal.semantic_delta.task_id : current.runtimeState.task_id;
         const expectedBasisPath = taskBasisRelativePath(current.relativePath, taskId);
         if (proposal.requested_write_targets.length !== (proposal.semantic_delta.action === "create-draft" && proposal.semantic_delta.predecessor ? 3 : 2) || proposal.requested_write_targets.length === 3 && proposal.requested_write_targets[2] !== successorSnapshotPath(current.relativePath, current.sourceTuple.document_id, current.sourceTuple.revision) || proposal.requested_write_targets[0] !== current.relativePath || proposal.requested_write_targets[1] !== expectedBasisPath) {
@@ -21783,8 +22437,8 @@ class GovernanceTransactionKernel {
     }
   }
 }
-function applyVNextRuntimeProposal(root2, proposal, options = {}) {
-  return new GovernanceTransactionKernel(root2).apply(proposal, options);
+function applyVNextRuntimeProposal(root, proposal, options = {}) {
+  return new GovernanceTransactionKernel(root).apply(proposal, options);
 }
 function createTaskStateProposal(current, input) {
   const proposalEvidenceRefs = [...new Set([
@@ -21842,7 +22496,7 @@ function createRetainedReviewConsumptionProposal(current, input) {
     requested_write_targets: [current.relativePath]
   });
 }
-function assertOrdinaryPreflight(current, root2) {
+function assertOrdinaryPreflight(current, root) {
   const unresolvedChallenges = (current.runtimeState.evidence_challenges ?? []).filter((item) => item.status !== "resolved");
   const correctionBatch = unresolvedChallenges.some((item) => item.status === "invalidated" && item.correction_step_id === current.runtimeState.active_step_id);
   if (!correctionBatch && unresolvedChallenges.some((item) => item.correction_step_id !== current.runtimeState.active_step_id)) {
@@ -21851,17 +22505,17 @@ function assertOrdinaryPreflight(current, root2) {
   for (const carry of current.runtimeState.evidence_carry_forward ?? []) {
     const slot = current.runtimeState.claim_evidence?.find((item) => item.claim_id === carry.claim_id)?.slots.find((item) => item.slot_id === carry.slot_id);
     if (slot?.user_decision)
-      assertUserEvidenceApplicable(root2, current, slot);
+      assertUserEvidenceApplicable(root, current, slot);
     else {
       if (!slot?.report)
         fail3("EVIDENCE_CARRY_FORWARD_STALE", "A carried slot no longer has its old report.");
-      assertEvidenceReportApplicable(root2, current, slot);
+      assertEvidenceReportApplicable(root, current, slot);
     }
   }
   const pending = current.runtimeState.pending_review_result;
   if (pending) {
     const execution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
-    if (!execution || "action" in execution || !execution.execution_result || captureReviewTarget(root2, execution.execution_result.review_target.entries.map((entry) => entry.path)).revision !== pending.review_target_revision)
+    if (!execution || "action" in execution || !execution.execution_result || captureReviewTarget(root, execution.execution_result.review_target.entries.map((entry) => entry.path)).revision !== pending.review_target_revision)
       fail3("REVIEW_TARGET_STALE", "Pending review target changed; preserve the review and resolve its conflict.");
     let route = pending.blocker?.next_route ?? "its recorded blocker route";
     if (pending.verdict === "clean")
@@ -21909,7 +22563,8 @@ function createStepPreflightProposal(current, candidatePaths, blastRadiusAssessm
     attempt: mode === "default" ? nextStepAttemptId(current) : null,
     repair_fingerprints: input.repair_fingerprints ?? null,
     repair_wave_id: input.repair_wave_id ?? null,
-    review_id: input.review_id ?? null
+    review_id: input.review_id ?? null,
+    controlled_recovery_grant_id: input.controlled_recovery_grant_id ?? null
   })}`;
   const identity = current.mutationAuthority || mode === "repair" ? {
     mode,
@@ -21920,7 +22575,8 @@ function createStepPreflightProposal(current, candidatePaths, blastRadiusAssessm
       repair_fingerprints: input.repair_fingerprints ?? [],
       repair_wave_id: input.repair_wave_id ?? "",
       review_id: input.review_id ?? "",
-      review_target_paths: input.review_target_paths ?? []
+      review_target_paths: input.review_target_paths ?? [],
+      ...input.controlled_recovery_grant_id ? { controlled_recovery_grant_id: input.controlled_recovery_grant_id } : {}
     } : {},
     ...input.change_set_id ? { change_set_id: input.change_set_id } : {}
   } : {};
@@ -21983,7 +22639,8 @@ function createReviewResultProposal(current, input) {
   const evidenceRefs = [...new Set([
     ...input.evidence_refs,
     ...input.review_result.evidence_refs,
-    ...input.review_result.findings.flatMap((item) => item.evidence_refs)
+    ...input.review_result.findings.flatMap((item) => item.evidence_refs),
+    ...(input.review_result.finding_dispositions ?? []).flatMap((item) => item.evidence_refs)
   ])];
   return validateRuntimeProposal({
     schema_version: 1,
@@ -22055,10 +22712,10 @@ function createEvidenceChallengeDismissalProposal(current, input) {
     requested_write_targets: [current.relativePath]
   });
 }
-function recordUserEvidenceDecision(root2, kind, input, options = {}) {
+function recordUserEvidenceDecision(root, kind, input, options = {}) {
   const value = expectRecord2(input, "user-evidence input");
   expectExactKeys2(value, ["claim_id", "slot_id", "check_id", "evidence_plan_revision", "subject_revision", "decision_source", "decision_text", ...value.validation_items === undefined ? [] : ["validation_items"]], "user-evidence input");
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   const basisPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
   const delta = validateTaskStateDelta({ kind: "task-state", action: "record-user-evidence", decision_kind: kind, ...value, evidence_refs: [basisPath] });
   const key = `user-evidence-${digest3({ task: current.sourceTuple.document_id, delta }).slice(0, 40)}`;
@@ -22083,18 +22740,18 @@ function recordUserEvidenceDecision(root2, kind, input, options = {}) {
   const previousSlot = current.runtimeState.claim_evidence?.find((c) => c.claim_id === value.claim_id)?.slots.find((s) => s.slot_id === value.slot_id);
   if (previousSlot?.user_decision?.decision_id === key) {
     try {
-      assertUserEvidenceApplicable(root2, current, previousSlot);
+      assertUserEvidenceApplicable(root, current, previousSlot);
       return buildResult("no-op", proposal, current, options, "This exact user decision is already recorded; no evidence, status or budget changed.", { read_back_verified: true, resulting_revision: current.sourceTuple.revision });
     } catch (error) {
       return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), { code: error instanceof VNextRuntimeError ? error.code : "USER_EVIDENCE_STALE" });
     }
   }
-  return applyVNextRuntimeProposal(root2, proposal, options);
+  return applyVNextRuntimeProposal(root, proposal, options);
 }
-function extendRepairBudget(root2, input, options = {}) {
+function extendRepairBudget(root, input, options = {}) {
   const value = expectRecord2(input, "extend-repair-budget input");
   expectExactKeys2(value, ["review_id", "finding_fingerprints", "additional_repair_attempts", "decision_source", "decision_text", ...value.extension_scope === undefined ? [] : ["extension_scope"]], "extend-repair-budget input");
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   const basisPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
   const fingerprints = expectStringArray2(value.finding_fingerprints, "finding_fingerprints", true, MAX_FINDINGS).map((item, index) => expectString2(item, `finding_fingerprints[${index}]`, FINGERPRINT_PATTERN)).sort();
   const extensionScope = value.extension_scope === undefined ? fingerprints.length > 0 ? "finding-attempts" : "repair-round" : expectEnum(value.extension_scope, ["finding-attempts", "repair-round"], "extension_scope");
@@ -22131,7 +22788,7 @@ function extendRepairBudget(root2, input, options = {}) {
   const priorAudit = current.runtimeState.execution_log.find((entry) => ("action" in entry) && entry.action === "extend-repair-budget" && entry.idempotency_key === key);
   if (priorAudit) {
     try {
-      assertTaskStateReplay(root2, current, proposal);
+      assertTaskStateReplay(root, current, proposal);
       return buildResult("no-op", proposal, current, options, "This exact repair-budget extension is already recorded; no budget, status, or review state changed.", {
         read_back_verified: true,
         resulting_revision: current.sourceTuple.revision
@@ -22142,7 +22799,108 @@ function extendRepairBudget(root2, input, options = {}) {
       });
     }
   }
-  return applyVNextRuntimeProposal(root2, proposal, options);
+  return applyVNextRuntimeProposal(root, proposal, options);
+}
+function authorizeControlledRepairRecovery(root, input, options = {}) {
+  const value = expectRecord2(input, "authorize-controlled-repair-recovery input");
+  expectExactKeys2(value, ["review_id", "recovery_fingerprints", "recovery_basis", "decision_source", "decision_text", "evidence_refs"], "authorize-controlled-repair-recovery input");
+  const current = readCanonicalCurrentTask(root);
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending)
+    fail3("CONTROLLED_RECOVERY_STATE_INVALID", "A pending budget-blocked review is required before controlled recovery authorization.");
+  const recoveryFingerprints = expectStringArray2(value.recovery_fingerprints, "recovery_fingerprints", false, MAX_FINDINGS).map((item, index) => expectString2(item, `recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN)).sort();
+  const recoveryBasis = expectEnum(value.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, "recovery_basis");
+  const decisionSource = expectText(value.decision_source, "decision_source");
+  const decisionText = expectVerbatim(value.decision_text, "decision_text", 32768);
+  const suppliedEvidenceRefs = validateEvidenceRefs(value.evidence_refs, "evidence_refs");
+  const basisPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
+  const expectedEvidenceRefs = [...new Set([basisPath, ...suppliedEvidenceRefs])];
+  const decisionSha256 = sha2565(decisionText);
+  const replayAudit = current.runtimeState.execution_log.find((entry) => ("action" in entry) && entry.action === "authorize-controlled-repair-recovery" && entry.review_id === pending.review_id && digest3(entry.recovery_fingerprints) === digest3(recoveryFingerprints) && entry.recovery_basis === recoveryBasis && entry.decision_source === decisionSource && entry.decision_sha256 === decisionSha256 && digest3(entry.evidence_refs) === digest3(expectedEvidenceRefs));
+  const eligibility = controlledRepairRecoveryEligibility(current);
+  let repairFingerprints = eligibility.repair_fingerprints.length > 0 ? eligibility.repair_fingerprints : repairFingerprintsForPendingReview(current);
+  if (repairFingerprints.length === 0 && !replayAudit)
+    fail3("CONTROLLED_RECOVERY_TARGET_INVALID", "The pending review has no structured repair target.");
+  let recoveryScope = eligibility.recovery_scope ?? "finding-attempts";
+  let dispositionSource = eligibility.disposition_source ?? (pending.finding_dispositions === undefined ? "legacy-explicit-user" : "review-disposition");
+  let waveId = repairWaveIdForRepairSet(pending.review_id, repairFingerprints);
+  let grantId = `controlled-recovery-${digest3({
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    review_id: pending.review_id,
+    execution_id: pending.execution_id,
+    cycle_id: pending.cycle_id,
+    change_set_id: pending.change_set_id,
+    review_target_revision: pending.review_target_revision,
+    repair_fingerprints: repairFingerprints,
+    recovery_fingerprints: recoveryFingerprints,
+    recovery_scope: recoveryScope,
+    disposition_source: dispositionSource,
+    recovery_basis: recoveryBasis,
+    decision_source: decisionSource,
+    decision_text: decisionText
+  }).slice(0, 40)}`;
+  if (replayAudit) {
+    repairFingerprints = [...replayAudit.repair_fingerprints];
+    recoveryScope = replayAudit.recovery_scope;
+    dispositionSource = replayAudit.disposition_source;
+    waveId = replayAudit.repair_wave_id;
+    grantId = replayAudit.grant_id;
+  }
+  const delta = validateTaskStateDelta({
+    kind: "task-state",
+    action: "authorize-controlled-repair-recovery",
+    review_id: value.review_id,
+    execution_id: pending.execution_id,
+    cycle_id: pending.cycle_id,
+    cycle_phase: pending.cycle_phase,
+    change_set_id: pending.change_set_id,
+    review_target_revision: pending.review_target_revision,
+    repair_fingerprints: repairFingerprints,
+    recovery_fingerprints: recoveryFingerprints,
+    recovery_scope: recoveryScope,
+    disposition_source: dispositionSource,
+    recovery_basis: recoveryBasis,
+    grant_id: grantId,
+    repair_wave_id: waveId,
+    decision_source: decisionSource,
+    decision_text: decisionText,
+    evidence_refs: expectedEvidenceRefs
+  });
+  const key = `authorize-controlled-repair-recovery-${digest3({ document_id: current.sourceTuple.document_id, delta }).slice(0, 40)}`;
+  const proposal = validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "prepare-task",
+    mode: "default",
+    source_tuple: current.sourceTuple,
+    authority_evidence: ["active-task-owner", "finding-admission", "evidence-admission", "user-confirmation"].map((kind) => ({
+      kind,
+      source: decisionSource,
+      subject: current.runtimeState.task_id
+    })),
+    semantic_delta: delta,
+    preconditions: ["current-task-is-active", "pending-review-repair-budget-exhausted", "exact-review-repair-set", "explicit-must-fix-recovery-decision", "bounded-controlled-recovery-quota"],
+    evidence_refs: delta.evidence_refs,
+    idempotency_key: key,
+    requested_write_targets: [current.relativePath, basisPath]
+  });
+  const priorAudit = current.runtimeState.execution_log.find((entry) => ("action" in entry) && entry.action === "authorize-controlled-repair-recovery" && entry.idempotency_key === key);
+  if (priorAudit) {
+    try {
+      assertTaskStateReplay(root, current, proposal);
+      return buildResult("no-op", proposal, current, options, "This exact controlled recovery authorization is already recorded; no budget, status, or review state changed.", {
+        read_back_verified: true,
+        resulting_revision: current.sourceTuple.revision
+      });
+    } catch (error) {
+      return buildResult("blocked", proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof VNextRuntimeError ? error.code : "RUNTIME_REPLAY_INCOMPLETE"
+      });
+    }
+  }
+  return applyVNextRuntimeProposal(root, proposal, options);
 }
 function createPrepareTaskResumeReviewProposal(current, input) {
   return validateRuntimeProposal({
@@ -22286,7 +23044,7 @@ function parseCli(argv) {
   const [command = "validate", ...rest] = argv;
   if (command !== "validate" && command !== "validate-contract" && command !== "apply" && command !== "scope-check")
     throw new Error("Usage: vnext-runtime <validate-contract|validate|apply|scope-check> --root <path> [--proposal-file <json>] [--path <repo-relative>] [--paths-file <path>] [--paths-stdin] [--persistent-test-path <repo-relative>] [--persistent-test-paths-file <path>] [--command-audit-file <json>] [--command-audit-stdin] [--conditional-authorizations-file <json>] [--transformation-kind <localized|inherently-broad>] [--summary] [--deep] [--dry-run]");
-  let root2 = process.cwd();
+  let root = process.cwd();
   let proposalFile;
   let dryRun = false;
   const changedPaths = [];
@@ -22303,7 +23061,7 @@ function parseCli(argv) {
   for (let index = 0;index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === "--root")
-      root2 = rest[++index] ?? "";
+      root = rest[++index] ?? "";
     else if (arg === "--proposal" || arg === "--proposal-file")
       proposalFile = rest[++index];
     else if (arg === "--path")
@@ -22336,10 +23094,10 @@ function parseCli(argv) {
     else
       throw new Error(`Unknown argument: ${arg}`);
   }
-  return { command, root: root2, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary, deep };
+  return { command, root, proposalFile, dryRun, changedPaths, pathsFile, pathsStdin, persistentTestPaths, persistentTestPathsFile, conditionalAuthorizationsFile, transformationKind, commandAuditFile, commandAuditStdin, summary, deep };
 }
-function resolveExternalProposalFile(root2, proposalFile) {
-  const resolvedRoot = path12.resolve(root2);
+function resolveExternalProposalFile(root, proposalFile) {
+  const resolvedRoot = path12.resolve(root);
   const resolvedProposal = path12.resolve(proposalFile);
   const relative9 = path12.relative(resolvedRoot, resolvedProposal);
   const insideProject = relative9 === "" || !relative9.startsWith(`..${path12.sep}`) && relative9 !== ".." && !path12.isAbsolute(relative9);
@@ -22416,14 +23174,14 @@ function readScopeCheckInput(args) {
     transformation_kind: args.transformationKind
   };
 }
-function validateInstalledRuntimeForCli(root2) {
-  const runtimePackagePath = path12.join(path12.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+function validateInstalledRuntimeForCli(root) {
+  const runtimePackagePath = path12.join(path12.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
   if (fs11.existsSync(runtimePackagePath)) {
-    validateVNextRuntimeContract(root2, true);
+    validateVNextRuntimeContract(root, true);
   }
 }
-function requireBootstrappedProject(root2) {
-  const profilePath = getWorkflowProfilePath(root2);
+function requireBootstrappedProject(root) {
+  const profilePath = getWorkflowProfilePath(root);
   if (!fs11.existsSync(profilePath)) {
     fail3("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
@@ -22433,7 +23191,7 @@ function requireBootstrappedProject(root2) {
   } catch (error) {
     fail3("BOOTSTRAP_REQUIRED", "Project governance profile is unavailable or invalid; invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
-  const currentTaskPath = getWorkflowDocPath(root2, profile, "CURRENT_TASK.md");
+  const currentTaskPath = getWorkflowDocPath(root, profile, "CURRENT_TASK.md");
   if (!fs11.existsSync(currentTaskPath)) {
     fail3("BOOTSTRAP_REQUIRED", "Project governance is not bootstrapped. Invoke the `bootstrap-project` Agent Skill before using daily Runtime entries.");
   }
@@ -22553,9 +23311,9 @@ function normalizeRepoPath3(value, location2) {
   }
   return normalized;
 }
-function resolveRepoPath(root2, relativePath3, location2) {
+function resolveRepoPath(root, relativePath3, location2) {
   const normalized = normalizeRepoPath3(relativePath3, location2);
-  const resolvedRoot = path13.resolve(root2);
+  const resolvedRoot = path13.resolve(root);
   const resolved = path13.resolve(resolvedRoot, ...normalized.split("/"));
   const prefix = resolvedRoot.endsWith(path13.sep) ? resolvedRoot : `${resolvedRoot}${path13.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix)) {
@@ -22563,8 +23321,8 @@ function resolveRepoPath(root2, relativePath3, location2) {
   }
   return resolved;
 }
-function computeScopedTreeHash(root2, includedRelativePaths, ignoredRelativePaths = []) {
-  const resolvedRoot = path13.resolve(root2);
+function computeScopedTreeHash(root, includedRelativePaths, ignoredRelativePaths = []) {
+  const resolvedRoot = path13.resolve(root);
   const included = [...new Set(includedRelativePaths.map((relativePath3) => normalizeRepoPath3(relativePath3, "scoped tree hash included path")))].sort((left, right) => left.localeCompare(right));
   const ignored = new Set(ignoredRelativePaths.map((relativePath3) => normalizeRepoPath3(relativePath3, "scoped tree hash ignored path")));
   const visited = new Set;
@@ -22781,8 +23539,8 @@ function expectExactKeys3(value, expected, location2) {
 function sha2567(value) {
   return crypto12.createHash("sha256").update(value).digest("hex");
 }
-function normalizeRoot(root2) {
-  const resolved = path14.resolve(root2);
+function normalizeRoot(root) {
+  const resolved = path14.resolve(root);
   const normalized = resolved.replace(/\\/gu, "/");
   const parsedRoot = path14.parse(resolved).root.replace(/\\/gu, "/");
   const rootValue = process.platform === "win32" ? parsedRoot.toLowerCase() : parsedRoot;
@@ -22796,9 +23554,9 @@ function normalizeRepoPath4(value, location2) {
   }
   return normalized;
 }
-function resolveRepoPath2(root2, relative9, location2) {
+function resolveRepoPath2(root, relative9, location2) {
   const normalized = normalizeRepoPath4(relative9, location2);
-  const resolvedRoot = path14.resolve(root2);
+  const resolvedRoot = path14.resolve(root);
   const resolved = path14.resolve(resolvedRoot, ...normalized.split("/"));
   const prefix = resolvedRoot.endsWith(path14.sep) ? resolvedRoot : `${resolvedRoot}${path14.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
@@ -22983,11 +23741,11 @@ function canonicalArtifactIdentity(relativePath3, content) {
     fail4(`migrated artifact ${relativePath3} has an invalid or unbound source identity.`);
   return { stableId: `artifact-${sha2567(`${kind}\x00${sourcePath}\x00${sourceSha}`).slice(0, 24)}`, sourceRevision, sourceTreeHash };
 }
-function validateCurrentTaskShape(root2, currentTaskPath, runtimeInstalled) {
+function validateCurrentTaskShape(root, currentTaskPath, runtimeInstalled) {
   const content = fs13.readFileSync(currentTaskPath, "utf8");
   if (runtimeInstalled) {
     try {
-      readCanonicalCurrentTask(root2);
+      readCanonicalCurrentTask(root);
       return;
     } catch (error) {
       fail4(`current canonical CURRENT_TASK.md is invalid: ${error instanceof Error ? error.message : String(error)}`);
@@ -23007,17 +23765,17 @@ function validateCurrentTaskShape(root2, currentTaskPath, runtimeInstalled) {
     if (!match[2].includes(heading2))
       fail4(`current canonical CURRENT_TASK.md is missing required heading ${heading2}.`);
 }
-function profileTargetIdentity(root2, profile) {
+function profileTargetIdentity(root, profile) {
   const project = expectRecord3(profile.project, "PROJECT_PROFILE.yaml.project");
   const slug = expectString3(project.slug, "PROJECT_PROFILE.yaml.project.slug");
   if (!SAFE_ID_PATTERN.test(slug))
     fail4(`PROJECT_PROFILE.yaml.project.slug is not a safe slug: ${slug}`);
-  return sha2567(`${normalizeRoot(root2)}\x00${slug}`).slice(0, 32);
+  return sha2567(`${normalizeRoot(root)}\x00${slug}`).slice(0, 32);
 }
 function validateCompletedMigrationProvenance(targetRoot) {
-  const root2 = path14.resolve(targetRoot);
-  const statePath = resolveRepoPath2(root2, COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH, "completed migration install state");
-  const receiptPath = resolveRepoPath2(root2, COMPLETED_MIGRATION_RECEIPT_RELATIVE_PATH, "completed migration receipt");
+  const root = path14.resolve(targetRoot);
+  const statePath = resolveRepoPath2(root, COMPLETED_MIGRATION_INSTALL_STATE_RELATIVE_PATH, "completed migration install state");
+  const receiptPath = resolveRepoPath2(root, COMPLETED_MIGRATION_RECEIPT_RELATIVE_PATH, "completed migration receipt");
   const hasState = fs13.existsSync(statePath);
   const hasReceipt = fs13.existsSync(receiptPath);
   if (!hasState && !hasReceipt)
@@ -23033,7 +23791,7 @@ function validateCompletedMigrationProvenance(targetRoot) {
     if (JSON.stringify(originals.map((x) => x.backup_path).sort()) !== JSON.stringify(recordedBackups))
       fail4("Alignment original inventory differs from install state.");
     for (const original of originals) {
-      const full = resolveRepoPath2(root2, original.backup_path, "alignment original");
+      const full = resolveRepoPath2(root, original.backup_path, "alignment original");
       if (!fs13.existsSync(full) || sha2567(fs13.readFileSync(full)) !== original.sha256)
         fail4(`Alignment original is missing or changed: ${original.path}`);
     }
@@ -23045,34 +23803,34 @@ function validateCompletedMigrationProvenance(targetRoot) {
   for (const removedPath of state.removed_legacy_files) {
     if (admittedCurrentPaths.has(removedPath))
       continue;
-    if (fs13.existsSync(resolveRepoPath2(root2, removedPath, `removed legacy path ${removedPath}`)))
+    if (fs13.existsSync(resolveRepoPath2(root, removedPath, `removed legacy path ${removedPath}`)))
       fail4(`completed migration still has a Pack-declared removed legacy path: ${removedPath}`);
   }
-  const profilePath = resolveRepoPath2(root2, ".workflow-system/PROJECT_PROFILE.yaml", "completed migration PROJECT_PROFILE");
+  const profilePath = resolveRepoPath2(root, ".workflow-system/PROJECT_PROFILE.yaml", "completed migration PROJECT_PROFILE");
   if (!fs13.existsSync(profilePath) || !fs13.statSync(profilePath).isFile())
     fail4("completed migration provenance is missing PROJECT_PROFILE.yaml.");
   const profile = readYaml(profilePath, "PROJECT_PROFILE.yaml");
-  if (profileTargetIdentity(root2, profile) !== state.target_identity)
+  if (profileTargetIdentity(root, profile) !== state.target_identity)
     fail4("completed migration target identity does not match the current project profile/root.");
   const workflowHomeValue = isRecord5(profile.paths) ? profile.paths.workflow_home : undefined;
   const workflowHome = workflowHomeValue === undefined ? "docs/workflow" : expectString3(workflowHomeValue, "PROJECT_PROFILE.yaml.paths.workflow_home");
   if (workflowHome !== "docs/workflow")
     fail4("completed migration workflow_home is not canonical.");
   const currentTaskRelative = `${workflowHome}/${CURRENT_TASK_FILE}`;
-  const currentTaskPath = resolveRepoPath2(root2, currentTaskRelative, "completed migration CURRENT_TASK");
+  const currentTaskPath = resolveRepoPath2(root, currentTaskRelative, "completed migration CURRENT_TASK");
   if (!fs13.existsSync(currentTaskPath) || !fs13.statSync(currentTaskPath).isFile())
     fail4("completed migration provenance is missing the canonical CURRENT_TASK.md.");
   const currentTaskRecord = state.managed_files.find((entry) => entry.path === currentTaskRelative);
   if (!currentTaskRecord || !SHA256_PATTERN3.test(currentTaskRecord.checksum))
     fail4("completed migration install state does not record the canonical CURRENT_TASK.md baseline.");
-  validateCurrentTaskShape(root2, currentTaskPath, state.runtime_distribution !== null);
+  validateCurrentTaskShape(root, currentTaskPath, state.runtime_distribution !== null);
   const migratedFiles = state.managed_files.filter((entry) => entry.category === "migrated-document").sort((left, right) => left.path.localeCompare(right.path));
   if (migratedFiles.length === 0)
     fail4("completed migration install state contains no converted artifact records.");
   if (!migratedFiles.some((entry) => entry.path === ".workflow-system/PROJECT_PROFILE.yaml"))
     fail4("completed migration install state does not record the converted PROJECT_PROFILE.yaml artifact.");
   const derived = migratedFiles.map((entry) => {
-    const fullPath = resolveRepoPath2(root2, entry.path, `completed migration artifact ${entry.path}`);
+    const fullPath = resolveRepoPath2(root, entry.path, `completed migration artifact ${entry.path}`);
     if (!fs13.existsSync(fullPath) || !fs13.statSync(fullPath).isFile())
       fail4(`converted migration artifact is missing: ${entry.path}`);
     return { path: entry.path, ...canonicalArtifactIdentity(entry.path, fs13.readFileSync(fullPath, "utf8")) };
@@ -23221,8 +23979,8 @@ function normalizeRelative2(value, location2 = "path") {
     fail5("BOOTSTRAP_SUPPORT_PATH_INVALID", `${location2} must be a concrete repository-relative path.`);
   return normalized;
 }
-function targetPath(root2, relative9) {
-  const resolvedRoot = path15.resolve(root2);
+function targetPath(root, relative9) {
+  const resolvedRoot = path15.resolve(root);
   const resolved = path15.resolve(resolvedRoot, ...normalizeRelative2(relative9).split("/"));
   const prefix = resolvedRoot.endsWith(path15.sep) ? resolvedRoot : `${resolvedRoot}${path15.sep}`;
   if (resolved !== resolvedRoot && !resolved.startsWith(prefix))
@@ -23253,14 +24011,14 @@ function readYamlObject(filePath, location2) {
 function fileHash(filePath) {
   return sha2568(fs14.readFileSync(filePath));
 }
-function existingProfile(root2) {
-  const filePath = targetPath(root2, PROJECT_PROFILE_RELATIVE_PATH);
+function existingProfile(root) {
+  const filePath = targetPath(root, PROJECT_PROFILE_RELATIVE_PATH);
   if (!fs14.existsSync(filePath))
     return null;
   const profile = readYamlObject(filePath, PROJECT_PROFILE_RELATIVE_PATH);
   if (profile.mutation_authority !== undefined) {
     try {
-      readProjectMutationAuthority(root2);
+      readProjectMutationAuthority(root);
     } catch (error) {
       fail5("BOOTSTRAP_SUPPORT_PROFILE_INVALID", error instanceof MutationAuthorityError ? error.message : String(error));
     }
@@ -23277,11 +24035,11 @@ function safeSlug(value) {
   const normalized = value.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "");
   return normalized || "project";
 }
-function resolveProject(root2, options, receipt) {
-  const profile = existingProfile(root2);
+function resolveProject(root, options, receipt) {
+  const profile = existingProfile(root);
   const profileIdentity = profileProject(profile);
   let packageName = null;
-  const packagePath = targetPath(root2, "package.json");
+  const packagePath = targetPath(root, "package.json");
   if (fs14.existsSync(packagePath)) {
     try {
       const packageJson = readJsonObject2(packagePath, "package.json");
@@ -23290,7 +24048,7 @@ function resolveProject(root2, options, receipt) {
       packageName = null;
     }
   }
-  const name = options.projectName?.trim() || profileIdentity?.name || receipt?.project.name || packageName || path15.basename(path15.resolve(root2));
+  const name = options.projectName?.trim() || profileIdentity?.name || receipt?.project.name || packageName || path15.basename(path15.resolve(root));
   const slug = options.projectSlug?.trim() || profileIdentity?.slug || receipt?.project.slug || safeSlug(name);
   if (!SAFE_SLUG.test(slug))
     fail5("BOOTSTRAP_SUPPORT_PROFILE_INVALID", `project slug must be lowercase kebab-case: ${slug}`);
@@ -23302,10 +24060,10 @@ function resolveProject(root2, options, receipt) {
     fail5("BOOTSTRAP_SUPPORT_IDENTITY_CONFLICT", "existing paths.workflow_home is not the canonical vNext workflow home.");
   return { name, slug };
 }
-function listTopLevelNames(root2) {
-  if (!fs14.existsSync(root2))
+function listTopLevelNames(root) {
+  if (!fs14.existsSync(root))
     return [];
-  return fs14.readdirSync(root2, { withFileTypes: true }).map((entry) => entry.name).sort();
+  return fs14.readdirSync(root, { withFileTypes: true }).map((entry) => entry.name).sort();
 }
 var DOMAIN_CANDIDATE_IGNORES = new Set([
   ".git",
@@ -23349,10 +24107,10 @@ function normalizeAuthorityDomainCandidates(value, location2 = "authority_domain
   }
   return candidates;
 }
-function proposeAuthorityDomainCandidates(root2) {
+function proposeAuthorityDomainCandidates(root) {
   let existing = null;
   try {
-    existing = readProjectMutationAuthority(root2);
+    existing = readProjectMutationAuthority(root);
   } catch (error) {
     fail5("BOOTSTRAP_SUPPORT_PROFILE_INVALID", error instanceof Error ? error.message : String(error));
   }
@@ -23364,7 +24122,7 @@ function proposeAuthorityDomainCandidates(root2) {
       evidence_refs: [`bootstrap:existing-authority-domain:${domain.id}`]
     }));
   }
-  const entries = fs14.existsSync(root2) ? fs14.readdirSync(root2, { withFileTypes: true }) : [];
+  const entries = fs14.existsSync(root) ? fs14.readdirSync(root, { withFileTypes: true }) : [];
   const directories = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && !DOMAIN_CANDIDATE_IGNORES.has(entry.name)).map((entry) => entry.name).sort((left, right) => left.localeCompare(right));
   if (directories.length > 0) {
     const used = new Set;
@@ -23414,16 +24172,16 @@ function assertAuthorityDomainConfirmationMatchesCandidates(candidates, confirma
     }
   }
 }
-function readExistingDocument(root2, relative9) {
-  const filePath = targetPath(root2, relative9);
+function readExistingDocument(root, relative9) {
+  const filePath = targetPath(root, relative9);
   if (!fs14.existsSync(filePath))
     return null;
   if (!fs14.statSync(filePath).isFile())
     fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `${relative9} is not a regular governance document.`);
   return fs14.readFileSync(filePath, "utf8");
 }
-function readExistingMarkdownSection(root2, relative9, title) {
-  const content = readExistingDocument(root2, relative9);
+function readExistingMarkdownSection(root, relative9, title) {
+  const content = readExistingDocument(root, relative9);
   if (content === null)
     return [];
   const body = readCanonicalMarkdownSection(content, [title]);
@@ -23455,23 +24213,23 @@ function mergeGovernanceFacts(existing, caller) {
     merged.set(fact.key, fact);
   return [...merged.values()];
 }
-function readExistingBootstrapProjection(root2) {
+function readExistingBootstrapProjection(root) {
   return readExistingRuntimeDocument("Bootstrap governance projection", () => {
     const facts = mergeGovernanceFacts([
-      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root2, "docs/workflow/CONTRACTS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts), `docs/workflow/CONTRACTS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`),
-      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root2, "docs/workflow/DECISIONS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts}`),
-      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root2, "docs/workflow/DECISIONS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved}`)
+      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root, "docs/workflow/CONTRACTS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts), `docs/workflow/CONTRACTS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`),
+      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root, "docs/workflow/DECISIONS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsFacts}`),
+      ...parseCanonicalGovernanceFactLines(readExistingMarkdownSection(root, "docs/workflow/DECISIONS.md", BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved), `docs/workflow/DECISIONS.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.decisionsUnresolved}`)
     ], []);
-    const designBaselineKeys = parseCanonicalBaselineKeys(readExistingMarkdownSection(root2, "docs/workflow/ROADMAP.md", BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline), `docs/workflow/ROADMAP.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline}`);
+    const designBaselineKeys = parseCanonicalBaselineKeys(readExistingMarkdownSection(root, "docs/workflow/ROADMAP.md", BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline), `docs/workflow/ROADMAP.md > ${BOOTSTRAP_GOVERNANCE_SECTIONS.roadmapBaseline}`);
     return { facts, designBaselineKeys };
   });
 }
-function readExistingGovernanceState(root2) {
-  const projection = readExistingBootstrapProjection(root2);
-  const contracts = readExistingDocument(root2, "docs/workflow/CONTRACTS.md");
-  const decisions = readExistingDocument(root2, "docs/workflow/DECISIONS.md");
-  const status = readExistingDocument(root2, "docs/workflow/STATUS.md");
-  const lessons = readExistingDocument(root2, "docs/workflow/LESSONS.md");
+function readExistingGovernanceState(root) {
+  const projection = readExistingBootstrapProjection(root);
+  const contracts = readExistingDocument(root, "docs/workflow/CONTRACTS.md");
+  const decisions = readExistingDocument(root, "docs/workflow/DECISIONS.md");
+  const status = readExistingDocument(root, "docs/workflow/STATUS.md");
+  const lessons = readExistingDocument(root, "docs/workflow/LESSONS.md");
   return {
     ...projection,
     contractRecordsSection: contracts === null ? null : readExistingRuntimeDocument("docs/workflow/CONTRACTS.md", () => readCanonicalDurableKnowledgeSection(contracts, "docs/workflow/CONTRACTS.md", "contract")),
@@ -23486,26 +24244,26 @@ function readExistingGovernanceState(root2) {
 function mergeDesignBaselineKeys(existing, caller) {
   return [...new Set([...existing, ...Object.keys(caller)])].sort((left, right) => left.localeCompare(right));
 }
-function hasMeaningfulImplementation(root2) {
-  const names = listTopLevelNames(root2);
+function hasMeaningfulImplementation(root) {
+  const names = listTopLevelNames(root);
   if (names.some((name) => ["src", "app", "lib", "packages", "server", "client"].includes(name)))
     return true;
   return names.some((name) => /\.(?:ts|tsx|js|jsx|py|go|rs|java|cs|php|rb|swift)$/iu.test(name));
 }
-function isVNextMarkerFile(root2, relative9) {
-  const filePath = targetPath(root2, relative9);
+function isVNextMarkerFile(root, relative9) {
+  const filePath = targetPath(root, relative9);
   if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile())
     return false;
   return /vnext|vNext/iu.test(fs14.readFileSync(filePath, "utf8").slice(0, 1600));
 }
-function isFrozenPath(root2, relative9) {
+function isFrozenPath(root, relative9) {
   const normalized = normalizeRelative2(relative9, "freeze check");
-  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file2) => targetPath(root2, file2)).filter((file2) => fs14.existsSync(file2) && fs14.statSync(file2).isFile());
+  const registries = ["FREEZE_REGISTRY.md", ".workflow-system/FREEZE_REGISTRY.md"].map((file2) => targetPath(root, file2)).filter((file2) => fs14.existsSync(file2) && fs14.statSync(file2).isFile());
   for (const registry of registries) {
     if (fs14.readFileSync(registry, "utf8").split(/\r?\n/u).some((line) => line.includes(normalized) && !/^\s*[-#]*\s*(unfreeze|not frozen)/iu.test(line)))
       return true;
   }
-  const filePath = targetPath(root2, normalized);
+  const filePath = targetPath(root, normalized);
   if (fs14.existsSync(filePath) && fs14.statSync(filePath).isFile()) {
     const head = fs14.readFileSync(filePath, "utf8").split(/\r?\n/u).slice(0, 20).join(`
 `);
@@ -23514,8 +24272,8 @@ function isFrozenPath(root2, relative9) {
   }
   return false;
 }
-function readBootstrapReceipt(root2) {
-  const filePath = targetPath(root2, BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH);
+function readBootstrapReceipt(root) {
+  const filePath = targetPath(root, BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH);
   if (!fs14.existsSync(filePath))
     return null;
   const raw = readJsonObject2(filePath, "BOOTSTRAP_RECEIPT.json");
@@ -23558,9 +24316,9 @@ function readBootstrapReceipt(root2) {
 function isDistributionManagedPath(relative9) {
   return relative9 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative9 === ".workflow-system/FILE_SCHEMAS.md" || relative9 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative9 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || relative9.startsWith(".workflow-system/runtime/") || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(relative9);
 }
-function validateSkillFile(root2, entry) {
+function validateSkillFile(root, entry) {
   const relative9 = `.agents/skills/${entry}/SKILL.md`;
-  const filePath = targetPath(root2, relative9);
+  const filePath = targetPath(root, relative9);
   if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile())
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `required Distribution Skill is missing: ${relative9}`);
   const content = fs14.readFileSync(filePath, "utf8");
@@ -23578,9 +24336,9 @@ function validateSkillFile(root2, entry) {
   if (contract.entry !== entry)
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `${relative9}.entry_contract.entry is not canonical.`);
 }
-function validateInstalledDistributionReadback(root2) {
-  const statePath = targetPath(root2, DISTRIBUTION_STATE_RELATIVE_PATH);
-  const journalPath = targetPath(root2, DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH);
+function validateInstalledDistributionReadback(root) {
+  const statePath = targetPath(root, DISTRIBUTION_STATE_RELATIVE_PATH);
+  const journalPath = targetPath(root, DISTRIBUTION_IN_PROGRESS_RELATIVE_PATH);
   if (fs14.existsSync(journalPath))
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution has an interrupted transaction marker; recover through Distribution before Bootstrap.");
   const raw = readJsonObject2(statePath, "DISTRIBUTION_STATE.json");
@@ -23609,7 +24367,7 @@ function validateInstalledDistributionReadback(root2) {
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "DISTRIBUTION_STATE.json.managed_files contains duplicates.");
   const managedMap = new Map(managed.map((item) => [item.path, item]));
   for (const entry of managed) {
-    const filePath = targetPath(root2, entry.path);
+    const filePath = targetPath(root, entry.path);
     if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile() || fileHash(filePath) !== entry.checksum)
       fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution managed artifact read-back failed: ${entry.path}`);
   }
@@ -23629,20 +24387,20 @@ function validateInstalledDistributionReadback(root2) {
     if (!entry)
       fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Distribution State does not admit required artifact: ${relative9}`);
   }
-  const runtime = validateVNextRuntimeContract(root2, true).runtime_distribution;
+  const runtime = validateVNextRuntimeContract(root, true).runtime_distribution;
   if (runtime.package_version !== version)
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "Distribution State and project-local Runtime versions differ.");
-  const protocol = fs14.readFileSync(targetPath(root2, ".workflow-system/WORKFLOW_PROTOCOL.md"), "utf8");
-  const schema = fs14.readFileSync(targetPath(root2, ".workflow-system/FILE_SCHEMAS.md"), "utf8");
+  const protocol = fs14.readFileSync(targetPath(root, ".workflow-system/WORKFLOW_PROTOCOL.md"), "utf8");
+  const schema = fs14.readFileSync(targetPath(root, ".workflow-system/FILE_SCHEMAS.md"), "utf8");
   if (!/^kind:\s*vnext-protocol\s*$/imu.test(protocol) || !/schema_version\s*:\s*1/iu.test(protocol))
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed vNext Protocol is invalid.");
   if (!/^kind:\s*vnext-file-schema\s*$/imu.test(schema) || !/CURRENT_TASK\.md/iu.test(schema))
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed vNext Schema is invalid.");
-  const supportTemplate = fs14.readFileSync(targetPath(root2, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH), "utf8");
+  const supportTemplate = fs14.readFileSync(targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH), "utf8");
   if (!/^kind:\s*vnext-current-task\s*$/imu.test(supportTemplate) || !supportTemplate.includes("# vNext CURRENT_TASK"))
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", "installed Bootstrap support template is invalid.");
   for (const entry of REQUIRED_SKILL_ENTRIES)
-    validateSkillFile(root2, entry);
+    validateSkillFile(root, entry);
   return { distribution_version: version, manifest_digest: manifestDigest, state_content: fs14.readFileSync(statePath, "utf8"), managed_files: managed };
 }
 function renderProfile(project, targetIdentity, mode, host, existing, authorityDomainConfirmation = null) {
@@ -23897,8 +24655,8 @@ function renderBaselineDoc(baseline) {
   return ["# vNext Design Baselines", "", "The following design inputs are caller-provided proposals. They do not authorize feature implementation.", "", ...Object.keys(baseline).sort().map((key) => `- ${key}: ${baseline[key]}`), ""].join(`
 `);
 }
-function renderInventoryFile(title, root2, facts = []) {
-  const names = listTopLevelNames(root2);
+function renderInventoryFile(title, root, facts = []) {
+  const names = listTopLevelNames(root);
   return [`# ${title}`, "", "## Observed project surface", "", ...names.length > 0 ? names.map((name) => `- ${name}`) : ["- empty target root"], "", "## Evidence and certainty", "", ...facts.length > 0 ? facts.map((fact) => `- ${fact.key}: ${fact.value} [${fact.certainty}; source: ${fact.source}]`) : ["- observed from target-root directory listing"], ""].join(`
 `);
 }
@@ -23929,18 +24687,18 @@ function renderGovernanceDocument(file2, project, mode, facts, baseline, preserv
     return renderRoadmap(project, mode, baseline, preservedBaselineKeys);
   return renderWorkflowGuide(project);
 }
-function makeGovernanceAssets(root2, project, targetIdentity, mode, host, facts, baseline, preservedBaselineKeys = [], existingGovernance = null, authorityDomainConfirmation = null) {
-  const templatePath = targetPath(root2, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
+function makeGovernanceAssets(root, project, targetIdentity, mode, host, facts, baseline, preservedBaselineKeys = [], existingGovernance = null, authorityDomainConfirmation = null) {
+  const templatePath = targetPath(root, BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH);
   if (!fs14.existsSync(templatePath) || !fs14.statSync(templatePath).isFile())
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_INVALID", `Bootstrap support template is missing: ${BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH}`);
   return [
-    { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root2), authorityDomainConfirmation) },
+    { path: PROJECT_PROFILE_RELATIVE_PATH, category: "config", content: renderProfile(project, targetIdentity, mode, host, existingProfile(root), authorityDomainConfirmation) },
     { path: CURRENT_TASK_RELATIVE_PATH, category: "generated", content: fs14.readFileSync(templatePath, "utf8") },
     ...FULL_WORKFLOW_DOCS.map((file2) => ({ path: file2, category: "governance", content: renderGovernanceDocument(file2, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
     { path: "AGENTS.md", category: "governance", content: renderGuidance(project) }
   ];
 }
-function makeModeAssets(root2, project, mode, baseline, facts) {
+function makeModeAssets(root, project, mode, baseline, facts) {
   if (mode === "design") {
     return mergeAssets(DESIGN_PATHS.map((file2) => ({ path: file2, category: "governance", content: renderDesignDocument(file2, baseline) })), [
       { path: "docs/workflow/BASELINES.md", category: "governance", content: renderBaselineDoc(baseline) },
@@ -23950,9 +24708,9 @@ function makeModeAssets(root2, project, mode, baseline, facts) {
   }
   if (mode === "inventory") {
     return [
-      { path: INVENTORY_PATHS[0], category: "governance", content: renderInventoryFile("Architecture Inventory", root2, facts) },
-      { path: INVENTORY_PATHS[1], category: "governance", content: renderInventoryFile("Database Inventory", root2, facts) },
-      { path: INVENTORY_PATHS[2], category: "governance", content: renderInventoryFile("API Inventory", root2, facts) },
+      { path: INVENTORY_PATHS[0], category: "governance", content: renderInventoryFile("Architecture Inventory", root, facts) },
+      { path: INVENTORY_PATHS[1], category: "governance", content: renderInventoryFile("Database Inventory", root, facts) },
+      { path: INVENTORY_PATHS[2], category: "governance", content: renderInventoryFile("API Inventory", root, facts) },
       { path: INVENTORY_PATHS[3], category: "governance", content: renderRiskRegister(facts) }
     ];
   }
@@ -24018,11 +24776,11 @@ function normalizeBaseline(value) {
     fail5("BOOTSTRAP_SUPPORT_INPUT_INVALID", error instanceof Error ? error.message : String(error));
   }
 }
-function existingIsWorkflowOwned(root2, relative9, receipt = null) {
-  const filePath = targetPath(root2, relative9);
+function existingIsWorkflowOwned(root, relative9, receipt = null) {
+  const filePath = targetPath(root, relative9);
   if (!fs14.existsSync(filePath))
     return true;
-  if (isFrozenPath(root2, relative9))
+  if (isFrozenPath(root, relative9))
     return false;
   if (relative9 === BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH && receipt)
     return true;
@@ -24031,9 +24789,9 @@ function existingIsWorkflowOwned(root2, relative9, receipt = null) {
   if (relative9.startsWith(".workflow-system/"))
     return relative9 === PROJECT_PROFILE_RELATIVE_PATH;
   if (relative9 === "AGENTS.md")
-    return isVNextMarkerFile(root2, relative9);
+    return isVNextMarkerFile(root, relative9);
   if (relative9.startsWith("docs/workflow/") || relative9.startsWith("docs/designs/") || relative9.startsWith("docs/adoption/"))
-    return isVNextMarkerFile(root2, relative9);
+    return isVNextMarkerFile(root, relative9);
   return false;
 }
 function renderReceipt(mode, targetIdentity, project, host, source, inputFingerprint, assets) {
@@ -24053,35 +24811,35 @@ function renderReceipt(mode, targetIdentity, project, host, source, inputFingerp
   }, null, 2)}
 `;
 }
-function migrationAdmission(root2, supplied) {
+function migrationAdmission(root, supplied) {
   if (supplied)
     return supplied;
   try {
-    const provenance = validateCompletedMigrationProvenance(root2);
+    const provenance = validateCompletedMigrationProvenance(root);
     return provenance ? { status: "valid", provenance } : { status: "none" };
   } catch (error) {
     return { status: "invalid", reason: error instanceof MigrationProvenanceError ? error.message : String(error) };
   }
 }
-function classifyBootstrapTargetLocal(root2, options = {}) {
-  if (fs14.existsSync(targetPath(root2, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH)))
+function classifyBootstrapTargetLocal(root, options = {}) {
+  if (fs14.existsSync(targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH)))
     return { state: "in-progress", receipt: null, migration: { status: "none" }, reasons: ["an explicit Bootstrap interruption marker is present"] };
   let receipt = null;
   try {
-    receipt = readBootstrapReceipt(root2);
+    receipt = readBootstrapReceipt(root);
   } catch (error) {
     return { state: "conflicting", receipt: null, migration: { status: "none" }, reasons: [error instanceof Error ? error.message : String(error)] };
   }
-  const migration = migrationAdmission(root2, options.migrationAdmission);
+  const migration = migrationAdmission(root, options.migrationAdmission);
   if (migration.status === "invalid")
     return { state: "conflicting", receipt, migration, reasons: [migration.reason ?? "completed Migration Pack provenance is invalid"] };
   if (options.legacySurfacePresent)
     return { state: "legacy", receipt, migration, reasons: ["a compatibility or legacy workflow surface is present; use the offline Migration Pack boundary"] };
-  const targetIdentity = computeBootstrapTargetIdentity(root2);
+  const targetIdentity = computeBootstrapTargetIdentity(root);
   if (receipt && receipt.target_identity !== targetIdentity)
     return { state: "conflicting", receipt, migration, reasons: ["Bootstrap receipt target identity does not match the current target root"] };
   try {
-    const profile = existingProfile(root2);
+    const profile = existingProfile(root);
     const profileVNext = profile?.vnext;
     if (isRecord6(profileVNext) && profileVNext.target_identity !== undefined && profileVNext.target_identity !== targetIdentity)
       return { state: "conflicting", receipt, migration, reasons: ["project profile target identity does not match the current target root"] };
@@ -24090,7 +24848,7 @@ function classifyBootstrapTargetLocal(root2, options = {}) {
   }
   if (receipt) {
     const drift = receipt.managed_files.filter((file2) => {
-      const filePath = targetPath(root2, file2.path);
+      const filePath = targetPath(root, file2.path);
       return !fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile() || fileHash(filePath) !== file2.checksum;
     });
     return drift.length === 0 ? { state: "valid", receipt, migration, reasons: [] } : { state: "stale", receipt, migration, reasons: drift.map((file2) => `managed governance asset drifted: ${file2.path}`) };
@@ -24098,9 +24856,9 @@ function classifyBootstrapTargetLocal(root2, options = {}) {
   if (migration.status === "valid")
     return { state: "governed", receipt: null, migration, reasons: ["the project was admitted by the completed Migration Pack provenance verifier; a Bootstrap Receipt is not required"] };
   const governanceSignals = [PROJECT_PROFILE_RELATIVE_PATH, CURRENT_TASK_RELATIVE_PATH, ...FULL_WORKFLOW_DOCS];
-  if (governanceSignals.some((relative9) => fs14.existsSync(targetPath(root2, relative9))))
+  if (governanceSignals.some((relative9) => fs14.existsSync(targetPath(root, relative9))))
     return { state: "incomplete", receipt: null, migration, reasons: ["governance assets exist without Bootstrap transaction provenance"] };
-  return { state: hasMeaningfulImplementation(root2) ? "existing" : "empty", receipt: null, migration, reasons: [] };
+  return { state: hasMeaningfulImplementation(root) ? "existing" : "empty", receipt: null, migration, reasons: [] };
 }
 function isValidReceiptModeTransition(receiptMode, requestedMode) {
   if (requestedMode === "realign")
@@ -24109,7 +24867,7 @@ function isValidReceiptModeTransition(receiptMode, requestedMode) {
     return false;
   return receiptMode === "design" && requestedMode === "greenfield" || receiptMode === "inventory" && requestedMode === "adopt";
 }
-function modeBlockers(root2, state, mode, options, baseline, facts, receipt, migration) {
+function modeBlockers(root, state, mode, options, baseline, facts, receipt, migration) {
   const blockers = [];
   if (state === "in-progress")
     blockers.push({ code: "BOOTSTRAP_IN_PROGRESS", message: "an interrupted Bootstrap marker requires explicit recovery before retry." });
@@ -24121,9 +24879,9 @@ function modeBlockers(root2, state, mode, options, baseline, facts, receipt, mig
     blockers.push({ code: "BOOTSTRAP_NOT_REQUIRED", message: "Migration Pack provenance already establishes a governed vNext project; ordinary Bootstrap is not required." });
     return blockers;
   }
-  if (["greenfield", "adopt", "realign"].includes(mode) && fs14.existsSync(targetPath(root2, CURRENT_TASK_RELATIVE_PATH))) {
+  if (["greenfield", "adopt", "realign"].includes(mode) && fs14.existsSync(targetPath(root, CURRENT_TASK_RELATIVE_PATH))) {
     try {
-      const current = readCanonicalCurrentTask(root2);
+      const current = readCanonicalCurrentTask(root);
       if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived" || current.runtimeState.active_step_status !== "completed" || mode !== "realign" && current.runtimeState.task_id !== "000") {
         blockers.push({ code: "BOOTSTRAP_TASK_STATE_INVALID", message: mode === "realign" ? "realign cannot run over an active or invalid canonical CURRENT_TASK; close or recover the task through the daily Runtime first." : "bootstrap cannot replace an existing active or non-baseline canonical CURRENT_TASK; continue through the daily Runtime or close/recover it first." });
       }
@@ -24140,17 +24898,17 @@ function modeBlockers(root2, state, mode, options, baseline, facts, receipt, mig
       blockers.push({ code: "DESIGN_EVIDENCE_MISSING", message: "design mode requires a caller-provided design baseline." });
   }
   if (mode === "greenfield") {
-    if (state !== "empty" && state !== "valid" && !(state === "existing" && !hasMeaningfulImplementation(root2)))
+    if (state !== "empty" && state !== "valid" && !(state === "existing" && !hasMeaningfulImplementation(root)))
       blockers.push({ code: "GREENFIELD_PRECONDITION", message: "greenfield mode requires an empty target, design-only preparation, or a valid Bootstrap replay." });
     if (Object.keys(baseline).length === 0 || options.designConfirmed !== true)
       blockers.push({ code: "DESIGN_CONFIRMATION_REQUIRED", message: "greenfield mode requires a confirmed design baseline." });
   }
-  if (mode === "inventory" && state !== "valid" && (state !== "existing" || !hasMeaningfulImplementation(root2)))
+  if (mode === "inventory" && state !== "valid" && (state !== "existing" || !hasMeaningfulImplementation(root)))
     blockers.push({ code: "INVENTORY_PRECONDITION", message: "inventory mode requires an existing project implementation or valid Bootstrap replay." });
   if (mode === "adopt") {
-    if (state !== "valid" && (!["existing", "incomplete"].includes(state) || !hasMeaningfulImplementation(root2)))
+    if (state !== "valid" && (!["existing", "incomplete"].includes(state) || !hasMeaningfulImplementation(root)))
       blockers.push({ code: "ADOPT_PRECONDITION", message: "adopt mode requires an existing project implementation or valid replay." });
-    if (state !== "valid" && !fs14.existsSync(targetPath(root2, "docs/adoption/architecture-inventory.md")))
+    if (state !== "valid" && !fs14.existsSync(targetPath(root, "docs/adoption/architecture-inventory.md")))
       blockers.push({ code: "INVENTORY_REQUIRED", message: "adopt mode requires inventory evidence from inventory mode." });
     if (options.adoptionConfirmed !== true)
       blockers.push({ code: "ADOPTION_CONFIRMATION_REQUIRED", message: "adopt mode requires explicit project-owner confirmation." });
@@ -24161,39 +24919,39 @@ function modeBlockers(root2, state, mode, options, baseline, facts, receipt, mig
     blockers.push({ code: "REALIGN_PRECONDITION", message: "realign mode requires an existing governed vNext workflow asset surface." });
   return blockers;
 }
-function verifyReceiptReadBack(root2, receipt, assets) {
+function verifyReceiptReadBack(root, receipt, assets) {
   const expectedPaths = assets.filter((asset) => asset.path !== BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH).map((asset) => asset.path).sort((left, right) => left.localeCompare(right));
   const actualPaths = receipt.managed_files.map((file2) => file2.path).sort((left, right) => left.localeCompare(right));
   if (JSON.stringify(expectedPaths) !== JSON.stringify(actualPaths))
     fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt managed-file paths do not match the governance proposal.");
   for (const file2 of receipt.managed_files) {
-    const filePath = targetPath(root2, file2.path);
+    const filePath = targetPath(root, file2.path);
     if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile() || fileHash(filePath) !== file2.checksum)
       fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `Bootstrap governance asset read-back failed: ${file2.path}`);
   }
 }
-function verifyReceipt(root2, receipt, assets) {
-  verifyReceiptReadBack(root2, receipt, assets);
+function verifyReceipt(root, receipt, assets) {
+  verifyReceiptReadBack(root, receipt, assets);
   const expected = assets.filter((asset) => asset.path !== BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH).map((asset) => ({ path: asset.path, checksum: sha2568(Buffer.from(asset.content, "utf8")) })).sort((left, right) => left.path.localeCompare(right.path));
   const actual = receipt.managed_files.slice().sort((left, right) => left.path.localeCompare(right.path));
   if (JSON.stringify(expected) !== JSON.stringify(actual))
     fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt managed_files does not match the governance proposal.");
 }
-function verifyBootstrapHealth(root2, proposal, distributionBefore) {
-  const distributionAfter = validateInstalledDistributionReadback(root2);
+function verifyBootstrapHealth(root, proposal, distributionBefore) {
+  const distributionAfter = validateInstalledDistributionReadback(root);
   if (distributionAfter.state_content !== distributionBefore.state_content)
     fail5("BOOTSTRAP_SUPPORT_DISTRIBUTION_MUTATED", "Bootstrap changed Distribution State bytes.");
   for (const asset of proposal.assets) {
-    const filePath = targetPath(root2, asset.path);
+    const filePath = targetPath(root, asset.path);
     if (!fs14.existsSync(filePath) || !fs14.statSync(filePath).isFile() || fileHash(filePath) !== sha2568(Buffer.from(asset.content, "utf8")))
       fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", `promoted governance asset did not read back identically: ${asset.path}`);
   }
-  const receipt = readBootstrapReceipt(root2);
+  const receipt = readBootstrapReceipt(root);
   if (!receipt || receipt.target_identity !== proposal.target_identity || receipt.mode !== proposal.mode)
     fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "Bootstrap receipt identity did not read back correctly.");
-  verifyReceipt(root2, receipt, proposal.assets);
+  verifyReceipt(root, receipt, proposal.assets);
   if (["greenfield", "adopt", "realign"].includes(proposal.mode)) {
-    const current = readCanonicalCurrentTask(root2);
+    const current = readCanonicalCurrentTask(root);
     if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived" || current.runtimeState.active_step_status !== "completed" || proposal.mode !== "realign" && current.runtimeState.task_id !== "000")
       fail5("BOOTSTRAP_SUPPORT_READ_BACK_FAILED", "canonical CURRENT_TASK is not a closed + archived Bootstrap baseline.");
   }
@@ -24201,20 +24959,20 @@ function verifyBootstrapHealth(root2, proposal, distributionBefore) {
 function bootstrapRollbackScope(proposal) {
   return [...new Set([...proposal.requested_write_targets, ...proposal.delete_targets, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH])].sort((left, right) => left.localeCompare(right));
 }
-function computeBootstrapPreimageHash(root2, proposal) {
-  return computeScopedTreeHash(root2, bootstrapRollbackScope(proposal), [BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH]);
+function computeBootstrapPreimageHash(root, proposal) {
+  return computeScopedTreeHash(root, bootstrapRollbackScope(proposal), [BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH]);
 }
 function markerValue(proposal) {
   return `${JSON.stringify({ schema_version: 1, kind: "vnext-bootstrap-in-progress", target_identity: proposal.target_identity, mode: proposal.mode, source_revision: proposal.source_revision, source_tree_hash: proposal.source_tree_hash, planned_writes: proposal.requested_write_targets, planned_directories: proposal.requested_directory_targets, recovery: "fail-closed-explicit-recovery" }, null, 2)}
 `;
 }
 function prepareProposal(options, distribution, classification) {
-  const root2 = path15.resolve(options.targetRoot);
-  const project = resolveProject(root2, options, classification.receipt);
+  const root = path15.resolve(options.targetRoot);
+  const project = resolveProject(root, options, classification.receipt);
   const host = options.host ?? "codex";
   const baseline = normalizeBaseline(options.designBaseline);
   const callerFacts = normalizeFacts(options.mode === "inventory" ? options.inventoryFacts ?? options.confirmedFacts : options.confirmedFacts, options.mode === "inventory" ? "inventoryFacts" : "confirmedFacts");
-  const authorityDomainCandidates = options.authorityDomainCandidates === undefined ? proposeAuthorityDomainCandidates(root2) : normalizeAuthorityDomainCandidates(options.authorityDomainCandidates);
+  const authorityDomainCandidates = options.authorityDomainCandidates === undefined ? proposeAuthorityDomainCandidates(root) : normalizeAuthorityDomainCandidates(options.authorityDomainCandidates);
   const authorityDomainConfirmation = options.authorityDomainConfirmation === undefined ? null : normalizeAuthorityDomainConfirmation(options.authorityDomainConfirmation);
   if (authorityDomainConfirmation) {
     if (!["greenfield", "adopt", "realign"].includes(options.mode)) {
@@ -24222,10 +24980,10 @@ function prepareProposal(options, distribution, classification) {
     }
     assertAuthorityDomainConfirmationMatchesCandidates(authorityDomainCandidates, authorityDomainConfirmation);
   }
-  const modeIssues = modeBlockers(root2, classification.state, options.mode, options, baseline, callerFacts, classification.receipt, classification.migration);
+  const modeIssues = modeBlockers(root, classification.state, options.mode, options, baseline, callerFacts, classification.receipt, classification.migration);
   if (modeIssues.length > 0)
     fail5(modeIssues[0].code, modeIssues.map((issue) => issue.message).join(" "));
-  const existingGovernance = options.mode === "realign" ? readExistingGovernanceState(root2) : {
+  const existingGovernance = options.mode === "realign" ? readExistingGovernanceState(root) : {
     facts: [],
     designBaselineKeys: [],
     contractRecordsSection: null,
@@ -24235,14 +24993,14 @@ function prepareProposal(options, distribution, classification) {
   };
   const facts = options.mode === "realign" ? mergeGovernanceFacts(existingGovernance.facts, callerFacts) : callerFacts;
   const baselineKeys = options.mode === "realign" ? mergeDesignBaselineKeys(existingGovernance.designBaselineKeys, baseline) : Object.keys(baseline).sort((left, right) => left.localeCompare(right));
-  let assets = ["greenfield", "adopt", "realign"].includes(options.mode) ? makeGovernanceAssets(root2, project, computeBootstrapTargetIdentity(root2), options.mode, host, facts, baseline, baselineKeys, existingGovernance, authorityDomainConfirmation) : makeModeAssets(root2, project, options.mode, baseline, facts);
+  let assets = ["greenfield", "adopt", "realign"].includes(options.mode) ? makeGovernanceAssets(root, project, computeBootstrapTargetIdentity(root), options.mode, host, facts, baseline, baselineKeys, existingGovernance, authorityDomainConfirmation) : makeModeAssets(root, project, options.mode, baseline, facts);
   if (options.mode === "adopt")
     assets = mergeAssets(assets, [{ path: "docs/adoption/ADOPTION_DECISION.md", category: "governance", content: renderDecisions(project, options.mode, facts) }]);
   if (options.mode === "realign") {
     const preservedMigrationPaths = new Set(classification.migration.provenance?.converted_artifact_paths ?? []);
-    assets = assets.filter((asset) => asset.path !== CURRENT_TASK_RELATIVE_PATH && !(preservedMigrationPaths.has(asset.path) && fs14.existsSync(targetPath(root2, asset.path))));
+    assets = assets.filter((asset) => asset.path !== CURRENT_TASK_RELATIVE_PATH && !(preservedMigrationPaths.has(asset.path) && fs14.existsSync(targetPath(root, asset.path))));
   }
-  const targetIdentity = computeBootstrapTargetIdentity(root2);
+  const targetIdentity = computeBootstrapTargetIdentity(root);
   const source = options.source ?? { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest };
   const inputFingerprint = digest4({
     mode: options.mode,
@@ -24257,9 +25015,9 @@ function prepareProposal(options, distribution, classification) {
   assets = mergeAssets(assets, [{ path: BOOTSTRAP_SUPPORT_RECEIPT_RELATIVE_PATH, category: "config", content: renderReceipt(options.mode, targetIdentity, project, host, source, inputFingerprint, assets) }]);
   const plannedWrites = assets.map((asset) => asset.path).sort((left, right) => left.localeCompare(right));
   for (const relative9 of plannedWrites) {
-    if (isFrozenPath(root2, relative9))
+    if (isFrozenPath(root, relative9))
       fail5("BOOTSTRAP_SUPPORT_FROZEN_PATH", `Bootstrap cannot replace a frozen target: ${relative9}`);
-    if (!existingIsWorkflowOwned(root2, relative9, classification.receipt))
+    if (!existingIsWorkflowOwned(root, relative9, classification.receipt))
       fail5("BOOTSTRAP_SUPPORT_TARGET_CONFLICT", `target-owned/native asset would be overwritten: ${relative9}`);
   }
   const changedPaths = (options.changedPaths ?? []).map((value) => normalizeRelative2(value, "changed_paths")).sort((left, right) => left.localeCompare(right));
@@ -24310,23 +25068,23 @@ function hasRealignSemanticOverlay(options) {
     return true;
   return false;
 }
-function replayUnchangedRealignment(root2, options, classification) {
+function replayUnchangedRealignment(root, options, classification) {
   const receipt = classification.receipt;
   if (options.mode !== "realign" || classification.state !== "valid" || !receipt || receipt.mode !== "realign")
     return null;
   if (hasRealignSemanticOverlay(options))
     return null;
-  const project = resolveProject(root2, options, receipt);
+  const project = resolveProject(root, options, receipt);
   if (project.name !== receipt.project.name || project.slug !== receipt.project.slug)
     return null;
   if (options.host !== undefined && options.host !== receipt.host)
     return null;
-  if (modeBlockers(root2, classification.state, options.mode, options, {}, [], receipt, classification.migration).length > 0)
+  if (modeBlockers(root, classification.state, options.mode, options, {}, [], receipt, classification.migration).length > 0)
     return null;
-  const targetIdentity = computeBootstrapTargetIdentity(root2);
+  const targetIdentity = computeBootstrapTargetIdentity(root);
   return {
     status: "replayed",
-    target_root: root2,
+    target_root: root,
     target_state: "valid",
     target_identity: targetIdentity,
     mode: options.mode,
@@ -24347,13 +25105,13 @@ function publicPlan(plan) {
   return publicValue;
 }
 function bootstrapProjectTargetLocal(options) {
-  const root2 = path15.resolve(options.targetRoot);
+  const root = path15.resolve(options.targetRoot);
   if (!BOOTSTRAP_MODES.includes(options.mode))
     return {
       status: "blocked",
-      target_root: root2,
+      target_root: root,
       target_state: "conflicting",
-      target_identity: computeBootstrapTargetIdentity(root2),
+      target_identity: computeBootstrapTargetIdentity(root),
       mode: options.mode,
       project: { name: "unknown", slug: "unknown" },
       host: options.host ?? "codex",
@@ -24368,13 +25126,13 @@ function bootstrapProjectTargetLocal(options) {
     };
   let distribution;
   try {
-    distribution = validateInstalledDistributionReadback(root2);
+    distribution = validateInstalledDistributionReadback(root);
   } catch (error) {
     return {
       status: "blocked",
-      target_root: root2,
+      target_root: root,
       target_state: "conflicting",
-      target_identity: computeBootstrapTargetIdentity(root2),
+      target_identity: computeBootstrapTargetIdentity(root),
       mode: options.mode,
       project: { name: "unknown", slug: "unknown" },
       host: options.host ?? "codex",
@@ -24388,12 +25146,12 @@ function bootstrapProjectTargetLocal(options) {
       read_back_verified: false
     };
   }
-  const classification = classifyBootstrapTargetLocal(root2, {
+  const classification = classifyBootstrapTargetLocal(root, {
     legacySurfacePresent: options.legacySurfacePresent,
     migrationAdmission: options.migrationAdmission
   });
   try {
-    const replay = replayUnchangedRealignment(root2, options, classification);
+    const replay = replayUnchangedRealignment(root, options, classification);
     if (replay)
       return replay;
     const prepared = prepareProposal(options, distribution, classification);
@@ -24402,7 +25160,7 @@ function bootstrapProjectTargetLocal(options) {
       if (classification.receipt.input_fingerprint !== prepared.inputFingerprint)
         return {
           status: "blocked",
-          target_root: root2,
+          target_root: root,
           target_state: "valid",
           target_identity: proposal.target_identity,
           mode: proposal.mode,
@@ -24420,39 +25178,39 @@ function bootstrapProjectTargetLocal(options) {
           proposal
         };
       try {
-        verifyReceiptReadBack(root2, classification.receipt, proposal.assets);
-        return { status: "replayed", target_root: root2, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: true };
+        verifyReceiptReadBack(root, classification.receipt, proposal.assets);
+        return { status: "replayed", target_root: root, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: true };
       } catch (error) {
-        return { status: "blocked", target_root: root2, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_REPLAY_READ_BACK_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
+        return { status: "blocked", target_root: root, target_state: "valid", target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: classification.receipt.host, source: classification.receipt.source, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_REPLAY_READ_BACK_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
       }
     }
     if (!options.write) {
-      return { status: options.changedPaths && options.changedPaths.length > 0 ? "ready" : "needs-confirmation", target_root: root2, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
+      return { status: options.changedPaths && options.changedPaths.length > 0 ? "ready" : "needs-confirmation", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     }
     if (!options.changedPaths || options.changedPaths.length === 0)
-      return { status: "needs-confirmation", target_root: root2, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: "CHANGED_PATHS_REQUIRED", message: `caller must provide exact changed_paths: ${prepared.plannedWrites.join(", ")}` }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
-    const beforeHash = computeBootstrapPreimageHash(root2, proposal);
-    const markerPath = targetPath(root2, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH);
+      return { status: "needs-confirmation", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: [], blockers: [{ code: "CHANGED_PATHS_REQUIRED", message: `caller must provide exact changed_paths: ${prepared.plannedWrites.join(", ")}` }], warnings: [], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
+    const beforeHash = computeBootstrapPreimageHash(root, proposal);
+    const markerPath = targetPath(root, BOOTSTRAP_SUPPORT_MARKER_RELATIVE_PATH);
     try {
       fs14.mkdirSync(path15.dirname(markerPath), { recursive: true });
       fs14.writeFileSync(markerPath, markerValue(proposal), "utf8");
-      const runtimeResult = applyBootstrapProjectProposal(root2, proposal, { verify: () => verifyBootstrapHealth(root2, proposal, distribution) });
+      const runtimeResult = applyBootstrapProjectProposal(root, proposal, { verify: () => verifyBootstrapHealth(root, proposal, distribution) });
       if (fs14.existsSync(markerPath))
         fs14.rmSync(markerPath, { force: true });
-      return { status: "installed", target_root: root2, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
+      return { status: "installed", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [], warnings: classification.reasons, authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: runtimeResult.read_back_verified, runtime_result: runtimeResult, proposal };
     } catch (error) {
       let rollbackVerified = false;
       try {
-        rollbackVerified = computeBootstrapPreimageHash(root2, proposal) === beforeHash;
+        rollbackVerified = computeBootstrapPreimageHash(root, proposal) === beforeHash;
       } catch {
         rollbackVerified = false;
       }
       if (rollbackVerified && fs14.existsSync(markerPath))
         fs14.rmSync(markerPath, { force: true });
-      return { status: "blocked", target_root: root2, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_TRANSACTION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? "ROLLBACK_VERIFIED" : "RECOVERY_REQUIRED", message: rollbackVerified ? "Bootstrap-owned governance scope was restored and its interruption marker was cleared." : "Bootstrap rollback could not be verified; interruption marker retained for explicit recovery." }], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
+      return { status: "blocked", target_root: root, target_state: classification.state, target_identity: proposal.target_identity, mode: proposal.mode, project: prepared.project, host: prepared.host, source: { revision: proposal.source_revision, tree_hash: proposal.source_tree_hash }, planned_writes: rollbackVerified ? [] : prepared.plannedWrites, planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths, blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_TRANSACTION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: [{ code: rollbackVerified ? "ROLLBACK_VERIFIED" : "RECOVERY_REQUIRED", message: rollbackVerified ? "Bootstrap-owned governance scope was restored and its interruption marker was cleared." : "Bootstrap rollback could not be verified; interruption marker retained for explicit recovery." }], authority_domain_candidates: prepared.authorityDomainCandidates, read_back_verified: false, proposal };
     }
   } catch (error) {
-    return { status: "blocked", target_root: root2, target_state: classification.state, target_identity: computeBootstrapTargetIdentity(root2), mode: options.mode, project: { name: "unknown", slug: "unknown" }, host: options.host ?? "codex", source: { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest }, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_PREPARATION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), read_back_verified: false };
+    return { status: "blocked", target_root: root, target_state: classification.state, target_identity: computeBootstrapTargetIdentity(root), mode: options.mode, project: { name: "unknown", slug: "unknown" }, host: options.host ?? "codex", source: { revision: `distribution-${distribution.manifest_digest.slice(0, 16)}`, tree_hash: distribution.manifest_digest }, planned_writes: [], planned_directories: [], planned_deletes: [], changed_paths: options.changedPaths ?? [], blockers: [{ code: error instanceof BootstrapSupportError ? error.code : "BOOTSTRAP_SUPPORT_PREPARATION_FAILED", message: error instanceof Error ? error.message : String(error) }], warnings: classification.reasons.map((message) => ({ code: "TARGET_STATE", message })), read_back_verified: false };
   }
 }
 function parseCliFlags(argv) {
@@ -24578,6 +25336,7 @@ var PREPARE_TASK_ADAPTER_COMMANDS = [
   "confirm-draft",
   "clear-resume-review",
   "extend-repair-budget",
+  "authorize-controlled-repair-recovery",
   "replan",
   "prepare-evidence-plan-amendment",
   "confirm-evidence-plan-amendment",
@@ -24755,7 +25514,7 @@ function commandTransformationKind(command) {
 function stepScopeAdmitsCommandTarget(target, stepScope) {
   return target.includes("*") ? stepScope.includes(target) : stepScope.some((pattern) => mutationScopePatternMatchesPath(target, pattern));
 }
-function normalizeSemanticDraft(root2, input) {
+function normalizeSemanticDraft(root, input) {
   const source = record4(input, "prepare-task semantic draft");
   const v2 = source.mutation_authority !== undefined || source.mutation_authority_version === MUTATION_AUTHORITY_VERSION;
   const allowedDraftFields = SEMANTIC_DRAFT_FIELDS.filter((key) => key !== "mutation_scope" && key !== "mutation_authority_version" && key !== "mutation_authority");
@@ -24905,7 +25664,7 @@ function normalizeSemanticDraft(root2, input) {
     persistent_tests: persistentTests
   };
   assertSemanticScopeIsExecutable(normalized);
-  assertEvidencePlan(semanticDraftDefinition(normalized), normalized.claim_evidence, true, { root: root2, taskBasis: normalized.task_basis, previous: [] });
+  assertEvidencePlan(semanticDraftDefinition(normalized), normalized.claim_evidence, true, { root, taskBasis: normalized.task_basis, previous: [] });
   return normalized;
 }
 function markdownBullets(items, checklist = false) {
@@ -25034,11 +25793,11 @@ function authority(current, subject, kinds) {
 function claimEvidence(input) {
   return structuredClone(input.claim_evidence);
 }
-function assertSemanticAuthority(root2, input) {
+function assertSemanticAuthority(root, input) {
   if (input.mutation_authority_version !== MUTATION_AUTHORITY_VERSION || !input.mutation_authority)
     return;
   try {
-    validateTaskMutationAuthority(root2, input.mutation_authority);
+    validateTaskMutationAuthority(root, input.mutation_authority);
   } catch (error) {
     fail6(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
   }
@@ -25114,10 +25873,10 @@ function semanticDraftDefinition(input) {
     ...input.mutation_authority_version === MUTATION_AUTHORITY_VERSION && input.mutation_authority ? { mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: input.mutation_authority } : {}
   };
 }
-function verifyAdapterReadBack(root2, result, options) {
+function verifyAdapterReadBack(root, result, options) {
   if (options.dryRun || result.status !== "success" && result.status !== "no-op")
     return result;
-  const readBack = readCanonicalCurrentTask(root2);
+  const readBack = readCanonicalCurrentTask(root);
   if (!result.read_back_verified || result.resulting_revision !== readBack.sourceTuple.revision) {
     fail6("PREPARE_ADAPTER_READ_BACK_FAILED", "prepare-task adapter could not verify the committed canonical CURRENT_TASK revision.");
   }
@@ -25126,10 +25885,10 @@ function verifyAdapterReadBack(root2, result, options) {
 function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
-function currentMatchesSemanticDraft(root2, current, semantic) {
+function currentMatchesSemanticDraft(root, current, semantic) {
   let basisMatches = false;
   try {
-    basisMatches = sameValue(readCanonicalTaskBasis(root2, current).basis, semantic.task_basis);
+    basisMatches = sameValue(readCanonicalTaskBasis(root, current).basis, semantic.task_basis);
   } catch {
     basisMatches = false;
   }
@@ -25172,10 +25931,10 @@ function confirmationReceipt(current) {
     draft_revision: current.sourceTuple.revision
   };
 }
-function withConfirmationReceipt(root2, result, options) {
+function withConfirmationReceipt(root, result, options) {
   if (options.dryRun || result.status !== "success" && result.status !== "no-op")
     return result;
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   if (current.runtimeState.workflow_status !== "draft" || current.runtimeState.lifecycle_state !== "active")
     return result;
   return { ...result, confirmation_receipt: confirmationReceipt(current) };
@@ -25197,13 +25956,13 @@ function assertDocumentReferencesResubmitted(current, semantic) {
     fail6("PROJECT_DOCUMENTS_REQUIRED", "Resubmit recorded project_documents and affected_contracts when refining or replanning; use [] only for an explicit removal.");
   }
 }
-function prepareDraft(root2, input, options = {}) {
-  const semantic = normalizeSemanticDraft(root2, input);
-  assertSemanticAuthority(root2, semantic);
+function prepareDraft(root, input, options = {}) {
+  const semantic = normalizeSemanticDraft(root, input);
+  assertSemanticAuthority(root, semantic);
   const definition = semanticDraftDefinition(semantic);
-  assertV2DraftDefinitionAuthority(root2, definition);
-  assertPreparedTestStrategy(root2, definition, semantic.task_basis);
-  const current = readCanonicalCurrentTask(root2);
+  assertV2DraftDefinitionAuthority(root, definition);
+  assertPreparedTestStrategy(root, definition, semantic.task_basis);
+  const current = readCanonicalCurrentTask(root);
   assertDocumentReferencesResubmitted(current, semantic);
   const creating = current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived";
   const updating = current.runtimeState.workflow_status === "draft" && current.runtimeState.lifecycle_state === "active";
@@ -25214,7 +25973,7 @@ function prepareDraft(root2, input, options = {}) {
     fail6("PREPARE_DRAFT_STATE_INVALID", "prepare-draft requires closed + archived to create, or draft + active to update. A confirmed task cannot be replaced through the disabled one-call replan route.");
   }
   const identity = creating ? {
-    task_id: allocateNextTaskId(root2, current.runtimeState.task_id),
+    task_id: allocateNextTaskId(root, current.runtimeState.task_id),
     task_slug: taskSlug(semantic.goal),
     task_title: semantic.goal,
     document_id: undefined
@@ -25226,8 +25985,8 @@ function prepareDraft(root2, input, options = {}) {
   };
   const digest5 = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey("prepare-draft", { task_id: identity.task_id, semantic });
-  if (updating && currentMatchesSemanticDraft(root2, current, semantic)) {
-    return withConfirmationReceipt(root2, semanticNoOp(current, retryKey, "The requested semantic draft already matches canonical CURRENT_TASK.", options), options);
+  if (updating && currentMatchesSemanticDraft(root, current, semantic)) {
+    return withConfirmationReceipt(root, semanticNoOp(current, retryKey, "The requested semantic draft already matches canonical CURRENT_TASK.", options), options);
   }
   const evidenceRefs = [`adapter:prepare-draft:${digest5.slice(0, 16)}`];
   const proposal = createPrepareTaskDraftProposal(current, {
@@ -25245,23 +26004,23 @@ function prepareDraft(root2, input, options = {}) {
     }),
     authority_evidence: authority(current, identity.task_id, creating ? ["authorized-caller", "scope-admission", "evidence-admission"] : ["active-task-owner", "scope-admission", "evidence-admission"])
   });
-  const result = verifyAdapterReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
-  return withConfirmationReceipt(root2, result, options);
+  const result = verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+  return withConfirmationReceipt(root, result, options);
 }
-function prepareSuccessor(root2, input, options = {}) {
+function prepareSuccessor(root, input, options = {}) {
   const request = record4(input, "prepare-successor");
   exactKeys2(request, ["predecessor", "draft"], "prepare-successor");
   const predecessor = validateSuccessorDecision(request.predecessor);
-  const semantic = normalizeSemanticDraft(root2, request.draft);
-  const current = readCanonicalCurrentTask(root2);
+  const semantic = normalizeSemanticDraft(root, request.draft);
+  const current = readCanonicalCurrentTask(root);
   const prior = current.runtimeState.execution_log.find((event) => ("action" in event) && event.action === "create-draft" && event.predecessor);
-  if (prior && "predecessor" in prior && sameValue(prior.predecessor, predecessor) && currentMatchesSemanticDraft(root2, current, semantic) && current.runtimeState.workflow_status === "draft") {
-    return withConfirmationReceipt(root2, semanticNoOp(current, prior.idempotency_key, "This exact successor draft is already prepared; the predecessor remains unfinished.", options), options);
+  if (prior && "predecessor" in prior && sameValue(prior.predecessor, predecessor) && currentMatchesSemanticDraft(root, current, semantic) && current.runtimeState.workflow_status === "draft") {
+    return withConfirmationReceipt(root, semanticNoOp(current, prior.idempotency_key, "This exact successor draft is already prepared; the predecessor remains unfinished.", options), options);
   }
   if (current.runtimeState.workflow_status !== "superseded")
     fail6("SUCCESSOR_STATE_INVALID", "Prepare a successor only after an explicit, retained supersede. Do not invalidate an active task for a local correction.");
-  assertSemanticAuthority(root2, semantic);
-  const taskId = allocateNextTaskId(root2, current.runtimeState.task_id);
+  assertSemanticAuthority(root, semantic);
+  const taskId = allocateNextTaskId(root, current.runtimeState.task_id);
   const proposal = createPrepareTaskDraftProposal(current, {
     action: "create-draft",
     predecessor,
@@ -25276,13 +26035,13 @@ function prepareSuccessor(root2, input, options = {}) {
     idempotency_key: adapterIdempotencyKey("prepare-successor", { predecessor, semantic }),
     authority_evidence: authority(current, taskId, ["user-confirmation", "scope-admission", "evidence-admission"])
   });
-  return withConfirmationReceipt(root2, verifyAdapterReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options), options);
+  return withConfirmationReceipt(root, verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options), options);
 }
-function confirmDraft(root2, input, options = {}) {
+function confirmDraft(root, input, options = {}) {
   const source = record4(input, "confirm-draft input");
   exactKeys2(source, ["confirmation_receipt"], "confirm-draft input");
   const receipt = normalizeConfirmationReceipt(source.confirmation_receipt);
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   const idempotencyKey = adapterIdempotencyKey("confirm-draft", receipt);
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
     fail6("DRAFT_IDENTITY_CONFLICT", "confirmation_receipt does not identify the current draft.");
@@ -25296,7 +26055,7 @@ function confirmDraft(root2, input, options = {}) {
   if (current.runtimeState.workflow_status !== "draft" || current.runtimeState.lifecycle_state !== "active") {
     fail6("DRAFT_CONFIRMATION_BLOCKED", "confirm-draft requires the current task to be draft + active.");
   }
-  if (!taskSourceRevisionMatches(root2, current, receipt.draft_revision)) {
+  if (!taskSourceRevisionMatches(root, current, receipt.draft_revision)) {
     fail6("DRAFT_REVISION_CONFLICT", `confirmation_receipt draft_revision ${receipt.draft_revision} does not match current draft revision ${current.sourceTuple.revision}.`);
   }
   const evidenceRefs = [`adapter:confirm-draft:${receipt.draft_revision.slice(0, 16)}`];
@@ -25319,13 +26078,13 @@ function confirmDraft(root2, input, options = {}) {
       ...authority(current, receipt.task_id, ["evidence-admission"])
     ]
   });
-  return verifyAdapterReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
-function clearResumeReview(root2, input, options = {}) {
+function clearResumeReview(root, input, options = {}) {
   const source = record4(input, "clear-resume-review input");
   exactKeys2(source, ["readiness_receipt"], "clear-resume-review input");
   const receipt = normalizeResumeReadinessReceipt(source.readiness_receipt);
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   const idempotencyKey = adapterIdempotencyKey("clear-resume-review", receipt);
   if (!current.runtimeState.resume_requires_review) {
     if (hasAppliedProposal(current, idempotencyKey)) {
@@ -25336,7 +26095,7 @@ function clearResumeReview(root2, input, options = {}) {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
     fail6("RESUME_READINESS_IDENTITY_CONFLICT", "readiness_receipt does not identify the current task document.");
   }
-  if (!taskSourceRevisionMatches(root2, current, receipt.source_revision)) {
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision)) {
     fail6("RESUME_READINESS_REVISION_CONFLICT", `readiness_receipt source_revision ${receipt.source_revision} does not match current revision ${current.sourceTuple.revision}.`);
   }
   if (!sameValue(receipt.reviewed_reasons, current.runtimeState.resume_review_reasons)) {
@@ -25361,18 +26120,18 @@ function clearResumeReview(root2, input, options = {}) {
       ...authority(current, receipt.task_id, ["active-task-owner", "resume-review", "evidence-admission"])
     ]
   });
-  return verifyAdapterReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
-function replan(root2, input, options = {}) {
+function replan(root, input, options = {}) {
   fail6("REPLAN_CONFIRMATION_REQUIRED", "The legacy replan command commits immediately and is disabled. A revision-bound candidate and explicit confirmation are required before replacement.");
-  const semantic = normalizeSemanticDraft(root2, input);
-  assertSemanticAuthority(root2, semantic);
-  assertPreparedTestStrategy(root2, semanticDraftDefinition(semantic), semantic.task_basis);
-  const current = readCanonicalCurrentTask(root2);
+  const semantic = normalizeSemanticDraft(root, input);
+  assertSemanticAuthority(root, semantic);
+  assertPreparedTestStrategy(root, semanticDraftDefinition(semantic), semantic.task_basis);
+  const current = readCanonicalCurrentTask(root);
   assertDocumentReferencesResubmitted(current, semantic);
   const digest5 = semanticDigest(semantic);
   const retryKey = adapterIdempotencyKey("replan", { task_id: current.runtimeState.task_id, semantic });
-  if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active" && currentMatchesSemanticDraft(root2, current, semantic)) {
+  if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active" && currentMatchesSemanticDraft(root, current, semantic)) {
     return semanticNoOp(current, retryKey, "The requested replan already matches canonical CURRENT_TASK.", options);
   }
   if (current.runtimeState.workflow_status === "active" && current.runtimeState.lifecycle_state === "active") {
@@ -25403,27 +26162,27 @@ function replan(root2, input, options = {}) {
     authority_evidence: authority(current, current.runtimeState.task_id, ["active-task-owner", "scope-admission", "evidence-admission"]),
     evidence_refs: evidenceRefs
   });
-  return verifyAdapterReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+  return verifyAdapterReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
 function parsePrepareTaskAdapterCli(argv) {
   const [command, ...rest] = argv;
   if (!PREPARE_TASK_ADAPTER_COMMANDS.includes(command)) {
     throw new Error(`Usage: vnext-runtime <${PREPARE_TASK_ADAPTER_COMMANDS.join("|")}> --root <path> [--dry-run] (semantic JSON on stdin)`);
   }
-  let root2 = process.cwd();
+  let root = process.cwd();
   let dryRun = false;
   for (let index = 0;index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === "--root")
-      root2 = rest[++index] ?? "";
+      root = rest[++index] ?? "";
     else if (arg === "--dry-run")
       dryRun = true;
     else
       throw new Error(`Unknown prepare-task adapter argument: ${arg}`);
   }
-  if (!root2)
+  if (!root)
     throw new Error("--root requires a path.");
-  return { command, root: root2, dryRun };
+  return { command, root, dryRun };
 }
 function readSemanticStdin(command) {
   const raw = !process.stdin.isTTY ? fs15.readFileSync(0, "utf8") : "";
@@ -25436,10 +26195,10 @@ function readSemanticStdin(command) {
     throw new Error(`${command} stdin must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
-function validateInstalledRuntime(root2) {
-  const runtimeManifest = path16.join(path16.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+function validateInstalledRuntime(root) {
+  const runtimeManifest = path16.join(path16.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
   if (fs15.existsSync(runtimeManifest))
-    validateVNextRuntimeContract(root2, true);
+    validateVNextRuntimeContract(root, true);
 }
 async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
   try {
@@ -25470,6 +26229,9 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
         break;
       case "extend-repair-budget":
         result = extendRepairBudget(args.root, input, options);
+        break;
+      case "authorize-controlled-repair-recovery":
+        result = authorizeControlledRepairRecovery(args.root, input, options);
         break;
       case "replan":
         result = replan(args.root, input, options);
@@ -26067,8 +26829,8 @@ import { execFileSync } from "node:child_process";
 import { createHash as createHash15 } from "node:crypto";
 var RG_TOOLS_PATH = ".workflow-system/runtime/tools/rg";
 var RG_BINARY = process.platform === "win32" ? "rg.exe" : "rg";
-function assertRgDirectory(root2) {
-  let directory = path17.resolve(root2);
+function assertRgDirectory(root) {
+  let directory = path17.resolve(root);
   for (const part of RG_TOOLS_PATH.split("/")) {
     directory = path17.join(directory, part);
     try {
@@ -26093,8 +26855,8 @@ function probeRg(command) {
     return null;
   }
 }
-function resolveRg(root2) {
-  const directory = assertRgDirectory(root2);
+function resolveRg(root) {
+  const directory = assertRgDirectory(root);
   const command = path17.join(directory, RG_BINARY);
   try {
     const identity = JSON.parse(fs16.readFileSync(path17.join(directory, "identity.json"), "utf8"));
@@ -26134,14 +26896,14 @@ function integer(value, fallback, min, max) {
     throw new Error(`CONTEXT_INPUT_INVALID: integer must be ${min}..${max}.`);
   return Number(value);
 }
-function contextPath(root2, value) {
+function contextPath(root, value) {
   if (typeof value !== "string" || !value || value.length > 1024 || /[\0\r\n]/u.test(value))
     throw new Error("CONTEXT_PATH_INVALID: expected a project-relative path.");
   const relative10 = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
   if (path18.posix.isAbsolute(relative10) || /^[A-Za-z]:/u.test(relative10) || relative10.split("/").includes(".."))
     throw new Error("CONTEXT_PATH_INVALID: path escapes project.");
-  const absolute = path18.resolve(root2, relative10);
-  let parent = path18.resolve(root2);
+  const absolute = path18.resolve(root, relative10);
+  let parent = path18.resolve(root);
   for (const part of relative10.split("/").filter((part2) => part2 && part2 !== ".")) {
     parent = path18.join(parent, part);
     try {
@@ -26196,9 +26958,9 @@ function textPage(text4, input) {
 function textDiff(file2, before, after) {
   return createTwoFilesPatch(`before/${file2}`, `after/${file2}`, before, after, "", "", { context: 3, timeout: 200, maxEditLength: 20000 });
 }
-function readFileContext(root2, input) {
+function readFileContext(root, input) {
   const value = contextInput(input, ["operation", "path", "sha256", "offset", "max_bytes", "start_line", "end_line"]);
-  const file2 = contextPath(root2, value.path);
+  const file2 = contextPath(root, value.path);
   const bytes2 = fs17.readFileSync(file2.absolute);
   const revision = sha2569(bytes2);
   if (value.sha256 !== undefined && value.sha256 !== revision)
@@ -26215,11 +26977,11 @@ function readFileContext(root2, input) {
     ...text4 === null ? { content_status: "binary-or-non-utf8", size_bytes: bytes2.length } : { content_status: "text", ...textPage(text4, value) }
   };
 }
-async function searchFileContext(root2, input) {
+async function searchFileContext(root, input) {
   const value = contextInput(input, ["operation", "roots", "globs", "query", "include_hidden", "limit", "max_bytes"]);
   if (!Array.isArray(value.roots) || !value.roots.length || value.roots.length > 32)
     throw new Error("CONTEXT_INPUT_INVALID: provide 1..32 search roots.");
-  const roots = value.roots.map((item) => contextPath(root2, item));
+  const roots = value.roots.map((item) => contextPath(root, item));
   if (value.query !== undefined && (typeof value.query !== "string" || !value.query || value.query.length > 4096 || /[\0\r\n]/u.test(value.query)))
     throw new Error("CONTEXT_INPUT_INVALID: query must be a non-empty single-line literal.");
   if (value.include_hidden !== undefined && typeof value.include_hidden !== "boolean")
@@ -26229,7 +26991,7 @@ async function searchFileContext(root2, input) {
     throw new Error("CONTEXT_INPUT_INVALID: invalid globs.");
   const limit = integer(value.limit, 50, 1, 200);
   const budget = integer(value.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
-  const rg = resolveRg(root2);
+  const rg = resolveRg(root);
   const args = [
     "--no-config",
     "--color",
@@ -26246,7 +27008,7 @@ async function searchFileContext(root2, input) {
   let pending = Buffer.alloc(0);
   let stderr = "";
   await new Promise((resolve17, reject) => {
-    const child = spawn(rg.command, args, { cwd: root2, windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(rg.command, args, { cwd: root, windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     const stop = (reason) => {
       stopReason ??= reason;
       child.kill();
@@ -26271,7 +27033,7 @@ async function searchFileContext(root2, input) {
         try {
           let hit;
           if (value.query === undefined)
-            hit = { path: path18.relative(root2, line.toString("utf8")).replace(/\\/gu, "/") };
+            hit = { path: path18.relative(root, line.toString("utf8")).replace(/\\/gu, "/") };
           else {
             const event = JSON.parse(line.toString("utf8"));
             if (event.type !== "match")
@@ -26280,9 +27042,9 @@ async function searchFileContext(root2, input) {
               stop("non-utf8-result");
               return;
             }
-            hit = { path: path18.relative(root2, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
+            hit = { path: path18.relative(root, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
           }
-          contextPath(root2, hit.path);
+          contextPath(root, hit.path);
           const size = Buffer.byteLength(JSON.stringify(hit));
           if (hits.length >= limit || used + size > budget) {
             stop("result-limit");
@@ -26321,12 +27083,12 @@ async function searchFileContext(root2, input) {
     error: stderr || null
   };
 }
-async function fileContext(root2, input) {
+async function fileContext(root, input) {
   const value = contextInput(input, ["operation", "path", "sha256", "offset", "max_bytes", "start_line", "end_line", "roots", "globs", "query", "include_hidden", "limit"]);
   if (value.operation === "read")
-    return readFileContext(root2, value);
+    return readFileContext(root, value);
   if (value.operation === "search")
-    return searchFileContext(root2, value);
+    return searchFileContext(root, value);
   throw new Error("CONTEXT_INPUT_INVALID: operation must be search or read.");
 }
 
@@ -26377,11 +27139,11 @@ function parseContinuation(value, expectedKind) {
     throw new Error("TASK_CONTEXT_CONTINUATION_INVALID: task read cursor is invalid.");
   return parsed;
 }
-function currentStore(root2, current) {
-  return TaskStore.forCurrent(root2, asStoreCurrent(current));
+function currentStore(root, current) {
+  return TaskStore.forCurrent(root, asStoreCurrent(current));
 }
-function taskContextReferenceForCurrent(root2, current, entry = "validate", mode = "default") {
-  const store = currentStore(root2, current);
+function taskContextReferenceForCurrent(root, current, entry = "validate", mode = "default") {
+  const store = currentStore(root, current);
   const manifest2 = store.manifest;
   return {
     kind: "task-context-reference/v1",
@@ -26396,8 +27158,8 @@ function taskContextReferenceForCurrent(root2, current, entry = "validate", mode
     read_only: true
   };
 }
-function manifestForContext(root2, current) {
-  const store = currentStore(root2, current);
+function manifestForContext(root, current) {
+  const store = currentStore(root, current);
   try {
     const manifest2 = store.manifest;
     if (!manifest2)
@@ -26456,7 +27218,7 @@ function slotSummary(claim, slot) {
     evidence_refs: Array.isArray(slot.evidence_refs) ? slot.evidence_refs.filter((item) => typeof item === "string") : []
   };
 }
-function unfinishedObligations(root2, current) {
+function unfinishedObligations(root, current) {
   const claims = Array.isArray(current.runtimeState.claim_evidence) ? current.runtimeState.claim_evidence : [];
   const result = [];
   for (const rawClaim of claims) {
@@ -26466,7 +27228,7 @@ function unfinishedObligations(root2, current) {
       if (!record5(rawSlot))
         continue;
       const summary = slotSummary(rawClaim, rawSlot);
-      const evaluation = evaluateEvidenceSlotForContext(root2, current, rawClaim, rawSlot);
+      const evaluation = evaluateEvidenceSlotForContext(root, current, rawClaim, rawSlot);
       if (!evaluation.satisfied) {
         result.push({
           ...summary,
@@ -26551,8 +27313,8 @@ function reviewTarget(current) {
     last_clean_revision: coverage.last_clean_revision ?? null
   };
 }
-function storeNavigation(root2, current, manifest2) {
-  const paths = taskStorePaths(root2, current.sourceTuple.document_id);
+function storeNavigation(root, current, manifest2) {
+  const paths = taskStorePaths(root, current.sourceTuple.document_id);
   return {
     manifest_path: `${paths.relativeRoot}/manifest.json`,
     available: manifest2 !== null,
@@ -26565,7 +27327,7 @@ function storeNavigation(root2, current, manifest2) {
     history_query: { kind: "events", reference: `${paths.relativeRoot}/events/` }
   };
 }
-function contextOverview(root2, current, manifest2) {
+function contextOverview(root, current, manifest2) {
   const state = current.runtimeState;
   const ledger = record5(state.step_attempts) && record5(state.step_attempts[state.active_step_id]) ? state.step_attempts[state.active_step_id] : null;
   const latest = latestExecution(current);
@@ -26579,20 +27341,24 @@ function contextOverview(root2, current, manifest2) {
     result_id: latest.result_id ?? null,
     evidence_ref_count: Array.isArray(latest.evidence_refs) ? latest.evidence_refs.length : 0
   };
-  const unfinishedCount = unfinishedObligations(root2, current).length;
+  const unfinishedCount = unfinishedObligations(root, current).length;
   const dependencyCount = dependencyResults(current).length;
-  const unknownDependencyCount = unfinishedObligations(root2, current).filter((item) => item.before_step_id === null).length;
+  const unknownDependencyCount = unfinishedObligations(root, current).filter((item) => item.before_step_id === null).length;
   const unresolvedFindingCount = unresolvedFindings(current).length;
   const unresolvedChallengeCount = Array.isArray(state.evidence_challenges) ? state.evidence_challenges.filter(record5).filter((item) => item.status !== "resolved").length : 0;
   const pendingReview = record5(state.pending_review_result) ? state.pending_review_result : null;
   const budgetContinuation = repairBudgetContinuationForPendingReview(current);
+  const controlledRecoveryContinuation = controlledRepairContinuationForPendingReview(current);
   const budgetExhausted = pendingReview?.verdict === "blocked" && record5(pendingReview.blocker) && pendingReview.blocker.code === "REPAIR_BUDGET_EXHAUSTED";
-  const budgetExtensionAvailable = budgetExhausted && repairBudgetExtensionTargets(current) !== null;
+  const budgetExtensionEligibility = budgetExhausted ? repairBudgetExtensionEligibility(current) : null;
+  const budgetExtensionAvailable = budgetExtensionEligibility?.eligible === true;
+  const controlledRecoveryEligibility = budgetExhausted ? controlledRepairRecoveryEligibility(current) : null;
+  const controlledRecoveryAvailable = controlledRecoveryEligibility?.eligible === true;
   const retainedCleanReview = pendingReview?.verdict === "clean" && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === "findings" && state.scope_amendment_pending_review_step_id !== undefined;
   const dynamicReviewReady = dynamicReviewRequiredForCurrentExecution(current) && state.active_step_status === "in-progress" && latest?.execution_result_status !== null && latest?.execution_result_status !== undefined;
-  const nextEntry = state.resume_requires_review ? "prepare-task:clear-resume-review" : budgetContinuation ? "execute-step:repair" : budgetExtensionAvailable ? "prepare-task:extend-repair-budget" : budgetExhausted ? "debug-task" : retainedCleanReview ? "execute-step:complete-reviewed-step" : retainedFindingReview ? "execute-step:repair" : state.workflow_status === "blocked_by_replan" ? "prepare-task:amend-scope" : state.active_step_status === "blocked" ? "debug-task" : dynamicReviewReady ? "review-change" : "preflight-step";
-  const nextOptions = budgetContinuation ? ["execute-step:repair"] : budgetExtensionAvailable ? ["prepare-task:extend-repair-budget", "debug-task"] : budgetExhausted ? ["debug-task"] : state.workflow_status === "blocked_by_replan" ? ["prepare-task:amend-scope", "prepare-task:prepare-replan", "debug-task"] : state.active_step_status === "blocked" ? ["debug-task", "execute-step"] : [nextEntry];
+  const nextEntry = state.resume_requires_review ? "prepare-task:clear-resume-review" : budgetContinuation || controlledRecoveryContinuation ? "execute-step:repair" : budgetExtensionAvailable ? "prepare-task:extend-repair-budget" : controlledRecoveryAvailable ? "prepare-task:authorize-controlled-repair-recovery" : budgetExhausted ? "debug-task" : retainedCleanReview ? "execute-step:complete-reviewed-step" : retainedFindingReview ? "execute-step:repair" : state.workflow_status === "blocked_by_replan" ? "prepare-task:amend-scope" : state.active_step_status === "blocked" ? "debug-task" : dynamicReviewReady ? "review-change" : "preflight-step";
+  const nextOptions = budgetContinuation || controlledRecoveryContinuation ? ["execute-step:repair"] : budgetExtensionAvailable ? ["prepare-task:extend-repair-budget", "debug-task"] : controlledRecoveryAvailable ? ["prepare-task:authorize-controlled-repair-recovery", "debug-task"] : budgetExhausted ? ["debug-task"] : state.workflow_status === "blocked_by_replan" ? ["prepare-task:amend-scope", "prepare-task:prepare-replan", "debug-task"] : state.active_step_status === "blocked" ? ["debug-task", "execute-step"] : [nextEntry];
   return {
     identity: {
       task_id: state.task_id,
@@ -26666,10 +27432,35 @@ function contextOverview(root2, current, manifest2) {
       dynamic_expansion_count: state.dynamic_expansions?.length ?? 0
     },
     latest_execution: latestIndex,
-    storage: storeNavigation(root2, current, manifest2)
+    budget_extension: budgetExtensionEligibility === null ? null : {
+      eligible: budgetExtensionEligibility.eligible,
+      extension_scope: budgetExtensionEligibility.extension_scope,
+      repair_fingerprints: budgetExtensionEligibility.repair_fingerprints,
+      finding_fingerprints: budgetExtensionEligibility.finding_fingerprints,
+      repair_round: budgetExtensionEligibility.repair_round,
+      repair_round_limit: budgetExtensionEligibility.repair_round_limit,
+      next_repair_round_limit: budgetExtensionEligibility.next_repair_round_limit,
+      absolute_limits: budgetExtensionEligibility.absolute_limits,
+      blocking_reasons: budgetExtensionEligibility.blocking_reasons,
+      user_decision_route: budgetExtensionEligibility.eligible ? "prepare-task:extend-repair-budget" : controlledRecoveryAvailable ? "prepare-task:authorize-controlled-repair-recovery" : "user-owned-blocker:diagnose-or-request-controlled-recovery-authorization"
+    },
+    controlled_recovery: controlledRecoveryEligibility === null ? null : {
+      eligible: controlledRecoveryEligibility.eligible,
+      recovery_scope: controlledRecoveryEligibility.recovery_scope,
+      repair_fingerprints: controlledRecoveryEligibility.repair_fingerprints,
+      recovery_fingerprints: controlledRecoveryEligibility.recovery_fingerprints,
+      candidate_recovery_fingerprints: controlledRecoveryEligibility.candidate_recovery_fingerprints,
+      disposition_source: controlledRecoveryEligibility.disposition_source,
+      repair_round: controlledRecoveryEligibility.repair_round,
+      repair_round_limit: controlledRecoveryEligibility.repair_round_limit,
+      controlled_attempt_limit: controlledRecoveryEligibility.controlled_attempt_limit,
+      blocking_reasons: controlledRecoveryEligibility.blocking_reasons,
+      user_decision_route: controlledRecoveryEligibility.eligible ? "prepare-task:authorize-controlled-repair-recovery" : "user-owned-blocker:record-structured-review-disposition-or-stop"
+    },
+    storage: storeNavigation(root, current, manifest2)
   };
 }
-function operationBlocks(root2, current, entry, mode, definitionReused, manifest2) {
+function operationBlocks(root, current, entry, mode, definitionReused, manifest2) {
   const definitionAlgorithm = manifest2?.definition_revision_algorithm;
   const definition = taskStoreDefinitionPayload(asStoreCurrent(current), definitionAlgorithm);
   const blocks = [];
@@ -26684,11 +27475,11 @@ function operationBlocks(root2, current, entry, mode, definitionReused, manifest
     forbidden: [...current.mutationAuthority.forbidden],
     legacy_mode: false
   });
-  add("unfinished-obligations", true, unfinishedObligations(root2, current));
+  add("unfinished-obligations", true, unfinishedObligations(root, current));
   add("required-dependencies", true, dependencyResults(current));
   add("unknown-dependencies", true, {
     status: "unknown",
-    obligations: unfinishedObligations(root2, current).filter((item) => item.before_step_id === null).map((item) => ({
+    obligations: unfinishedObligations(root, current).filter((item) => item.before_step_id === null).map((item) => ({
       claim_id: item.claim_id,
       slot_id: item.slot_id,
       due_step_id: item.due_step_id,
@@ -26714,7 +27505,7 @@ function operationBlocks(root2, current, entry, mode, definitionReused, manifest
   add("latest-execution", true, latestExecution(current));
   if (entry === "review-change" || entry === "review-context" || entry === "review" || entry.includes("review") || mode === "review")
     add("cumulative-review-target", true, reviewTarget(current));
-  add("history-navigation", false, storeNavigation(root2, current, manifest2));
+  add("history-navigation", false, storeNavigation(root, current, manifest2));
   return { blocks, required: blocks.filter((block) => block.required).map((block) => block.id), optional: blocks.filter((block) => !block.required).map((block) => block.id) };
 }
 function fits(base, maxBytes) {
@@ -26759,11 +27550,11 @@ function utf8Boundary(bytes2, requested) {
     end--;
   return end;
 }
-function contextPage(root2, current, input) {
+function contextPage(root, current, input) {
   const entry = typeof input.entry === "string" && input.entry.trim() ? input.entry.trim() : typeof input.operation === "string" && input.operation.trim() ? input.operation.trim() : "validate";
   const mode = typeof input.mode === "string" && input.mode.trim() ? input.mode.trim() : "default";
   const maxBytes = integer(input.max_bytes, 16 * 1024, 256, 64 * 1024);
-  const manifest2 = manifestForContext(root2, current);
+  const manifest2 = manifestForContext(root, current);
   const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest2);
   const stateRevision = taskStoreStateRevision(asStoreCurrent(current));
   const visibleRevision = input.visible_definition_revision ?? input.known_definition_revision;
@@ -26779,13 +27570,13 @@ function contextPage(root2, current, input) {
     source_revision: current.sourceTuple.revision,
     definition_revision: definitionRevision,
     state_revision: stateRevision,
-    storage_manifest_path: `${taskStorePaths(root2, current.sourceTuple.document_id).relativeRoot}/manifest.json`
+    storage_manifest_path: `${taskStorePaths(root, current.sourceTuple.document_id).relativeRoot}/manifest.json`
   };
   const selection = { entry, mode, required: [], optional: [], definition_reused: definitionReused };
-  const built = operationBlocks(root2, current, entry, mode, definitionReused, manifest2);
+  const built = operationBlocks(root, current, entry, mode, definitionReused, manifest2);
   selection.required = built.required;
   selection.optional = built.optional;
-  const overview = contextOverview(root2, current, manifest2);
+  const overview = contextOverview(root, current, manifest2);
   const base = {
     status: "success",
     operation_kind: TASK_CONTEXT_OPERATION,
@@ -26875,7 +27666,7 @@ function contextPage(root2, current, input) {
   }
   return response;
 }
-function taskContext(root2, input = {}) {
+function taskContext(root, input = {}) {
   const value = contextInput(input, ["entry", "mode", "operation", "definition_visible", "visible_definition_revision", "known_definition_revision", "continuation", "max_bytes"]);
   if (value.definition_visible !== undefined && typeof value.definition_visible !== "boolean")
     throw new Error("TASK_CONTEXT_INPUT_INVALID: definition_visible must be boolean.");
@@ -26883,16 +27674,16 @@ function taskContext(root2, input = {}) {
     throw new Error("TASK_CONTEXT_INPUT_INVALID: visible_definition_revision must be SHA-256.");
   if (value.known_definition_revision !== undefined && (typeof value.known_definition_revision !== "string" || !/^[a-f0-9]{64}$/u.test(value.known_definition_revision)))
     throw new Error("TASK_CONTEXT_INPUT_INVALID: known_definition_revision must be SHA-256.");
-  const current = readCanonicalCurrentTask(root2);
-  return contextPage(root2, current, value);
+  const current = readCanonicalCurrentTask(root);
+  return contextPage(root, current, value);
 }
-function readHistoryMaterial(root2, current, sourceRevision) {
+function readHistoryMaterial(root, current, sourceRevision) {
   if (sourceRevision === current.sourceTuple.revision)
     return current.raw;
-  const stored = currentStore(root2, current).readHistoryMaterial(sourceRevision);
+  const stored = currentStore(root, current).readHistoryMaterial(sourceRevision);
   if (stored !== null)
     return stored;
-  const file2 = taskStoreHistoryPath(root2, asStoreCurrent(current), sourceRevision);
+  const file2 = taskStoreHistoryPath(root, asStoreCurrent(current), sourceRevision);
   if (fs18.existsSync(file2)) {
     try {
       const parsed = JSON.parse(fs18.readFileSync(file2, "utf8"));
@@ -26907,10 +27698,10 @@ function readHistoryMaterial(root2, current, sourceRevision) {
         throw new Error(`TASK_READ_HISTORY_INVALID: ${error.message}`);
     }
   }
-  const manifest2 = currentStore(root2, current).manifest;
+  const manifest2 = currentStore(root, current).manifest;
   const legacyReference = manifest2?.object_refs.legacy_source;
   if (legacyReference) {
-    const legacy = currentStore(root2, current).readObject(legacyReference);
+    const legacy = currentStore(root, current).readObject(legacyReference);
     if (record5(legacy.payload) && legacy.payload.source_revision === sourceRevision && typeof legacy.payload.raw_base64 === "string") {
       const raw = Buffer.from(legacy.payload.raw_base64, "base64").toString("utf8");
       if (sha25610(raw) !== sourceRevision)
@@ -26951,9 +27742,9 @@ function transactionPayload(store, event, kind) {
   }
   return raw;
 }
-function resolvedRead(root2, current, input, expectedContentRevision) {
-  const store = currentStore(root2, current);
-  const aggregateManifest = manifestForContext(root2, current);
+function resolvedRead(root, current, input, expectedContentRevision) {
+  const store = currentStore(root, current);
+  const aggregateManifest = manifestForContext(root, current);
   const rawRef = input.ref;
   let ref = {};
   if (typeof rawRef === "string")
@@ -27069,7 +27860,7 @@ function resolvedRead(root2, current, input, expectedContentRevision) {
         throw new Error("TASK_READ_HISTORY_INVALID: old_line must be a positive integer.");
       const locator = store.readHistoryLocator(sourceRevision, requestedLine);
       if (!locator) {
-        const raw = readHistoryMaterial(root2, current, sourceRevision);
+        const raw = readHistoryMaterial(root, current, sourceRevision);
         const lines = raw.split(/\r\n?|\n/u);
         if (requestedLine > lines.length)
           throw new Error("TASK_READ_HISTORY_INVALID: old_line is outside the retained source preimage.");
@@ -27083,13 +27874,13 @@ function resolvedRead(root2, current, input, expectedContentRevision) {
       }
       return { kind: "history-locator", reference: `${sourceRevision}:${requestedLine}`, required: true, value: locator, encoding: "json" };
     }
-    return { kind, reference: sourceRevision, required: true, value: readHistoryMaterial(root2, current, sourceRevision), encoding: "utf8" };
+    return { kind, reference: sourceRevision, required: true, value: readHistoryMaterial(root, current, sourceRevision), encoding: "utf8" };
   }
   if (input.path) {
-    const file2 = contextPath(root2, input.path);
+    const file2 = contextPath(root, input.path);
     if (!fs18.existsSync(file2.absolute))
       throw new Error(`TASK_READ_PATH_MISSING: ${file2.relative}`);
-    const result = readFileContext(root2, { operation: "read", path: file2.relative, ...input.sha256 ?? expectedContentRevision ? { sha256: input.sha256 ?? expectedContentRevision } : {} });
+    const result = readFileContext(root, { operation: "read", path: file2.relative, ...input.sha256 ?? expectedContentRevision ? { sha256: input.sha256 ?? expectedContentRevision } : {} });
     const contentRevision = typeof result.sha256 === "string" ? result.sha256 : undefined;
     if (expectedContentRevision !== undefined && contentRevision !== expectedContentRevision)
       throw new Error("TASK_READ_STALE: file content revision changed; start a fresh task-read.");
@@ -27097,10 +27888,10 @@ function resolvedRead(root2, current, input, expectedContentRevision) {
   }
   throw new Error("TASK_READ_INPUT_INVALID: provide a precise object, event, history, or file reference.");
 }
-function taskReadPage(root2, current, input) {
+function taskReadPage(root, current, input) {
   const maxBytes = integer(input.max_bytes, 16 * 1024, 256, 64 * 1024);
   const continuation = parseContinuation(input.continuation, "task-read-page/v1");
-  const manifest2 = currentStore(root2, current).manifest;
+  const manifest2 = currentStore(root, current).manifest;
   if (continuation && continuation.source_revision !== current.sourceTuple.revision) {
     throw new Error("TASK_READ_STALE: source revision changed; start a fresh task-read.");
   }
@@ -27108,7 +27899,7 @@ function taskReadPage(root2, current, input) {
   const stateRevision = taskStoreStateRevision(asStoreCurrent(current));
   if (continuation && (continuation.source_revision !== current.sourceTuple.revision || continuation.definition_revision !== definitionRevision || continuation.state_revision !== stateRevision))
     throw new Error("TASK_READ_STALE: source, definition, or state revision changed; start a fresh task-read.");
-  const resolved = resolvedRead(root2, current, input, continuation?.content_revision);
+  const resolved = resolvedRead(root, current, input, continuation?.content_revision);
   const serialized = resolved.encoding === "utf8" ? String(resolved.value) : stableJson2(resolved.value);
   const serializedBytes = Buffer.from(serialized, "utf8");
   const reference = `${resolved.kind}:${resolved.reference}`;
@@ -27214,12 +28005,12 @@ function parseExportContinuation(value) {
   }
   return parsed;
 }
-function taskStoreExportPage(root2, input = {}) {
+function taskStoreExportPage(root, input = {}) {
   const value = contextInput(input, ["offset", "max_bytes", "continuation"]);
   const maxBytes = integer(value.max_bytes, 16 * 1024, 256, 64 * 1024);
-  const current = readCanonicalCurrentTask(root2);
-  const store = currentStore(root2, current);
-  const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), currentStore(root2, current).manifest);
+  const current = readCanonicalCurrentTask(root);
+  const store = currentStore(root, current);
+  const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), currentStore(root, current).manifest);
   const stateRevision = taskStoreStateRevision(asStoreCurrent(current));
   const exported = store.exportAggregate();
   const serialized = Buffer.from(stableJson2(exported), "utf8");
@@ -27307,20 +28098,20 @@ function taskStoreExportPage(root2, input = {}) {
     throw new Error("TASK_EXPORT_BUDGET_EXHAUSTED: export receipt metadata exceeds the requested page budget.");
   return result;
 }
-function taskRead(root2, input) {
+function taskRead(root, input) {
   const value = contextInput(input, ["kind", "ref", "path", "sha256", "object_sha256", "event_path", "event_sequence", "event_hash", "source_revision", "old_line", "offset", "max_bytes", "continuation", "limit"]);
-  const current = readCanonicalCurrentTask(root2);
-  return taskReadPage(root2, current, value);
+  const current = readCanonicalCurrentTask(root);
+  return taskReadPage(root, current, value);
 }
-function taskContextMigrationPreview(root2) {
-  const current = readCanonicalCurrentTask(root2);
-  return previewTaskStorageMigration(root2, asStoreCurrent(current));
+function taskContextMigrationPreview(root) {
+  const current = readCanonicalCurrentTask(root);
+  return previewTaskStorageMigration(root, asStoreCurrent(current));
 }
-function taskContextMigrationCommit(root2, sourceRevision) {
-  return withGovernanceWriteLock(root2, () => {
-    recoverPendingTaskStoreCommit(root2);
-    const current = readCanonicalCurrentTask(root2);
-    return commitTaskStorageMigration(root2, asStoreCurrent(current), sourceRevision);
+function taskContextMigrationCommit(root, sourceRevision) {
+  return withGovernanceWriteLock(root, () => {
+    recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    return commitTaskStorageMigration(root, asStoreCurrent(current), sourceRevision);
   });
 }
 function readCliInput() {
@@ -27336,19 +28127,19 @@ function cliRoot(args) {
 }
 async function runTaskContextCli(command, args = process.argv.slice(2)) {
   try {
-    const root2 = cliRoot(args);
+    const root = cliRoot(args);
     if (command === "task-context") {
-      const result = taskContext(root2, readCliInput());
+      const result = taskContext(root, readCliInput());
       console.log(JSON.stringify(result, null, 2));
       return result.complete_for_operation ? 0 : 2;
     }
     if (command === "task-read") {
-      const result = taskRead(root2, readCliInput());
+      const result = taskRead(root, readCliInput());
       console.log(JSON.stringify(result, null, 2));
       return result.complete_for_operation ? 0 : 2;
     }
     if (command === "task-export") {
-      const result = taskStoreExportPage(root2, readCliInput());
+      const result = taskStoreExportPage(root, readCliInput());
       console.log(JSON.stringify(result, null, 2));
       return result.complete_for_operation ? 0 : 2;
     }
@@ -27356,12 +28147,12 @@ async function runTaskContextCli(command, args = process.argv.slice(2)) {
     if (!record5(input) || input.mode !== "preview" && input.mode !== "commit")
       throw new Error("TASK_MIGRATION_INPUT_INVALID: mode must be preview or commit.");
     if (input.mode === "preview") {
-      console.log(JSON.stringify(taskContextMigrationPreview(root2), null, 2));
+      console.log(JSON.stringify(taskContextMigrationPreview(root), null, 2));
       return 0;
     }
     if (typeof input.source_revision !== "string")
       throw new Error("TASK_MIGRATION_INPUT_INVALID: commit requires source_revision.");
-    console.log(JSON.stringify(taskContextMigrationCommit(root2, input.source_revision), null, 2));
+    console.log(JSON.stringify(taskContextMigrationCommit(root, input.source_revision), null, 2));
     return 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -27555,10 +28346,10 @@ function stepAdmitsExactPath(file2, stepScope) {
 function stepAdmitsFootprintTarget(target, stepScope) {
   return target.includes("*") ? stepScope.includes(target) : stepAdmitsExactPath(target, stepScope);
 }
-function assertPathsAdmitted(current, stepPlan, paths, location2, root2, assessments = [], mode = "default", phase, plannedTargets = stepPlan.planned_mutation_targets) {
+function assertPathsAdmitted(current, stepPlan, paths, location2, root, assessments = [], mode = "default", phase, plannedTargets = stepPlan.planned_mutation_targets) {
   if (paths.length === 0)
     return;
-  assertExecutionTargetAdmissions(root2, current, {
+  assertExecutionTargetAdmissions(root, current, {
     target_paths: paths,
     planned_targets: plannedTargets,
     step_mutation_scope: stepPlan.mutation_scope,
@@ -27568,11 +28359,11 @@ function assertPathsAdmitted(current, stepPlan, paths, location2, root2, assessm
     location: location2
   });
 }
-function assertCommandPlansAdmitted(root2, current, stepPlan, assessments = [], phase, mode = "default") {
+function assertCommandPlansAdmitted(root, current, stepPlan, assessments = [], phase, mode = "default") {
   if (current.mutationAuthority) {
     const project = (() => {
       try {
-        return readProjectMutationAuthority(root2);
+        return readProjectMutationAuthority(root);
       } catch (error) {
         fail7(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
       }
@@ -27674,7 +28465,8 @@ function normalizePreflightReceipt(value) {
       "change_set_id",
       "review_target_paths",
       "review_id",
-      "review_base"
+      "review_base",
+      ...source.controlled_recovery_grant_id === undefined ? [] : ["controlled_recovery_grant_id"]
     ], "preflight_receipt");
     if (source.mode !== "repair")
       fail7("EXECUTE_ADAPTER_INPUT_INVALID", "repair preflight receipt mode must be repair.");
@@ -27700,7 +28492,8 @@ function normalizePreflightReceipt(value) {
       change_set_id: text4(source.change_set_id, "preflight_receipt.change_set_id", 128),
       review_target_paths: pathList(source.review_target_paths, "preflight_receipt.review_target_paths", true),
       review_id: text4(source.review_id, "preflight_receipt.review_id", 128),
-      review_base: validateRuntimeReviewTarget(source.review_base, "preflight_receipt.review_base")
+      review_base: validateRuntimeReviewTarget(source.review_base, "preflight_receipt.review_base"),
+      ...source.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: text4(source.controlled_recovery_grant_id, "preflight_receipt.controlled_recovery_grant_id", 128) }
     };
   }
   exactKeys3(source, [
@@ -27754,11 +28547,11 @@ function normalizePreflightReceipt(value) {
     ...source.mutation_authority_version === undefined ? {} : source.mutation_authority_version === 2 ? { mutation_authority_version: 2 } : fail7("EXECUTE_ADAPTER_INPUT_INVALID", "preflight_receipt.mutation_authority_version must be 2.")
   };
 }
-function assertCurrentReceipt(root2, current, stepPlan, receipt) {
+function assertCurrentReceipt(root, current, stepPlan, receipt) {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
     fail7("EXECUTE_PREFLIGHT_IDENTITY_CONFLICT", "preflight receipt does not identify the current task document.");
   }
-  if (!taskSourceRevisionMatches(root2, current, receipt.source_revision)) {
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision)) {
     const expectedRepairBookkeeping = receipt.kind === "execute-step-repair-preflight/v1" && current.runtimeState.pending_review_result?.review_id === receipt.review_id && receipt.repair_fingerprints.every((fingerprint) => {
       const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
       return finding?.last_repair_wave_id === receipt.repair_wave_id && finding.status === "in-progress";
@@ -27786,6 +28579,9 @@ function assertCurrentReceipt(root2, current, stepPlan, receipt) {
     if (receipt.mode === "repair" && (activePreflight.review_id !== receipt.review_id || activePreflight.repair_wave_id !== receipt.repair_wave_id || activePreflight.change_set_id !== receipt.change_set_id)) {
       fail7("EXECUTE_PREFLIGHT_STALE", "the repair receipt does not bind the current Runtime repair identity.");
     }
+    if (receipt.mode === "repair" && activePreflight.controlled_recovery_grant_id !== receipt.controlled_recovery_grant_id) {
+      fail7("EXECUTE_PREFLIGHT_STALE", "the repair receipt does not bind the current controlled recovery grant identity.");
+    }
   }
   if (receipt.kind === "execute-step-repair-preflight/v1") {
     if (current.runtimeState.pending_review_result?.review_id !== receipt.review_id || current.runtimeState.pending_review_result.change_set_id !== receipt.change_set_id) {
@@ -27806,9 +28602,6 @@ function assertCurrentReceipt(root2, current, stepPlan, receipt) {
 function findingAdmissionWaveId(reviewId) {
   return `finding-wave-${digest5(reviewId).slice(0, 32)}`;
 }
-function repairWaveId(reviewId, fingerprints) {
-  return `repair-wave-${digest5({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
-}
 function currentStepResult(stepPlan, strategy) {
   return {
     id: stepPlan.step.id,
@@ -27825,7 +28618,7 @@ function currentStepResult(stepPlan, strategy) {
     persistent_tests: [...strategy.persistent_tests]
   };
 }
-function beginRepair(root2, input, options = {}) {
+function beginRepair(root, input, options = {}) {
   const source = record6(input, "begin-repair input");
   exactKeys3(source, ["candidate_paths", ...source.blast_radius_assessments === undefined ? [] : ["blast_radius_assessments"]], "begin-repair input");
   const candidatePaths = pathList(source.candidate_paths, "candidate_paths", false);
@@ -27837,11 +28630,12 @@ function beginRepair(root2, input, options = {}) {
       fail7(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error instanceof Error ? error.message : String(error));
     }
   }
-  let current = readCanonicalCurrentTask(root2);
+  let current = readCanonicalCurrentTask(root);
   assertExecutableTask(current);
   const pending = current.runtimeState.pending_review_result;
   const budgetContinuation = repairBudgetContinuationForPendingReview(current);
-  if (!pending || pending.verdict !== "findings" && budgetContinuation === null) {
+  const controlledContinuation = controlledRepairContinuationForPendingReview(current);
+  if (!pending || pending.verdict !== "findings" && budgetContinuation === null && controlledContinuation === null) {
     fail7("REVIEW_FINDINGS_REQUIRED", "begin-repair requires findings or an explicitly authorized continuation of the exact budget-blocked review.");
   }
   const reviewedExecution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : current.runtimeState.scope_amendment_pending_review_step_id !== undefined && item.idempotency_key === pending.execution_id ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
@@ -27852,13 +28646,15 @@ function beginRepair(root2, input, options = {}) {
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   const phase = executionPhaseForCurrentStep(current, strategy);
-  assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths", root2, assessments, "repair", phase);
-  assertCommandPlansAdmitted(root2, current, stepPlan, assessments, phase, "repair");
+  assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths", root, assessments, "repair", phase);
+  assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, "repair");
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
   const admissionWaveId = findingAdmissionWaveId(pending.review_id);
   const previousStepCompletion = currentDefinitionExecutionLog(current).findLast((item) => !("action" in item) && item.advancement === "advanced" && item.next_step_id === pending.step_id && item.review_receipt?.cycle_id === current.runtimeState.review_cycle.id);
   const admissionCycleId = pending.cycle_phase === "discovery" && pending.cycle_id === current.runtimeState.review_cycle.id && previousStepCompletion && !("action" in previousStepCompletion) ? reviewCycleForNextStep(current.runtimeState.review_cycle.id, pending.step_id, previousStepCompletion.idempotency_key).id : current.runtimeState.review_cycle.id;
   for (const candidate of pending.findings) {
+    if (pending.finding_dispositions?.some((item) => item.fingerprint === candidate.fingerprint && item.disposition === "defer"))
+      continue;
     if (!candidatePaths.includes(candidate.file)) {
       fail7("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", `candidate_paths must include review finding path ${candidate.file}.`);
     }
@@ -27895,12 +28691,12 @@ function beginRepair(root2, input, options = {}) {
       authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
       evidence_refs: candidate.evidence_refs
     });
-    const result = verifyReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+    const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
     if (result.status !== "success" && result.status !== "no-op") {
       fail7("FINDING_ADMISSION_BLOCKED", result.message);
     }
     if (!options.dryRun)
-      current = readCanonicalCurrentTask(root2);
+      current = readCanonicalCurrentTask(root);
   }
   const fingerprints = repairFingerprintsForPendingReview(current);
   if (fingerprints.length === 0) {
@@ -27909,16 +28705,20 @@ function beginRepair(root2, input, options = {}) {
   if (budgetContinuation && budgetContinuation.finding_fingerprints.some((fingerprint) => !fingerprints.includes(fingerprint))) {
     fail7("REPAIR_BUDGET_EXTENSION_TARGET_INVALID", "the retained budget extension is not covered by the current review repair set.");
   }
+  if (controlledContinuation) {
+    if (digest5(controlledContinuation.repair_fingerprints) !== digest5(fingerprints))
+      fail7("CONTROLLED_RECOVERY_TARGET_INVALID", "the active controlled recovery grant is not bound to the complete latest review repair set.");
+  }
   for (const fingerprint of fingerprints) {
     const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
     if (!options.dryRun && (!finding || !["admitted", "in-progress"].includes(finding.status))) {
       fail7("FINDING_ADMISSION_REQUIRED", `review finding ${fingerprint} is not repairable.`);
     }
-    if (!options.dryRun && finding.repair_attempts >= finding.max_repair_attempts) {
+    if (!options.dryRun && finding.repair_attempts >= finding.max_repair_attempts && (!controlledContinuation || !controlledContinuation.recovery_fingerprints.includes(fingerprint))) {
       fail7("REPAIR_BUDGET_EXHAUSTED", `finding ${fingerprint} has exhausted its repair budget.`);
     }
   }
-  const waveId = repairWaveId(pending.review_id, fingerprints);
+  const waveId = repairWaveIdForRepairSet(pending.review_id, fingerprints);
   const reviewTargetPaths = [...new Set([
     ...reviewedExecution.execution_result.review_target.entries.map((item) => item.path),
     ...candidatePaths
@@ -27931,13 +28731,14 @@ function beginRepair(root2, input, options = {}) {
     repair_wave_id: waveId,
     review_id: pending.review_id,
     review_target_paths: reviewedExecution.execution_result.review_target.entries.map((item) => item.path),
-    change_set_id: pending.change_set_id
+    change_set_id: pending.change_set_id,
+    ...controlledContinuation ? { controlled_recovery_grant_id: controlledContinuation.grant_id } : {}
   });
-  const preflightResult = verifyReadBack(root2, applyVNextRuntimeProposal(root2, preflightProposal, options), options);
+  const preflightResult = verifyReadBack(root, applyVNextRuntimeProposal(root, preflightProposal, options), options);
   if (preflightResult.status !== "success" && preflightResult.status !== "no-op")
     fail7("PREFLIGHT_BLOCKED", preflightResult.message);
   if (!options.dryRun)
-    current = readCanonicalCurrentTask(root2);
+    current = readCanonicalCurrentTask(root);
   const executionPreflight = current.runtimeState.execution_preflight;
   const receipt = {
     kind: "execute-step-repair-preflight/v1",
@@ -27957,7 +28758,8 @@ function beginRepair(root2, input, options = {}) {
     change_set_id: executionPreflight?.change_set_id ?? pending.change_set_id,
     review_target_paths: executionPreflight?.review_target_paths ?? reviewedExecution.execution_result.review_target.entries.map((item) => item.path),
     review_id: executionPreflight?.review_id ?? pending.review_id,
-    review_base: captureReviewTarget(root2, reviewTargetPaths)
+    ...executionPreflight?.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: executionPreflight.controlled_recovery_grant_id },
+    review_base: captureReviewTarget(root, reviewTargetPaths)
   };
   return {
     status: "pass",
@@ -27965,14 +28767,14 @@ function beginRepair(root2, input, options = {}) {
     committed: preflightResult.committed,
     read_back_verified: options.dryRun ? true : preflightResult.read_back_verified,
     current_step: currentStepResult(stepPlan, { ...strategy, phase: receipt.execution_phase }),
-    context_projection: taskContextReferenceForCurrent(root2, current, "preflight-step", "repair"),
+    context_projection: taskContextReferenceForCurrent(root, current, "preflight-step", "repair"),
     receipt
   };
 }
-function retryStep(root2, input, options = {}) {
+function retryStep(root, input, options = {}) {
   const source = record6(input, "retry-step input");
   exactKeys3(source, ["step_id", "blocked_attempt_id", "blocker_resolution_refs", ...source.repair_diagnosis === undefined ? [] : ["repair_diagnosis"], "idempotency_key"], "retry-step input");
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   const proposal = createStepRetryProposal(current, {
     step_id: text4(source.step_id, "step_id", 128),
     blocked_attempt_id: text4(source.blocked_attempt_id, "blocked_attempt_id", 128),
@@ -27980,17 +28782,17 @@ function retryStep(root2, input, options = {}) {
     ...source.repair_diagnosis === undefined ? {} : { repair_diagnosis: source.repair_diagnosis },
     idempotency_key: text4(source.idempotency_key, "idempotency_key", 128)
   });
-  return verifyReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
-function evidenceContext(root2, input) {
+function evidenceContext(root, input) {
   const source = contextInput(input, ["offset", "limit", "continuation"]);
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   assertExecutableTask(current);
   assertBusinessEvidenceVersion(current);
   const allChecks = (current.runtimeState.claim_evidence ?? []).flatMap((claim) => claim.slots.map((slot) => {
     if (!slot.check)
       fail7("CLAIM_EVIDENCE_PLAN_REQUIRED", "A frozen check is required.");
-    const snapshot = captureReviewTarget(root2, slot.check.subject_paths);
+    const snapshot = captureReviewTarget(root, slot.check.subject_paths);
     return {
       claim_id: claim.claim_id,
       slot_id: slot.slot_id,
@@ -28060,12 +28862,12 @@ function evidenceContext(root2, input) {
       offset: nextOffset
     },
     subject_snapshots_read: "Use task-context/task-read for the exact frozen subject entries.",
-    context_projection: taskContextReferenceForCurrent(root2, current, "evidence-context", "default")
+    context_projection: taskContextReferenceForCurrent(root, current, "evidence-context", "default")
   };
 }
-function preflightStep(root2, input) {
+function preflightStep(root, input) {
   const source = record6(input, "preflight-step input");
-  const currentForInput = readCanonicalCurrentTask(root2);
+  const currentForInput = readCanonicalCurrentTask(root);
   exactKeys3(source, currentForInput.mutationAuthority ? ["candidate_paths", ...source.blast_radius_assessments === undefined ? [] : ["blast_radius_assessments"]] : ["candidate_paths"], "preflight-step input");
   const candidatePaths = pathList(source.candidate_paths, "candidate_paths", true);
   let assessments = [];
@@ -28077,20 +28879,20 @@ function preflightStep(root2, input) {
     }
   }
   let current = currentForInput;
-  assertOrdinaryPreflight(current, root2);
+  assertOrdinaryPreflight(current, root);
   assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   const phase = executionPhaseForCurrentStep(current, strategy);
-  assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths", root2, assessments, "default", phase);
-  assertCommandPlansAdmitted(root2, current, stepPlan, assessments, phase, "default");
+  assertPathsAdmitted(current, stepPlan, candidatePaths, "candidate_paths", root, assessments, "default", phase);
+  assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, "default");
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
   let committed = false;
   let preflightId;
   const coverage = current.runtimeState.review_coverage;
   const hasPrerequisites = current.runtimeState.claim_evidence?.some((claim) => claim.slots.some((slot) => slot.before_step_id === stepPlan.step.id && !slot.prerequisite_receipt));
-  if (coverage && !hasPrerequisites && captureReviewTarget(root2, coverage.target.entries.map((entry) => entry.path)).revision !== coverage.target.revision)
+  if (coverage && !hasPrerequisites && captureReviewTarget(root, coverage.target.entries.map((entry) => entry.path)).revision !== coverage.target.revision)
     fail7("REVIEW_TARGET_STALE", "Unrecorded changes cannot refresh the cumulative baseline.");
   const activePreflightMatchesStep = current.runtimeState.execution_preflight?.step_id === stepPlan.step.id;
   if (current.mutationAuthority && activePreflightMatchesStep && digest5(current.runtimeState.execution_preflight.candidate_paths) !== digest5(candidatePaths)) {
@@ -28103,11 +28905,11 @@ function preflightStep(root2, input) {
       change_set_id: changeSetId(current, stepPlan.step.id)
     } : {});
     preflightId = proposal.idempotency_key;
-    const registration = applyVNextRuntimeProposal(root2, proposal);
+    const registration = applyVNextRuntimeProposal(root, proposal);
     if (!["success", "no-op"].includes(registration.status))
       fail7("PREFLIGHT_BLOCKED", registration.message);
     committed = registration.committed;
-    current = readCanonicalCurrentTask(root2);
+    current = readCanonicalCurrentTask(root);
   }
   if (!preflightId)
     preflightId = current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.idempotency_key;
@@ -28129,7 +28931,7 @@ function preflightStep(root2, input) {
     candidate_paths: candidatePaths,
     repair_fingerprint: null,
     change_set_id: changeSetId(current, stepPlan.step.id),
-    review_base: captureReviewTarget(root2, candidatePaths),
+    review_base: captureReviewTarget(root, candidatePaths),
     ...current.mutationAuthority ? { mutation_authority_version: 2 } : {}
   };
   return {
@@ -28138,26 +28940,26 @@ function preflightStep(root2, input) {
     committed,
     read_back_verified: true,
     current_step: currentStepResult(stepPlan, activeStrategy),
-    context_projection: taskContextReferenceForCurrent(root2, current, "preflight-step", "default"),
+    context_projection: taskContextReferenceForCurrent(root, current, "preflight-step", "default"),
     receipt
   };
 }
-function extendPreflight(root2, input, options = {}) {
+function extendPreflight(root, input, options = {}) {
   const source = record6(input, "extend-preflight input");
   exactKeys3(source, ["current_preflight_receipt", "additional_targets", "blast_radius_assessments", "evidence_refs"], "extend-preflight input");
   const receipt = normalizePreflightReceipt(source.current_preflight_receipt);
   if (receipt.mode !== "default" && receipt.mode !== "repair") {
     fail7("EXECUTE_PREFLIGHT_IDENTITY_CONFLICT", "extend-preflight requires a current ordinary or repair preflight receipt.");
   }
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   if (!current.mutationAuthority)
     fail7("MUTATION_AUTHORITY_VERSION_REQUIRED", "extend-preflight is available only for Mutation Authority v2 tasks.");
   if (receipt.mode === "default")
-    assertOrdinaryPreflight(current, root2);
+    assertOrdinaryPreflight(current, root);
   else
     assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
-  assertCurrentReceipt(root2, current, stepPlan, receipt);
+  assertCurrentReceipt(root, current, stepPlan, receipt);
   const additionalTargets = pathList(source.additional_targets, "additional_targets", false);
   if (additionalTargets.some((target) => receipt.candidate_paths.includes(target))) {
     fail7("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", "additional_targets must not repeat an already preflighted path.");
@@ -28171,8 +28973,8 @@ function extendPreflight(root2, input, options = {}) {
   const evidenceRefs = textList2(source.evidence_refs, "evidence_refs", false);
   const candidatePaths = [...receipt.candidate_paths, ...additionalTargets];
   assertTestStrategySequenceReady(current, resolveTestStrategyExecutionContext(current));
-  assertPathsAdmitted(current, stepPlan, candidatePaths, "additional_targets", root2, assessments, receipt.mode, receipt.execution_phase);
-  assertCommandPlansAdmitted(root2, current, stepPlan, assessments, receipt.execution_phase, receipt.mode);
+  assertPathsAdmitted(current, stepPlan, candidatePaths, "additional_targets", root, assessments, receipt.mode, receipt.execution_phase);
+  assertCommandPlansAdmitted(root, current, stepPlan, assessments, receipt.execution_phase, receipt.mode);
   const currentPreflightId = receipt.preflight_id ?? receipt.attempt_id;
   if (!currentPreflightId)
     fail7("EXECUTE_PREFLIGHT_IDENTITY_CONFLICT", "current_preflight_receipt must bind a preflight id.");
@@ -28188,14 +28990,14 @@ function extendPreflight(root2, input, options = {}) {
   });
   const extensionReviewBase = createReviewTargetManifest([
     ...receipt.review_base.entries,
-    ...captureReviewTarget(root2, additionalTargets).entries
+    ...captureReviewTarget(root, additionalTargets).entries
   ]);
-  const result = applyVNextRuntimeProposal(root2, proposal, options);
+  const result = applyVNextRuntimeProposal(root, proposal, options);
   if (!["success", "no-op"].includes(result.status))
     fail7("PREFLIGHT_BLOCKED", result.message);
-  const next = options.dryRun ? current : readCanonicalCurrentTask(root2);
+  const next = options.dryRun ? current : readCanonicalCurrentTask(root);
   const coverage = next.runtimeState.review_coverage;
-  const nextBase = coverage?.base ?? captureReviewTarget(root2, candidatePaths);
+  const nextBase = coverage?.base ?? captureReviewTarget(root, candidatePaths);
   const active = next.runtimeState.execution_preflight;
   const nextStrategy = resolveTestStrategyExecutionContext(next);
   const activeStrategy = active ? { ...nextStrategy, phase: active.execution_phase } : { ...nextStrategy, phase: receipt.execution_phase };
@@ -28218,6 +29020,7 @@ function extendPreflight(root2, input, options = {}) {
       change_set_id: active?.change_set_id ?? receipt.change_set_id,
       review_target_paths: active?.review_target_paths ?? receipt.review_target_paths,
       review_id: active?.review_id ?? receipt.review_id,
+      ...active?.controlled_recovery_grant_id === undefined ? receipt.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: receipt.controlled_recovery_grant_id } : { controlled_recovery_grant_id: active.controlled_recovery_grant_id },
       review_base: coverage?.target ?? nextBase
     };
     return {
@@ -28226,7 +29029,7 @@ function extendPreflight(root2, input, options = {}) {
       committed: result.committed,
       read_back_verified: options.dryRun ? true : result.read_back_verified,
       current_step: currentStepResult(stepPlan, activeStrategy),
-      context_projection: taskContextReferenceForCurrent(root2, next, "preflight-step", "repair"),
+      context_projection: taskContextReferenceForCurrent(root, next, "preflight-step", "repair"),
       receipt: repairReceipt
     };
   }
@@ -28236,7 +29039,7 @@ function extendPreflight(root2, input, options = {}) {
     committed: result.committed,
     read_back_verified: options.dryRun ? true : result.read_back_verified,
     current_step: currentStepResult(stepPlan, activeStrategy),
-    context_projection: taskContextReferenceForCurrent(root2, next, "preflight-step", "default"),
+    context_projection: taskContextReferenceForCurrent(root, next, "preflight-step", "default"),
     receipt: {
       kind: "execute-step-preflight/v1",
       ...active?.preflight_id ? { preflight_id: active.preflight_id } : { preflight_id: proposal.idempotency_key },
@@ -28363,7 +29166,7 @@ function assertObservedWithinExpected(command, observed) {
     fail7("COMMAND_OBSERVED_WRITE_BLOCKED", `command "${command.command}" wrote outside its prepared footprint: ${outside.join(", ")}.`);
   }
 }
-function assertCommandResults(root2, current, stepPlan, results, phase, mode) {
+function assertCommandResults(root, current, stepPlan, results, phase, mode) {
   assertExactResultSet(results.map((item) => item.command), stepPlan.commands.map((item) => item.command), "command_results");
   if (current.mutationAuthority) {
     for (const result of results) {
@@ -28371,7 +29174,7 @@ function assertCommandResults(root2, current, stepPlan, results, phase, mode) {
         continue;
       const planned = stepPlan.commands.find((item) => item.command === result.command);
       assertObservedWithinExpected(planned, result.observed_repo_writes);
-      assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`, root2, [], mode, phase);
+      assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`, root, [], mode, phase);
     }
     return;
   }
@@ -28381,7 +29184,7 @@ function assertCommandResults(root2, current, stepPlan, results, phase, mode) {
     if (result.status === "not-run")
       continue;
     assertObservedWithinExpected(planned, result.observed_repo_writes);
-    assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`, root2, [], mode, phase);
+    assertPathsAdmitted(current, stepPlan, result.observed_repo_writes, `observed writes for command "${result.command}"`, root, [], mode, phase);
     if (planned.expected_repo_writes === "none")
       continue;
     const audit = auditCommandMutation(scope, {
@@ -28409,10 +29212,10 @@ function allEvidenceRefs(commands, validations, acceptance) {
     ...acceptance.flatMap((item) => item.evidence_refs)
   ])];
 }
-function verifyReadBack(root2, result, options) {
+function verifyReadBack(root, result, options) {
   if (options.dryRun || result.status !== "success" && result.status !== "no-op")
     return result;
-  const readBack = readCanonicalCurrentTask(root2);
+  const readBack = readCanonicalCurrentTask(root);
   if (!result.read_back_verified || result.resulting_revision !== readBack.sourceTuple.revision) {
     fail7("EXECUTE_ADAPTER_READ_BACK_FAILED", "execute-step adapter could not verify the committed canonical CURRENT_TASK revision.");
   }
@@ -28450,7 +29253,7 @@ function semanticNoOp2(current, key, message, options) {
 function hasAppliedProposal2(current, key) {
   return current.runtimeState.applied_proposals.some((item) => item.idempotency_key === key);
 }
-function applyRepairAttempts(root2, current, receipt, evidenceRefs, keySeed, options) {
+function applyRepairAttempts(root, current, receipt, evidenceRefs, keySeed, options) {
   const fingerprints = receipt.kind === "execute-step-repair-preflight/v1" ? receipt.repair_fingerprints : [receipt.repair_fingerprint];
   const waveId = receipt.kind === "execute-step-repair-preflight/v1" ? receipt.repair_wave_id : `repair-wave-${digest5(keySeed).slice(0, 24)}`;
   let fresh = current;
@@ -28477,16 +29280,16 @@ function applyRepairAttempts(root2, current, receipt, evidenceRefs, keySeed, opt
       authority_evidence: authority2(fresh, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
       evidence_refs: evidenceRefs
     });
-    const result = verifyReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+    const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
     if (result.status !== "success" && result.status !== "no-op")
       return result;
     if (options.dryRun)
       continue;
-    fresh = readCanonicalCurrentTask(root2);
+    fresh = readCanonicalCurrentTask(root);
   }
   return options.dryRun ? current : fresh;
 }
-function recordStepResult(root2, input, options = {}) {
+function recordStepResult(root, input, options = {}) {
   const source = record6(input, "record-step-result input");
   exactKeys3(source, [
     "preflight_receipt",
@@ -28519,7 +29322,7 @@ function recordStepResult(root2, input, options = {}) {
   if (digest5(receipt.review_base.entries.map((item) => item.path)) !== digest5(expectedBasePaths)) {
     fail7("EXECUTE_PREFLIGHT_STALE", "preflight review base does not cover the exact review target path set.");
   }
-  const reviewTarget2 = captureReviewTarget(root2, reviewTargetPaths);
+  const reviewTarget2 = captureReviewTarget(root, reviewTargetPaths);
   const changeDelta = createReviewChangeDelta(receipt.review_base, reviewTarget2);
   const detectedChangedPaths = changeDelta.entries.map((item) => item.path);
   if (digest5([...actualChangedPaths].sort()) !== digest5(detectedChangedPaths)) {
@@ -28540,20 +29343,20 @@ function recordStepResult(root2, input, options = {}) {
     note
   };
   const resultKey = idempotencyKey("execute-step-result", resultKeySeed);
-  let current = readCanonicalCurrentTask(root2);
+  let current = readCanonicalCurrentTask(root);
   if (hasAppliedProposal2(current, resultKey)) {
     return semanticNoOp2(current, resultKey, "This exact execute-step result was already committed.", options);
   }
   assertExecutableTask(current);
   let stepPlan = currentStepPlan(current);
-  assertCurrentReceipt(root2, current, stepPlan, receipt);
+  assertCurrentReceipt(root, current, stepPlan, receipt);
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
-  assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, "preflight_receipt.candidate_paths", root2, [], receipt.mode, receipt.execution_phase);
-  assertPathsAdmitted(current, stepPlan, actualChangedPaths, "actual_changed_paths", root2, [], receipt.mode, receipt.execution_phase);
-  assertCommandResults(root2, current, stepPlan, commandResults, receipt.execution_phase, receipt.mode);
+  assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, "preflight_receipt.candidate_paths", root, [], receipt.mode, receipt.execution_phase);
+  assertPathsAdmitted(current, stepPlan, actualChangedPaths, "actual_changed_paths", root, [], receipt.mode, receipt.execution_phase);
+  assertCommandResults(root, current, stepPlan, commandResults, receipt.execution_phase, receipt.mode);
   assertValidationResults(stepPlan, validationResults);
-  assertExecutionResultWaivers(root2, current, stepPlan.step.id, { command_results: commandResults, validation_results: validationResults });
+  assertExecutionResultWaivers(root, current, stepPlan.step.id, { command_results: commandResults, validation_results: validationResults });
   if (outcome === "implemented" && commandResults.some((item) => item.status !== "passed" && item.status !== "expected-failure" && !item.waiver_decision_id)) {
     fail7("EXECUTE_RESULT_BLOCKED", "implemented requires passing commands or exact user-waived validation commands.");
   }
@@ -28614,7 +29417,7 @@ function recordStepResult(root2, input, options = {}) {
     blocker: outcome === "blocked" ? note : null
   };
   if (receipt.mode === "repair") {
-    const repairState = applyRepairAttempts(root2, current, receipt, evidenceRefs, resultKeySeed, options);
+    const repairState = applyRepairAttempts(root, current, receipt, evidenceRefs, resultKeySeed, options);
     if ("status" in repairState)
       return repairState;
     current = repairState;
@@ -28642,11 +29445,11 @@ function recordStepResult(root2, input, options = {}) {
     ...claimEvidence2 === undefined ? {} : { claim_evidence: claimEvidence2 },
     execution_result: executionResult
   });
-  return verifyReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
-function resolveVerifiedFindings(root2, current, receipt, options) {
+function resolveVerifiedFindings(root, current, receipt, options) {
   for (const fingerprint of receipt.admitted_fingerprints) {
-    const fresh = readCanonicalCurrentTask(root2);
+    const fresh = readCanonicalCurrentTask(root);
     const finding = fresh.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
     if (!finding)
       fail7("FINDING_NOT_FOUND", `review receipt finding ${fingerprint} is not in the current queue.`);
@@ -28666,11 +29469,11 @@ function resolveVerifiedFindings(root2, current, receipt, options) {
       authority_evidence: authority2(fresh, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
       evidence_refs: receipt.evidence_refs
     });
-    const result = verifyReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+    const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
     if (result.status !== "success" && result.status !== "no-op")
       return result;
   }
-  return options.dryRun ? current : readCanonicalCurrentTask(root2);
+  return options.dryRun ? current : readCanonicalCurrentTask(root);
 }
 function previewResolvedFindings(current, fingerprints) {
   const pending = new Set(fingerprints.filter((fingerprint) => current.runtimeState.findings.some((item) => item.fingerprint === fingerprint && item.status !== "resolved")));
@@ -28685,14 +29488,14 @@ function previewResolvedFindings(current, fingerprints) {
     }
   };
 }
-function completeReviewedStep(root2, input, options = {}) {
+function completeReviewedStep(root, input, options = {}) {
   const source = record6(input, "complete-reviewed-step input");
   exactKeys3(source, ["step_id", "note"], "complete-reviewed-step input");
   const stepId = text4(source.step_id, "step_id", 128);
   if (!SAFE_KEY_PATTERN3.test(stepId))
     fail7("EXECUTE_ADAPTER_INPUT_INVALID", "step_id is invalid.");
   const note = nullableText(source.note, "note");
-  let current = readCanonicalCurrentTask(root2);
+  let current = readCanonicalCurrentTask(root);
   const replay = currentDefinitionExecutionLog(current).find((item) => {
     if ("action" in item || item.step_id !== stepId || !item.review_receipt)
       return false;
@@ -28716,7 +29519,7 @@ function completeReviewedStep(root2, input, options = {}) {
     if (!reviewedExecution?.execution_result || reviewedExecution.change_set_id !== pending.change_set_id || reviewedExecution.execution_result.review_target.revision !== pending.review_target_revision) {
       fail7("REVIEW_TARGET_CONFLICT", "canonical clean review no longer binds its Runtime-recorded execution target.");
     }
-    const currentTarget = captureReviewTarget(root2, reviewedExecution.execution_result.review_target.entries.map((item) => item.path));
+    const currentTarget = captureReviewTarget(root, reviewedExecution.execution_result.review_target.entries.map((item) => item.path));
     if (currentTarget.revision !== pending.review_target_revision) {
       fail7("REVIEW_TARGET_STALE", "product files changed after the clean review was recorded.");
     }
@@ -28758,7 +29561,7 @@ function completeReviewedStep(root2, input, options = {}) {
       idempotency_key: resultKey,
       authority_evidence: authority2(current, ["active-task-owner", "scope-admission", "evidence-admission"])
     });
-    return verifyReadBack(root2, applyVNextRuntimeProposal(root2, proposal2, options), options);
+    return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal2, options), options);
   }
   const stepPlan = currentStepPlan(current);
   if (reviewReceipt.cycle_id !== current.runtimeState.review_cycle.id) {
@@ -28788,13 +29591,13 @@ function completeReviewedStep(root2, input, options = {}) {
   }
   const claimEvidence2 = current.runtimeState.claim_evidence;
   const resolution = resolveTaskStep(current.body, stepId);
-  const finalEvidenceContext = hasRemainingCorrectionTargets(current, stepId) ? { root: root2, current, due_step_id: stepId } : { root: root2, current };
+  const finalEvidenceContext = hasRemainingCorrectionTargets(current, stepId) ? { root, current, due_step_id: stepId } : { root, current };
   if (resolution.next === null && (!claimEvidence2 || !evaluateClaimEvidence(claimEvidence2, finalEvidenceContext).validation_complete)) {
     fail7("CLAIM_EVIDENCE_INCOMPLETE", "the final step cannot complete until every frozen acceptance-evidence slot has evidence.");
   }
   const sourceRevision = current.sourceTuple.revision;
   if (reviewReceipt.admitted_fingerprints.length > 0) {
-    const resolved = resolveVerifiedFindings(root2, current, reviewReceipt, options);
+    const resolved = resolveVerifiedFindings(root, current, reviewReceipt, options);
     if ("status" in resolved)
       return resolved;
     current = resolved;
@@ -28815,33 +29618,33 @@ function completeReviewedStep(root2, input, options = {}) {
     ...claimEvidence2 === undefined ? {} : { claim_evidence: claimEvidence2 }
   });
   if (previewedFindingResolution) {
-    if (readCanonicalCurrentTask(root2).sourceTuple.revision !== sourceRevision) {
+    if (readCanonicalCurrentTask(root).sourceTuple.revision !== sourceRevision) {
       fail7("SOURCE_TUPLE_MISMATCH", "CURRENT_TASK changed during reviewed-step dry-run; obtain fresh canonical state.");
     }
-    const preview = new GovernanceTransactionKernel(root2, () => current).apply(proposal, options);
+    const preview = new GovernanceTransactionKernel(root, () => current).apply(proposal, options);
     return preview.status === "success" ? { ...preview, resulting_revision: undefined, message: "Finding resolutions and reviewed-step completion validated against an in-memory dry-run state; no files were written." } : preview;
   }
-  return verifyReadBack(root2, applyVNextRuntimeProposal(root2, proposal, options), options);
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
 }
 function parseExecuteStepAdapterCli(argv) {
   const [command, ...rest] = argv;
   if (!EXECUTE_STEP_ADAPTER_COMMANDS.includes(command)) {
     throw new Error(`Usage: vnext-runtime <${EXECUTE_STEP_ADAPTER_COMMANDS.join("|")}> --root <path> [--dry-run] (semantic JSON on stdin)`);
   }
-  let root2 = process.cwd();
+  let root = process.cwd();
   let dryRun = false;
   for (let index = 0;index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === "--root")
-      root2 = rest[++index] ?? "";
+      root = rest[++index] ?? "";
     else if (arg === "--dry-run")
       dryRun = true;
     else
       throw new Error(`Unknown execute-step adapter argument: ${arg}`);
   }
-  if (!root2)
+  if (!root)
     throw new Error("--root requires a path.");
-  return { command, root: root2, dryRun };
+  return { command, root, dryRun };
 }
 function readSemanticStdin2(command) {
   const raw = !process.stdin.isTTY ? fs19.readFileSync(0, "utf8") : "";
@@ -28853,10 +29656,10 @@ function readSemanticStdin2(command) {
     throw new Error(`${command} stdin must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
-function validateInstalledRuntime2(root2) {
-  const runtimeManifest = path20.join(path20.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+function validateInstalledRuntime2(root) {
+  const runtimeManifest = path20.join(path20.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
   if (fs19.existsSync(runtimeManifest))
-    validateVNextRuntimeContract(root2, true);
+    validateVNextRuntimeContract(root, true);
 }
 async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
   try {
@@ -28881,7 +29684,7 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
         exactKeys3(source, ["preflight_receipt"], "apply-artifact-restore");
         const receipt = normalizePreflightReceipt(source.preflight_receipt);
         const current = readCanonicalCurrentTask(args.root);
-        assertCurrentReceipt(root, current, currentStepPlan(current), receipt);
+        assertCurrentReceipt(args.root, current, currentStepPlan(current), receipt);
         result = executeConfirmedArtifactRestore(args.root, current.sourceTuple.revision, receipt.step_id, receipt.candidate_paths, args.dryRun);
         break;
       }
@@ -28954,6 +29757,30 @@ function textList3(value, location2, allowEmpty) {
     fail8("REVIEW_ADAPTER_INPUT_INVALID", `${location2} must not contain duplicates.`);
   return normalized;
 }
+function normalizeFindingDispositions(value, location2, receipt, findings, unresolved, resolved) {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS3)
+    fail8("REVIEW_ADAPTER_INPUT_INVALID", `${location2} must be a bounded array.`);
+  const allowed = new Set([...findings.map((item) => item.fingerprint), ...unresolved]);
+  const normalized = value.map((item, index) => {
+    const raw = record7(item, `${location2}[${index}]`);
+    exactKeys4(raw, ["fingerprint", "disposition", "basis", "evidence_refs"], `${location2}[${index}]`);
+    const fingerprint = text5(raw.fingerprint, `${location2}[${index}].fingerprint`, 128);
+    if (!receipt.admitted_fingerprints.includes(fingerprint))
+      fail8("REVIEW_ADAPTER_INPUT_INVALID", `${location2}[${index}] must use a Runtime-admitted fingerprint.`);
+    if (resolved.includes(fingerprint) || !allowed.has(fingerprint))
+      fail8("REVIEW_ADAPTER_INPUT_INVALID", `${location2}[${index}] must describe an unresolved finding, not a resolved or unknown item.`);
+    const disposition = raw.disposition;
+    if (!REPAIR_FINDING_DISPOSITIONS.includes(disposition))
+      fail8("REVIEW_ADAPTER_INPUT_INVALID", `${location2}[${index}].disposition is invalid.`);
+    const basis = raw.basis;
+    if (!REPAIR_FINDING_DISPOSITION_BASES.includes(basis))
+      fail8("REVIEW_ADAPTER_INPUT_INVALID", `${location2}[${index}].basis is invalid.`);
+    return { fingerprint, disposition, basis, evidence_refs: textList3(raw.evidence_refs, `${location2}[${index}].evidence_refs`, false) };
+  }).sort((left, right) => left.fingerprint.localeCompare(right.fingerprint));
+  if (new Set(normalized.map((item) => item.fingerprint)).size !== normalized.length)
+    fail8("REVIEW_ADAPTER_INPUT_INVALID", `${location2} must not contain duplicate fingerprints.`);
+  return normalized;
+}
 function repoPath(value, location2) {
   const normalized = text5(value, location2, 1024).replace(/\\/gu, "/").replace(/^\.\//u, "");
   if (path21.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
@@ -28980,10 +29807,10 @@ function authority3(current, additionalKinds = []) {
     source_revision: current.sourceTuple.revision
   }));
 }
-function recordEvidenceChallenge(root2, input, options = {}) {
+function recordEvidenceChallenge(root, input, options = {}) {
   const source = record7(input, "record-evidence-challenge input");
   exactKeys4(source, ["claim_id", "slot_id", "result_id", "evidence_ref", "evidence_sha256", "reason"], "record-evidence-challenge input");
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   const challenge = {
     claim_id: text5(source.claim_id, "claim_id", 128),
     slot_id: text5(source.slot_id, "slot_id", 128),
@@ -29006,16 +29833,16 @@ function recordEvidenceChallenge(root2, input, options = {}) {
     idempotency_key: idempotencyKey2,
     authority_evidence: authority3(current)
   });
-  return applyVNextRuntimeProposal(root2, proposal, options);
+  return applyVNextRuntimeProposal(root, proposal, options);
 }
-function ingestEvidence(root2, input, options = {}) {
-  return withGovernanceWriteLock(root2, () => {
+function ingestEvidence(root, input, options = {}) {
+  return withGovernanceWriteLock(root, () => {
     const source = record7(input, "ingest-evidence input");
     exactKeys4(source, ["source_revision", "source_locator", "body"], "ingest-evidence input");
-    const current = readCanonicalCurrentTask(root2);
+    const current = readCanonicalCurrentTask(root);
     if (source.source_revision !== current.sourceTuple.revision)
       fail8("EVIDENCE_SOURCE_STALE", "Evidence ingestion must bind the exact current task revision.");
-    return { status: "success", evidence_assurance: "caller-reported", ...ingestEvidenceText(root2, current.filePath, {
+    return { status: "success", evidence_assurance: "caller-reported", ...ingestEvidenceText(root, current.filePath, {
       source_revision: current.sourceTuple.revision,
       task_id: current.runtimeState.task_id,
       document_id: current.sourceTuple.document_id,
@@ -29024,14 +29851,14 @@ function ingestEvidence(root2, input, options = {}) {
     }, options.dryRun === true) };
   });
 }
-function routeTaskInput(root2, input) {
+function routeTaskInput(root, input) {
   const source = record7(input, "route-input");
   exactKeys4(source, ["source_revision", "input_ref", "input_sha256", "relation", "operation", "reason"], "route-input");
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   if (source.source_revision !== current.sourceTuple.revision)
     fail8("INPUT_SOURCE_STALE", "Input routing must bind the current task.");
   const ref = repoPath(source.input_ref, "input_ref");
-  if (describeEvidenceObjects(root2, [ref])[0]?.sha256 !== source.input_sha256)
+  if (describeEvidenceObjects(root, [ref])[0]?.sha256 !== source.input_sha256)
     fail8("INPUT_EVIDENCE_STALE", "Input material changed.");
   if (!["unrelated", "current-task"].includes(String(source.relation)) || !["review-conclusion", "recover-execution", "change-goal", "change-acceptance", "expand-authority", "other"].includes(String(source.operation)))
     fail8("INPUT_ROUTE_INVALID", "Unknown relation or requested operation.");
@@ -29053,10 +29880,10 @@ function routeTaskInput(root2, input) {
     receipt_digest: digest6({ source_tuple: current.sourceTuple, input: source, route })
   };
 }
-function dismissEvidenceChallenge(root2, input, options = {}) {
+function dismissEvidenceChallenge(root, input, options = {}) {
   const source = record7(input, "dismiss-evidence-challenge input");
   exactKeys4(source, ["challenge_id", "evidence_ref", "evidence_sha256", "reason"], "dismiss-evidence-challenge input");
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   const assessment = {
     challenge_id: text5(source.challenge_id, "challenge_id", 128),
     evidence_ref: repoPath(source.evidence_ref, "evidence_ref"),
@@ -29077,7 +29904,7 @@ function dismissEvidenceChallenge(root2, input, options = {}) {
     idempotency_key: idempotencyKey2,
     authority_evidence: authority3(current)
   });
-  return applyVNextRuntimeProposal(root2, proposal, options);
+  return applyVNextRuntimeProposal(root, proposal, options);
 }
 function latestRecordedExecution(current) {
   const records = currentDefinitionExecutionLog(current).filter((item) => !("action" in item) && item.step_id === current.runtimeState.active_step_id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined);
@@ -29193,8 +30020,8 @@ function claimEvidenceSummary(value) {
     slots_truncated: value.slots.length > MAX_CONTEXT_ENTRIES
   };
 }
-function eventReference(root2, current, idempotencyKey2) {
-  const store = TaskStore.forCurrent(root2, current);
+function eventReference(root, current, idempotencyKey2) {
+  const store = TaskStore.forCurrent(root, current);
   if (!store.manifest)
     return null;
   const match = store.lookupIdempotency(idempotencyKey2);
@@ -29263,13 +30090,13 @@ function copyExecutionResult(value) {
     blocker: value.blocker
   };
 }
-function reviewContext(root2, input) {
+function reviewContext(root, input) {
   const source = record7(input, "review-context input");
   exactKeys4(source, [], "review-context input");
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
   const execution = latestRecordedExecution(current);
-  const currentTarget = captureReviewTarget(root2, execution.execution_result.review_target.entries.map((item) => item.path));
+  const currentTarget = captureReviewTarget(root, execution.execution_result.review_target.entries.map((item) => item.path));
   if (currentTarget.revision !== execution.execution_result.review_target.revision) {
     fail8("REVIEW_TARGET_STALE", "product files changed after the latest execution result was recorded.");
   }
@@ -29329,7 +30156,7 @@ function reviewContext(root2, input) {
       evidence_ref_count: executionEvidenceRefs.total,
       evidence_refs_truncated: executionEvidenceRefs.truncated,
       execution_result: executionResult,
-      event_reference: eventReference(root2, current, execution.idempotency_key)
+      event_reference: eventReference(root, current, execution.idempotency_key)
     },
     current_step: {
       id: resolution.current.id,
@@ -29357,7 +30184,7 @@ function reviewContext(root2, input) {
     planned_mutation_targets: plannedMutationTargets,
     expanded_mutation_targets: expandedMutationTargets.values,
     dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
-    text_diff: execution.execution_result.change_delta.entries.length ? reviewFilePage(root2, current, execution, execution.execution_result.change_delta.entries[0].path, "diff", {}) : null,
+    text_diff: execution.execution_result.change_delta.entries.length ? reviewFilePage(root, current, execution, execution.execution_result.change_delta.entries[0].path, "diff", {}) : null,
     unexpanded_paths: unexpandedPaths.values,
     unexpanded_path_count: unexpandedPaths.total,
     unexpanded_paths_truncated: unexpandedPaths.truncated,
@@ -29380,11 +30207,11 @@ function reviewContext(root2, input) {
     admitted_findings_truncated: admittedFindings.truncated,
     complete_for_operation: requiredUnexpanded.length === 0,
     required_unexpanded: requiredUnexpanded,
-    context_projection: taskContextReferenceForCurrent(root2, current, "review-context", "review"),
+    context_projection: taskContextReferenceForCurrent(root, current, "review-context", "review"),
     receipt
   };
 }
-function reviewFilePage(root2, current, execution, file2, view, input) {
+function reviewFilePage(root, current, execution, file2, view, input) {
   if (!["before", "after", "diff"].includes(view))
     fail8("CONTEXT_INPUT_INVALID", "view must be before, after or diff.");
   const target = execution.execution_result.review_target.entries.find((item) => item.path === file2);
@@ -29400,14 +30227,14 @@ function reviewFilePage(root2, current, execution, file2, view, input) {
   if (preimage?.state === "file") {
     try {
       const legacy = Object.prototype.hasOwnProperty.call(preimage, "content_base64") ? decodeLegacyReviewPreimage(preimage) : null;
-      before = legacy?.content ?? readReviewPreimageBlob(root2, preimage.sha256);
+      before = legacy?.content ?? readReviewPreimageBlob(root, preimage.sha256);
     } catch (error) {
       if (error instanceof ReviewPreimageStoreError)
         fail8(error.code, error.message);
       throw error;
     }
   }
-  const after = target.state === "file" ? fs20.readFileSync(contextPath(root2, file2).absolute) : Buffer.alloc(0);
+  const after = target.state === "file" ? fs20.readFileSync(contextPath(root, file2).absolute) : Buffer.alloc(0);
   if (target.state === "file" && sha2569(after) !== target.sha256)
     fail8("REVIEW_TARGET_STALE", "file changed while reading review context.");
   if (preimage?.state === "file" && sha2569(before) !== preimage.sha256)
@@ -29427,18 +30254,18 @@ function reviewFilePage(root2, current, execution, file2, view, input) {
     return { ...base, content_status: "diff-budget-exceeded", next_read: ["before", "after"] };
   return { ...base, content_status: "text", before_state: preimage?.state ?? null, after_state: target.state, ...textPage(text6, input) };
 }
-function reviewRead(root2, input) {
+function reviewRead(root, input) {
   const value = contextInput(input, ["context_receipt", "path", "view", "offset", "max_bytes", "start_line", "end_line"]);
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
   const receipt = normalizeContextReceipt(value.context_receipt);
-  const execution = assertCurrentContext(root2, current, receipt);
+  const execution = assertCurrentContext(root, current, receipt);
   const file2 = repoPath(value.path, "path");
   return {
     status: "pass",
     operation_kind: "review-read",
     committed: false,
-    ...reviewFilePage(root2, current, execution, file2, String(value.view ?? "diff"), value)
+    ...reviewFilePage(root, current, execution, file2, String(value.view ?? "diff"), value)
   };
 }
 function normalizeContextReceipt(value) {
@@ -29463,17 +30290,17 @@ function normalizeContextReceipt(value) {
     admitted_fingerprints: textList3(source.admitted_fingerprints, "context_receipt.admitted_fingerprints", true)
   };
 }
-function assertCurrentContext(root2, current, receipt) {
+function assertCurrentContext(root, current, receipt) {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id)
     fail8("REVIEW_CONTEXT_STALE", "review context belongs to a different task document.");
-  if (!taskSourceRevisionMatches(root2, current, receipt.source_revision))
+  if (!taskSourceRevisionMatches(root, current, receipt.source_revision))
     fail8("REVIEW_CONTEXT_STALE", "CURRENT_TASK changed after review context was issued.");
   if (receipt.step_id !== current.runtimeState.active_step_id || receipt.cycle_id !== current.runtimeState.review_cycle.id)
     fail8("REVIEW_CONTEXT_STALE", "active step or review cycle changed after review context was issued.");
   const latest = latestRecordedExecution(current);
   if (latest.idempotency_key !== receipt.execution_id)
     fail8("REVIEW_CONTEXT_STALE", "recorded execution changed after review context was issued.");
-  const currentTarget = captureReviewTarget(root2, latest.execution_result.review_target.entries.map((item) => item.path));
+  const currentTarget = captureReviewTarget(root, latest.execution_result.review_target.entries.map((item) => item.path));
   if (currentTarget.revision !== latest.execution_result.review_target.revision) {
     fail8("REVIEW_TARGET_STALE", "product files changed after review context was issued.");
   }
@@ -29486,18 +30313,18 @@ function assertCurrentContext(root2, current, receipt) {
   }
   return cumulativeReviewExecution(current, latest);
 }
-function assertRecordedTargetCurrent(root2, current, receipt) {
+function assertRecordedTargetCurrent(root, current, receipt) {
   const execution = current.runtimeState.execution_log.map((item) => ("action" in item) ? item : cumulativeReviewExecution(current, item)).find((item) => !("action" in item) && item.idempotency_key === receipt.execution_id);
   if (!execution?.execution_result || !execution.change_set_id || execution.execution_result.change_set_id !== execution.change_set_id) {
     fail8("REVIEW_TARGET_CONFLICT", "review result no longer binds its Runtime-recorded execution target.");
   }
-  const currentTarget = captureReviewTarget(root2, execution.execution_result.review_target.entries.map((item) => item.path));
+  const currentTarget = captureReviewTarget(root, execution.execution_result.review_target.entries.map((item) => item.path));
   if (currentTarget.revision !== execution.execution_result.review_target.revision) {
     fail8("REVIEW_TARGET_STALE", "product files changed after the recorded execution target.");
   }
   return execution;
 }
-function normalizeFinding(value, index, current, root2) {
+function normalizeFinding(value, index, current, root) {
   const source = record7(value, `findings[${index}]`);
   exactKeys4(source, ["category", "file", "failure_condition", "required_behavior", "root_cause_status", "evidence_refs"], `findings[${index}]`);
   if (source.root_cause_status !== "confirmed" && source.root_cause_status !== "bounded")
@@ -29514,14 +30341,14 @@ function normalizeFinding(value, index, current, root2) {
   if (current.mutationAuthority) {
     let project;
     try {
-      project = readProjectMutationAuthority(root2);
+      project = readProjectMutationAuthority(root);
     } catch (error) {
       fail8(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
     }
     if (!project)
       fail8("MUTATION_AUTHORITY_PROJECT_REQUIRED", "v2 review requires PROJECT_PROFILE.yaml.mutation_authority.domains.");
     const authorityDecision = evaluateMutationAuthority({
-      root: root2,
+      root,
       project,
       task: current.mutationAuthority,
       candidate_paths: [candidate.file],
@@ -29559,22 +30386,33 @@ function convergenceBlocker(current, receipt, findings, unresolved, resolved) {
   if (activeFindings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
     return { code: "NEW_FINDING_WAVE_BUDGET_EXHAUSTED", summary: "Verification found another new-finding wave after the one allowed wave was already used.", next_route: "debug-task" };
   }
-  if (current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle) && (activeFindings.length > 0 || activeUnresolved.length > 0)) {
-    return { code: "REPAIR_BUDGET_EXHAUSTED", summary: "The current review cycle has exhausted its repair-wave budget.", next_route: "debug-task" };
+  const currentRoundLimit = repairRoundLimit(current.runtimeState.review_cycle);
+  if (current.runtimeState.review_cycle.repair_round >= currentRoundLimit && (activeFindings.length > 0 || activeUnresolved.length > 0)) {
+    const absolute = currentRoundLimit >= MAX_EXTENDED_REPAIR_ROUNDS;
+    return {
+      code: "REPAIR_BUDGET_EXHAUSTED",
+      summary: absolute ? `The current review cycle reached the absolute repair-round limit of ${MAX_EXTENDED_REPAIR_ROUNDS}; no ordinary budget extension is executable.` : "The current review cycle has exhausted its repair-wave budget.",
+      next_route: "debug-task"
+    };
   }
   const exhausted = activeUnresolved.filter((fingerprint) => {
     const finding = current.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
     return finding !== undefined && finding.repair_attempts >= finding.max_repair_attempts;
   });
   if (exhausted.length > 0) {
-    return { code: "REPAIR_BUDGET_EXHAUSTED", summary: `Findings exhausted their repair-attempt budget: ${exhausted.join(", ")}.`, next_route: "debug-task" };
+    const absolute = exhausted.filter((fingerprint) => current.runtimeState.findings.find((item) => item.fingerprint === fingerprint)?.max_repair_attempts === MAX_EXTENDED_REPAIR_ATTEMPTS);
+    return {
+      code: "REPAIR_BUDGET_EXHAUSTED",
+      summary: absolute.length > 0 ? `Findings reached the absolute repair-attempt limit of ${MAX_EXTENDED_REPAIR_ATTEMPTS}: ${absolute.join(", ")}; no ordinary budget extension is executable.` : `Findings exhausted their repair-attempt budget: ${exhausted.join(", ")}.`,
+      next_route: "debug-task"
+    };
   }
   return null;
 }
-function verifyReadBack2(root2, result, reviewId, options) {
+function verifyReadBack2(root, result, reviewId, options) {
   if (options.dryRun || result.status !== "success" && result.status !== "no-op")
     return result;
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   if (!result.read_back_verified || current.runtimeState.pending_review_result?.review_id !== reviewId || result.resulting_revision !== current.sourceTuple.revision) {
     fail8("REVIEW_ADAPTER_READ_BACK_FAILED", "review-change adapter could not verify the durable pending review result.");
   }
@@ -29609,19 +30447,19 @@ function semanticNoOp3(current, key, message, options) {
     }
   };
 }
-function recordReviewResult(root2, input, options = {}) {
+function recordReviewResult(root, input, options = {}) {
   const source = record7(input, "record-review-result input");
-  exactKeys4(source, ["context_receipt", "verdict", "findings", "unresolved_fingerprints", ...source.resolved_fingerprints === undefined ? [] : ["resolved_fingerprints"], "evidence_refs", "blocker", ...source.test_assessment === undefined ? [] : ["test_assessment"]], "record-review-result input");
+  exactKeys4(source, ["context_receipt", "verdict", "findings", "unresolved_fingerprints", ...source.resolved_fingerprints === undefined ? [] : ["resolved_fingerprints"], ...source.finding_dispositions === undefined ? [] : ["finding_dispositions"], "evidence_refs", "blocker", ...source.test_assessment === undefined ? [] : ["test_assessment"]], "record-review-result input");
   const receipt = normalizeContextReceipt(source.context_receipt);
   if (!["clean", "findings", "blocked"].includes(String(source.verdict)))
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "verdict must be clean, findings, or blocked.");
   const verdict = source.verdict;
-  const current = readCanonicalCurrentTask(root2);
+  const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
-  const recordedExecution = assertRecordedTargetCurrent(root2, current, receipt);
+  const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
   if (!Array.isArray(source.findings) || source.findings.length > MAX_ITEMS3)
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "findings must be a bounded array.");
-  const findings = source.findings.map((item, index) => normalizeFinding(item, index, current, root2));
+  const findings = source.findings.map((item, index) => normalizeFinding(item, index, current, root));
   if (new Set(findings.map((item) => item.fingerprint)).size !== findings.length)
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "findings must not contain duplicates.");
   const unresolved = textList3(source.unresolved_fingerprints, "unresolved_fingerprints", true);
@@ -29634,7 +30472,11 @@ function recordReviewResult(root2, input, options = {}) {
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "resolved_fingerprints must not overlap unresolved_fingerprints.");
   if (resolved.some((item) => findings.some((finding) => finding.fingerprint === item)))
     fail8("REVIEW_ADAPTER_INPUT_INVALID", "resolved_fingerprints must not overlap findings.");
+  const findingDispositions = source.finding_dispositions === undefined ? undefined : normalizeFindingDispositions(source.finding_dispositions, "finding_dispositions", receipt, findings, unresolved, resolved);
   const evidenceRefs = textList3(source.evidence_refs, "evidence_refs", false);
+  if (findingDispositions && !findingDispositions.flatMap((item) => item.evidence_refs).every((ref) => evidenceRefs.includes(ref))) {
+    fail8("REVIEW_ADAPTER_INPUT_INVALID", "evidence_refs must cover every finding disposition evidence reference.");
+  }
   let blocker;
   if (source.blocker === null)
     blocker = null;
@@ -29656,7 +30498,7 @@ function recordReviewResult(root2, input, options = {}) {
   const finalFindings = findings;
   const finalUnresolved = unresolved;
   const finalBlocker = runtimeBlocker ?? blocker;
-  const reviewId = `review-${digest6({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, resolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
+  const reviewId = `review-${digest6({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, resolved, finding_dispositions: findingDispositions ?? null, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult = {
     ...source.test_assessment === undefined ? {} : { test_assessment: validateTestAssessment(source.test_assessment) },
     kind: "review-result/v1",
@@ -29671,6 +30513,7 @@ function recordReviewResult(root2, input, options = {}) {
     findings: finalFindings,
     unresolved_fingerprints: finalUnresolved,
     resolved_fingerprints: resolved,
+    ...findingDispositions === undefined ? {} : { finding_dispositions: findingDispositions },
     evidence_refs: evidenceRefs,
     blocker: finalBlocker
   };
@@ -29681,33 +30524,33 @@ function recordReviewResult(root2, input, options = {}) {
       fail8("REVIEW_REPLAY_CONFLICT", "the durable review id is bound to different review semantics.");
     return semanticNoOp3(current, resultKey, "This exact review result was already recorded.", options);
   }
-  assertCurrentContext(root2, current, receipt);
+  assertCurrentContext(root, current, receipt);
   const proposal = createReviewResultProposal(current, {
     review_result: reviewResult,
     evidence_refs: evidenceRefs,
     idempotency_key: resultKey,
     authority_evidence: authority3(current, resolved.length > 0 ? ["finding-admission"] : [])
   });
-  return verifyReadBack2(root2, applyVNextRuntimeProposal(root2, proposal, options), reviewId, options);
+  return verifyReadBack2(root, applyVNextRuntimeProposal(root, proposal, options), reviewId, options);
 }
 function parseCli2(argv) {
   const [command, ...rest] = argv;
   if (!REVIEW_CHANGE_ADAPTER_COMMANDS.includes(command))
     throw new Error(`Usage: vnext-runtime <${REVIEW_CHANGE_ADAPTER_COMMANDS.join("|")}> --root <path> [--dry-run] (semantic JSON on stdin)`);
-  let root2 = process.cwd();
+  let root = process.cwd();
   let dryRun = false;
   for (let index = 0;index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === "--root")
-      root2 = rest[++index] ?? "";
+      root = rest[++index] ?? "";
     else if (arg === "--dry-run")
       dryRun = true;
     else
       throw new Error(`Unknown review-change adapter argument: ${arg}`);
   }
-  if (!root2)
+  if (!root)
     throw new Error("--root requires a path.");
-  return { command, root: root2, dryRun };
+  return { command, root, dryRun };
 }
 function readSemanticStdin3(command) {
   const raw = !process.stdin.isTTY ? fs20.readFileSync(0, "utf8") : "";
@@ -29719,10 +30562,10 @@ function readSemanticStdin3(command) {
     throw new Error(`${command} stdin must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
-function validateInstalledRuntime3(root2) {
-  const runtimeManifest = path21.join(path21.resolve(root2), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+function validateInstalledRuntime3(root) {
+  const runtimeManifest = path21.join(path21.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
   if (fs20.existsSync(runtimeManifest))
-    validateVNextRuntimeContract(root2, true);
+    validateVNextRuntimeContract(root, true);
 }
 async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
   try {
@@ -29761,10 +30604,10 @@ async function runFileContextCli(args) {
     validateRuntimeEnvironment();
     if (args.length !== 2 || args[0] !== "--root" || !args[1])
       throw new Error("Usage: file-context --root <project> (JSON on stdin)");
-    const root2 = path22.resolve(args[1]);
-    if (fs21.existsSync(path22.join(root2, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
-      validateVNextRuntimeContract(root2, true);
-    const result = await fileContext(root2, JSON.parse(fs21.readFileSync(0, "utf8")));
+    const root = path22.resolve(args[1]);
+    if (fs21.existsSync(path22.join(root, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
+      validateVNextRuntimeContract(root, true);
+    const result = await fileContext(root, JSON.parse(fs21.readFileSync(0, "utf8")));
     console.log(JSON.stringify(result, null, 2));
     return result.status === "partial" ? 2 : 0;
   } catch (error) {

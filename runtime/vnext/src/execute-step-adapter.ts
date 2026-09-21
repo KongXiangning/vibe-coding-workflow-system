@@ -51,6 +51,8 @@ import {
   executionPhaseForCurrentStep,
   currentExecutionDynamicExpansions,
   dynamicReviewRequiredForCurrentExecution,
+  controlledRepairContinuationForPendingReview,
+  repairWaveIdForRepairSet,
   validateRuntimeEnvironment,
   validateRuntimeReviewTarget,
   validateVNextRuntimeContract,
@@ -157,6 +159,7 @@ export type ExecuteStepRepairPreflightReceipt = {
   review_target_paths: string[];
   review_id: string;
   review_base: ReviewTarget;
+  controlled_recovery_grant_id?: string;
 };
 
 type AnyExecuteStepPreflightReceipt = ExecuteStepPreflightReceipt | ExecuteStepRepairPreflightReceipt;
@@ -572,6 +575,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       'review_target_paths',
       'review_id',
       'review_base',
+      ...(source.controlled_recovery_grant_id === undefined ? [] : ['controlled_recovery_grant_id']),
     ], 'preflight_receipt');
     if (source.mode !== 'repair') fail('EXECUTE_ADAPTER_INPUT_INVALID', 'repair preflight receipt mode must be repair.');
     const sourceRevision = text(source.source_revision, 'preflight_receipt.source_revision', 64);
@@ -596,6 +600,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       review_target_paths: pathList(source.review_target_paths, 'preflight_receipt.review_target_paths', true),
       review_id: text(source.review_id, 'preflight_receipt.review_id', 128),
       review_base: validateRuntimeReviewTarget(source.review_base, 'preflight_receipt.review_base'),
+      ...(source.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: text(source.controlled_recovery_grant_id, 'preflight_receipt.controlled_recovery_grant_id', 128) }),
     };
   }
   exactKeys(source, [
@@ -696,6 +701,9 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
         || activePreflight.change_set_id !== receipt.change_set_id)) {
       fail('EXECUTE_PREFLIGHT_STALE', 'the repair receipt does not bind the current Runtime repair identity.');
     }
+    if (receipt.mode === 'repair' && activePreflight.controlled_recovery_grant_id !== receipt.controlled_recovery_grant_id) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'the repair receipt does not bind the current controlled recovery grant identity.');
+    }
   }
   if (receipt.kind === 'execute-step-repair-preflight/v1') {
     if (current.runtimeState.pending_review_result?.review_id !== receipt.review_id
@@ -717,10 +725,6 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
 
 function findingAdmissionWaveId(reviewId: string): string {
   return `finding-wave-${digest(reviewId).slice(0, 32)}`;
-}
-
-function repairWaveId(reviewId: string, fingerprints: readonly string[]): string {
-  return `repair-wave-${digest({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
 }
 
 function currentStepResult(stepPlan: StepPlan, strategy: TestStrategyExecutionContext): ExecuteStepPreflightResult['current_step'] {
@@ -757,7 +761,8 @@ export function beginRepair(
   assertExecutableTask(current);
   const pending = current.runtimeState.pending_review_result;
   const budgetContinuation = repairBudgetContinuationForPendingReview(current);
-  if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null)) {
+  const controlledContinuation = controlledRepairContinuationForPendingReview(current);
+  if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null && controlledContinuation === null)) {
     fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires findings or an explicitly authorized continuation of the exact budget-blocked review.');
   }
   const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item
@@ -797,6 +802,7 @@ export function beginRepair(
     ? reviewCycleForNextStep(current.runtimeState.review_cycle.id, pending.step_id, previousStepCompletion.idempotency_key).id
     : current.runtimeState.review_cycle.id;
   for (const candidate of pending.findings) {
+    if (pending.finding_dispositions?.some(item => item.fingerprint === candidate.fingerprint && item.disposition === 'defer')) continue;
     if (!candidatePaths.includes(candidate.file)) {
       fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', `candidate_paths must include review finding path ${candidate.file}.`);
     }
@@ -846,16 +852,20 @@ export function beginRepair(
   if (budgetContinuation && budgetContinuation.finding_fingerprints.some(fingerprint => !fingerprints.includes(fingerprint))) {
     fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'the retained budget extension is not covered by the current review repair set.');
   }
+  if (controlledContinuation) {
+    if (digest(controlledContinuation.repair_fingerprints) !== digest(fingerprints)) fail('CONTROLLED_RECOVERY_TARGET_INVALID', 'the active controlled recovery grant is not bound to the complete latest review repair set.');
+  }
   for (const fingerprint of fingerprints) {
     const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
     if (!options.dryRun && (!finding || !['admitted', 'in-progress'].includes(finding.status))) {
       fail('FINDING_ADMISSION_REQUIRED', `review finding ${fingerprint} is not repairable.`);
     }
-    if (!options.dryRun && finding!.repair_attempts >= finding!.max_repair_attempts) {
+    if (!options.dryRun && finding!.repair_attempts >= finding!.max_repair_attempts
+      && (!controlledContinuation || !controlledContinuation.recovery_fingerprints.includes(fingerprint))) {
       fail('REPAIR_BUDGET_EXHAUSTED', `finding ${fingerprint} has exhausted its repair budget.`);
     }
   }
-  const waveId = repairWaveId(pending.review_id, fingerprints);
+  const waveId = repairWaveIdForRepairSet(pending.review_id, fingerprints);
   const reviewTargetPaths = [...new Set([
     ...reviewedExecution.execution_result.review_target.entries.map(item => item.path),
     ...candidatePaths,
@@ -869,6 +879,7 @@ export function beginRepair(
     review_id: pending.review_id,
     review_target_paths: reviewedExecution.execution_result.review_target.entries.map(item => item.path),
     change_set_id: pending.change_set_id,
+    ...(controlledContinuation ? { controlled_recovery_grant_id: controlledContinuation.grant_id } : {}),
   });
   const preflightResult = verifyReadBack(root, applyVNextRuntimeProposal(root, preflightProposal, options), options);
   if (preflightResult.status !== 'success' && preflightResult.status !== 'no-op') fail('PREFLIGHT_BLOCKED', preflightResult.message);
@@ -892,6 +903,7 @@ export function beginRepair(
     change_set_id: executionPreflight?.change_set_id ?? pending.change_set_id,
     review_target_paths: executionPreflight?.review_target_paths ?? reviewedExecution.execution_result.review_target.entries.map(item => item.path),
     review_id: executionPreflight?.review_id ?? pending.review_id,
+    ...(executionPreflight?.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: executionPreflight.controlled_recovery_grant_id }),
     review_base: captureReviewTarget(root, reviewTargetPaths),
   };
   return {
@@ -1167,6 +1179,7 @@ export function extendPreflight(
       change_set_id: active?.change_set_id ?? receipt.change_set_id,
       review_target_paths: active?.review_target_paths ?? receipt.review_target_paths,
       review_id: active?.review_id ?? receipt.review_id,
+      ...(active?.controlled_recovery_grant_id === undefined ? (receipt.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: receipt.controlled_recovery_grant_id }) : { controlled_recovery_grant_id: active.controlled_recovery_grant_id }),
       review_base: coverage?.target ?? nextBase,
     };
     return {
@@ -1937,7 +1950,7 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
         exactKeys(source, ['preflight_receipt'], 'apply-artifact-restore');
         const receipt = normalizePreflightReceipt(source.preflight_receipt);
         const current = readCanonicalCurrentTask(args.root);
-        assertCurrentReceipt(root, current, currentStepPlan(current), receipt);
+        assertCurrentReceipt(args.root, current, currentStepPlan(current), receipt);
         result = executeConfirmedArtifactRestore(args.root, current.sourceTuple.revision, receipt.step_id, receipt.candidate_paths, args.dryRun);
         break;
       }

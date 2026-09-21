@@ -14,7 +14,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   taskSourceRevisionMatches,
+  REPAIR_FINDING_DISPOSITION_BASES,
+  REPAIR_FINDING_DISPOSITIONS,
   repairRoundLimit,
+  MAX_EXTENDED_REPAIR_ATTEMPTS,
+  MAX_EXTENDED_REPAIR_ROUNDS,
   VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH,
   VNextRuntimeError,
   applyVNextRuntimeProposal,
@@ -187,6 +191,32 @@ function textList(value: unknown, location: string, allowEmpty: boolean): string
   }
   const normalized = value.map((item, index) => text(item, `${location}[${index}]`));
   if (new Set(normalized).size !== normalized.length) fail('REVIEW_ADAPTER_INPUT_INVALID', `${location} must not contain duplicates.`);
+  return normalized;
+}
+
+function normalizeFindingDispositions(
+  value: unknown,
+  location: string,
+  receipt: ReviewContextReceipt,
+  findings: readonly ReviewFindingCandidate[],
+  unresolved: readonly string[],
+  resolved: readonly string[],
+): Array<{ fingerprint: string; disposition: 'must-fix' | 'normal-fix' | 'defer'; basis: 'acceptance' | 'critical-invariant' | 'release-gate' | 'risk-reduction' | 'user-decision'; evidence_refs: string[] }> {
+  if (!Array.isArray(value) || value.length > MAX_ITEMS) fail('REVIEW_ADAPTER_INPUT_INVALID', `${location} must be a bounded array.`);
+  const allowed = new Set([...findings.map(item => item.fingerprint), ...unresolved]);
+  const normalized = value.map((item, index) => {
+    const raw = record(item, `${location}[${index}]`);
+    exactKeys(raw, ['fingerprint', 'disposition', 'basis', 'evidence_refs'], `${location}[${index}]`);
+    const fingerprint = text(raw.fingerprint, `${location}[${index}].fingerprint`, 128);
+    if (!receipt.admitted_fingerprints.includes(fingerprint)) fail('REVIEW_ADAPTER_INPUT_INVALID', `${location}[${index}] must use a Runtime-admitted fingerprint.`);
+    if (resolved.includes(fingerprint) || !allowed.has(fingerprint)) fail('REVIEW_ADAPTER_INPUT_INVALID', `${location}[${index}] must describe an unresolved finding, not a resolved or unknown item.`);
+    const disposition = raw.disposition;
+    if (!REPAIR_FINDING_DISPOSITIONS.includes(disposition as typeof REPAIR_FINDING_DISPOSITIONS[number])) fail('REVIEW_ADAPTER_INPUT_INVALID', `${location}[${index}].disposition is invalid.`);
+    const basis = raw.basis;
+    if (!REPAIR_FINDING_DISPOSITION_BASES.includes(basis as typeof REPAIR_FINDING_DISPOSITION_BASES[number])) fail('REVIEW_ADAPTER_INPUT_INVALID', `${location}[${index}].basis is invalid.`);
+    return { fingerprint, disposition: disposition as 'must-fix' | 'normal-fix' | 'defer', basis: basis as 'acceptance' | 'critical-invariant' | 'release-gate' | 'risk-reduction' | 'user-decision', evidence_refs: textList(raw.evidence_refs, `${location}[${index}].evidence_refs`, false) };
+  }).sort((left, right) => left.fingerprint.localeCompare(right.fingerprint));
+  if (new Set(normalized.map(item => item.fingerprint)).size !== normalized.length) fail('REVIEW_ADAPTER_INPUT_INVALID', `${location} must not contain duplicate fingerprints.`);
   return normalized;
 }
 
@@ -789,15 +819,30 @@ function convergenceBlocker(
   if (activeFindings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
     return { code: 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED', summary: 'Verification found another new-finding wave after the one allowed wave was already used.', next_route: 'debug-task' };
   }
-  if (current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle) && (activeFindings.length > 0 || activeUnresolved.length > 0)) {
-    return { code: 'REPAIR_BUDGET_EXHAUSTED', summary: 'The current review cycle has exhausted its repair-wave budget.', next_route: 'debug-task' };
+  const currentRoundLimit = repairRoundLimit(current.runtimeState.review_cycle);
+  if (current.runtimeState.review_cycle.repair_round >= currentRoundLimit && (activeFindings.length > 0 || activeUnresolved.length > 0)) {
+    const absolute = currentRoundLimit >= MAX_EXTENDED_REPAIR_ROUNDS;
+    return {
+      code: 'REPAIR_BUDGET_EXHAUSTED',
+      summary: absolute
+        ? `The current review cycle reached the absolute repair-round limit of ${MAX_EXTENDED_REPAIR_ROUNDS}; no ordinary budget extension is executable.`
+        : 'The current review cycle has exhausted its repair-wave budget.',
+      next_route: 'debug-task',
+    };
   }
   const exhausted = activeUnresolved.filter(fingerprint => {
     const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
     return finding !== undefined && finding.repair_attempts >= finding.max_repair_attempts;
   });
   if (exhausted.length > 0) {
-    return { code: 'REPAIR_BUDGET_EXHAUSTED', summary: `Findings exhausted their repair-attempt budget: ${exhausted.join(', ')}.`, next_route: 'debug-task' };
+    const absolute = exhausted.filter(fingerprint => current.runtimeState.findings.find(item => item.fingerprint === fingerprint)?.max_repair_attempts === MAX_EXTENDED_REPAIR_ATTEMPTS);
+    return {
+      code: 'REPAIR_BUDGET_EXHAUSTED',
+      summary: absolute.length > 0
+        ? `Findings reached the absolute repair-attempt limit of ${MAX_EXTENDED_REPAIR_ATTEMPTS}: ${absolute.join(', ')}; no ordinary budget extension is executable.`
+        : `Findings exhausted their repair-attempt budget: ${exhausted.join(', ')}.`,
+      next_route: 'debug-task',
+    };
   }
   return null;
 }
@@ -843,7 +888,7 @@ function semanticNoOp(current: CanonicalCurrentTask, key: string, message: strin
 
 export function recordReviewResult(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input, 'record-review-result input');
-  exactKeys(source, ['context_receipt', 'verdict', 'findings', 'unresolved_fingerprints', ...(source.resolved_fingerprints === undefined ? [] : ['resolved_fingerprints']), 'evidence_refs', 'blocker', ...(source.test_assessment === undefined ? [] : ['test_assessment'])], 'record-review-result input');
+  exactKeys(source, ['context_receipt', 'verdict', 'findings', 'unresolved_fingerprints', ...(source.resolved_fingerprints === undefined ? [] : ['resolved_fingerprints']), ...(source.finding_dispositions === undefined ? [] : ['finding_dispositions']), 'evidence_refs', 'blocker', ...(source.test_assessment === undefined ? [] : ['test_assessment'])], 'record-review-result input');
   const receipt = normalizeContextReceipt(source.context_receipt);
   if (!['clean', 'findings', 'blocked'].includes(String(source.verdict))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'verdict must be clean, findings, or blocked.');
   const verdict = source.verdict as ReviewResultVerdict;
@@ -859,7 +904,13 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   if (resolved.some(item => !receipt.admitted_fingerprints.includes(item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'resolved_fingerprints must be drawn from the Runtime review context.');
   if (resolved.some(item => unresolved.includes(item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'resolved_fingerprints must not overlap unresolved_fingerprints.');
   if (resolved.some(item => findings.some(finding => finding.fingerprint === item))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'resolved_fingerprints must not overlap findings.');
+  const findingDispositions = source.finding_dispositions === undefined
+    ? undefined
+    : normalizeFindingDispositions(source.finding_dispositions, 'finding_dispositions', receipt, findings, unresolved, resolved);
   const evidenceRefs = textList(source.evidence_refs, 'evidence_refs', false);
+  if (findingDispositions && !findingDispositions.flatMap(item => item.evidence_refs).every(ref => evidenceRefs.includes(ref))) {
+    fail('REVIEW_ADAPTER_INPUT_INVALID', 'evidence_refs must cover every finding disposition evidence reference.');
+  }
   let blocker: ReviewBlocker | null;
   if (source.blocker === null) blocker = null;
   else {
@@ -879,7 +930,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   const finalFindings = findings;
   const finalUnresolved = unresolved;
   const finalBlocker = runtimeBlocker ?? blocker;
-  const reviewId = `review-${digest({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, resolved, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
+  const reviewId = `review-${digest({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, resolved, finding_dispositions: findingDispositions ?? null, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult: Omit<PendingReviewResult, 'recorded_at'> = {
     ...(source.test_assessment === undefined ? {} : {test_assessment:validateTestAssessment(source.test_assessment)}),
     kind: 'review-result/v1',
@@ -894,6 +945,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
     findings: finalFindings,
     unresolved_fingerprints: finalUnresolved,
     resolved_fingerprints: resolved,
+    ...(findingDispositions === undefined ? {} : { finding_dispositions: findingDispositions }),
     evidence_refs: evidenceRefs,
     blocker: finalBlocker,
   };

@@ -95,6 +95,25 @@ of bypassing the store with the full CURRENT_TASK history.
 5. Use current external documentation only when dependency behavior affects correctness. Return a terminal result with an optional owner-route recommendation for a later caller invocation when the issue belongs to another owner, requires scope widening, depends on a user-owned choice, or is unrelated work; do not treat it as a current-task repair or invoke another public entry.
 6. Before a turn, session, delegation, pause, interruption, or session-end boundary, carry claim identity, owner, certainty, admitted evidence types, and completion state through a typed proposal into the existing canonical task record; harness memory cannot reset or widen the plan.
 7. Read a fresh Runtime `validate --summary` and the relevant failed attempt/review state before selecting a route; bind the diagnostic result to the observed task identity and source tuple. An active current task with a retained blocked failed check, confirmed current-step cause, unchanged plan/scope, no pending review or admitted finding, and remaining retry budget may recommend ordinary `execute-step` same-plan recovery. An admitted review finding with its repair gate satisfied may recommend `execute-step:repair`. When the exact pending review is blocked by `REPAIR_BUDGET_EXHAUSTED`, preserve that review and its in-progress findings: without a new explicit user decision, report the user-owned blocker; with an exact decision authorizing one additional attempt for every currently exhausted finding, recommend `prepare-task:extend-repair-budget`, never correction replan. If only the repair-wave quota is exhausted and the current review targets still have finding attempts, the same decision may use `extension_scope: repair-round` with an empty finding set; Runtime must preserve all finding attempt counts. A review's `resolved_fingerprints` are structured queue conclusions, not prose hints; they must not be reintroduced as unresolved. A task already `superseded` may recommend a fresh successor only when the caller has an explicit replacement request; the later `prepare-task` invocation must use its internal `prepare-successor` route and normal draft confirmation rather than generic replan. A `blocked_by_replan` task with an exact caller-reported authorization for new paths may recommend the independent `prepare-task:amend-scope` route with those paths and the original source/text, while other blocked tasks still need a readiness/correction/invalidation decision and cannot execute. Only confirmed invalidation of goal, scope, or acceptance may recommend `task-lifecycle:supersede`; supersede itself never authorizes replacement. An unknown cause, stale identity, any other exhausted budget, missing authority, or failed Runtime admission is a blocker, not a reason to invent invalidation. A current-task diagnostic evidence update may be described as a `task-state-transaction` proposal, but this entry never claims that task state was written. After a correction, failed checks and due evidence must be rerun; finding repair also requires verification of the same logical diff and fingerprint.
+The ordinary extension route is unavailable when the candidate next repair round
+would exceed the absolute limit of eight or a selected finding is already at the
+absolute eight-attempt limit. In that case, follow the structured blocker and
+user-owned diagnostic/controlled-recovery decision route emitted by task-context;
+never recommend a transaction that will fail.
+
+Controlled recovery is a separate, finite route at that boundary. It requires a
+blocked review with a structured `finding_dispositions` entry whose disposition
+is `must-fix`, or an explicit exact-target legacy authorization when that field
+does not exist. Recommend `prepare-task:authorize-controlled-repair-recovery`
+only with the exact review identity and user decision; Runtime derives the full
+repair set, preserves ordinary counters and history, and limits the grant to
+one wave and two controlled attempts per selected finding. For the legacy
+bridge, the explicit target must cover every existing unresolved finding in
+the full repair set with no ordinary attempt remaining; a partial request is
+rejected before the one-per-review grant is persisted. Findings with
+ordinary budget remain in scope, resolved findings stay out, and newly found
+items still need normal admission. Never infer a target from prose or use a
+new task, supersede, reset, or direct status edit as recovery.
 
 An external counterexample to an earlier completed claim is a reviewable
 evidence challenge, not automatic goal invalidation. Identify its exact

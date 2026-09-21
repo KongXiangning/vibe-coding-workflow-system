@@ -39,6 +39,7 @@ import {
   initializeTaskPreservation,
   recordUserEvidenceDecision,
   extendRepairBudget,
+  authorizeControlledRepairRecovery,
   validateSuccessorDecision,
   readCanonicalCurrentTask,
   readCanonicalTaskBasis,
@@ -79,6 +80,7 @@ export const PREPARE_TASK_ADAPTER_COMMANDS = [
   'confirm-draft',
   'clear-resume-review',
   'extend-repair-budget',
+  'authorize-controlled-repair-recovery',
   'replan',
   'prepare-evidence-plan-amendment',
   'confirm-evidence-plan-amendment',
@@ -1162,6 +1164,9 @@ export async function runPrepareTaskAdapterCli(argv: string[] = process.argv.sli
         break;
       case 'extend-repair-budget':
         result = extendRepairBudget(args.root, input, options);
+        break;
+      case 'authorize-controlled-repair-recovery':
+        result = authorizeControlledRepairRecovery(args.root, input, options);
         break;
       case 'replan':
         result = replan(args.root, input, options);

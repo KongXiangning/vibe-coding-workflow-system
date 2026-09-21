@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.8
+  package_version: 0.20.9
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -169,6 +169,8 @@ proposal:
       - consume-retained-review
       - record-user-evidence
       - clear-resume-review-gate
+      - extend-repair-budget
+      - authorize-controlled-repair-recovery
       - create-draft
       - update-draft
       - confirm-draft
@@ -253,6 +255,7 @@ proposal:
           - execution_phase
           - repair_wave_id
           - review_id
+          - controlled_recovery_grant_id
         same_attempt: true
         plan_revision_change: forbidden
         retry_budget_change: forbidden
@@ -382,6 +385,7 @@ proposal:
         - findings
         - unresolved_fingerprints
         - resolved_fingerprints
+        - finding_dispositions
         - blocker
       consumed_by:
         clean: execute-step:complete-reviewed-step
@@ -544,6 +548,7 @@ proposal:
         - confirm-draft
         - clear-resume-review
         - extend-repair-budget
+        - authorize-controlled-repair-recovery
         - replan
         - prepare-replan
         - confirm-replan
@@ -640,6 +645,7 @@ proposal:
       - record-user-evidence
       - clear-resume-review-gate
       - extend-repair-budget
+      - authorize-controlled-repair-recovery
       - create-draft
       - update-draft
       - confirm-draft
@@ -672,6 +678,14 @@ proposal:
       eligibility: exact-pending-REPAIR_BUDGET_EXHAUSTED-review-and-latest-review-repair-set
       preserves: pending-review-findings-resolved-queue-state-attempt-counts-review-baseline-task-definition-and-identity
       absolute_limits: eight-attempts-per-finding-and-eight-repair-rounds-per-cycle
+    controlled_repair_recovery:
+      route: authorize-controlled-repair-recovery
+      trigger: exact-pending-REPAIR_BUDGET_EXHAUSTED-review-where-ordinary-extension-is-not-executable
+      authorization: explicit-structured-must-fix-targets-plus-basis-evidence-and-user-decision
+      legacy_coverage: exact-explicit-target-must-cover-every-existing-unresolved-finding-with-no-ordinary-budget-before-grant-persistence
+      quota: one-review-bound-repair-wave-and-at-most-two-separate-controlled-attempts-per-finding
+      preserves: ordinary-maxima-cumulative-attempts-review-history-resolved-findings-task-identity-and-change-set-binding
+      stops: no-free-text-inference-no-new-task-no-supersede-no-reset-no-clean-or-close
     direct_replan_result: REPLAN_CONFIRMATION_REQUIRED
     task_history:
       initialization_preimage: exact-current-task-and-linked-task-basis-before-version-marker
@@ -1075,6 +1089,7 @@ canonical_current_task:
       - finding_queue_revision
       - review_cycle
       - findings
+      - controlled_repair_grants
       - execution_log
       - applied_proposals
       - claim_evidence_required

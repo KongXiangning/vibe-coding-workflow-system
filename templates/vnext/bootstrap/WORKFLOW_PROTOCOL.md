@@ -438,13 +438,33 @@ currently exhausted finding, records the decision/audit, and preserves the task,
 pending review, attempts, baseline, and evidence obligations. The retained review
 then routes directly to `execute-step:repair`; without that decision it remains a
 user-owned blocker. Default limits do not change, and explicit extensions are
-bounded by the Runtime absolute limits. If only the repair-wave quota is
+bounded by the Runtime absolute limits. Navigation and the transaction use the
+same qualification; once the candidate next repair round would exceed eight or
+an authorized finding is already at eight attempts, task-context must stop
+recommending `extend-repair-budget` and expose the blocker plus the user-owned
+diagnostic/controlled-recovery decision route. If only the repair-wave quota is
 exhausted, the same decision may use `extension_scope: repair-round` with an
 empty fingerprint set; this extends only the cycle quota and preserves every
 finding attempt count. A blocked review keeps its structured findings,
 unresolved fingerprints, and resolved fingerprints; verified resolutions update
 the finding queue in the same Runtime transaction, and the extra-budget
 authorization is not a replacement for the full repair target set.
+
+When ordinary repair extension reaches an absolute boundary, the diagnostic may
+route to controlled recovery only after a structured review disposition marks an
+unresolved finding `must-fix`. The user-owned authorization names exact
+`recovery_fingerprints`, basis, decision source/text and evidence; Runtime
+derives the complete repair set and binds the pending review, execution, cycle,
+change set and target revision. It issues one bounded wave and at most two
+controlled attempts per selected finding, preserving ordinary maxima and all
+history. Findings with remaining budget remain in the repair set, resolved
+findings remain excluded, and new findings must complete ordinary admission.
+Legacy reviews without dispositions require an explicit exact-target bridge;
+that target must cover every existing unresolved finding in the full repair set
+with no ordinary attempt remaining. A partial request is rejected before the
+one-per-review grant is persisted, so a complete authorization can still be
+submitted afterward. Free text never grants recovery permission. Replay is a no-op, while stale,
+cross-task, duplicate, over-target or over-quota authorization is rejected.
 Local equivalent read-only validation adjustments use execute-step's internal
 replace-validation, preserving the task and its obligations. Low-risk private
 same-domain discoveries do not add a review beyond the confirmed checkpoint;

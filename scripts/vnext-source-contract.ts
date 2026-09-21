@@ -237,6 +237,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'review-change:default:dismiss-evidence-challenge',
     'prepare-task:default:clear-resume-review-gate',
     'prepare-task:default:extend-repair-budget',
+    'prepare-task:default:authorize-controlled-repair-recovery',
     'prepare-task:default:create-draft',
     'prepare-task:default:update-draft',
     'prepare-task:confirm:confirm-draft',

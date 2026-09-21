@@ -280,7 +280,12 @@ exhausted, the explicit `extension_scope: repair-round` form with an empty
 fingerprint set raises only `review_cycle.max_repair_rounds` and preserves all
 finding attempt counts. The ordinary defaults remain two attempts per finding
 and three repair waves per cycle; explicit extensions have absolute caps of
-eight attempts and eight waves. A matching unconsumed audit authorizes only the
+eight attempts and eight waves. Navigation and the transaction share the same
+qualification: the candidate next repair round must remain at or below eight,
+and every selected exhausted finding must remain below eight attempts. At
+either absolute limit task-context must not recommend extend-repair-budget; it
+must expose the structured blocker and the user-owned diagnostic or explicitly
+approved controlled-recovery route. A matching unconsumed audit authorizes only the
 next exact `begin-repair`; different, stale, partial, reset, or bulk extensions
 fail closed. This route does not create a correction-replan candidate.
 When a review is blocked by convergence or budget, its structured findings,
@@ -288,6 +293,30 @@ unresolved fingerprints, and resolved fingerprints remain in the pending result.
 Verified resolutions update the finding queue in the same Runtime transaction;
 the extension audit is only an authorization set. Repair preflight recomputes
 the full current review set and excludes findings already marked resolved.
+
+At the ordinary absolute boundary, a blocked review may include structured
+`finding_dispositions` for unresolved Runtime-admitted findings. The closed
+dispositions are `must-fix`, `normal-fix`, and `defer`; each record also carries
+one basis (`acceptance`, `critical-invariant`, `release-gate`, `risk-reduction`,
+or `user-decision`) and non-empty evidence references. Only an explicit
+`must-fix` disposition can authorize the independent
+`prepare-task:authorize-controlled-repair-recovery` route. Its semantic input
+is `{review_id, recovery_fingerprints, recovery_basis, decision_source,
+decision_text, evidence_refs}`. Runtime binds the complete latest repair set
+and task/execution/cycle/change-set/review-target identity, issues one exact
+repair wave, and allows at most two separate controlled attempts per selected
+finding. Ordinary maxima, cumulative attempts, repair rounds, pending review,
+resolved findings, history and evidence are retained. The selected recovery
+set is not a replacement for the full repair set: normally-budgeted findings
+remain in scope, resolved findings are excluded, and review-new findings still
+require normal admission. Exact replay is idempotent; stale, cross-task,
+over-target, duplicate or over-quota requests fail closed. A legacy blocked
+review without dispositions may use only the explicit exact-target
+`legacy-explicit-user` bridge; that target must cover every existing unresolved
+finding in the full repair set with no ordinary attempt remaining. A partial
+legacy request fails before the one-per-review grant is persisted, so the
+complete authorization can still be submitted afterward. Prose is never
+interpreted as a finding decision.
 
 Persistent Tests retain exact path + stable claim IDs in `proves`, plus `owner`,
 `owner_source`, `source_ref`, `basis` (acceptance/regression/critical-invariant/

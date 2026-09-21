@@ -614,6 +614,29 @@ function stateManagedMap(state: DistributionState | null): Map<string, string> {
   return new Map((state?.managed_files ?? []).map(entry => [entry.path, entry.checksum]));
 }
 
+function stateManagedFilesMatchManifest(state: DistributionState | null, manifest: DistributionManifest): boolean {
+  if (!state) return false;
+  const expected = manifest.artifacts
+    .map(artifact => ({ path: artifact.target_path, checksum: artifact.checksum, category: artifact.category }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  return stableJson(state.managed_files) === stableJson(expected);
+}
+
+/**
+ * A portable release can change only its package identity metadata when it is
+ * rebuilt from another staging path.  Permit the normal transactional
+ * upgrade boundary to realign that metadata only when the installed version
+ * and every admitted managed-file entry already match the incoming manifest.
+ * Actual target-file drift is still rejected by verifyOldManagedFiles and
+ * validateDestinations below.
+ */
+function canRealignSameVersionState(state: DistributionState | null, manifest: DistributionManifest): boolean {
+  return Boolean(state
+    && state.distribution_version === manifest.distribution_version
+    && state.manifest_digest !== manifest.manifest_digest
+    && stateManagedFilesMatchManifest(state, manifest));
+}
+
 function oldInstallManagedMap(targetRoot: string): Map<string, string> {
   const oldStatePath = path.join(targetRoot, '.workflow-system', 'vnext', 'INSTALL_STATE.json');
   if (!fileExists(oldStatePath)) return new Map();
@@ -1103,6 +1126,10 @@ function runUpgrade(options: DistributionOperationOptions, payload: LoadedPayloa
     result.blockers.push(distributionIssue('DISTRIBUTION_VERSION_UNSUPPORTED', `Cannot upgrade an unknown or newer vNext distribution: ${classification.version ?? 'unknown'}.`));
     return result;
   }
+  const oldState = (() => {
+    try { return readDistributionState(targetRoot, payload.manifest); } catch { return null; }
+  })();
+  let stateRealignment = false;
   if (comparison === 0 && fileExists(statePath(targetRoot, payload.manifest))) {
     try {
       verifyDistributionInstallation(targetRoot, payload);
@@ -1113,24 +1140,31 @@ function runUpgrade(options: DistributionOperationOptions, payload: LoadedPayloa
       // The same-version administrative upgrade may prepare a lost rg dependency.
       // Artifact drift and invalid ownership remain blocking; all normal upgrade
       // admission, staging, freeze and rollback checks still run below.
-      if (!(error instanceof Error) || !error.message.startsWith('RG_DEPENDENCY_MISSING:')) {
+      if (error instanceof Error && error.message.startsWith('RG_DEPENDENCY_MISSING:')) {
+        // Continue through the normal transactional repair path.
+      } else if (canRealignSameVersionState(oldState, payload.manifest)) {
+        stateRealignment = true;
+      } else {
         result.blockers.push(distributionIssue('MANAGED_TARGET_DRIFT', error instanceof Error ? error.message : String(error)));
         return result;
       }
     }
   }
-  const oldState = (() => {
-    try { return readDistributionState(targetRoot, payload.manifest); } catch { return null; }
-  })();
   const governanceIssues = governanceUpgradeBoundary(targetRoot);
   if (governanceIssues.length > 0) {
     result.blockers.push(...governanceIssues);
     return result;
   }
+  const promote = (operation: DistributionOperationResult): DistributionOperationResult => {
+    if (stateRealignment) {
+      operation.warnings.push(distributionIssue('DISTRIBUTION_STATE_REALIGNMENT', 'Same-version Distribution State identity will be realigned through the transactional upgrade boundary; managed-file ownership and target read-back remain enforced.'));
+    }
+    return operation;
+  };
   if (options.dryRun) {
-    return runDryRunPromotion(targetRoot, payload, 'upgrade', classification, oldState);
+    return promote(runDryRunPromotion(targetRoot, payload, 'upgrade', classification, oldState));
   }
-  return runTransactionalPromotion(targetRoot, payload, 'upgrade', classification, oldState, options.testHooks);
+  return promote(runTransactionalPromotion(targetRoot, payload, 'upgrade', classification, oldState, options.testHooks));
 }
 
 function runMigrate(options: DistributionOperationOptions, payload: LoadedPayload, classification: DistributionClassification): DistributionOperationResult {

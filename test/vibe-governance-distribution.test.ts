@@ -223,6 +223,22 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(() => validateDistributionVersionLockstep(fixture)).toThrow(/lockstep/u);
   });
 
+  test('portable release identity does not depend on the staging directory', () => {
+    const firstRoot = tempRoot('vibe-governance-portable-release-a-');
+    const secondRoot = tempRoot('vibe-governance-portable-release-b-');
+    const first = buildVibeGovernanceDistribution({ outputRoot: firstRoot });
+    const second = buildVibeGovernanceDistribution({ outputRoot: secondRoot });
+    const firstManifest = JSON.parse(fs.readFileSync(path.join(firstRoot, 'payload', 'distribution-manifest.json'), 'utf8')) as Record<string, unknown>;
+    const secondManifest = JSON.parse(fs.readFileSync(path.join(secondRoot, 'payload', 'distribution-manifest.json'), 'utf8')) as Record<string, unknown>;
+    const firstBundle = JSON.parse(fs.readFileSync(path.join(firstRoot, 'payload', 'vnext-bundle', 'vnext-bundle.json'), 'utf8')) as Record<string, unknown>;
+    const secondBundle = JSON.parse(fs.readFileSync(path.join(secondRoot, 'payload', 'vnext-bundle', 'vnext-bundle.json'), 'utf8')) as Record<string, unknown>;
+
+    expect(second.bundle.bundle_id).toBe(first.bundle.bundle_id);
+    expect(second.manifest.manifest_digest).toBe(first.manifest.manifest_digest);
+    expect(secondManifest.support).toEqual(firstManifest.support);
+    expect(secondBundle.source).toEqual(firstBundle.source);
+  });
+
   test('fresh Node install promotes complete software and leaves governance unbootstrapped', { timeout: 30000 }, () => {
     const target = freshTarget();
     const result = installDistribution({ targetRoot: target, packageRoot });
@@ -323,6 +339,35 @@ describe('Vibe Governance Distribution / Installer', () => {
     const drift = installDistribution({ targetRoot: target, packageRoot });
     expect(drift.status).toBe('rejected');
     expect(drift.blockers.some(issue => issue.code === 'MANAGED_TARGET_DRIFT')).toBe(true);
+  });
+
+  test('same-version portable identity drift is realigned transactionally when managed files are unchanged', { timeout: 30000 }, () => {
+    const target = freshTarget();
+    expect(installDistribution({ targetRoot: target, packageRoot }).status).toBe('installed');
+    const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
+    const previousDigest = state.manifest_digest;
+    state.manifest_digest = '0'.repeat(64);
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8');
+
+    const managedSkill = targetPath(target, '.agents/skills/prepare-task/SKILL.md');
+    const originalSkill = fs.readFileSync(managedSkill);
+    fs.appendFileSync(managedSkill, '\nmanaged drift\n', 'utf8');
+    const blocked = upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true });
+    expect(blocked.status).toBe('rejected');
+    expect(blocked.blockers.some(issue => issue.code === 'MANAGED_TARGET_CONFLICT' || issue.code === 'MANAGED_TARGET_DRIFT')).toBe(true);
+    fs.writeFileSync(managedSkill, originalSkill);
+
+    const dryRun = upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true });
+    expect(dryRun.status).toBe('ready');
+    expect(dryRun.warnings.some(issue => issue.code === 'DISTRIBUTION_STATE_REALIGNMENT')).toBe(true);
+    expect(state.manifest_digest).not.toBe(previousDigest);
+
+    const upgraded = upgradeDistribution({ targetRoot: target, packageRoot });
+    expect(upgraded.status).toBe('upgraded');
+    expect(upgraded.read_back_verified).toBe(true);
+    const realigned = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
+    expect(realigned.manifest_digest).toBe(JSON.parse(fs.readFileSync(path.join(packageRoot, 'payload', 'distribution-manifest.json'), 'utf8')).manifest_digest);
   });
 
   test('Distribution rejects prerelease and build metadata until a full SemVer comparator is adopted', { timeout: 30000 }, () => {

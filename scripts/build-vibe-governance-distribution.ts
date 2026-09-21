@@ -234,7 +234,7 @@ export function buildVibeGovernanceDistribution(options: BuildDistributionOption
   const temporaryBundleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-governance-release-bundle-'));
   let bundle: VNextBundleManifest;
   try {
-    bundle = buildVNextBundle({ sourceRoot: migrationSourceRoot, bundleDir: temporaryBundleRoot, artifacts: bundleArtifactSpecs() });
+    bundle = buildVNextBundle({ sourceRoot: migrationSourceRoot, bundleDir: temporaryBundleRoot, artifacts: bundleArtifactSpecs(), portable: true });
     fs.cpSync(temporaryBundleRoot, bundleRoot, { recursive: true });
   } finally {
     fs.rmSync(temporaryBundleRoot, { recursive: true, force: true });

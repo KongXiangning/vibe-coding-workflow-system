@@ -748,6 +748,30 @@ export function getSourceIdentity(sourceRoot = resolveRoot()): SourceIdentity {
   };
 }
 
+/**
+ * A published Distribution bundle is validated as portable and may be built
+ * from any checkout or staging directory.  The source path is useful for a
+ * local Migration Pack, but it is not part of a release's content identity.
+ * Keep a stable marker in the serialized bundle so the release digest and
+ * bundle id do not change when the package is built in another directory.
+ */
+const PORTABLE_SOURCE_ROOT = '/vnext-portable-source';
+
+function portableSourceIdentity(source: SourceIdentity): SourceIdentity {
+  return {
+    ...source,
+    root_path: PORTABLE_SOURCE_ROOT,
+    root_identity: sha256(PORTABLE_SOURCE_ROOT).slice(0, 32),
+  };
+}
+
+function deterministicBundleId(source: SourceIdentity, artifacts: readonly VNextBundleArtifact[], portable: boolean): string {
+  const identity = portable
+    ? { revision: source.revision, tree_hash: source.tree_hash }
+    : source;
+  return `bundle-${sha256(JSON.stringify({ source: identity, artifacts })).slice(0, 24)}`;
+}
+
 export function getTargetSnapshot(targetRoot: string): TargetSnapshot {
   const resolvedRoot = path.resolve(targetRoot);
   const treeHash = computeTreeHash(resolvedRoot);
@@ -2796,7 +2820,7 @@ function loadAndValidateBundle(
   }
   const sortedArtifacts = [...artifacts].sort((left, right) => left.target_path.localeCompare(right.target_path));
   if (JSON.stringify(artifacts) !== JSON.stringify(sortedArtifacts)) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle artifacts must be sorted by target_path for deterministic replay.');
-  const expectedBundleId = `bundle-${sha256(JSON.stringify({ source, artifacts })).slice(0, 24)}`;
+  const expectedBundleId = deterministicBundleId(source, artifacts, portable);
   if (bundleId !== expectedBundleId) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle.bundle_id does not match its deterministic source/artifact identity.');
   for (const category of VNEXT_REQUIRED_BUNDLE_CATEGORIES) {
     if (!categories.has(category)) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required category ${category}.`);
@@ -2890,6 +2914,7 @@ export function buildVNextBundle(options: {
   sourceRoot?: string;
   bundleDir: string;
   artifacts: Array<{ source_path: string; target_path: string; category: VNextBundleArtifact['category']; required?: boolean }>;
+  portable?: boolean;
 }): VNextBundleManifest {
   const sourceRoot = path.resolve(options.sourceRoot ?? resolveRoot());
   const bundleDir = path.resolve(options.bundleDir);
@@ -2898,7 +2923,7 @@ export function buildVNextBundle(options: {
   }
   if (fs.existsSync(bundleDir) && listFiles(bundleDir).length > 0) throw new MigrationPackError('OUTPUT_DIR_NOT_EMPTY', `vNext bundle output directory is not empty: ${bundleDir}`);
   fs.mkdirSync(bundleDir, { recursive: true });
-  const source = getSourceIdentity(sourceRoot);
+  const source = options.portable ? portableSourceIdentity(getSourceIdentity(sourceRoot)) : getSourceIdentity(sourceRoot);
   const artifacts: VNextBundleArtifact[] = [];
   for (const spec of options.artifacts) {
     const sourcePath = normalizeRepoPath(spec.source_path, 'vNext bundle source_path');
@@ -2911,10 +2936,10 @@ export function buildVNextBundle(options: {
     artifacts.push({ source_path: sourcePath, target_path: targetPath, category: spec.category, required: spec.required ?? true, checksum: readSha256(outputPath) });
   }
   artifacts.sort((left, right) => left.target_path.localeCompare(right.target_path));
-  const bundleId = `bundle-${sha256(JSON.stringify({ source, artifacts })).slice(0, 24)}`;
+  const bundleId = deterministicBundleId(source, artifacts, options.portable === true);
   const manifest: VNextBundleManifest = { schema_version: 1, kind: VNEXT_BUNDLE_KIND, bundle_id: bundleId, status: 'validated', legacy_compatibility: 'absent', source, artifacts };
   fs.writeFileSync(path.join(bundleDir, VNEXT_BUNDLE_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  return loadAndValidateBundle(bundleDir, sourceRoot, mergeLegacySkillNames(sourceRoot, []));
+  return loadAndValidateBundle(bundleDir, sourceRoot, mergeLegacySkillNames(sourceRoot, []), options.portable === true);
 }
 
 /**

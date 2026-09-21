@@ -133,7 +133,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.8';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.9';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -186,6 +186,7 @@ const RUNTIME_STATE_FIELDS = [
   'finding_queue_revision',
   'review_cycle',
   'findings',
+  'controlled_repair_grants',
   'execution_log',
   'applied_proposals',
   'claim_evidence_required',
@@ -299,6 +300,21 @@ const DRAFT_CLAIM_EVIDENCE_REQUIREMENT = 'required-and-non-empty-for-new-or-refi
 const CLOSE_TASK_CLAIM_EVIDENCE_RULE = 'derive acceptance_satisfied and validation_complete from the non-empty frozen CURRENT_TASK claim_evidence plan; require an acceptance claim; aggregate command success is insufficient';
 export const MAX_REPAIR_ATTEMPTS = 2;
 export const MAX_EXTENDED_REPAIR_ATTEMPTS = 8;
+/**
+ * Controlled recovery is a separate, deliberately small quota.  It never
+ * raises max_repair_attempts or max_repair_rounds; it records its own bounded
+ * consumption so an exhausted ordinary budget cannot be reset by recovery.
+ */
+export const MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING = 2;
+export const MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW = 1;
+export const REPAIR_FINDING_DISPOSITIONS = ['must-fix', 'normal-fix', 'defer'] as const;
+export type RepairFindingDispositionKind = (typeof REPAIR_FINDING_DISPOSITIONS)[number];
+export const REPAIR_FINDING_DISPOSITION_BASES = ['acceptance', 'critical-invariant', 'release-gate', 'risk-reduction', 'user-decision'] as const;
+export type RepairFindingDispositionBasis = (typeof REPAIR_FINDING_DISPOSITION_BASES)[number];
+export const CONTROLLED_RECOVERY_DISPOSITION_SOURCES = ['review-disposition', 'legacy-explicit-user'] as const;
+export type ControlledRecoveryDispositionSource = (typeof CONTROLLED_RECOVERY_DISPOSITION_SOURCES)[number];
+export const CONTROLLED_RECOVERY_SCOPES = ['finding-attempts', 'repair-round', 'mixed'] as const;
+export type ControlledRecoveryScope = (typeof CONTROLLED_RECOVERY_SCOPES)[number];
 const CURRENT_TASK_RELATIVE_FALLBACK = 'docs/workflow/CURRENT_TASK.md';
 const INBOX_RECORD_ITEM_ID_PATTERN = /^(\d{8})-([a-z0-9]{4,})$/;
 const INBOX_RECORD_PATH_PATTERN = /^TASKS\/inbox\/INBOX-(\d{8})-([a-z0-9]{4,})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$/;
@@ -622,6 +638,18 @@ export type ReviewFindingCandidate = {
   evidence_refs: string[];
 };
 
+/**
+ * A review conclusion about whether another repair attempt is justified.
+ * This is intentionally closed-set and evidence-bound: Runtime never derives
+ * a blocker classification from prose in a review or a task-basis decision.
+ */
+export type RepairFindingDisposition = {
+  fingerprint: string;
+  disposition: RepairFindingDispositionKind;
+  basis: RepairFindingDispositionBasis;
+  evidence_refs: string[];
+};
+
 export type ReviewBlocker = {
   code: string;
   summary: string;
@@ -672,6 +700,7 @@ export type ExecutionPreflightState = {
   repair_wave_id: string | null;
   review_id: string | null;
   review_target_paths: string[] | null;
+  controlled_recovery_grant_id?: string;
 };
 
 export type PendingReviewResult = {
@@ -689,6 +718,8 @@ export type PendingReviewResult = {
   unresolved_fingerprints: string[];
   /** Findings the latest review verified as resolved. */
   resolved_fingerprints: string[];
+  /** Optional on legacy reviews; required before controlled recovery can use a disposition. */
+  finding_dispositions?: RepairFindingDisposition[];
   evidence_refs: string[];
   blocker: ReviewBlocker | null;
   recorded_at: string;
@@ -802,6 +833,26 @@ export type TaskStateDelta =
     }
   | {
       kind: 'task-state';
+      action: 'authorize-controlled-repair-recovery';
+      review_id: string;
+      execution_id: string;
+      cycle_id: string;
+      cycle_phase: ReviewCyclePhase;
+      change_set_id: string;
+      review_target_revision: string;
+      repair_fingerprints: string[];
+      recovery_fingerprints: string[];
+      recovery_scope: ControlledRecoveryScope;
+      disposition_source: ControlledRecoveryDispositionSource;
+      recovery_basis: RepairFindingDispositionBasis;
+      grant_id: string;
+      repair_wave_id: string;
+      decision_source: string;
+      decision_text: string;
+      evidence_refs: string[];
+    }
+  | {
+      kind: 'task-state';
       action: 'record-user-evidence';
       decision_kind: UserEvidenceDecision['kind'];
       claim_id: string;
@@ -838,6 +889,7 @@ export type TaskStateDelta =
       review_id?: string;
       review_target_paths?: string[];
       change_set_id?: string;
+      controlled_recovery_grant_id?: string;
     }
   | {
       kind: 'task-state';
@@ -999,6 +1051,8 @@ export type FindingRecord = {
   status: FindingStatus;
   repair_attempts: number;
   max_repair_attempts: number;
+  /** Separate quota consumed only by an explicit controlled recovery grant. */
+  controlled_repair_attempts?: number;
   evidence_refs: string[];
   review_cycle_id: string;
   last_repair_wave_id: string | null;
@@ -1275,6 +1329,69 @@ export type RepairBudgetExtensionAuditLogEntry = {
   recorded_at: string;
 };
 
+export type ControlledRepairRecoveryGrant = {
+  kind: 'controlled-repair-recovery/v1';
+  grant_id: string;
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  review_id: string;
+  execution_id: string;
+  cycle_id: string;
+  cycle_phase: ReviewCyclePhase;
+  change_set_id: string;
+  review_target_revision: string;
+  repair_fingerprints: string[];
+  recovery_fingerprints: string[];
+  recovery_scope: ControlledRecoveryScope;
+  disposition_source: ControlledRecoveryDispositionSource;
+  recovery_basis: RepairFindingDispositionBasis;
+  repair_wave_id: string;
+  decision_source: string;
+  decision_sha256: string;
+  evidence_refs: string[];
+  issued_source_revision: string;
+  status: 'issued' | 'consumed';
+  consumed_fingerprints: string[];
+  issued_at: string;
+  consumed_at?: string;
+};
+
+export type ControlledRepairRecoveryAuditLogEntry = {
+  action: 'authorize-controlled-repair-recovery';
+  idempotency_key: string;
+  operation_kind: 'task-state-transaction';
+  caller: 'prepare-task';
+  mode: 'default';
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  from_workflow_status: 'active';
+  from_lifecycle_state: 'active';
+  to_workflow_status: 'active';
+  to_lifecycle_state: 'active';
+  source_revision: string;
+  authority_evidence: AuthorityEvidence[];
+  evidence_refs: string[];
+  review_id: string;
+  execution_id: string;
+  cycle_id: string;
+  cycle_phase: ReviewCyclePhase;
+  change_set_id: string;
+  review_target_revision: string;
+  repair_fingerprints: string[];
+  recovery_fingerprints: string[];
+  recovery_scope: ControlledRecoveryScope;
+  disposition_source: ControlledRecoveryDispositionSource;
+  recovery_basis: RepairFindingDispositionBasis;
+  grant_id: string;
+  repair_wave_id: string;
+  controlled_attempt_limit: number;
+  decision_source: string;
+  decision_sha256: string;
+  recorded_at: string;
+};
+
 export type ArchiveAuditLogEntry = {
   action: 'archive';
   idempotency_key: string;
@@ -1358,8 +1475,8 @@ export type ClaimEvidenceMigrationAuditLogEntry = {
   recorded_at: string;
 };
 
-export type ExecutionLogEntry = StepExecutionLogEntry | DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | RepairBudgetExtensionAuditLogEntry | ArchiveAuditLogEntry;
-type RuntimeAuditLogEntry = DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | RepairBudgetExtensionAuditLogEntry | ArchiveAuditLogEntry;
+export type ExecutionLogEntry = StepExecutionLogEntry | DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | RepairBudgetExtensionAuditLogEntry | ControlledRepairRecoveryAuditLogEntry | ArchiveAuditLogEntry;
+type RuntimeAuditLogEntry = DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | RepairBudgetExtensionAuditLogEntry | ControlledRepairRecoveryAuditLogEntry | ArchiveAuditLogEntry;
 
 export type RuntimeProposal = {
   schema_version: typeof VNEXT_RUNTIME_SCHEMA_VERSION;
@@ -1457,6 +1574,8 @@ export type RuntimeState = {
   finding_queue_revision: number;
   review_cycle: ReviewCycleState;
   findings: FindingRecord[];
+  /** Append-only controlled recovery grants; ordinary budgets remain untouched. */
+  controlled_repair_grants?: ControlledRepairRecoveryGrant[];
   execution_log: ExecutionLogEntry[];
   applied_proposals: Array<{
     idempotency_key: string;
@@ -2002,6 +2121,7 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
     'repair_wave_id',
     'review_id',
     'review_target_paths',
+    ...(source.controlled_recovery_grant_id === undefined ? [] : ['controlled_recovery_grant_id']),
   ], location);
   const mode = expectEnum(source.mode, VNEXT_EXECUTE_STEP_MODES, `${location}.mode`);
   const repairFingerprints = source.repair_fingerprints === null
@@ -2012,7 +2132,7 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
   const reviewTargetPaths = source.review_target_paths === null
     ? null
     : expectStringArray(source.review_target_paths, `${location}.review_target_paths`, true, 256).map(item => normalizeRepoPath(item, `${location}.review_target_paths`));
-  if (mode === 'default' && (repairFingerprints !== null || repairWaveId !== null || reviewId !== null || reviewTargetPaths !== null)) {
+  if (mode === 'default' && (repairFingerprints !== null || repairWaveId !== null || reviewId !== null || reviewTargetPaths !== null || source.controlled_recovery_grant_id !== undefined)) {
     fail('RUNTIME_STATE_CONFLICT', `${location} default execution must not carry repair identity.`);
   }
   if (mode === 'repair' && (repairFingerprints === null || repairFingerprints.length === 0 || repairWaveId === null || reviewId === null || reviewTargetPaths === null || reviewTargetPaths.length === 0)) {
@@ -2031,6 +2151,7 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
     repair_wave_id: repairWaveId,
     review_id: reviewId,
     review_target_paths: reviewTargetPaths,
+    ...(source.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: expectString(source.controlled_recovery_grant_id, `${location}.controlled_recovery_grant_id`, SAFE_KEY_PATTERN) }),
   };
 }
 
@@ -2651,7 +2772,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectExactKeys(taskStateContract, ['actions', 'execution_admission', 'retry_step', 'step_progress', 'preflight', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
   expectSetEqual(
     expectStringArray(taskStateContract.actions, 'Runtime contract.proposal.task_state.actions'),
-    ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'],
+    ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'],
     'Runtime contract task-state actions',
   );
   const executionAdmissionContract = expectRecord(taskStateContract.execution_admission, 'Runtime contract.proposal.task_state.execution_admission');
@@ -2722,7 +2843,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   );
   expectSetEqual(
     expectStringArray(extensionPreflight.optional, 'Runtime contract.proposal.task_state.preflight.extension.optional', true),
-    ['mode', 'execution_id', 'execution_phase', 'repair_wave_id', 'review_id'],
+    ['mode', 'execution_id', 'execution_phase', 'repair_wave_id', 'review_id', 'controlled_recovery_grant_id'],
     'Runtime extend-preflight optional fields',
   );
   if (extensionPreflight.action !== 'extend-preflight'
@@ -2843,7 +2964,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const reviewResultContract = expectRecord(taskStateContract.review_result, 'Runtime contract.proposal.task_state.review_result');
   expectExactKeys(reviewResultContract, ['stored_in', 'verdicts', 'binds', 'blocked_diagnostics', 'consumed_by', 'test_assessment'], 'Runtime contract.proposal.task_state.review_result');
   expectSetEqual(expectStringArray(reviewResultContract.test_assessment, 'review_result.test_assessment'), ['applicable','reason','evidence_refs','necessity','oracle','boundary','reuse','applicability'], 'test assessment fields');
-  expectSetEqual(expectStringArray(reviewResultContract.blocked_diagnostics, 'review_result.blocked_diagnostics'), ['findings', 'unresolved_fingerprints', 'resolved_fingerprints', 'blocker'], 'blocked review diagnostics');
+  expectSetEqual(expectStringArray(reviewResultContract.blocked_diagnostics, 'review_result.blocked_diagnostics'), ['findings', 'unresolved_fingerprints', 'resolved_fingerprints', 'finding_dispositions', 'blocker'], 'blocked review diagnostics');
   if (reviewResultContract.stored_in !== 'canonical CURRENT_TASK.runtime_state.pending_review_result') fail('RUNTIME_CONTRACT_INVALID', 'review result must use canonical pending review storage.');
   expectSetEqual(expectStringArray(reviewResultContract.verdicts, 'Runtime contract review-result verdicts'), [...REVIEW_RESULT_VERDICTS], 'Runtime contract review-result verdicts');
   expectSetEqual(expectStringArray(reviewResultContract.binds, 'Runtime contract review-result bindings'), ['active_step_id', 'review_cycle_id', 'latest_execution_id', 'change_set_id', 'review_target_revision'], 'Runtime contract review-result bindings');
@@ -2994,7 +3115,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectSetEqual(expectStringArray(reviewChangeAdapter.commands, 'Runtime contract review-change commands'), ['review-context', 'review-read', 'record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'], 'Runtime contract review-change commands');
   expectSetEqual(expectStringArray(reviewChangeContract.bound_actions, 'Runtime contract review-change actions'), ['record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'], 'Runtime contract review-change actions');
   const prepareTaskContract = expectRecord(proposal.prepare_task, 'Runtime contract.proposal.prepare_task');
-  expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions', 'scope_amendment_mode', 'scope_amendment_actions', 'repair_budget_extension', 'direct_replan_result', 'task_history'], 'Runtime contract.proposal.prepare_task');
+  expectExactKeys(prepareTaskContract, ['semantic_adapter', 'bound_actions', 'draft_mode', 'draft_actions', 'confirm_mode', 'confirm_actions', 'migration_mode', 'migration_actions', 'replan_mode', 'replan_actions', 'scope_amendment_mode', 'scope_amendment_actions', 'repair_budget_extension', 'controlled_repair_recovery', 'direct_replan_result', 'task_history'], 'Runtime contract.proposal.prepare_task');
   const prepareTaskAdapter = expectRecord(prepareTaskContract.semantic_adapter, 'Runtime contract.proposal.prepare_task.semantic_adapter');
   expectExactKeys(
     prepareTaskAdapter,
@@ -3020,7 +3141,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (prepareTaskAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime prepare-task adapter input must remain stdin-json.');
   expectSetEqual(
     expectStringArray(prepareTaskAdapter.commands, 'Runtime contract.proposal.prepare_task.semantic_adapter.commands'),
-    ['prepare-draft', 'prepare-successor', 'record-human-acceptance', 'record-evidence-waiver', 'confirm-draft', 'clear-resume-review', 'extend-repair-budget', 'replan', 'prepare-replan', 'confirm-replan', 'discard-replan', 'prepare-scope-amendment', 'discard-scope-amendment', 'initialize-preservation'],
+    ['prepare-draft', 'prepare-successor', 'record-human-acceptance', 'record-evidence-waiver', 'confirm-draft', 'clear-resume-review', 'extend-repair-budget', 'authorize-controlled-repair-recovery', 'replan', 'prepare-replan', 'confirm-replan', 'discard-replan', 'prepare-scope-amendment', 'discard-scope-amendment', 'initialize-preservation'],
     'Runtime contract prepare-task adapter commands',
   );
   expectSetEqual(
@@ -3145,7 +3266,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   }
   expectSetEqual(
     expectStringArray(prepareTaskContract.bound_actions, 'Runtime contract.proposal.prepare_task.bound_actions'),
-    ['clear-resume-review-gate', 'record-user-evidence', 'extend-repair-budget', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, 'mark-replan-blocked', 'clear-replan-block', 'commit-scope-amendment'],
+    ['clear-resume-review-gate', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, 'mark-replan-blocked', 'clear-replan-block', 'commit-scope-amendment'],
     'Runtime contract prepare-task bound actions',
   );
   if (prepareTaskContract.draft_mode !== 'default' || prepareTaskContract.confirm_mode !== 'confirm') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract prepare-task draft/confirm modes are invalid.');
@@ -3170,6 +3291,17 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     || repairBudgetExtension.preserves !== 'pending-review-findings-resolved-queue-state-attempt-counts-review-baseline-task-definition-and-identity'
     || repairBudgetExtension.absolute_limits !== 'eight-attempts-per-finding-and-eight-repair-rounds-per-cycle') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime repair-budget extension contract is invalid.');
+  }
+  const controlledRecovery = expectRecord(prepareTaskContract.controlled_repair_recovery, 'Runtime contract.proposal.prepare_task.controlled_repair_recovery');
+  expectExactKeys(controlledRecovery, ['route', 'trigger', 'authorization', 'legacy_coverage', 'quota', 'preserves', 'stops'], 'Runtime controlled repair recovery contract');
+  if (controlledRecovery.route !== 'authorize-controlled-repair-recovery'
+    || controlledRecovery.trigger !== 'exact-pending-REPAIR_BUDGET_EXHAUSTED-review-where-ordinary-extension-is-not-executable'
+    || controlledRecovery.authorization !== 'explicit-structured-must-fix-targets-plus-basis-evidence-and-user-decision'
+    || controlledRecovery.legacy_coverage !== 'exact-explicit-target-must-cover-every-existing-unresolved-finding-with-no-ordinary-budget-before-grant-persistence'
+    || controlledRecovery.quota !== 'one-review-bound-repair-wave-and-at-most-two-separate-controlled-attempts-per-finding'
+    || controlledRecovery.preserves !== 'ordinary-maxima-cumulative-attempts-review-history-resolved-findings-task-identity-and-change-set-binding'
+    || controlledRecovery.stops !== 'no-free-text-inference-no-new-task-no-supersede-no-reset-no-clean-or-close') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime controlled repair recovery contract is invalid.');
   }
   if (prepareTaskContract.direct_replan_result !== 'REPLAN_CONFIRMATION_REQUIRED') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must describe the disabled direct replan result.');
@@ -4716,6 +4848,17 @@ function validateReviewFindingCandidate(value: unknown, location: string): Revie
   };
 }
 
+function validateRepairFindingDisposition(value: unknown, location: string): RepairFindingDisposition {
+  const record = expectRecord(value, location);
+  expectExactKeys(record, ['fingerprint', 'disposition', 'basis', 'evidence_refs'], location);
+  return {
+    fingerprint: expectString(record.fingerprint, `${location}.fingerprint`, FINGERPRINT_PATTERN),
+    disposition: expectEnum(record.disposition, REPAIR_FINDING_DISPOSITIONS, `${location}.disposition`),
+    basis: expectEnum(record.basis, REPAIR_FINDING_DISPOSITION_BASES, `${location}.basis`),
+    evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
+  };
+}
+
 function validateReviewBlocker(value: unknown, location: string): ReviewBlocker {
   const record = expectRecord(value, location);
   expectExactKeys(record, ['code', 'summary', 'next_route'], location);
@@ -4745,6 +4888,7 @@ function validatePendingReviewResult(
     'findings',
     'unresolved_fingerprints',
     ...(record.resolved_fingerprints === undefined ? [] : ['resolved_fingerprints']),
+    ...(record.finding_dispositions === undefined ? [] : ['finding_dispositions']),
     'evidence_refs',
     'blocker',
     ...(record.test_assessment === undefined ? [] : ['test_assessment']),
@@ -4779,6 +4923,17 @@ function validatePendingReviewResult(
   if (resolvedFingerprints.some(fingerprint => findings.some(item => item.fingerprint === fingerprint))) {
     fail('RUNTIME_SCHEMA_INVALID', `${location}.resolved_fingerprints must not overlap findings.`);
   }
+  const findingDispositions = record.finding_dispositions === undefined
+    ? undefined
+    : (() => {
+      if (!Array.isArray(record.finding_dispositions) || record.finding_dispositions.length > MAX_FINDINGS) {
+        fail('RUNTIME_SCHEMA_INVALID', `${location}.finding_dispositions must be a bounded array.`);
+      }
+      const values = record.finding_dispositions.map((item, index) => validateRepairFindingDisposition(item, `${location}.finding_dispositions[${index}]`));
+      if (new Set(values.map(item => item.fingerprint)).size !== values.length) fail('RUNTIME_SCHEMA_INVALID', `${location}.finding_dispositions fingerprints must be unique.`);
+      if (values.map(item => item.fingerprint).join('|') !== [...values].map(item => item.fingerprint).sort().join('|')) fail('RUNTIME_SCHEMA_INVALID', `${location}.finding_dispositions must use canonical fingerprint order.`);
+      return values;
+    })();
   const verdict = expectEnum(record.verdict, REVIEW_RESULT_VERDICTS, `${location}.verdict`);
   const blocker = record.blocker === null ? null : validateReviewBlocker(record.blocker, `${location}.blocker`);
   if (verdict === 'clean' && (findings.length > 0 || unresolvedFingerprints.length > 0 || blocker !== null)) {
@@ -4804,6 +4959,7 @@ function validatePendingReviewResult(
     findings,
     unresolved_fingerprints: unresolvedFingerprints,
     resolved_fingerprints: resolvedFingerprints,
+    ...(findingDispositions === undefined ? {} : { finding_dispositions: findingDispositions }),
     evidence_refs: validateEvidenceRefs(record.evidence_refs, `${location}.evidence_refs`),
     blocker,
   };
@@ -5566,7 +5722,7 @@ export function assertReviewExecutionEligible(
 function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const record = expectRecord(value, 'semantic_delta');
   const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
-  const action = expectEnum(record.action, ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', 'extend-repair-budget', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'], 'semantic_delta.action');
+  const action = expectEnum(record.action, ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'], 'semantic_delta.action');
   if (action === 'extend-repair-budget') {
     expectExactKeys(record, ['kind', 'action', 'review_id', 'finding_fingerprints', 'additional_repair_attempts', 'decision_source', 'decision_text', 'evidence_refs', ...(record.extension_scope === undefined ? [] : ['extension_scope'])], 'extend-repair-budget');
     const findingFingerprints = expectStringArray(record.finding_fingerprints, 'finding_fingerprints', true, MAX_FINDINGS)
@@ -5589,6 +5745,42 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       finding_fingerprints: findingFingerprints,
       additional_repair_attempts: 1,
       extension_scope: extensionScope,
+      decision_source: expectText(record.decision_source, 'decision_source'),
+      decision_text: expectVerbatim(record.decision_text, 'decision_text', 32768),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'evidence_refs'),
+    };
+  }
+  if (action === 'authorize-controlled-repair-recovery') {
+    expectExactKeys(record, [
+      'kind', 'action', 'review_id', 'execution_id', 'cycle_id', 'cycle_phase', 'change_set_id', 'review_target_revision',
+      'repair_fingerprints', 'recovery_fingerprints', 'recovery_scope', 'disposition_source', 'recovery_basis',
+      'grant_id', 'repair_wave_id', 'decision_source', 'decision_text', 'evidence_refs',
+    ], 'authorize-controlled-repair-recovery');
+    const repairFingerprints = expectStringArray(record.repair_fingerprints, 'repair_fingerprints', false, MAX_FINDINGS)
+      .map((item, index) => expectString(item, `repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    const recoveryFingerprints = expectStringArray(record.recovery_fingerprints, 'recovery_fingerprints', false, MAX_FINDINGS)
+      .map((item, index) => expectString(item, `recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+    for (const [name, values] of [['repair_fingerprints', repairFingerprints], ['recovery_fingerprints', recoveryFingerprints]] as const) {
+      if (new Set(values).size !== values.length) fail('RUNTIME_SCHEMA_INVALID', `${name} must be unique.`);
+      if (values.join('|') !== [...values].sort().join('|')) fail('RUNTIME_SCHEMA_INVALID', `${name} must use canonical sorted order.`);
+    }
+    if (recoveryFingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) fail('RUNTIME_SCHEMA_INVALID', 'recovery_fingerprints must be a subset of repair_fingerprints.');
+    return {
+      kind,
+      action,
+      review_id: expectString(record.review_id, 'review_id', SAFE_KEY_PATTERN),
+      execution_id: expectString(record.execution_id, 'execution_id', SAFE_KEY_PATTERN),
+      cycle_id: expectString(record.cycle_id, 'cycle_id', SAFE_KEY_PATTERN),
+      cycle_phase: expectEnum(record.cycle_phase, REVIEW_CYCLE_PHASES, 'cycle_phase'),
+      change_set_id: expectString(record.change_set_id, 'change_set_id', SAFE_KEY_PATTERN),
+      review_target_revision: expectString(record.review_target_revision, 'review_target_revision', SHA256_PATTERN),
+      repair_fingerprints: repairFingerprints,
+      recovery_fingerprints: recoveryFingerprints,
+      recovery_scope: expectEnum(record.recovery_scope, CONTROLLED_RECOVERY_SCOPES, 'recovery_scope'),
+      disposition_source: expectEnum(record.disposition_source, CONTROLLED_RECOVERY_DISPOSITION_SOURCES, 'disposition_source'),
+      recovery_basis: expectEnum(record.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, 'recovery_basis'),
+      grant_id: expectString(record.grant_id, 'grant_id', SAFE_KEY_PATTERN),
+      repair_wave_id: expectString(record.repair_wave_id, 'repair_wave_id', SAFE_KEY_PATTERN),
       decision_source: expectText(record.decision_source, 'decision_source'),
       decision_text: expectVerbatim(record.decision_text, 'decision_text', 32768),
       evidence_refs: validateEvidenceRefs(record.evidence_refs, 'evidence_refs'),
@@ -5636,6 +5828,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       ...(record.review_id === undefined ? [] : ['review_id']),
       ...(record.review_target_paths === undefined ? [] : ['review_target_paths']),
       ...(record.change_set_id === undefined ? [] : ['change_set_id']),
+      ...(record.controlled_recovery_grant_id === undefined ? [] : ['controlled_recovery_grant_id']),
     ], 'semantic_delta');
     let assessments: BlastRadiusAssessment[] | undefined;
     if (record.blast_radius_assessments !== undefined) {
@@ -5656,6 +5849,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       ? undefined
       : expectStringArray(record.review_target_paths, 'review_target_paths', true, 256).map(item => normalizeRepoPath(item, 'review_target_paths'));
     const changeSetId = record.change_set_id === undefined ? undefined : expectString(record.change_set_id, 'change_set_id', SAFE_KEY_PATTERN);
+    const controlledRecoveryGrantId = record.controlled_recovery_grant_id === undefined ? undefined : expectString(record.controlled_recovery_grant_id, 'controlled_recovery_grant_id', SAFE_KEY_PATTERN);
     return {
       kind,
       action,
@@ -5672,6 +5866,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       ...(reviewId === undefined ? {} : { review_id: reviewId }),
       ...(reviewTargetPaths === undefined ? {} : { review_target_paths: reviewTargetPaths }),
       ...(changeSetId === undefined ? {} : { change_set_id: changeSetId }),
+      ...(controlledRecoveryGrantId === undefined ? {} : { controlled_recovery_grant_id: controlledRecoveryGrantId }),
     };
   }
   if (action === 'extend-preflight') {
@@ -6589,7 +6784,7 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
     .map((target, index) => normalizeRepoPath(target, `proposal.requested_write_targets[${index}]`));
   const semanticDelta = validateSemanticDelta(proposal.semantic_delta, operationKind);
   const writesTaskBasis = semanticDelta.kind === 'task-state'
-    && ['create-draft', 'update-draft', 'commit-replan', 'commit-scope-amendment', 'record-user-evidence', 'extend-repair-budget'].includes(semanticDelta.action);
+    && ['create-draft', 'update-draft', 'commit-replan', 'commit-scope-amendment', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery'].includes(semanticDelta.action);
   const isSuccessor = semanticDelta.kind === 'task-state' && semanticDelta.action === 'create-draft' && semanticDelta.predecessor !== undefined;
   const targetCount = isSuccessor ? 3 : writesTaskBasis
     || (operationKind === 'lifecycle-transaction' && mode !== 'supersede')
@@ -6610,8 +6805,8 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
   if (operationKind === 'task-state-transaction') {
     if (caller === 'prepare-task') {
       if (mode === 'default') {
-        if (semanticDelta.kind !== 'task-state' || !['clear-resume-review-gate', 'create-draft', 'update-draft', 'record-user-evidence', 'extend-repair-budget', ...CLAIM_EVIDENCE_MIGRATION_ACTIONS].includes(semanticDelta.action)) {
-          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task default mode is bound only to clear-resume-review-gate, create-draft, update-draft, migrate-claim-evidence, an explicit user-evidence decision, or a bounded repair-budget extension.');
+        if (semanticDelta.kind !== 'task-state' || !['clear-resume-review-gate', 'create-draft', 'update-draft', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery', ...CLAIM_EVIDENCE_MIGRATION_ACTIONS].includes(semanticDelta.action)) {
+          fail('RUNTIME_CALLER_NOT_BOUND', 'prepare-task default mode is bound only to clear-resume-review-gate, create-draft, update-draft, migrate-claim-evidence, an explicit user-evidence decision, a bounded repair-budget extension, or an explicit controlled recovery authorization.');
         }
         if (semanticDelta.kind === 'task-state' && semanticDelta.action === 'migrate-claim-evidence') {
           const requiredPreconditions = ['current-task-is-active', 'legacy-claim-evidence-state', 'acceptance-bearing-plan'];
@@ -6711,7 +6906,7 @@ function validateFinding(value: unknown, location: string): FindingRecord {
   const finding = expectRecord(value, location);
   expectExactKeys(
     finding,
-    ['fingerprint', 'category', 'owner_task_id', 'scope', 'decision', 'file', 'failure_condition', 'violated_invariant', 'root_cause_status', 'status', 'repair_attempts', 'max_repair_attempts', 'evidence_refs', 'review_cycle_id', 'last_repair_wave_id', 'admitted_at', 'updated_at'],
+    ['fingerprint', 'category', 'owner_task_id', 'scope', 'decision', 'file', 'failure_condition', 'violated_invariant', 'root_cause_status', 'status', 'repair_attempts', 'max_repair_attempts', ...(finding.controlled_repair_attempts === undefined ? [] : ['controlled_repair_attempts']), 'evidence_refs', 'review_cycle_id', 'last_repair_wave_id', 'admitted_at', 'updated_at'],
     location,
   );
   return {
@@ -6727,11 +6922,68 @@ function validateFinding(value: unknown, location: string): FindingRecord {
     status: expectEnum(finding.status, FINDING_STATUSES, `${location}.status`),
     repair_attempts: expectInteger(finding.repair_attempts, `${location}.repair_attempts`, 0, MAX_EXTENDED_REPAIR_ATTEMPTS),
     max_repair_attempts: expectInteger(finding.max_repair_attempts, `${location}.max_repair_attempts`, 1, MAX_EXTENDED_REPAIR_ATTEMPTS),
+    ...(finding.controlled_repair_attempts === undefined ? {} : { controlled_repair_attempts: expectInteger(finding.controlled_repair_attempts, `${location}.controlled_repair_attempts`, 0, MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING) }),
     evidence_refs: validateEvidenceRefs(finding.evidence_refs, `${location}.evidence_refs`),
     review_cycle_id: expectString(finding.review_cycle_id, `${location}.review_cycle_id`, SAFE_KEY_PATTERN),
     last_repair_wave_id: expectNullableString(finding.last_repair_wave_id, `${location}.last_repair_wave_id`, SAFE_KEY_PATTERN),
     admitted_at: expectString(finding.admitted_at, `${location}.admitted_at`),
     updated_at: expectString(finding.updated_at, `${location}.updated_at`),
+  };
+}
+
+function validateControlledRepairRecoveryGrant(value: unknown, location: string, taskId: string, taskSlug: string): ControlledRepairRecoveryGrant {
+  const grant = expectRecord(value, location);
+  expectExactKeys(grant, [
+    'kind', 'grant_id', 'task_id', 'task_slug', 'document_id', 'review_id', 'execution_id', 'cycle_id', 'cycle_phase',
+    'change_set_id', 'review_target_revision', 'repair_fingerprints', 'recovery_fingerprints', 'recovery_scope',
+    'disposition_source', 'recovery_basis', 'repair_wave_id', 'decision_source', 'decision_sha256', 'evidence_refs',
+    'issued_source_revision', 'status', 'consumed_fingerprints', 'issued_at',
+    ...(grant.consumed_at === undefined ? [] : ['consumed_at']),
+  ], location);
+  const repairFingerprints = expectStringArray(grant.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS)
+    .map((item, index) => expectString(item, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const recoveryFingerprints = expectStringArray(grant.recovery_fingerprints, `${location}.recovery_fingerprints`, false, MAX_FINDINGS)
+    .map((item, index) => expectString(item, `${location}.recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const consumedFingerprints = expectStringArray(grant.consumed_fingerprints, `${location}.consumed_fingerprints`, true, MAX_FINDINGS)
+    .map((item, index) => expectString(item, `${location}.consumed_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  for (const [name, values] of [['repair_fingerprints', repairFingerprints], ['recovery_fingerprints', recoveryFingerprints], ['consumed_fingerprints', consumedFingerprints]] as const) {
+    if (new Set(values).size !== values.length) fail('RUNTIME_SCHEMA_INVALID', `${location}.${name} must be unique.`);
+    if (values.join('|') !== [...values].sort().join('|')) fail('RUNTIME_SCHEMA_INVALID', `${location}.${name} must use canonical fingerprint order.`);
+  }
+  if (recoveryFingerprints.some(item => !repairFingerprints.includes(item)) || consumedFingerprints.some(item => !repairFingerprints.includes(item))) {
+    fail('RUNTIME_STATE_CONFLICT', `${location} recovery and consumed fingerprints must be subsets of repair_fingerprints.`);
+  }
+  if (grant.task_id !== taskId || grant.task_slug !== taskSlug) {
+    fail('RUNTIME_STATE_CONFLICT', `${location} task identity does not match runtime_state.`);
+  }
+  const status = expectEnum(grant.status, ['issued', 'consumed'], `${location}.status`);
+  if (status === 'consumed' && consumedFingerprints.length !== repairFingerprints.length) fail('RUNTIME_STATE_CONFLICT', `${location} consumed grants must record every repair fingerprint.`);
+  return {
+    kind: grant.kind === 'controlled-repair-recovery/v1' ? grant.kind : fail('RUNTIME_SCHEMA_INVALID', `${location}.kind must be controlled-repair-recovery/v1.`),
+    grant_id: expectString(grant.grant_id, `${location}.grant_id`, SAFE_KEY_PATTERN),
+    task_id: expectString(grant.task_id, `${location}.task_id`),
+    task_slug: expectString(grant.task_slug, `${location}.task_slug`),
+    document_id: expectString(grant.document_id, `${location}.document_id`, DOCUMENT_ID_PATTERN),
+    review_id: expectString(grant.review_id, `${location}.review_id`, SAFE_KEY_PATTERN),
+    execution_id: expectString(grant.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN),
+    cycle_id: expectString(grant.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN),
+    cycle_phase: expectEnum(grant.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
+    change_set_id: expectString(grant.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN),
+    review_target_revision: expectString(grant.review_target_revision, `${location}.review_target_revision`, SHA256_PATTERN),
+    repair_fingerprints: repairFingerprints,
+    recovery_fingerprints: recoveryFingerprints,
+    recovery_scope: expectEnum(grant.recovery_scope, CONTROLLED_RECOVERY_SCOPES, `${location}.recovery_scope`),
+    disposition_source: expectEnum(grant.disposition_source, CONTROLLED_RECOVERY_DISPOSITION_SOURCES, `${location}.disposition_source`),
+    recovery_basis: expectEnum(grant.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, `${location}.recovery_basis`),
+    repair_wave_id: expectString(grant.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN),
+    decision_source: expectText(grant.decision_source, `${location}.decision_source`),
+    decision_sha256: expectString(grant.decision_sha256, `${location}.decision_sha256`, SHA256_PATTERN),
+    evidence_refs: validateEvidenceRefs(grant.evidence_refs, `${location}.evidence_refs`),
+    issued_source_revision: expectString(grant.issued_source_revision, `${location}.issued_source_revision`, SHA256_PATTERN),
+    status,
+    consumed_fingerprints: consumedFingerprints,
+    issued_at: expectString(grant.issued_at, `${location}.issued_at`),
+    ...(grant.consumed_at === undefined ? {} : { consumed_at: expectString(grant.consumed_at, `${location}.consumed_at`) }),
   };
 }
 
@@ -7146,9 +7398,65 @@ function validateRepairBudgetExtensionAuditLogEntry(value: AnyRecord, location: 
   };
 }
 
+function validateControlledRepairRecoveryAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): ControlledRepairRecoveryAuditLogEntry {
+  const requiredKeys = [
+    'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'task_id', 'task_slug', 'document_id',
+    'from_workflow_status', 'from_lifecycle_state', 'to_workflow_status', 'to_lifecycle_state', 'source_revision',
+    'authority_evidence', 'evidence_refs', 'review_id', 'execution_id', 'cycle_id', 'cycle_phase', 'change_set_id',
+    'review_target_revision', 'repair_fingerprints', 'recovery_fingerprints', 'recovery_scope', 'disposition_source',
+    'recovery_basis', 'grant_id', 'repair_wave_id', 'controlled_attempt_limit', 'decision_source', 'decision_sha256', 'recorded_at',
+  ];
+  expectExactKeys(value, requiredKeys, location);
+  if (value.action !== 'authorize-controlled-repair-recovery' || value.operation_kind !== 'task-state-transaction'
+    || value.caller !== 'prepare-task' || value.mode !== 'default'
+    || value.from_workflow_status !== 'active' || value.from_lifecycle_state !== 'active'
+    || value.to_workflow_status !== 'active' || value.to_lifecycle_state !== 'active') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} controlled recovery audit has an invalid operation or lifecycle binding.`);
+  }
+  const entryTaskId = expectString(value.task_id, `${location}.task_id`);
+  const entryTaskSlug = expectString(value.task_slug, `${location}.task_slug`);
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug) fail('RUNTIME_STATE_CONFLICT', `${location} identity does not match runtime_state.`);
+  const repairFingerprints = expectStringArray(value.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS)
+    .map((item, index) => expectString(item, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const recoveryFingerprints = expectStringArray(value.recovery_fingerprints, `${location}.recovery_fingerprints`, false, MAX_FINDINGS)
+    .map((item, index) => expectString(item, `${location}.recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  if (new Set(repairFingerprints).size !== repairFingerprints.length || repairFingerprints.join('|') !== [...repairFingerprints].sort().join('|')) fail('RUNTIME_SCHEMA_INVALID', `${location}.repair_fingerprints must be unique and sorted.`);
+  if (new Set(recoveryFingerprints).size !== recoveryFingerprints.length || recoveryFingerprints.join('|') !== [...recoveryFingerprints].sort().join('|')) fail('RUNTIME_SCHEMA_INVALID', `${location}.recovery_fingerprints must be unique and sorted.`);
+  if (recoveryFingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) fail('RUNTIME_STATE_CONFLICT', `${location}.recovery_fingerprints must be a subset of repair_fingerprints.`);
+  return {
+    action: 'authorize-controlled-repair-recovery',
+    idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    operation_kind: 'task-state-transaction', caller: 'prepare-task', mode: 'default',
+    task_id: entryTaskId, task_slug: entryTaskSlug,
+    document_id: expectString(value.document_id, `${location}.document_id`, DOCUMENT_ID_PATTERN),
+    from_workflow_status: 'active', from_lifecycle_state: 'active', to_workflow_status: 'active', to_lifecycle_state: 'active',
+    source_revision: expectString(value.source_revision, `${location}.source_revision`, SHA256_PATTERN),
+    authority_evidence: validateAuthorityEvidence(value.authority_evidence),
+    evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`),
+    review_id: expectString(value.review_id, `${location}.review_id`, SAFE_KEY_PATTERN),
+    execution_id: expectString(value.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN),
+    cycle_id: expectString(value.cycle_id, `${location}.cycle_id`, SAFE_KEY_PATTERN),
+    cycle_phase: expectEnum(value.cycle_phase, REVIEW_CYCLE_PHASES, `${location}.cycle_phase`),
+    change_set_id: expectString(value.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN),
+    review_target_revision: expectString(value.review_target_revision, `${location}.review_target_revision`, SHA256_PATTERN),
+    repair_fingerprints: repairFingerprints,
+    recovery_fingerprints: recoveryFingerprints,
+    recovery_scope: expectEnum(value.recovery_scope, CONTROLLED_RECOVERY_SCOPES, `${location}.recovery_scope`),
+    disposition_source: expectEnum(value.disposition_source, CONTROLLED_RECOVERY_DISPOSITION_SOURCES, `${location}.disposition_source`),
+    recovery_basis: expectEnum(value.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, `${location}.recovery_basis`),
+    grant_id: expectString(value.grant_id, `${location}.grant_id`, SAFE_KEY_PATTERN),
+    repair_wave_id: expectString(value.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN),
+    controlled_attempt_limit: expectInteger(value.controlled_attempt_limit, `${location}.controlled_attempt_limit`, 1, MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING),
+    decision_source: expectText(value.decision_source, `${location}.decision_source`),
+    decision_sha256: expectString(value.decision_sha256, `${location}.decision_sha256`, SHA256_PATTERN),
+    recorded_at: expectString(value.recorded_at, `${location}.recorded_at`),
+  };
+}
+
 function validateExecutionLogEntry(value: unknown, location: string, taskId: string, taskSlug: string): ExecutionLogEntry {
   const record = expectRecord(value, location);
   if (record.action === 'extend-repair-budget') return validateRepairBudgetExtensionAuditLogEntry(record, location, taskId, taskSlug);
+  if (record.action === 'authorize-controlled-repair-recovery') return validateControlledRepairRecoveryAuditLogEntry(record, location, taskId, taskSlug);
   if (record.action === 'migrate-claim-evidence') return validateClaimEvidenceMigrationAuditLogEntry(record, location, taskId, taskSlug);
   if (DRAFT_AUDIT_ACTIONS.includes(record.action as DraftAuditAction)) return validateDraftAuditLogEntry(record, location, taskId, taskSlug);
   if (record.action === 'archive') return validateArchiveAuditLogEntry(record, location, taskId, taskSlug);
@@ -7411,7 +7719,7 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     'finding_queue_revision', 'review_cycle', 'findings',
   ];
   if (!options.storeBackedHistory) requiredRuntimeStateFields.push('execution_log', 'applied_proposals');
-  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'scope_amendment_pending_review_step_id', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids', 'dynamic_review_required', 'dynamic_expansions', 'execution_preflight', 'authority_domain_revision'];
+  const optionalRuntimeStateFields = ['business_evidence_version', 'evidence_plan_revision', 'task_evolution_version', 'preservation_source_revision', 'claim_evidence_required', 'claim_evidence', 'pending_review_result', 'scope_amendment_pending_review_step_id', 'review_coverage', 'step_attempts', 'evidence_challenges', 'evidence_carry_forward', 'artifact_checkpoint_ids', 'dynamic_review_required', 'dynamic_expansions', 'execution_preflight', 'authority_domain_revision', 'controlled_repair_grants'];
   if (options.storeBackedHistory) optionalRuntimeStateFields.push('execution_log', 'applied_proposals');
   const missingRuntimeStateFields = requiredRuntimeStateFields.filter(field => !(field in runtime));
   const extraRuntimeStateFields = Object.keys(runtime).filter(field => !requiredRuntimeStateFields.includes(field) && !optionalRuntimeStateFields.includes(field));
@@ -7487,6 +7795,12 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     if (finding.owner_task_id !== taskId) fail('RUNTIME_STATE_CONFLICT', `finding ${finding.fingerprint} is owned by a different task.`);
     if (finding.repair_attempts > finding.max_repair_attempts) fail('RUNTIME_SCHEMA_INVALID', `finding ${finding.fingerprint} exceeds its declared repair budget.`);
   }
+  const controlledRepairGrants = runtime.controlled_repair_grants === undefined ? [] : (() => {
+    if (!Array.isArray(runtime.controlled_repair_grants) || runtime.controlled_repair_grants.length > MAX_EXECUTION_LOG) fail('RUNTIME_SCHEMA_INVALID', 'runtime_state.controlled_repair_grants must be a bounded array.');
+    const grants = runtime.controlled_repair_grants.map((item, index) => validateControlledRepairRecoveryGrant(item, `runtime_state.controlled_repair_grants[${index}]`, taskId, taskSlug));
+    if (new Set(grants.map(item => item.grant_id)).size !== grants.length) fail('RUNTIME_SCHEMA_INVALID', 'controlled recovery grant IDs must be unique.');
+    return grants;
+  })();
   const executionLogValue = runtime.execution_log;
   if (options.storeBackedHistory && executionLogValue !== undefined) {
     fail('RUNTIME_STORAGE_COMPACT_INVALID', 'compact CURRENT_TASK must not inline execution_log; use task-read against the committed store.');
@@ -7551,6 +7865,7 @@ export function validateVNextRuntimeState(value: unknown, options: { storeBacked
     finding_queue_revision: expectInteger(runtime.finding_queue_revision, 'runtime_state.finding_queue_revision'),
     review_cycle: reviewCycle,
     findings,
+    ...(runtime.controlled_repair_grants === undefined ? {} : { controlled_repair_grants: controlledRepairGrants }),
     execution_log: executionLog,
     applied_proposals: appliedProposals,
     claim_evidence_required: claimEvidenceRequired,
@@ -7966,6 +8281,19 @@ function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry, includeEmptyKno
     lines.push(`  new_max_repair_rounds: ${extensionAudit.new_max_repair_rounds}`);
     lines.push(`  decision_source: ${JSON.stringify(extensionAudit.decision_source)}`);
     lines.push(`  decision_sha256: ${extensionAudit.decision_sha256}`);
+  } else if (audit.action === 'authorize-controlled-repair-recovery') {
+    const recoveryAudit = audit as ControlledRepairRecoveryAuditLogEntry;
+    lines.push(`  review_id: ${recoveryAudit.review_id}`);
+    lines.push(`  recovery_scope: ${recoveryAudit.recovery_scope}`);
+    lines.push(`  repair_fingerprints: ${JSON.stringify(recoveryAudit.repair_fingerprints)}`);
+    lines.push(`  recovery_fingerprints: ${JSON.stringify(recoveryAudit.recovery_fingerprints)}`);
+    lines.push(`  grant_id: ${recoveryAudit.grant_id}`);
+    lines.push(`  repair_wave_id: ${recoveryAudit.repair_wave_id}`);
+    lines.push(`  disposition_source: ${recoveryAudit.disposition_source}`);
+    lines.push(`  recovery_basis: ${recoveryAudit.recovery_basis}`);
+    lines.push(`  controlled_attempt_limit: ${recoveryAudit.controlled_attempt_limit}`);
+    lines.push(`  decision_source: ${JSON.stringify(recoveryAudit.decision_source)}`);
+    lines.push(`  decision_sha256: ${recoveryAudit.decision_sha256}`);
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action as DraftAuditAction)) {
     const draftAudit = audit as DraftAuditLogEntry;
     lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
@@ -13944,6 +14272,51 @@ function makeRepairBudgetExtensionAudit(
   };
 }
 
+function makeControlledRepairRecoveryAudit(
+  current: CanonicalCurrentTask,
+  proposal: RuntimeProposal,
+  now: string,
+): ControlledRepairRecoveryAuditLogEntry {
+  if (proposal.semantic_delta.kind !== 'task-state' || proposal.semantic_delta.action !== 'authorize-controlled-repair-recovery') {
+    fail('RUNTIME_SCHEMA_INVALID', 'Only controlled recovery authorization may create a controlled recovery audit record.');
+  }
+  const delta = proposal.semantic_delta;
+  return {
+    action: 'authorize-controlled-repair-recovery',
+    idempotency_key: proposal.idempotency_key,
+    operation_kind: 'task-state-transaction',
+    caller: 'prepare-task',
+    mode: 'default',
+    task_id: current.runtimeState.task_id,
+    task_slug: current.runtimeState.task_slug,
+    document_id: current.sourceTuple.document_id,
+    from_workflow_status: 'active',
+    from_lifecycle_state: 'active',
+    to_workflow_status: 'active',
+    to_lifecycle_state: 'active',
+    source_revision: current.sourceTuple.revision,
+    authority_evidence: proposal.authority_evidence.map(item => ({ ...item })),
+    evidence_refs: [...delta.evidence_refs],
+    review_id: delta.review_id,
+    execution_id: delta.execution_id,
+    cycle_id: delta.cycle_id,
+    cycle_phase: delta.cycle_phase,
+    change_set_id: delta.change_set_id,
+    review_target_revision: delta.review_target_revision,
+    repair_fingerprints: [...delta.repair_fingerprints],
+    recovery_fingerprints: [...delta.recovery_fingerprints],
+    recovery_scope: delta.recovery_scope,
+    disposition_source: delta.disposition_source,
+    recovery_basis: delta.recovery_basis,
+    grant_id: delta.grant_id,
+    repair_wave_id: delta.repair_wave_id,
+    controlled_attempt_limit: MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING,
+    decision_source: delta.decision_source,
+    decision_sha256: sha256(delta.decision_text),
+    recorded_at: now,
+  };
+}
+
 export function repairBudgetContinuationForPendingReview(current: CanonicalCurrentTask): { review_id: string; finding_fingerprints: string[] } | null {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') return null;
@@ -13984,37 +14357,310 @@ export function repairBudgetContinuationForPendingReview(current: CanonicalCurre
 export function repairFingerprintsForPendingReview(current: CanonicalCurrentTask): string[] {
   const pending = current.runtimeState.pending_review_result;
   if (!pending || (pending.verdict !== 'findings' && pending.verdict !== 'blocked')) return [];
-  const resolved = new Set(pending.resolved_fingerprints);
+  const deferred = new Set((pending.finding_dispositions ?? [])
+    .filter(item => item.disposition === 'defer')
+    .map(item => item.fingerprint));
+  const resolved = new Set([
+    ...pending.resolved_fingerprints,
+    ...current.runtimeState.findings.filter(item => item.status === 'resolved').map(item => item.fingerprint),
+  ]);
   return [...new Set([
     ...pending.unresolved_fingerprints,
     ...pending.findings.map(item => item.fingerprint),
-  ])].filter(fingerprint => !resolved.has(fingerprint)).sort();
+  ])].filter(fingerprint => !resolved.has(fingerprint) && !deferred.has(fingerprint)).sort();
+}
+
+export type RepairBudgetExtensionBlockerCode =
+  | 'not-pending-budget-review'
+  | 'no-repair-target'
+  | 'repair-round-not-exhausted'
+  | 'finding-attempt-absolute-limit'
+  | 'repair-round-absolute-limit';
+
+export type RepairBudgetExtensionEligibility = {
+  eligible: boolean;
+  extension_scope: 'finding-attempts' | 'repair-round' | null;
+  repair_fingerprints: string[];
+  finding_fingerprints: string[];
+  repair_round: number;
+  repair_round_limit: number;
+  next_repair_round_limit: number;
+  absolute_limits: {
+    max_repair_attempts: number;
+    max_repair_rounds: number;
+  };
+  blocking_reasons: Array<{
+    code: RepairBudgetExtensionBlockerCode;
+    message: string;
+    fingerprints?: string[];
+  }>;
+};
+
+/** Shared qualification for task-context navigation and the write transaction. */
+export function repairBudgetExtensionEligibility(current: CanonicalCurrentTask): RepairBudgetExtensionEligibility {
+  const pending = current.runtimeState.pending_review_result;
+  const repairRound = current.runtimeState.review_cycle.repair_round;
+  const repairRoundLimitValue = repairRoundLimit(current.runtimeState.review_cycle);
+  const nextRepairRoundLimit = Math.max(repairRoundLimitValue, repairRound + 1);
+  const repairFingerprints = repairFingerprintsForPendingReview(current);
+  const base = {
+    repair_round: repairRound,
+    repair_round_limit: repairRoundLimitValue,
+    next_repair_round_limit: nextRepairRoundLimit,
+    absolute_limits: {
+      max_repair_attempts: MAX_EXTENDED_REPAIR_ATTEMPTS,
+      max_repair_rounds: MAX_EXTENDED_REPAIR_ROUNDS,
+    },
+    repair_fingerprints: repairFingerprints,
+  } satisfies Omit<RepairBudgetExtensionEligibility, 'eligible' | 'extension_scope' | 'finding_fingerprints' | 'blocking_reasons'>;
+  if (!pending || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') {
+    return {
+      ...base,
+      eligible: false,
+      extension_scope: null,
+      finding_fingerprints: [],
+      blocking_reasons: [{
+        code: 'not-pending-budget-review',
+        message: 'An exact pending REPAIR_BUDGET_EXHAUSTED review is required before an ordinary budget extension can be authorized.',
+      }],
+    };
+  }
+
+  const reviewTargets = new Set(repairFingerprints);
+  const currentFindings = current.runtimeState.findings.filter(item =>
+    ['admitted', 'in-progress'].includes(item.status)
+    && item.review_cycle_id === pending.cycle_id
+    && reviewTargets.has(item.fingerprint));
+  const pendingCandidates = pending.findings.some(item => {
+    if (!reviewTargets.has(item.fingerprint)) return false;
+    const existing = current.runtimeState.findings.find(candidate => candidate.fingerprint === item.fingerprint);
+    // New candidates are still admitted by beginRepair; this helper never
+    // grants them a finding-attempt budget.
+    return existing === undefined;
+  });
+  const hasRepairTarget = currentFindings.length > 0 || pendingCandidates;
+  const exhausted = currentFindings
+    .filter(item => item.repair_attempts >= item.max_repair_attempts)
+    .map(item => item.fingerprint)
+    .sort();
+  const absoluteFindingTargets = currentFindings
+    .filter(item => item.repair_attempts >= item.max_repair_attempts && item.max_repair_attempts >= MAX_EXTENDED_REPAIR_ATTEMPTS)
+    .map(item => item.fingerprint)
+    .sort();
+  const blockingReasons: RepairBudgetExtensionEligibility['blocking_reasons'] = [];
+
+  if (!hasRepairTarget) {
+    blockingReasons.push({
+      code: 'no-repair-target',
+      message: 'The pending review has no admitted or normally admissible unresolved repair target after verified resolutions were applied.',
+    });
+  } else if (exhausted.length > 0) {
+    if (absoluteFindingTargets.length > 0) {
+      blockingReasons.push({
+        code: 'finding-attempt-absolute-limit',
+        message: `The following unresolved finding(s) already reached the absolute repair-attempt limit of ${MAX_EXTENDED_REPAIR_ATTEMPTS}: ${absoluteFindingTargets.join(', ')}.`,
+        fingerprints: absoluteFindingTargets,
+      });
+    }
+    if (nextRepairRoundLimit > MAX_EXTENDED_REPAIR_ROUNDS) {
+      blockingReasons.push({
+        code: 'repair-round-absolute-limit',
+        message: `The next repair round would exceed the absolute repair-round limit of ${MAX_EXTENDED_REPAIR_ROUNDS} (current round ${repairRound}).`,
+      });
+    }
+    if (blockingReasons.length === 0) {
+      return {
+        ...base,
+        eligible: true,
+        extension_scope: 'finding-attempts',
+        finding_fingerprints: exhausted,
+        blocking_reasons: [],
+      };
+    }
+  } else if (repairRound < repairRoundLimitValue) {
+    blockingReasons.push({
+      code: 'repair-round-not-exhausted',
+      message: 'No finding-attempt budget is exhausted and the repair-wave quota is not exhausted; an ordinary budget extension is not applicable.',
+    });
+  } else if (nextRepairRoundLimit > MAX_EXTENDED_REPAIR_ROUNDS) {
+    blockingReasons.push({
+      code: 'repair-round-absolute-limit',
+      message: `The next repair round would exceed the absolute repair-round limit of ${MAX_EXTENDED_REPAIR_ROUNDS} (current round ${repairRound}).`,
+    });
+  } else {
+    // A review wave can exhaust the cycle quota while every still-open
+    // finding retains per-finding attempts. The empty set is an explicit,
+    // auditable cycle-only extension target.
+    return {
+      ...base,
+      eligible: true,
+      extension_scope: 'repair-round',
+      finding_fingerprints: [],
+      blocking_reasons: [],
+    };
+  }
+
+  return {
+    ...base,
+    eligible: false,
+    extension_scope: null,
+    finding_fingerprints: [],
+    blocking_reasons: blockingReasons,
+  };
+}
+
+export type ControlledRepairRecoveryBlockerCode =
+  | 'not-pending-budget-review'
+  | 'ordinary-extension-available'
+  | 'no-repair-target'
+  | 'must-fix-disposition-required'
+  | 'controlled-recovery-attempt-limit'
+  | 'controlled-recovery-grant-already-issued'
+  | 'controlled-recovery-not-at-ordinary-limit';
+
+export type ControlledRepairRecoveryEligibility = {
+  eligible: boolean;
+  recovery_scope: ControlledRecoveryScope | null;
+  repair_fingerprints: string[];
+  recovery_fingerprints: string[];
+  candidate_recovery_fingerprints: string[];
+  disposition_source: ControlledRecoveryDispositionSource | null;
+  repair_round: number;
+  repair_round_limit: number;
+  controlled_attempt_limit: number;
+  blocking_reasons: Array<{
+    code: ControlledRepairRecoveryBlockerCode;
+    message: string;
+    fingerprints?: string[];
+  }>;
+};
+
+export function repairWaveIdForRepairSet(reviewId: string, fingerprints: readonly string[]): string {
+  return `repair-wave-${digest({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
+}
+
+function pendingReviewDispositionMap(pending: PendingReviewResult): Map<string, RepairFindingDisposition> {
+  return new Map((pending.finding_dispositions ?? []).map(item => [item.fingerprint, item]));
+}
+
+/**
+ * Controlled recovery is available only after ordinary extension is no longer
+ * executable.  It grants one exact repair wave and, for selected must-fix
+ * findings already at their ordinary cap, a separate bounded attempt counter.
+ * Missing dispositions are treated as a legacy state: the user must name the
+ * exact targets explicitly in the authorization transaction; prose is never
+ * interpreted by Runtime.
+ */
+export function controlledRepairRecoveryEligibility(current: CanonicalCurrentTask): ControlledRepairRecoveryEligibility {
+  const pending = current.runtimeState.pending_review_result;
+  const repairFingerprints = repairFingerprintsForPendingReview(current);
+  const reviewCycle = current.runtimeState.review_cycle;
+  const base = {
+    repair_fingerprints: repairFingerprints,
+    candidate_recovery_fingerprints: [],
+    repair_round: reviewCycle.repair_round,
+    repair_round_limit: repairRoundLimit(reviewCycle),
+    controlled_attempt_limit: MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING,
+  } satisfies Omit<ControlledRepairRecoveryEligibility, 'eligible' | 'recovery_scope' | 'recovery_fingerprints' | 'disposition_source' | 'blocking_reasons'>;
+  const blocked = (code: ControlledRepairRecoveryBlockerCode, message: string, fingerprints?: string[]): ControlledRepairRecoveryEligibility => ({
+    ...base,
+    eligible: false,
+    recovery_scope: null,
+    recovery_fingerprints: [],
+    disposition_source: null,
+    blocking_reasons: [{ code, message, ...(fingerprints && fingerprints.length ? { fingerprints } : {}) }],
+  });
+  if (!pending || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') {
+    return blocked('not-pending-budget-review', 'An exact pending REPAIR_BUDGET_EXHAUSTED review is required before controlled recovery can be authorized.');
+  }
+  const ordinary = repairBudgetExtensionEligibility(current);
+  if (ordinary.eligible) {
+    return blocked('ordinary-extension-available', 'Ordinary bounded budget extension is still executable; controlled recovery is reserved for the ordinary-limit boundary.');
+  }
+  if (repairFingerprints.length === 0) return blocked('no-repair-target', 'The pending review has no unresolved repair target after verified resolutions were applied.');
+  const currentFindings = current.runtimeState.findings.filter(item => repairFingerprints.includes(item.fingerprint) && ['admitted', 'in-progress'].includes(item.status));
+  const exhausted = currentFindings.filter(item => item.repair_attempts >= item.max_repair_attempts).map(item => item.fingerprint).sort();
+  const absoluteFindingTargets = currentFindings.filter(item => item.max_repair_attempts >= MAX_EXTENDED_REPAIR_ATTEMPTS && item.repair_attempts >= item.max_repair_attempts).map(item => item.fingerprint).sort();
+  const roundAtAbsolute = reviewCycle.repair_round >= MAX_EXTENDED_REPAIR_ROUNDS && repairRoundLimit(reviewCycle) >= MAX_EXTENDED_REPAIR_ROUNDS;
+  const dispositionMap = pendingReviewDispositionMap(pending);
+  const hasStructuredDispositions = pending.finding_dispositions !== undefined;
+  const dispositionSource: ControlledRecoveryDispositionSource = hasStructuredDispositions ? 'review-disposition' : 'legacy-explicit-user';
+  const candidateRecoveryFingerprints = (hasStructuredDispositions
+    ? repairFingerprints.filter(fingerprint => dispositionMap.get(fingerprint)?.disposition === 'must-fix')
+    : roundAtAbsolute ? repairFingerprints : exhausted).sort();
+  if (!roundAtAbsolute && absoluteFindingTargets.length === 0) {
+    return blocked('controlled-recovery-not-at-ordinary-limit', 'The ordinary extension is blocked for a non-absolute reason; controlled recovery cannot be used as an alternate budget path.');
+  }
+  if (candidateRecoveryFingerprints.length === 0) {
+    return blocked('must-fix-disposition-required', 'At least one unresolved target must be explicitly classified as must-fix before controlled recovery can add quota.');
+  }
+  if (hasStructuredDispositions) {
+    const unclassifiedExhausted = exhausted.filter(fingerprint => !candidateRecoveryFingerprints.includes(fingerprint));
+    if (unclassifiedExhausted.length > 0) {
+      return blocked('must-fix-disposition-required', `Every exhausted unresolved finding must be explicitly classified as must-fix for controlled recovery: ${unclassifiedExhausted.join(', ')}.`, unclassifiedExhausted);
+    }
+  }
+  const grantsForReview = (current.runtimeState.controlled_repair_grants ?? []).filter(grant =>
+    grant.review_id === pending.review_id && grant.task_id === current.runtimeState.task_id,
+  );
+  if (grantsForReview.length >= MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW) {
+    return blocked('controlled-recovery-grant-already-issued', 'This exact pending review already has its one controlled recovery grant; review the resulting execution before requesting a later grant.');
+  }
+  const exhaustedControlledLimit = currentFindings
+    .filter(item => candidateRecoveryFingerprints.includes(item.fingerprint) && (item.controlled_repair_attempts ?? 0) >= MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING)
+    .map(item => item.fingerprint)
+    .sort();
+  if (exhaustedControlledLimit.length > 0) {
+    return blocked('controlled-recovery-attempt-limit', `Controlled recovery attempts are exhausted for: ${exhaustedControlledLimit.join(', ')}. A new task or budget reset is not permitted.`, exhaustedControlledLimit);
+  }
+  const recoveryScope: ControlledRecoveryScope = roundAtAbsolute && exhausted.length > 0
+    ? 'mixed'
+    : roundAtAbsolute
+      ? 'repair-round'
+      : 'finding-attempts';
+  return {
+    ...base,
+    eligible: true,
+    recovery_scope: recoveryScope,
+    recovery_fingerprints: candidateRecoveryFingerprints,
+    candidate_recovery_fingerprints: candidateRecoveryFingerprints,
+    disposition_source: dispositionSource,
+    blocking_reasons: [],
+  };
+}
+
+export function controlledRepairContinuationForPendingReview(current: CanonicalCurrentTask): (ControlledRepairRecoveryGrant & { repair_fingerprints: string[] }) | null {
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') return null;
+  const repairFingerprints = repairFingerprintsForPendingReview(current);
+  const waveId = repairWaveIdForRepairSet(pending.review_id, repairFingerprints);
+  const grant = (current.runtimeState.controlled_repair_grants ?? []).find(item =>
+    item.status === 'issued'
+    && item.task_id === current.runtimeState.task_id
+    && item.task_slug === current.runtimeState.task_slug
+    && item.document_id === current.sourceTuple.document_id
+    && item.review_id === pending.review_id
+    && item.execution_id === pending.execution_id
+    && item.cycle_id === pending.cycle_id
+    && item.cycle_phase === pending.cycle_phase
+    && item.change_set_id === pending.change_set_id
+    && item.review_target_revision === pending.review_target_revision
+    && digest(item.repair_fingerprints) === digest(repairFingerprints)
+    && item.repair_wave_id === waveId
+    && item.recovery_fingerprints.every(fingerprint => repairFingerprints.includes(fingerprint))
+    && item.consumed_fingerprints.length < item.repair_fingerprints.length,
+  );
+  return grant ? { ...grant, repair_fingerprints: [...grant.repair_fingerprints] } : null;
+}
+
+function controlledGrantForRepairWave(current: CanonicalCurrentTask, repairWaveId: string): ControlledRepairRecoveryGrant | null {
+  const continuation = controlledRepairContinuationForPendingReview(current);
+  return continuation && continuation.repair_wave_id === repairWaveId ? continuation : null;
 }
 
 export function repairBudgetExtensionTargets(current: CanonicalCurrentTask): string[] | null {
-  const pending = current.runtimeState.pending_review_result;
-  if (!pending || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') return null;
-  const repairTargets = new Set(repairFingerprintsForPendingReview(current));
-  const fingerprints = current.runtimeState.findings.filter(item =>
-    ['admitted', 'in-progress'].includes(item.status)
-    && item.review_cycle_id === pending.cycle_id
-    && repairTargets.has(item.fingerprint)
-    && item.repair_attempts >= item.max_repair_attempts,
-  ).map(item => item.fingerprint).sort();
-  if (fingerprints.length > 0) return fingerprints;
-
-  // A review wave can exhaust the cycle quota while every still-open finding
-  // retains per-finding attempts.  Return the empty set as an explicit,
-  // auditable cycle-only extension target; null remains "not eligible".
-  const cycleExhausted = current.runtimeState.review_cycle.repair_round >= repairRoundLimit(current.runtimeState.review_cycle);
-  const hasRepairTarget = repairTargets.size > 0 && [...repairTargets].some(fingerprint => {
-    const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
-    return (finding !== undefined && ['admitted', 'in-progress'].includes(finding.status)
-      && finding.review_cycle_id === pending.cycle_id
-      && finding.repair_attempts < finding.max_repair_attempts)
-      || pending.findings.some(item => item.fingerprint === fingerprint);
-  });
-  return cycleExhausted && hasRepairTarget ? [] : null;
+  const eligibility = repairBudgetExtensionEligibility(current);
+  return eligibility.eligible ? eligibility.finding_fingerprints : null;
 }
 
 function ensureAnyAuthorityKind(proposal: RuntimeProposal, allowed: readonly AuthorityEvidence['kind'][]): void {
@@ -14386,6 +15032,27 @@ function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, prop
     }
     return;
   }
+  if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'authorize-controlled-repair-recovery') {
+    const delta = proposal.semantic_delta;
+    const audit = current.runtimeState.execution_log.find((entry): entry is ControlledRepairRecoveryAuditLogEntry =>
+      'action' in entry && entry.action === 'authorize-controlled-repair-recovery' && entry.idempotency_key === proposal.idempotency_key,
+    );
+    if (!audit) fail('RUNTIME_REPLAY_INCOMPLETE', 'controlled recovery replay is missing its durable audit record.');
+    assertExecutionAudit(root, current, audit);
+    const grant = current.runtimeState.controlled_repair_grants?.find(item => item.grant_id === delta.grant_id);
+    const basis = readCanonicalTaskBasis(root, current).basis;
+    const decision = [basis.original_request, ...basis.user_decisions].find(item => item.source === delta.decision_source);
+    if (!grant || grant.review_id !== delta.review_id || !['issued', 'consumed'].includes(grant.status)
+      || grant.decision_sha256 !== sha256(delta.decision_text)
+      || !decision
+      || audit.grant_id !== delta.grant_id
+      || digest(grant.repair_fingerprints) !== digest(delta.repair_fingerprints)
+      || digest(grant.recovery_fingerprints) !== digest(delta.recovery_fingerprints)
+      || grant.repair_wave_id !== delta.repair_wave_id) {
+      fail('RUNTIME_REPLAY_INCOMPLETE', 'controlled recovery replay no longer matches the retained decision, grant, or review target set.');
+    }
+    return;
+  }
   if (proposal.semantic_delta.kind !== 'task-state' || (!REPLAN_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as ReplanTaskStateAction) && proposal.semantic_delta.action !== 'commit-scope-amendment')) return;
   const delta = proposal.semantic_delta as Extract<TaskStateDelta, { action: ReplanTaskStateAction | 'commit-scope-amendment' }>;
   const audit = expectedReplanReplayAudit(current, proposal);
@@ -14456,8 +15123,17 @@ function applyTaskStateDelta(
       || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') {
       fail('REPAIR_BUDGET_EXTENSION_STATE_INVALID', 'The exact pending REPAIR_BUDGET_EXHAUSTED review is required.');
     }
-    const exhausted = repairBudgetExtensionTargets(current);
-    if (exhausted === null || digest(exhausted) !== digest(delta.finding_fingerprints)) {
+    const eligibility = repairBudgetExtensionEligibility(current);
+    if (!eligibility.eligible) {
+      const reason = eligibility.blocking_reasons[0];
+      const limitReason = reason?.code === 'finding-attempt-absolute-limit' || reason?.code === 'repair-round-absolute-limit';
+      fail(limitReason ? 'REPAIR_BUDGET_EXTENSION_LIMIT' : 'REPAIR_BUDGET_EXTENSION_TARGET_INVALID', reason?.message ?? 'The pending review is not eligible for an ordinary budget extension.');
+    }
+    const exhausted = eligibility.finding_fingerprints;
+    if (delta.extension_scope !== eligibility.extension_scope) {
+      fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', `The requested extension scope does not match the current eligible scope (${eligibility.extension_scope}).`);
+    }
+    if (digest(exhausted) !== digest(delta.finding_fingerprints)) {
       fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'The decision must bind every and only currently exhausted finding in the pending review cycle.');
     }
     const selected = exhausted.map(fingerprint => current.runtimeState.findings.find(item => item.fingerprint === fingerprint)!);
@@ -14471,7 +15147,7 @@ function applyTaskStateDelta(
       fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'A finding-attempt extension must authorize an exhausted finding.');
     }
     const priorRoundLimit = repairRoundLimit(current.runtimeState.review_cycle);
-    const nextRoundLimit = Math.max(priorRoundLimit, current.runtimeState.review_cycle.repair_round + 1);
+    const nextRoundLimit = eligibility.next_repair_round_limit;
     if (nextRoundLimit > MAX_EXTENDED_REPAIR_ROUNDS) fail('REPAIR_BUDGET_EXTENSION_LIMIT', 'The review cycle reached the absolute bounded repair-round limit.');
     if (delta.extension_scope === 'repair-round' && nextRoundLimit <= priorRoundLimit) {
       fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'A repair-round-only extension requires the current repair-wave quota to be exhausted.');
@@ -14496,6 +15172,115 @@ function applyTaskStateDelta(
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
     };
     const audit = makeRepairBudgetExtensionAudit(current, proposal, nextWithoutAudit, now, findingBudgets, priorRoundLimit);
+    return {
+      next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
+      taskBasis: basis,
+      audit,
+    };
+  }
+  if (delta.action === 'authorize-controlled-repair-recovery') {
+    ensureAuthorityKinds(proposal, ['active-task-owner', 'finding-admission', 'evidence-admission', 'user-confirmation']);
+    if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active' || current.runtimeState.resume_requires_review) {
+      fail('CONTROLLED_RECOVERY_STATE_INVALID', 'Controlled recovery requires an active task without a resume-review gate.');
+    }
+    const pending = current.runtimeState.pending_review_result;
+    if (!pending || pending.review_id !== delta.review_id || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') {
+      fail('CONTROLLED_RECOVERY_STATE_INVALID', 'The exact pending REPAIR_BUDGET_EXHAUSTED review is required for controlled recovery.');
+    }
+    const eligibility = controlledRepairRecoveryEligibility(current);
+    if (!eligibility.eligible) {
+      fail('CONTROLLED_RECOVERY_NOT_ELIGIBLE', eligibility.blocking_reasons[0]?.message ?? 'The pending review is not eligible for controlled recovery.');
+    }
+    const recoveryTargetsAllowed = eligibility.disposition_source === 'legacy-explicit-user'
+      ? delta.recovery_fingerprints.length > 0
+        && delta.recovery_fingerprints.every(fingerprint => eligibility.recovery_fingerprints.includes(fingerprint))
+      : digest(delta.recovery_fingerprints) === digest(eligibility.recovery_fingerprints);
+    const recoveryTargetSet = new Set(delta.recovery_fingerprints);
+    const uncoveredExhaustedTargets = eligibility.repair_fingerprints
+      .filter(fingerprint => {
+        if (recoveryTargetSet.has(fingerprint)) return false;
+        const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
+        // A newly discovered candidate is admitted with its ordinary budget
+        // during beginRepair. Existing findings with an exhausted ordinary
+        // budget, however, must be covered by this one-and-only grant before
+        // the grant can be persisted.
+        return finding !== undefined
+          && ['admitted', 'in-progress'].includes(finding.status)
+          && finding.repair_attempts >= finding.max_repair_attempts;
+      })
+      .sort();
+    if (uncoveredExhaustedTargets.length > 0) {
+      fail('CONTROLLED_RECOVERY_TARGET_INVALID', `Controlled recovery must cover every unresolved finding with no ordinary budget before the grant is issued: ${uncoveredExhaustedTargets.join(', ')}.`);
+    }
+    if (digest(delta.repair_fingerprints) !== digest(eligibility.repair_fingerprints)
+      || !recoveryTargetsAllowed
+      || delta.recovery_scope !== eligibility.recovery_scope
+      || delta.disposition_source !== eligibility.disposition_source) {
+      fail('CONTROLLED_RECOVERY_TARGET_INVALID', 'Controlled recovery must bind the complete current repair set and an explicitly authorized recovery target subset.');
+    }
+    if (delta.execution_id !== pending.execution_id || delta.cycle_id !== pending.cycle_id || delta.cycle_phase !== pending.cycle_phase
+      || delta.change_set_id !== pending.change_set_id || delta.review_target_revision !== pending.review_target_revision) {
+      fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'Controlled recovery must bind the exact pending review execution, cycle, change set, and reviewed target revision.');
+    }
+    const expectedWaveId = repairWaveIdForRepairSet(pending.review_id, eligibility.repair_fingerprints);
+    if (delta.repair_wave_id !== expectedWaveId) fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'Controlled recovery repair wave is not Runtime-derived from the exact review target set.');
+    const expectedGrantId = `controlled-recovery-${digest({
+      task_id: current.runtimeState.task_id,
+      document_id: current.sourceTuple.document_id,
+      review_id: pending.review_id,
+      execution_id: pending.execution_id,
+      cycle_id: pending.cycle_id,
+      change_set_id: pending.change_set_id,
+      review_target_revision: pending.review_target_revision,
+      repair_fingerprints: eligibility.repair_fingerprints,
+      recovery_fingerprints: delta.recovery_fingerprints,
+      recovery_scope: eligibility.recovery_scope,
+      disposition_source: eligibility.disposition_source,
+      recovery_basis: delta.recovery_basis,
+      decision_source: delta.decision_source,
+      decision_text: delta.decision_text,
+    }).slice(0, 40)}`;
+    if (delta.grant_id !== expectedGrantId) fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'Controlled recovery grant identity is not Runtime-derived from the exact decision and review binding.');
+    if (current.runtimeState.controlled_repair_grants?.some(grant => grant.review_id === pending.review_id)) {
+      fail('CONTROLLED_RECOVERY_DUPLICATE', 'A controlled recovery grant is already recorded for this pending review.');
+    }
+    const retained = readCanonicalTaskBasis(root, current);
+    const basis = structuredClone(retained.basis);
+    const priorDecision = [basis.original_request, ...basis.user_decisions].find(item => item.source === delta.decision_source);
+    if (priorDecision && priorDecision.verbatim !== delta.decision_text) fail('CONTROLLED_RECOVERY_AUTHORITY_INVALID', 'An existing decision source cannot be assigned different text.');
+    if (!priorDecision) basis.user_decisions.push({ source: delta.decision_source, verbatim: delta.decision_text });
+    const grant: ControlledRepairRecoveryGrant = {
+      kind: 'controlled-repair-recovery/v1',
+      grant_id: delta.grant_id,
+      task_id: current.runtimeState.task_id,
+      task_slug: current.runtimeState.task_slug,
+      document_id: current.sourceTuple.document_id,
+      review_id: pending.review_id,
+      execution_id: pending.execution_id,
+      cycle_id: pending.cycle_id,
+      cycle_phase: pending.cycle_phase,
+      change_set_id: pending.change_set_id,
+      review_target_revision: pending.review_target_revision,
+      repair_fingerprints: [...eligibility.repair_fingerprints],
+      recovery_fingerprints: [...delta.recovery_fingerprints],
+      recovery_scope: eligibility.recovery_scope!,
+      disposition_source: eligibility.disposition_source!,
+      recovery_basis: delta.recovery_basis,
+      repair_wave_id: expectedWaveId,
+      decision_source: delta.decision_source,
+      decision_sha256: sha256(delta.decision_text),
+      evidence_refs: [...new Set(delta.evidence_refs)],
+      issued_source_revision: current.sourceTuple.revision,
+      status: 'issued',
+      consumed_fingerprints: [],
+      issued_at: now,
+    };
+    const nextWithoutAudit: RuntimeState = {
+      ...current.runtimeState,
+      controlled_repair_grants: [...(current.runtimeState.controlled_repair_grants ?? []), grant],
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+    };
+    const audit = makeControlledRepairRecoveryAudit(current, proposal, now);
     return {
       next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
       taskBasis: basis,
@@ -14942,7 +15727,18 @@ function applyTaskStateDelta(
     for (const fingerprint of review.resolved_fingerprints) {
       if (!openFingerprints.has(fingerprint)) fail('FINDING_NOT_FOUND', `review result resolves non-open finding ${fingerprint}.`);
     }
-    const nestedEvidence = [...review.findings.flatMap(item => item.evidence_refs), ...(review.test_assessment?.evidence_refs ?? [])];
+    const dispositionFingerprints = review.finding_dispositions ?? [];
+    for (const disposition of dispositionFingerprints) {
+      if (!review.unresolved_fingerprints.includes(disposition.fingerprint) && !review.findings.some(item => item.fingerprint === disposition.fingerprint)) {
+        fail('REVIEW_DISPOSITION_TARGET_INVALID', `finding disposition ${disposition.fingerprint} must describe an unresolved finding in the same review.`);
+      }
+      if (review.resolved_fingerprints.includes(disposition.fingerprint)) fail('REVIEW_DISPOSITION_TARGET_INVALID', `finding disposition ${disposition.fingerprint} cannot describe a verified resolved finding.`);
+    }
+    const nestedEvidence = [
+      ...review.findings.flatMap(item => item.evidence_refs),
+      ...(review.finding_dispositions ?? []).flatMap(item => item.evidence_refs),
+      ...(review.test_assessment?.evidence_refs ?? []),
+    ];
     if (![...nestedEvidence, ...review.evidence_refs].every(ref => delta.evidence_refs.includes(ref))) {
       fail('RUNTIME_EVIDENCE_INVALID', 'record-review-result evidence_refs must cover the review result and every finding.');
     }
@@ -15114,7 +15910,8 @@ function applyTaskStateDelta(
       const pending = current.runtimeState.pending_review_result;
       const repairFingerprints = delta.repair_fingerprints ?? [];
       const budgetContinuation = repairBudgetContinuationForPendingReview(current);
-      if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null) || !delta.review_id || delta.review_id !== pending.review_id) {
+      const controlledContinuation = controlledRepairContinuationForPendingReview(current);
+      if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null && controlledContinuation === null) || !delta.review_id || delta.review_id !== pending.review_id) {
         fail('REVIEW_FINDINGS_REQUIRED', 'repair preflight requires the current findings review identity or its explicitly authorized budget continuation.');
       }
       const reviewFingerprints = repairFingerprintsForPendingReview(current);
@@ -15123,6 +15920,13 @@ function applyTaskStateDelta(
       }
       if (budgetContinuation && budgetContinuation.finding_fingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) {
         fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'repair preflight must include every finding authorized by the budget extension.');
+      }
+      if (controlledContinuation) {
+        if (delta.controlled_recovery_grant_id !== controlledContinuation.grant_id) fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'repair preflight must bind the active controlled recovery grant.');
+        if (delta.repair_wave_id !== controlledContinuation.repair_wave_id) fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'repair preflight must bind the Runtime-derived controlled recovery wave.');
+        if (digest(controlledContinuation.repair_fingerprints) !== digest(repairFingerprints)) fail('CONTROLLED_RECOVERY_TARGET_INVALID', 'controlled recovery preflight must consume the complete latest review repair set.');
+      } else if (delta.controlled_recovery_grant_id !== undefined) {
+        fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'repair preflight references a controlled recovery grant that is not active for the pending review.');
       }
       if (repairFingerprints.length === 0 || !delta.repair_wave_id || !delta.change_set_id || delta.change_set_id !== pending.change_set_id || !delta.review_target_paths || delta.review_target_paths.length === 0) {
         fail('REPAIR_PREFLIGHT_IDENTITY_REQUIRED', 'repair preflight must bind findings, repair wave, review, target paths, and change set.');
@@ -15212,6 +16016,7 @@ function applyTaskStateDelta(
         repair_wave_id: executionMode === 'repair' ? delta.repair_wave_id! : null,
         review_id: executionMode === 'repair' ? delta.review_id! : null,
         review_target_paths: executionMode === 'repair' ? [...delta.review_target_paths!] : null,
+        ...(executionMode === 'repair' && delta.controlled_recovery_grant_id ? { controlled_recovery_grant_id: delta.controlled_recovery_grant_id } : {}),
       } satisfies ExecutionPreflightState
       : undefined;
     return { next: {
@@ -15743,6 +16548,7 @@ function applyFindingQueueDelta(
     ...current.runtimeState.review_cycle,
     counted_repair_wave_ids: [...current.runtimeState.review_cycle.counted_repair_wave_ids],
   };
+  let controlledRepairGrants = current.runtimeState.controlled_repair_grants;
   let pendingReview = current.runtimeState.pending_review_result;
   if (delta.action === 'admit') {
     const candidate = delta.finding;
@@ -15841,11 +16647,17 @@ function applyFindingQueueDelta(
     if (index < 0) fail('FINDING_NOT_FOUND', `finding ${delta.fingerprint} is not present in the current queue.`);
     const finding = findings[index];
     if (delta.action === 'record-repair-attempt') {
+      const controlledGrant = controlledGrantForRepairWave(current, delta.repair_wave_id);
       const recoveryBudget = recoveryProblemBudget(current);
-      if (recoveryBudget && !recoveryBudget.repairWaves.has(delta.repair_wave_id) && recoveryBudget.repairWaves.size >= repairRoundLimit(reviewCycle)) fail('REPAIR_BUDGET_EXHAUSTED', 'The same recovery problem has exhausted its retained repair waves across plans.');
+      if (recoveryBudget && !controlledGrant && !recoveryBudget.repairWaves.has(delta.repair_wave_id) && recoveryBudget.repairWaves.size >= repairRoundLimit(reviewCycle)) fail('REPAIR_BUDGET_EXHAUSTED', 'The same recovery problem has exhausted its retained repair waves across plans.');
       if (proposal.mode !== 'repair') fail('RUNTIME_MODE_INVALID', 'record-repair-attempt requires execute-step:repair.');
       if (!['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_STATE_INVALID', `finding ${finding.fingerprint} is not repairable from ${finding.status}.`);
-      if (finding.repair_attempts >= finding.max_repair_attempts) fail('REPAIR_BUDGET_EXHAUSTED', `finding ${finding.fingerprint} has exhausted its repair budget.`);
+      const ordinaryAttemptAvailable = finding.repair_attempts < finding.max_repair_attempts;
+      const controlledAttemptAvailable = controlledGrant?.recovery_fingerprints.includes(finding.fingerprint)
+        && (finding.controlled_repair_attempts ?? 0) < MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING;
+      if (!ordinaryAttemptAvailable && !controlledAttemptAvailable) {
+        fail('REPAIR_BUDGET_EXHAUSTED', `finding ${finding.fingerprint} has exhausted both its ordinary and controlled repair budget.`);
+      }
       if (delta.review_cycle_id !== reviewCycle.id) {
         fail('REVIEW_CYCLE_CONFLICT', 'record-repair-attempt must target the current review cycle; only finding admission may start a new cycle.');
       }
@@ -15862,22 +16674,35 @@ function applyFindingQueueDelta(
         fail('REPAIR_WAVE_FINDING_DUPLICATE', `finding ${finding.fingerprint} already has an attempt in repair wave ${delta.repair_wave_id}.`);
       }
       if (reviewCycle.active_repair_wave_id !== delta.repair_wave_id) {
-        if (reviewCycle.repair_round >= repairRoundLimit(reviewCycle)) fail('REPAIR_BUDGET_EXHAUSTED', 'review-cycle repair round budget is exhausted.');
-        reviewCycle = {
-          ...reviewCycle,
-          repair_round: reviewCycle.repair_round + 1,
-          counted_repair_wave_ids: [...reviewCycle.counted_repair_wave_ids, delta.repair_wave_id],
-          active_repair_wave_id: delta.repair_wave_id,
-        };
+        const controlledOutsideRound = controlledGrant !== null && reviewCycle.repair_round >= repairRoundLimit(reviewCycle);
+        if (!controlledOutsideRound) {
+          if (reviewCycle.repair_round >= repairRoundLimit(reviewCycle)) fail('REPAIR_BUDGET_EXHAUSTED', 'review-cycle repair round budget is exhausted.');
+          reviewCycle = {
+            ...reviewCycle,
+            repair_round: reviewCycle.repair_round + 1,
+            counted_repair_wave_ids: [...reviewCycle.counted_repair_wave_ids, delta.repair_wave_id],
+            active_repair_wave_id: delta.repair_wave_id,
+          };
+        }
       }
       if (reviewCycle.verification_new_finding_wave_id !== null) {
         reviewCycle = { ...reviewCycle, verification_new_finding_wave_id: null };
       }
-      finding.repair_attempts += 1;
+      if (ordinaryAttemptAvailable) finding.repair_attempts += 1;
+      else finding.controlled_repair_attempts = (finding.controlled_repair_attempts ?? 0) + 1;
       finding.last_repair_wave_id = delta.repair_wave_id;
       finding.status = 'in-progress';
       finding.updated_at = now;
       finding.evidence_refs = [...new Set([...finding.evidence_refs, ...delta.evidence_refs])];
+      if (controlledGrant) {
+        controlledRepairGrants = (current.runtimeState.controlled_repair_grants ?? []).map(grant => {
+          if (grant.grant_id !== controlledGrant.grant_id) return grant;
+          const consumedFingerprints = [...new Set([...grant.consumed_fingerprints, finding.fingerprint])].sort();
+          return consumedFingerprints.length === grant.repair_fingerprints.length
+            ? { ...grant, consumed_fingerprints: consumedFingerprints, status: 'consumed' as const, consumed_at: now }
+            : { ...grant, consumed_fingerprints: consumedFingerprints };
+        });
+      }
     } else if (delta.action === 'resolve') {
       if (proposal.mode !== 'repair') fail('RUNTIME_MODE_INVALID', 'resolve requires execute-step:repair.');
       if (!['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_STATE_INVALID', `finding ${finding.fingerprint} is not resolvable from ${finding.status}.`);
@@ -15899,6 +16724,7 @@ function applyFindingQueueDelta(
     review_cycle: reviewCycle,
     pending_review_result: pendingReview,
     findings,
+    ...(controlledRepairGrants === undefined ? {} : { controlled_repair_grants: controlledRepairGrants }),
     applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
   };
   return { next, findingStatus };
@@ -17452,7 +18278,7 @@ export class GovernanceTransactionKernel {
       } else if (
         proposal.operation_kind === 'task-state-transaction'
         && proposal.semantic_delta.kind === 'task-state'
-        && ['create-draft', 'update-draft', 'commit-replan', 'record-user-evidence', 'extend-repair-budget'].includes(proposal.semantic_delta.action)
+        && ['create-draft', 'update-draft', 'commit-replan', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery'].includes(proposal.semantic_delta.action)
       ) {
         const taskId = proposal.semantic_delta.action === 'create-draft' || proposal.semantic_delta.action === 'update-draft'
           ? proposal.semantic_delta.task_id
@@ -18128,6 +18954,7 @@ export function createStepPreflightProposal(
     review_id?: string;
     review_target_paths?: string[];
     change_set_id?: string;
+    controlled_recovery_grant_id?: string;
   } = {},
 ): RuntimeProposal {
   const mode = input.mode ?? 'default';
@@ -18143,6 +18970,7 @@ export function createStepPreflightProposal(
     repair_fingerprints: input.repair_fingerprints ?? null,
     repair_wave_id: input.repair_wave_id ?? null,
     review_id: input.review_id ?? null,
+    controlled_recovery_grant_id: input.controlled_recovery_grant_id ?? null,
   })}`;
   const identity = current.mutationAuthority || mode === 'repair'
     ? {
@@ -18155,6 +18983,7 @@ export function createStepPreflightProposal(
         repair_wave_id: input.repair_wave_id ?? '',
         review_id: input.review_id ?? '',
         review_target_paths: input.review_target_paths ?? [],
+        ...(input.controlled_recovery_grant_id ? { controlled_recovery_grant_id: input.controlled_recovery_grant_id } : {}),
       } : {}),
       ...(input.change_set_id ? { change_set_id: input.change_set_id } : {}),
     }
@@ -18236,6 +19065,7 @@ export function createReviewResultProposal(
     ...input.evidence_refs,
     ...input.review_result.evidence_refs,
     ...input.review_result.findings.flatMap(item => item.evidence_refs),
+    ...(input.review_result.finding_dispositions ?? []).flatMap(item => item.evidence_refs),
   ])];
   return validateRuntimeProposal({
     schema_version: 1,
@@ -18396,6 +19226,121 @@ export function extendRepairBudget(root: string, input: unknown, options: Runtim
     try {
       assertTaskStateReplay(root, current, proposal);
       return buildResult('no-op', proposal, current, options, 'This exact repair-budget extension is already recorded; no budget, status, or review state changed.', {
+        read_back_verified: true,
+        resulting_revision: current.sourceTuple.revision,
+      });
+    } catch (error) {
+      return buildResult('blocked', proposal, current, options, error instanceof Error ? error.message : String(error), {
+        code: error instanceof VNextRuntimeError ? error.code : 'RUNTIME_REPLAY_INCOMPLETE',
+      });
+    }
+  }
+  return applyVNextRuntimeProposal(root, proposal, options);
+}
+
+/**
+ * Authorize one finite recovery wave after ordinary repair limits are no
+ * longer executable. The caller names only the exact blocker targets; the
+ * Runtime derives and binds the complete current repair set and every review
+ * identity involved in the grant.
+ */
+export function authorizeControlledRepairRecovery(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  const value = expectRecord(input, 'authorize-controlled-repair-recovery input');
+  expectExactKeys(value, ['review_id', 'recovery_fingerprints', 'recovery_basis', 'decision_source', 'decision_text', 'evidence_refs'], 'authorize-controlled-repair-recovery input');
+  const current = readCanonicalCurrentTask(root);
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending) fail('CONTROLLED_RECOVERY_STATE_INVALID', 'A pending budget-blocked review is required before controlled recovery authorization.');
+  const recoveryFingerprints = expectStringArray(value.recovery_fingerprints, 'recovery_fingerprints', false, MAX_FINDINGS)
+    .map((item, index) => expectString(item, `recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN)).sort();
+  const recoveryBasis = expectEnum(value.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, 'recovery_basis');
+  const decisionSource = expectText(value.decision_source, 'decision_source');
+  const decisionText = expectVerbatim(value.decision_text, 'decision_text', 32768);
+  const suppliedEvidenceRefs = validateEvidenceRefs(value.evidence_refs, 'evidence_refs');
+  const basisPath = taskBasisRelativePath(current.relativePath, current.runtimeState.task_id);
+  const expectedEvidenceRefs = [...new Set([basisPath, ...suppliedEvidenceRefs])];
+  const decisionSha256 = sha256(decisionText);
+  // Replays must be resolved before checking ordinary eligibility: after the
+  // first authorization the exact same request intentionally makes the
+  // eligibility probe report "grant already issued".  Match the durable
+  // audit by the complete user decision and target tuple, then rebuild the
+  // original proposal identity for a strict no-op replay.
+  const replayAudit = current.runtimeState.execution_log.find((entry): entry is ControlledRepairRecoveryAuditLogEntry =>
+    'action' in entry && entry.action === 'authorize-controlled-repair-recovery'
+      && entry.review_id === pending.review_id
+      && digest(entry.recovery_fingerprints) === digest(recoveryFingerprints)
+      && entry.recovery_basis === recoveryBasis
+      && entry.decision_source === decisionSource
+      && entry.decision_sha256 === decisionSha256
+      && digest(entry.evidence_refs) === digest(expectedEvidenceRefs),
+  );
+  const eligibility = controlledRepairRecoveryEligibility(current);
+  let repairFingerprints = eligibility.repair_fingerprints.length > 0 ? eligibility.repair_fingerprints : repairFingerprintsForPendingReview(current);
+  if (repairFingerprints.length === 0 && !replayAudit) fail('CONTROLLED_RECOVERY_TARGET_INVALID', 'The pending review has no structured repair target.');
+  let recoveryScope = eligibility.recovery_scope ?? 'finding-attempts';
+  let dispositionSource = eligibility.disposition_source ?? (pending.finding_dispositions === undefined ? 'legacy-explicit-user' : 'review-disposition');
+  let waveId = repairWaveIdForRepairSet(pending.review_id, repairFingerprints);
+  let grantId = `controlled-recovery-${digest({
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    review_id: pending.review_id,
+    execution_id: pending.execution_id,
+    cycle_id: pending.cycle_id,
+    change_set_id: pending.change_set_id,
+    review_target_revision: pending.review_target_revision,
+    repair_fingerprints: repairFingerprints,
+    recovery_fingerprints: recoveryFingerprints,
+    recovery_scope: recoveryScope,
+    disposition_source: dispositionSource,
+    recovery_basis: recoveryBasis,
+    decision_source: decisionSource,
+    decision_text: decisionText,
+  }).slice(0, 40)}`;
+  if (replayAudit) {
+    repairFingerprints = [...replayAudit.repair_fingerprints];
+    recoveryScope = replayAudit.recovery_scope;
+    dispositionSource = replayAudit.disposition_source;
+    waveId = replayAudit.repair_wave_id;
+    grantId = replayAudit.grant_id;
+  }
+  const delta = validateTaskStateDelta({
+    kind: 'task-state', action: 'authorize-controlled-repair-recovery',
+    review_id: value.review_id,
+    execution_id: pending.execution_id,
+    cycle_id: pending.cycle_id,
+    cycle_phase: pending.cycle_phase,
+    change_set_id: pending.change_set_id,
+    review_target_revision: pending.review_target_revision,
+    repair_fingerprints: repairFingerprints,
+    recovery_fingerprints: recoveryFingerprints,
+    recovery_scope: recoveryScope,
+    disposition_source: dispositionSource,
+    recovery_basis: recoveryBasis,
+    grant_id: grantId,
+    repair_wave_id: waveId,
+    decision_source: decisionSource,
+    decision_text: decisionText,
+    evidence_refs: expectedEvidenceRefs,
+  });
+  const key = `authorize-controlled-repair-recovery-${digest({ document_id: current.sourceTuple.document_id, delta }).slice(0, 40)}`;
+  const proposal = validateRuntimeProposal({
+    schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND, operation_kind: 'task-state-transaction',
+    caller: 'prepare-task', mode: 'default', source_tuple: current.sourceTuple,
+    authority_evidence: ['active-task-owner', 'finding-admission', 'evidence-admission', 'user-confirmation'].map(kind => ({
+      kind: kind as AuthorityEvidence['kind'], source: decisionSource, subject: current.runtimeState.task_id,
+    })),
+    semantic_delta: delta,
+    preconditions: ['current-task-is-active', 'pending-review-repair-budget-exhausted', 'exact-review-repair-set', 'explicit-must-fix-recovery-decision', 'bounded-controlled-recovery-quota'],
+    evidence_refs: delta.evidence_refs,
+    idempotency_key: key,
+    requested_write_targets: [current.relativePath, basisPath],
+  });
+  const priorAudit = current.runtimeState.execution_log.find((entry): entry is ControlledRepairRecoveryAuditLogEntry =>
+    'action' in entry && entry.action === 'authorize-controlled-repair-recovery' && entry.idempotency_key === key,
+  );
+  if (priorAudit) {
+    try {
+      assertTaskStateReplay(root, current, proposal);
+      return buildResult('no-op', proposal, current, options, 'This exact controlled recovery authorization is already recorded; no budget, status, or review state changed.', {
         read_back_verified: true,
         resulting_revision: current.sourceTuple.revision,
       });

@@ -33,6 +33,7 @@ import {
   createPrepareTaskUpdateDraftProposal as createRawPrepareTaskUpdateDraftProposal,
   createPrepareTaskResumeReviewProposal,
   clearResumeReview,
+  authorizeControlledRepairRecovery,
   captureReviewTarget,
   recordUserEvidenceDecision,
   extendRepairBudget,
@@ -58,6 +59,8 @@ import {
   assertOrdinaryPreflight,
   completeReviewedStep,
   beginRepair,
+  controlledRepairRecoveryEligibility,
+  repairBudgetExtensionEligibility,
   repairBudgetExtensionTargets,
   repairFingerprintsForPendingReview,
   prepareDraft,
@@ -9011,6 +9014,398 @@ describe('vNext Phase 2 Runtime contract', () => {
       status: 'success', advancement: { outcome: 'task-complete' },
     });
     expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === b)?.status).toBe('resolved');
+  });
+
+  test('keeps navigation and transaction qualification aligned at the absolute repair limits', { timeout: 180_000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise the absolute repair budget boundary', mutation_scope: [file],
+        commands: [{ command, expected_repo_writes: 'none' }], validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
+      fs.writeFileSync(product, content, 'utf8');
+      return recordStepResult(root, {
+        preflight_receipt: receipt, actual_changed_paths: [file],
+        command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:absolute-budget-command'] }],
+        validation_results: [{ validation, status: 'passed', evidence_refs: ['test:absolute-budget-validation'] }],
+        acceptance_evidence: receipt.mode === 'default' ? [reportFixture(root)] : [],
+        outcome: 'implemented', note: content.trim(),
+      });
+    };
+    const reviewUnresolved = (label: string) => {
+      const context = reviewContext(root, {});
+      return recordReviewResult(root, {
+        context_receipt: context.receipt,
+        verdict: 'findings', findings: [], unresolved_fingerprints: [fingerprint],
+        evidence_refs: [`test:absolute-budget-${label}`], blocker: null,
+      });
+    };
+
+    const initial = preflightStep(root, { candidate_paths: [file] });
+    expect(execute(initial.receipt, 'absolute-budget initial\n').status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness', file,
+        failure_condition: 'the bounded repair still leaves the invariant incomplete',
+        required_behavior: 'retain the invariant through every bounded repair wave',
+        root_cause_status: 'confirmed', evidence_refs: ['test:absolute-budget-finding'],
+      }],
+      unresolved_fingerprints: [], evidence_refs: ['test:absolute-budget-discovery'], blocker: null,
+    }).status).toBe('success');
+    const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+
+    for (let round = 1; round <= 8; round += 1) {
+      const repair = beginRepair(root, { candidate_paths: [file] });
+      expect(repair.receipt.repair_fingerprints).toEqual([fingerprint]);
+      expect(execute(repair.receipt, `absolute-budget repair ${round}\n`).status).toBe('success');
+      expect(reviewUnresolved(`review-${round}`).status).toBe('success');
+      const current = readCanonicalCurrentTask(root);
+
+      if (round === 1) {
+        expect(current.runtimeState.pending_review_result?.verdict).toBe('findings');
+        continue;
+      }
+
+      expect(current.runtimeState.pending_review_result).toMatchObject({
+        verdict: 'blocked', blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' },
+      });
+      if (round < 8) {
+        const eligibility = repairBudgetExtensionEligibility(current);
+        expect(eligibility).toMatchObject({
+          eligible: true,
+          extension_scope: 'finding-attempts',
+          finding_fingerprints: [fingerprint],
+          repair_round: round,
+          next_repair_round_limit: Math.max(3, round + 1),
+        });
+        if (round === 7) {
+          const context = taskContext(root, {});
+          expect(context.overview.next_entry).toBe('prepare-task:extend-repair-budget');
+          expect(context.overview.budget_extension).toMatchObject({
+            eligible: true,
+            finding_fingerprints: [fingerprint],
+            next_repair_round_limit: 8,
+          });
+        }
+        expect(extendRepairBudget(root, {
+          review_id: current.runtimeState.pending_review_result!.review_id,
+          finding_fingerprints: [fingerprint],
+          additional_repair_attempts: 1,
+          decision_source: `user:absolute-budget-extension-${round}`,
+          decision_text: `Authorize exactly one additional attempt for the unresolved finding at repair round ${round}.`,
+        })).toMatchObject({ status: 'success' });
+      } else {
+        const eligibility = repairBudgetExtensionEligibility(current);
+        expect(eligibility.eligible).toBe(false);
+        expect(eligibility.finding_fingerprints).toEqual([]);
+        expect(eligibility.blocking_reasons.map(item => item.code)).toEqual(expect.arrayContaining([
+          'finding-attempt-absolute-limit', 'repair-round-absolute-limit',
+        ]));
+        expect(repairBudgetExtensionTargets(current)).toBeNull();
+        const context = taskContext(root, {});
+        expect(context.overview.next_entry).toBe('prepare-task:authorize-controlled-repair-recovery');
+        expect(context.overview.next_options).toEqual(['prepare-task:authorize-controlled-repair-recovery', 'debug-task']);
+        expect(context.overview.budget_extension).toMatchObject({
+          eligible: false,
+          user_decision_route: 'prepare-task:authorize-controlled-repair-recovery',
+        });
+        expect(context.overview.controlled_recovery).toMatchObject({
+          eligible: true,
+          disposition_source: 'legacy-explicit-user',
+          recovery_fingerprints: [fingerprint],
+        });
+        const before = fs.readFileSync(current.filePath, 'utf8');
+        expect(extendRepairBudget(root, {
+          review_id: current.runtimeState.pending_review_result!.review_id,
+          finding_fingerprints: [fingerprint],
+          additional_repair_attempts: 1,
+          decision_source: 'user:absolute-budget-rejected',
+          decision_text: 'Attempt to extend after both absolute repair limits have been reached.',
+        })).toMatchObject({ status: 'blocked', code: 'REPAIR_BUDGET_EXTENSION_LIMIT' });
+        expect(fs.readFileSync(current.filePath, 'utf8')).toBe(before);
+        const controlledAuthorization = {
+          review_id: current.runtimeState.pending_review_result!.review_id,
+          recovery_fingerprints: [fingerprint],
+          recovery_basis: 'critical-invariant' as const,
+          decision_source: 'user:absolute-controlled-recovery',
+          decision_text: 'The unresolved finding remains a critical invariant blocker; authorize one exact controlled wave.',
+          evidence_refs: ['test:absolute-controlled-recovery'],
+        };
+        expect(authorizeControlledRepairRecovery(root, controlledAuthorization)).toMatchObject({ status: 'success' });
+        expect(authorizeControlledRepairRecovery(root, controlledAuthorization)).toMatchObject({ status: 'no-op' });
+        expect(readCanonicalCurrentTask(root).runtimeState.controlled_repair_grants?.[0]).toMatchObject({
+          disposition_source: 'legacy-explicit-user', recovery_fingerprints: [fingerprint],
+        });
+      }
+    }
+  });
+
+  test('authorizes a bounded controlled recovery without re-targeting resolved or newly unadmitted findings', { timeout: 240_000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise the complete controlled recovery lifecycle', mutation_scope: [file],
+        commands: [{ command, expected_repo_writes: 'none' }], validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    const finding = (label: string, evidence: string) => ({
+      category: 'correctness', file,
+      failure_condition: `finding ${label} remains unresolved`,
+      required_behavior: `preserve the invariant for finding ${label}`,
+      root_cause_status: 'confirmed' as const,
+      evidence_refs: [evidence],
+    });
+    const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
+      fs.writeFileSync(product, content, 'utf8');
+      return recordStepResult(root, {
+        preflight_receipt: receipt, actual_changed_paths: [file],
+        command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:controlled-command'] }],
+        validation_results: [{ validation, status: 'passed', evidence_refs: ['test:controlled-validation'] }],
+        acceptance_evidence: receipt.mode === 'default' ? [reportFixture(root)] : [],
+        outcome: 'implemented', note: content.trim(),
+      });
+    };
+    const initial = preflightStep(root, { candidate_paths: [file] });
+    expect(execute(initial.receipt, 'controlled initial\n').status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt, verdict: 'findings',
+      findings: [finding('A', 'test:controlled-a'), finding('C', 'test:controlled-c')],
+      unresolved_fingerprints: [], evidence_refs: ['test:controlled-discovery'], blocker: null,
+    }).status).toBe('success');
+    const discoveryState = readCanonicalCurrentTask(root);
+    const a = discoveryState.runtimeState.pending_review_result!.findings.find(item => item.failure_condition.includes('finding A'))!.fingerprint;
+    const c = discoveryState.runtimeState.pending_review_result!.findings.find(item => item.failure_condition.includes('finding C'))!.fingerprint;
+
+    const firstRepair = beginRepair(root, { candidate_paths: [file] });
+    expect(firstRepair.receipt.repair_fingerprints).toEqual([a, c].sort());
+    expect(execute(firstRepair.receipt, 'controlled repair 1\n').status).toBe('success');
+    expect(recordReviewResult(root, {
+      context_receipt: reviewContext(root, {}).receipt, verdict: 'findings', findings: [],
+      unresolved_fingerprints: [a, c], evidence_refs: ['test:controlled-wave-1'], blocker: null,
+    }).status).toBe('success');
+
+    for (let round = 2; round <= 8; round += 1) {
+      const repair = beginRepair(root, { candidate_paths: [file] });
+      expect(repair.receipt.repair_fingerprints).toEqual([a, c].sort());
+      expect(execute(repair.receipt, `controlled repair ${round}\n`).status).toBe('success');
+      const currentReview = reviewContext(root, {});
+      if (round < 8) {
+        expect(recordReviewResult(root, {
+          context_receipt: currentReview.receipt, verdict: 'findings', findings: [],
+          unresolved_fingerprints: [a, c], evidence_refs: [`test:controlled-wave-${round}`], blocker: null,
+        }).status).toBe('success');
+        const blocked = readCanonicalCurrentTask(root);
+        expect(blocked.runtimeState.pending_review_result?.verdict).toBe('blocked');
+        expect(extendRepairBudget(root, {
+          review_id: blocked.runtimeState.pending_review_result!.review_id,
+          finding_fingerprints: [a, c].sort(), additional_repair_attempts: 1,
+          decision_source: `user:controlled-preparation-${round}`,
+          decision_text: `Authorize the ordinary bounded attempt needed to reach the controlled recovery boundary at round ${round}.`,
+        })).toMatchObject({ status: 'success' });
+      } else {
+        const finalReview = recordReviewResult(root, {
+          context_receipt: currentReview.receipt, verdict: 'findings',
+          findings: [finding('B', 'test:controlled-b'), finding('D', 'test:controlled-d')],
+          unresolved_fingerprints: [a], resolved_fingerprints: [c],
+          finding_dispositions: [{
+            fingerprint: a, disposition: 'must-fix', basis: 'critical-invariant', evidence_refs: ['test:controlled-a-disposition'],
+          }],
+          evidence_refs: ['test:controlled-final', 'test:controlled-a-disposition', 'test:controlled-b', 'test:controlled-d'],
+          blocker: null,
+        });
+        expect(finalReview.status).toBe('success');
+      }
+    }
+
+    const blocked = readCanonicalCurrentTask(root);
+    const pending = blocked.runtimeState.pending_review_result!;
+    const b = pending.findings.find(item => item.failure_condition.includes('finding B'))!.fingerprint;
+    const d = pending.findings.find(item => item.failure_condition.includes('finding D'))!.fingerprint;
+    expect(pending).toMatchObject({
+      verdict: 'blocked', blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' },
+      unresolved_fingerprints: [a], resolved_fingerprints: [c],
+      finding_dispositions: [{ fingerprint: a, disposition: 'must-fix', basis: 'critical-invariant', evidence_refs: ['test:controlled-a-disposition'] }],
+    });
+    expect(pending.findings.map(item => item.fingerprint)).toEqual([b, d].sort());
+    expect(blocked.runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({ repair_attempts: 8, max_repair_attempts: 8, status: 'in-progress' });
+    expect(blocked.runtimeState.findings.find(item => item.fingerprint === c)).toMatchObject({ repair_attempts: 8, max_repair_attempts: 8, status: 'resolved' });
+    expect(repairFingerprintsForPendingReview(blocked)).toEqual([a, b, d].sort());
+    expect(repairBudgetExtensionTargets(blocked)).toBeNull();
+    expect(taskContext(root, {}).overview.next_entry).toBe('prepare-task:authorize-controlled-repair-recovery');
+    expect(taskContext(root, {}).overview.controlled_recovery).toMatchObject({
+      eligible: true, recovery_scope: 'mixed', repair_fingerprints: [a, b, d].sort(),
+      recovery_fingerprints: [a], disposition_source: 'review-disposition', controlled_attempt_limit: 2,
+    });
+    expect(controlledRepairRecoveryEligibility(blocked)).toMatchObject({
+      eligible: true, repair_fingerprints: [a, b, d].sort(), recovery_fingerprints: [a],
+    });
+
+    const recoveryAuthorization = {
+      review_id: pending.review_id,
+      recovery_fingerprints: [a],
+      recovery_basis: 'critical-invariant' as const,
+      decision_source: 'user:controlled-recovery-regression',
+      decision_text: 'Finding A is a confirmed critical invariant blocker; authorize one bounded controlled recovery wave without changing ordinary maxima.',
+      evidence_refs: ['test:controlled-recovery-decision'],
+    };
+    expect(authorizeControlledRepairRecovery(root, {
+      ...recoveryAuthorization, recovery_fingerprints: [b],
+      decision_source: 'user:controlled-recovery-over-target',
+      decision_text: 'Attempt to authorize a non-blocking target that was not classified as must-fix.',
+    })).toMatchObject({ status: 'blocked', code: 'CONTROLLED_RECOVERY_TARGET_INVALID' });
+    expect(authorizeControlledRepairRecovery(root, recoveryAuthorization)).toMatchObject({ status: 'success' });
+    const authorized = readCanonicalCurrentTask(root);
+    expect(authorized.runtimeState.controlled_repair_grants).toHaveLength(1);
+    expect(authorized.runtimeState.controlled_repair_grants![0]).toMatchObject({
+      status: 'issued', recovery_fingerprints: [a], repair_fingerprints: [a, b, d].sort(),
+    });
+    expect(authorizeControlledRepairRecovery(root, recoveryAuthorization)).toMatchObject({ status: 'no-op' });
+    expect(authorizeControlledRepairRecovery(root, {
+      ...recoveryAuthorization, review_id: 'review-stale-controlled-recovery',
+    })).toMatchObject({ status: 'blocked', code: 'CONTROLLED_RECOVERY_STATE_INVALID' });
+
+    const continuation = beginRepair(root, { candidate_paths: [file] });
+    expect(continuation.receipt.repair_fingerprints).toEqual([a, b, d].sort());
+    expect(continuation.receipt.controlled_recovery_grant_id).toBe(authorized.runtimeState.controlled_repair_grants![0]!.grant_id);
+    expect(execute(continuation.receipt, 'controlled recovery wave\n').status).toBe('success');
+    const afterRecoveryExecution = readCanonicalCurrentTask(root);
+    expect(afterRecoveryExecution.runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({
+      repair_attempts: 8, max_repair_attempts: 8, controlled_repair_attempts: 1,
+    });
+    expect(afterRecoveryExecution.runtimeState.findings.find(item => item.fingerprint === b)).toMatchObject({
+      repair_attempts: 1, max_repair_attempts: 2, status: 'in-progress',
+    });
+    expect(afterRecoveryExecution.runtimeState.findings.find(item => item.fingerprint === d)).toMatchObject({
+      repair_attempts: 1, max_repair_attempts: 2, status: 'in-progress',
+    });
+    expect(afterRecoveryExecution.runtimeState.findings.find(item => item.fingerprint === c)?.status).toBe('resolved');
+    expect(afterRecoveryExecution.runtimeState.controlled_repair_grants![0]?.status).toBe('consumed');
+
+    const clean = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: clean.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['test:controlled-recovery-clean'], blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'controlled recovery verified' })).toMatchObject({
+      status: 'success', advancement: { outcome: 'task-complete' },
+    });
+    expect(() => authorizeControlledRepairRecovery(root, recoveryAuthorization)).toThrow('CONTROLLED_RECOVERY_STATE_INVALID');
+    const complete = readCanonicalCurrentTask(root);
+    expect(complete.runtimeState.findings.filter(item => [a, b, c, d].includes(item.fingerprint)).every(item => item.status === 'resolved')).toBe(true);
+    expect(complete.runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({ repair_attempts: 8, controlled_repair_attempts: 1 });
+  });
+
+  test('rejects a partial legacy controlled recovery before consuming the one grant', { timeout: 240_000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Reject partial controlled recovery before grant issuance', mutation_scope: [file],
+        commands: [{ command, expected_repo_writes: 'none' }], validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
+      fs.writeFileSync(product, content, 'utf8');
+      return recordStepResult(root, {
+        preflight_receipt: receipt, actual_changed_paths: [file],
+        command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:partial-controlled-command'] }],
+        validation_results: [{ validation, status: 'passed', evidence_refs: ['test:partial-controlled-validation'] }],
+        acceptance_evidence: receipt.mode === 'default' ? [reportFixture(root)] : [],
+        outcome: 'implemented', note: content.trim(),
+      });
+    };
+    const candidate = (label: string, evidence: string) => ({
+      category: 'correctness', file,
+      failure_condition: `legacy controlled recovery finding ${label} remains unresolved`,
+      required_behavior: `preserve the invariant for finding ${label}`,
+      root_cause_status: 'confirmed' as const, evidence_refs: [evidence],
+    });
+
+    const initial = preflightStep(root, { candidate_paths: [file] });
+    expect(execute(initial.receipt, 'partial-controlled initial\n').status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt, verdict: 'findings',
+      findings: [candidate('A', 'test:partial-controlled-a'), candidate('C', 'test:partial-controlled-c')],
+      unresolved_fingerprints: [], evidence_refs: ['test:partial-controlled-discovery'], blocker: null,
+    }).status).toBe('success');
+    const discovered = readCanonicalCurrentTask(root);
+    const a = discovered.runtimeState.pending_review_result!.findings.find(item => item.failure_condition.includes('finding A'))!.fingerprint;
+    const c = discovered.runtimeState.pending_review_result!.findings.find(item => item.failure_condition.includes('finding C'))!.fingerprint;
+
+    for (let round = 1; round <= 8; round += 1) {
+      const repair = beginRepair(root, { candidate_paths: [file] });
+      expect(repair.receipt.repair_fingerprints).toEqual([a, c].sort());
+      expect(execute(repair.receipt, `partial-controlled repair ${round}\n`).status).toBe('success');
+      const verification = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: verification.receipt, verdict: 'findings', findings: [],
+        unresolved_fingerprints: [a, c], evidence_refs: [`test:partial-controlled-wave-${round}`], blocker: null,
+      }).status).toBe('success');
+      const current = readCanonicalCurrentTask(root);
+      if (round === 1) continue;
+      if (round < 8) {
+        expect(extendRepairBudget(root, {
+          review_id: current.runtimeState.pending_review_result!.review_id,
+          finding_fingerprints: [a, c].sort(), additional_repair_attempts: 1,
+          decision_source: `user:partial-controlled-preparation-${round}`,
+          decision_text: `Authorize the ordinary bounded attempt needed before the controlled recovery boundary at round ${round}.`,
+        })).toMatchObject({ status: 'success' });
+      }
+    }
+
+    const blocked = readCanonicalCurrentTask(root);
+    expect(blocked.runtimeState.pending_review_result).toMatchObject({
+      verdict: 'blocked', blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' },
+    });
+    const pending = blocked.runtimeState.pending_review_result!;
+    const partialAuthorization = {
+      review_id: pending.review_id,
+      recovery_fingerprints: [a],
+      recovery_basis: 'critical-invariant' as const,
+      decision_source: 'user:partial-controlled-recovery',
+      decision_text: 'Authorize only finding A even though the legacy review has two exhausted unresolved findings.',
+      evidence_refs: ['test:partial-controlled-decision'],
+    };
+    const before = fs.readFileSync(blocked.filePath, 'utf8');
+    expect(authorizeControlledRepairRecovery(root, partialAuthorization)).toMatchObject({
+      status: 'blocked', code: 'CONTROLLED_RECOVERY_TARGET_INVALID',
+    });
+    expect(fs.readFileSync(blocked.filePath, 'utf8')).toBe(before);
+    expect(readCanonicalCurrentTask(root).runtimeState.controlled_repair_grants ?? []).toHaveLength(0);
+
+    const completeAuthorization = {
+      ...partialAuthorization,
+      recovery_fingerprints: [a, c].sort(),
+      decision_source: 'user:complete-controlled-recovery',
+      decision_text: 'Authorize both exhausted unresolved findings for one bounded controlled recovery wave.',
+    };
+    expect(authorizeControlledRepairRecovery(root, completeAuthorization)).toMatchObject({ status: 'success' });
+    const authorized = readCanonicalCurrentTask(root);
+    expect(authorized.runtimeState.controlled_repair_grants).toHaveLength(1);
+    const continuation = beginRepair(root, { candidate_paths: [file] });
+    expect(continuation.receipt.repair_fingerprints).toEqual([a, c].sort());
+    expect(continuation.receipt.controlled_recovery_grant_id).toBe(authorized.runtimeState.controlled_repair_grants![0]!.grant_id);
   });
 
   test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', { timeout: 30000 }, () => {
