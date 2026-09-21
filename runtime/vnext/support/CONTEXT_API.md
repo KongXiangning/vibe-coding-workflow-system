@@ -460,12 +460,24 @@ structured `finding_dispositions`:
 Only `must-fix` findings are eligible for controlled recovery. The user then
 calls `prepare-task:authorize-controlled-repair-recovery` with the exact
 `review_id`, selected `recovery_fingerprints`, one closed-set `recovery_basis`,
-the decision source/text, and evidence references. Runtime derives the complete
-current repair set and binds task/document, execution, cycle, phase, change set,
-and review-target revision. The grant authorizes one repair wave and at most two
-separate controlled attempts per selected finding; it never raises ordinary
-maxima, resets counters, clears a review, manufactures clean, or closes an
-unverified finding.
+the decision source/text, evidence references, and an optional
+`additional_controlled_repair_waves` from 1 through 5 (default 1). Runtime
+derives the complete current repair set and binds task/document, execution,
+cycle, phase, change set, and review-target revision. The grant records a
+finite number of separately reviewable controlled repair waves and carries
+across the linked follow-up reviews; each selected finding keeps its original
+ordinary attempts and may consume at most the grant's finite wave quota. A
+legacy v1 grant remains one wave with its historical two-attempt cap. It
+never raises ordinary maxima, resets counters, clears a review, manufactures
+clean, or closes an unverified finding.
+
+`FORMAT_CHECK_SCOPE_BLOCKED` is a format-gate blocker, not a license to erase
+the business review. Its structured findings, unresolved/resolved fingerprints,
+and blocker remain intact. The user may first use the formal evidence-plan
+amendment route to scope a governance check to business files; if a confirmed
+must-fix business finding is already at the ordinary absolute boundary, the
+same finite controlled-recovery route may continue that finding while the
+format blocker remains recorded.
 
 The authorization set is not the repair set. Findings with remaining ordinary
 budget stay in the full repair wave, verified resolutions stay out, and a new

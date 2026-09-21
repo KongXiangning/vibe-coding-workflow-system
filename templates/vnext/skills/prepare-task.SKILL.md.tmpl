@@ -386,18 +386,29 @@ reason and the user-owned diagnostic/controlled-recovery decision route; do not
 recommend an extension that the transaction will reject.
 
 For a confirmed must-fix blocker at that boundary, the separate
-`authorize-controlled-repair-recovery` command accepts exactly
+`authorize-controlled-repair-recovery` command accepts
 `{review_id, recovery_fingerprints, recovery_basis, decision_source,
-decision_text, evidence_refs}`. The latest review must provide the structured
-finding disposition, unless this is an old state using the explicit
-`legacy-explicit-user` bridge. Runtime binds the entire current repair set and
-all task/review/execution/cycle/change-set/target identities, grants one wave,
-and records at most two controlled attempts per selected finding. It retains
-ordinary maxima, cumulative attempts, resolved findings, pending review,
-evidence and Task Basis history. A normally-budgeted finding is not dropped,
-an already resolved finding is not requeued, and a new review finding must
-complete normal admission. Exact replay is a no-op; stale, duplicate,
-cross-task, over-target and over-quota requests stop at the transaction gate.
+decision_text, evidence_refs}` plus optional
+`additional_controlled_repair_waves` from 1 through 5 (default 1). The latest
+review must provide the structured finding disposition, unless this is an old
+state using the explicit `legacy-explicit-user` bridge. Runtime binds the
+entire current repair set and all task/review/execution/cycle/change-set/target
+identities, records the finite number of separately reviewable controlled
+repair waves, and carries the grant across the linked follow-up reviews. Each
+selected finding preserves its ordinary attempts and cannot consume more than
+the finite grant quota; a legacy v1 grant remains one wave with its historical
+two-attempt cap. It retains ordinary maxima, cumulative attempts,
+resolved findings, pending review, evidence and Task Basis history. A
+normally-budgeted finding is not dropped, an already resolved finding is not
+requeued, and a new review finding must complete normal admission. Exact
+replay is a no-op; stale, duplicate, cross-task, over-target and over-quota
+requests stop at the transaction gate.
+
+`FORMAT_CHECK_SCOPE_BLOCKED` is retained as a format-gate blocker and does not
+erase structured business findings. Use the formal evidence-plan amendment
+route to correct an over-broad governance check; a separately authorized
+controlled repair may continue a must-fix business finding while that format
+blocker remains recorded.
 For the legacy bridge, the explicit recovery target must cover every existing
 unresolved finding in the complete repair set with no ordinary attempt
 remaining; a partial request is rejected before the one-per-review grant is

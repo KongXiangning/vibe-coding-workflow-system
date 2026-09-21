@@ -133,7 +133,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.11';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.12';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -301,11 +301,14 @@ const CLOSE_TASK_CLAIM_EVIDENCE_RULE = 'derive acceptance_satisfied and validati
 export const MAX_REPAIR_ATTEMPTS = 2;
 export const MAX_EXTENDED_REPAIR_ATTEMPTS = 8;
 /**
- * Controlled recovery is a separate, deliberately small quota.  It never
- * raises max_repair_attempts or max_repair_rounds; it records its own bounded
- * consumption so an exhausted ordinary budget cannot be reset by recovery.
+ * Controlled recovery is a separately authorized, finite continuation. It
+ * never raises max_repair_attempts or max_repair_rounds; it records its own
+ * bounded consumption so an exhausted ordinary budget cannot be reset by
+ * recovery. Five waves is the hard cap for one explicit grant.
  */
-export const MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING = 2;
+export const MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING = 5;
+export const MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT = 5;
+const MAX_LEGACY_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING = 2;
 export const MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW = 1;
 export const REPAIR_FINDING_DISPOSITIONS = ['must-fix', 'normal-fix', 'defer'] as const;
 export type RepairFindingDispositionKind = (typeof REPAIR_FINDING_DISPOSITIONS)[number];
@@ -811,6 +814,7 @@ export type TaskStepProgressDelta = {
   repair_fingerprint?: string;
   repair_fingerprints?: string[];
   repair_wave_id?: string;
+  controlled_recovery_grant_id?: string;
   change_set_id?: string;
   review_receipt?: StepReviewReceipt;
   claim_evidence?: ClaimEvidenceRecord[];
@@ -842,6 +846,8 @@ export type TaskStateDelta =
       review_target_revision: string;
       repair_fingerprints: string[];
       recovery_fingerprints: string[];
+      /** Number of separately reviewable controlled repair waves authorized. */
+      additional_controlled_repair_waves?: number;
       recovery_scope: ControlledRecoveryScope;
       disposition_source: ControlledRecoveryDispositionSource;
       recovery_basis: RepairFindingDispositionBasis;
@@ -1261,6 +1267,7 @@ export type StepExecutionLogEntry = {
   repair_fingerprint?: string;
   repair_fingerprints?: string[];
   repair_wave_id?: string;
+  controlled_recovery_grant_id?: string;
   change_set_id?: string;
   checkpoint?: TaskStepCheckpointPolicy;
   advancement?: StepAdvancementOutcome;
@@ -1330,7 +1337,7 @@ export type RepairBudgetExtensionAuditLogEntry = {
 };
 
 export type ControlledRepairRecoveryGrant = {
-  kind: 'controlled-repair-recovery/v1';
+  kind: 'controlled-repair-recovery/v1' | 'controlled-repair-recovery/v2';
   grant_id: string;
   task_id: string;
   task_slug: string;
@@ -1353,6 +1360,10 @@ export type ControlledRepairRecoveryGrant = {
   issued_source_revision: string;
   status: 'issued' | 'consumed';
   consumed_fingerprints: string[];
+  /** v2: finite quota granted by the user; v1 grants implicitly had one wave. */
+  authorized_repair_waves?: number;
+  /** v2: each repair wave is consumed once, regardless of finding count. */
+  consumed_repair_wave_ids?: string[];
   issued_at: string;
   consumed_at?: string;
 };
@@ -1387,6 +1398,7 @@ export type ControlledRepairRecoveryAuditLogEntry = {
   grant_id: string;
   repair_wave_id: string;
   controlled_attempt_limit: number;
+  authorized_repair_waves: number;
   decision_source: string;
   decision_sha256: string;
   recorded_at: string;
@@ -2818,7 +2830,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   );
   expectSetEqual(
     expectStringArray(stepProgressContract.optional, 'Runtime contract.proposal.task_state.step_progress.optional', true),
-    ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'change_set_id', 'review_receipt', 'claim_evidence', 'execution_result'],
+    ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'controlled_recovery_grant_id', 'change_set_id', 'review_receipt', 'claim_evidence', 'execution_result'],
     'Runtime contract task-state optional fields',
   );
   const preflightContract = expectRecord(taskStateContract.preflight, 'Runtime contract.proposal.task_state.preflight');
@@ -3295,10 +3307,10 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const controlledRecovery = expectRecord(prepareTaskContract.controlled_repair_recovery, 'Runtime contract.proposal.prepare_task.controlled_repair_recovery');
   expectExactKeys(controlledRecovery, ['route', 'trigger', 'authorization', 'legacy_coverage', 'quota', 'preserves', 'stops'], 'Runtime controlled repair recovery contract');
   if (controlledRecovery.route !== 'authorize-controlled-repair-recovery'
-    || controlledRecovery.trigger !== 'exact-pending-REPAIR_BUDGET_EXHAUSTED-review-where-ordinary-extension-is-not-executable'
+    || controlledRecovery.trigger !== 'exact-pending-REPAIR_BUDGET_EXHAUSTED-or-FORMAT_CHECK_SCOPE_BLOCKED-review-where-ordinary-extension-is-not-executable'
     || controlledRecovery.authorization !== 'explicit-structured-must-fix-targets-plus-basis-evidence-and-user-decision'
     || controlledRecovery.legacy_coverage !== 'exact-explicit-target-must-cover-every-existing-unresolved-finding-with-no-ordinary-budget-before-grant-persistence'
-    || controlledRecovery.quota !== 'one-review-bound-repair-wave-and-at-most-two-separate-controlled-attempts-per-finding'
+    || controlledRecovery.quota !== 'up-to-five-review-bound-controlled-repair-waves-with-at-most-five-attempts-per-selected-finding'
     || controlledRecovery.preserves !== 'ordinary-maxima-cumulative-attempts-review-history-resolved-findings-task-identity-and-change-set-binding'
     || controlledRecovery.stops !== 'no-free-text-inference-no-new-task-no-supersede-no-reset-no-clean-or-close') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime controlled repair recovery contract is invalid.');
@@ -5755,6 +5767,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       'kind', 'action', 'review_id', 'execution_id', 'cycle_id', 'cycle_phase', 'change_set_id', 'review_target_revision',
       'repair_fingerprints', 'recovery_fingerprints', 'recovery_scope', 'disposition_source', 'recovery_basis',
       'grant_id', 'repair_wave_id', 'decision_source', 'decision_text', 'evidence_refs',
+      ...(record.additional_controlled_repair_waves === undefined ? [] : ['additional_controlled_repair_waves']),
     ], 'authorize-controlled-repair-recovery');
     const repairFingerprints = expectStringArray(record.repair_fingerprints, 'repair_fingerprints', false, MAX_FINDINGS)
       .map((item, index) => expectString(item, `repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
@@ -5765,6 +5778,9 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       if (values.join('|') !== [...values].sort().join('|')) fail('RUNTIME_SCHEMA_INVALID', `${name} must use canonical sorted order.`);
     }
     if (recoveryFingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) fail('RUNTIME_SCHEMA_INVALID', 'recovery_fingerprints must be a subset of repair_fingerprints.');
+    const additionalControlledRepairWaves = record.additional_controlled_repair_waves === undefined
+      ? 1
+      : expectInteger(record.additional_controlled_repair_waves, 'additional_controlled_repair_waves', 1, MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT);
     return {
       kind,
       action,
@@ -5781,6 +5797,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       recovery_basis: expectEnum(record.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, 'recovery_basis'),
       grant_id: expectString(record.grant_id, 'grant_id', SAFE_KEY_PATTERN),
       repair_wave_id: expectString(record.repair_wave_id, 'repair_wave_id', SAFE_KEY_PATTERN),
+      additional_controlled_repair_waves: additionalControlledRepairWaves,
       decision_source: expectText(record.decision_source, 'decision_source'),
       decision_text: expectVerbatim(record.decision_text, 'decision_text', 32768),
       evidence_refs: validateEvidenceRefs(record.evidence_refs, 'evidence_refs'),
@@ -6002,7 +6019,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
     return result;
   }
   const keys = Object.keys(record);
-  if (keys.some(key => !['kind', 'action', 'step_id', 'status', 'evidence_refs', 'note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'change_set_id', 'review_receipt', 'claim_evidence', 'execution_result'].includes(key))) {
+  if (keys.some(key => !['kind', 'action', 'step_id', 'status', 'evidence_refs', 'note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'controlled_recovery_grant_id', 'change_set_id', 'review_receipt', 'claim_evidence', 'execution_result'].includes(key))) {
     fail('RUNTIME_SCHEMA_INVALID', 'task-state semantic_delta contains unsupported fields.');
   }
   const result: Extract<TaskStateDelta, { action: 'step-progress' }> = {
@@ -6022,11 +6039,15 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
     }
   }
   if (record.repair_wave_id !== undefined) result.repair_wave_id = expectString(record.repair_wave_id, 'semantic_delta.repair_wave_id', SAFE_KEY_PATTERN);
+  if (record.controlled_recovery_grant_id !== undefined) result.controlled_recovery_grant_id = expectString(record.controlled_recovery_grant_id, 'semantic_delta.controlled_recovery_grant_id', SAFE_KEY_PATTERN);
   if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined) {
     fail('RUNTIME_SCHEMA_INVALID', 'step-progress must not mix repair_fingerprint with repair_fingerprints.');
   }
   if ((result.repair_fingerprints !== undefined) !== (result.repair_wave_id !== undefined)) {
     fail('RUNTIME_SCHEMA_INVALID', 'repair_fingerprints and repair_wave_id must be supplied together.');
+  }
+  if (result.controlled_recovery_grant_id !== undefined && result.repair_fingerprints === undefined) {
+    fail('RUNTIME_SCHEMA_INVALID', 'controlled_recovery_grant_id requires grouped repair fingerprints.');
   }
   if (record.change_set_id !== undefined) result.change_set_id = expectString(record.change_set_id, 'semantic_delta.change_set_id', SAFE_KEY_PATTERN);
   if (record.review_receipt !== undefined) result.review_receipt = validateStepReviewReceipt(record.review_receipt, 'semantic_delta.review_receipt');
@@ -6933,11 +6954,16 @@ function validateFinding(value: unknown, location: string): FindingRecord {
 
 function validateControlledRepairRecoveryGrant(value: unknown, location: string, taskId: string, taskSlug: string): ControlledRepairRecoveryGrant {
   const grant = expectRecord(value, location);
+  const kind = grant.kind === 'controlled-repair-recovery/v1' || grant.kind === 'controlled-repair-recovery/v2'
+    ? grant.kind
+    : fail('RUNTIME_SCHEMA_INVALID', `${location}.kind must be controlled-repair-recovery/v1 or controlled-repair-recovery/v2.`);
+  const isV2 = kind === 'controlled-repair-recovery/v2';
   expectExactKeys(grant, [
     'kind', 'grant_id', 'task_id', 'task_slug', 'document_id', 'review_id', 'execution_id', 'cycle_id', 'cycle_phase',
     'change_set_id', 'review_target_revision', 'repair_fingerprints', 'recovery_fingerprints', 'recovery_scope',
     'disposition_source', 'recovery_basis', 'repair_wave_id', 'decision_source', 'decision_sha256', 'evidence_refs',
     'issued_source_revision', 'status', 'consumed_fingerprints', 'issued_at',
+    ...(isV2 ? ['authorized_repair_waves', 'consumed_repair_wave_ids'] : []),
     ...(grant.consumed_at === undefined ? [] : ['consumed_at']),
   ], location);
   const repairFingerprints = expectStringArray(grant.repair_fingerprints, `${location}.repair_fingerprints`, false, MAX_FINDINGS)
@@ -6946,20 +6972,33 @@ function validateControlledRepairRecoveryGrant(value: unknown, location: string,
     .map((item, index) => expectString(item, `${location}.recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN));
   const consumedFingerprints = expectStringArray(grant.consumed_fingerprints, `${location}.consumed_fingerprints`, true, MAX_FINDINGS)
     .map((item, index) => expectString(item, `${location}.consumed_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const status = expectEnum(grant.status, ['issued', 'consumed'], `${location}.status`);
+  const repairWaveId = expectString(grant.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN);
+  const authorizedRepairWaves = isV2
+    ? expectInteger(grant.authorized_repair_waves, `${location}.authorized_repair_waves`, 1, MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT)
+    : 1;
+  const consumedRepairWaveIds = isV2
+    ? expectStringArray(grant.consumed_repair_wave_ids, `${location}.consumed_repair_wave_ids`, true, MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT)
+      .map((item, index) => expectString(item, `${location}.consumed_repair_wave_ids[${index}]`, SAFE_KEY_PATTERN))
+    : status === 'consumed' ? [repairWaveId] : [];
   for (const [name, values] of [['repair_fingerprints', repairFingerprints], ['recovery_fingerprints', recoveryFingerprints], ['consumed_fingerprints', consumedFingerprints]] as const) {
     if (new Set(values).size !== values.length) fail('RUNTIME_SCHEMA_INVALID', `${location}.${name} must be unique.`);
     if (values.join('|') !== [...values].sort().join('|')) fail('RUNTIME_SCHEMA_INVALID', `${location}.${name} must use canonical fingerprint order.`);
   }
+  if (new Set(consumedRepairWaveIds).size !== consumedRepairWaveIds.length || consumedRepairWaveIds.join('|') !== [...consumedRepairWaveIds].sort().join('|')) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.consumed_repair_wave_ids must be unique and sorted.`);
+  }
+  if (consumedRepairWaveIds.length > authorizedRepairWaves) fail('RUNTIME_STATE_CONFLICT', `${location}.consumed_repair_wave_ids cannot exceed authorized_repair_waves.`);
   if (recoveryFingerprints.some(item => !repairFingerprints.includes(item)) || consumedFingerprints.some(item => !repairFingerprints.includes(item))) {
     fail('RUNTIME_STATE_CONFLICT', `${location} recovery and consumed fingerprints must be subsets of repair_fingerprints.`);
   }
   if (grant.task_id !== taskId || grant.task_slug !== taskSlug) {
     fail('RUNTIME_STATE_CONFLICT', `${location} task identity does not match runtime_state.`);
   }
-  const status = expectEnum(grant.status, ['issued', 'consumed'], `${location}.status`);
-  if (status === 'consumed' && consumedFingerprints.length !== repairFingerprints.length) fail('RUNTIME_STATE_CONFLICT', `${location} consumed grants must record every repair fingerprint.`);
+  if (isV2 && status === 'consumed' && consumedRepairWaveIds.length !== authorizedRepairWaves) fail('RUNTIME_STATE_CONFLICT', `${location} consumed grants must record every authorized repair wave.`);
+  if (!isV2 && status === 'consumed' && consumedFingerprints.length !== repairFingerprints.length) fail('RUNTIME_STATE_CONFLICT', `${location} consumed grants must record every repair fingerprint.`);
   return {
-    kind: grant.kind === 'controlled-repair-recovery/v1' ? grant.kind : fail('RUNTIME_SCHEMA_INVALID', `${location}.kind must be controlled-repair-recovery/v1.`),
+    kind,
     grant_id: expectString(grant.grant_id, `${location}.grant_id`, SAFE_KEY_PATTERN),
     task_id: expectString(grant.task_id, `${location}.task_id`),
     task_slug: expectString(grant.task_slug, `${location}.task_slug`),
@@ -6982,6 +7021,7 @@ function validateControlledRepairRecoveryGrant(value: unknown, location: string,
     issued_source_revision: expectString(grant.issued_source_revision, `${location}.issued_source_revision`, SHA256_PATTERN),
     status,
     consumed_fingerprints: consumedFingerprints,
+    ...(isV2 ? { authorized_repair_waves: authorizedRepairWaves, consumed_repair_wave_ids: consumedRepairWaveIds } : {}),
     issued_at: expectString(grant.issued_at, `${location}.issued_at`),
     ...(grant.consumed_at === undefined ? {} : { consumed_at: expectString(grant.consumed_at, `${location}.consumed_at`) }),
   };
@@ -7405,6 +7445,7 @@ function validateControlledRepairRecoveryAuditLogEntry(value: AnyRecord, locatio
     'authority_evidence', 'evidence_refs', 'review_id', 'execution_id', 'cycle_id', 'cycle_phase', 'change_set_id',
     'review_target_revision', 'repair_fingerprints', 'recovery_fingerprints', 'recovery_scope', 'disposition_source',
     'recovery_basis', 'grant_id', 'repair_wave_id', 'controlled_attempt_limit', 'decision_source', 'decision_sha256', 'recorded_at',
+    ...(value.authorized_repair_waves === undefined ? [] : ['authorized_repair_waves']),
   ];
   expectExactKeys(value, requiredKeys, location);
   if (value.action !== 'authorize-controlled-repair-recovery' || value.operation_kind !== 'task-state-transaction'
@@ -7447,6 +7488,9 @@ function validateControlledRepairRecoveryAuditLogEntry(value: AnyRecord, locatio
     grant_id: expectString(value.grant_id, `${location}.grant_id`, SAFE_KEY_PATTERN),
     repair_wave_id: expectString(value.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN),
     controlled_attempt_limit: expectInteger(value.controlled_attempt_limit, `${location}.controlled_attempt_limit`, 1, MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING),
+    authorized_repair_waves: value.authorized_repair_waves === undefined
+      ? 1
+      : expectInteger(value.authorized_repair_waves, `${location}.authorized_repair_waves`, 1, MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT),
     decision_source: expectText(value.decision_source, `${location}.decision_source`),
     decision_sha256: expectString(value.decision_sha256, `${location}.decision_sha256`, SHA256_PATTERN),
     recorded_at: expectString(value.recorded_at, `${location}.recorded_at`),
@@ -7594,6 +7638,7 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
     'repair_fingerprint',
     'repair_fingerprints',
     'repair_wave_id',
+    'controlled_recovery_grant_id',
     'change_set_id',
     'checkpoint',
     'advancement',
@@ -7603,7 +7648,7 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
     'execution_result',
     'recorded_at',
   ];
-  const optionalExecutionLogKeys = ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'change_set_id', 'checkpoint', 'advancement', 'next_step_id', 'review_receipt', 'claim_evidence', 'execution_result'];
+  const optionalExecutionLogKeys = ['note', 'repair_fingerprint', 'repair_fingerprints', 'repair_wave_id', 'controlled_recovery_grant_id', 'change_set_id', 'checkpoint', 'advancement', 'next_step_id', 'review_receipt', 'claim_evidence', 'execution_result'];
   const missingExecutionLogKeys = executionLogKeys.filter(key => !optionalExecutionLogKeys.includes(key) && !(key in record));
   const extraExecutionLogKeys = Object.keys(record).filter(key => !executionLogKeys.includes(key));
   if (missingExecutionLogKeys.length > 0 || extraExecutionLogKeys.length > 0) fail('RUNTIME_SCHEMA_INVALID', `${location} keys mismatch; missing=[${missingExecutionLogKeys.join(', ')}], unexpected=[${extraExecutionLogKeys.join(', ')}].`);
@@ -7627,8 +7672,13 @@ function validateExecutionLogEntry(value: unknown, location: string, taskId: str
     if (result.mode !== 'repair') fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprints is only valid for repair execution records.`);
   }
   if (record.repair_wave_id !== undefined) result.repair_wave_id = expectString(record.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN);
+  if (record.controlled_recovery_grant_id !== undefined) {
+    result.controlled_recovery_grant_id = expectString(record.controlled_recovery_grant_id, `${location}.controlled_recovery_grant_id`, SAFE_KEY_PATTERN);
+    if (result.mode !== 'repair') fail('RUNTIME_STATE_CONFLICT', `${location}.controlled_recovery_grant_id is only valid for repair execution records.`);
+  }
   if (result.repair_fingerprint !== undefined && result.repair_fingerprints !== undefined) fail('RUNTIME_STATE_CONFLICT', `${location} must not mix legacy and grouped repair fingerprints.`);
   if ((result.repair_fingerprints !== undefined) !== (result.repair_wave_id !== undefined)) fail('RUNTIME_STATE_CONFLICT', `${location}.repair_fingerprints and repair_wave_id must appear together.`);
+  if (result.controlled_recovery_grant_id !== undefined && result.repair_fingerprints === undefined) fail('RUNTIME_STATE_CONFLICT', `${location}.controlled_recovery_grant_id requires grouped repair fingerprints.`);
   if (record.change_set_id !== undefined) result.change_set_id = expectString(record.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN);
   if (record.checkpoint !== undefined) result.checkpoint = expectEnum(record.checkpoint, ['required', 'not-required'], `${location}.checkpoint`);
   if (record.advancement !== undefined) result.advancement = expectEnum(record.advancement, STEP_ADVANCEMENT_OUTCOMES, `${location}.advancement`);
@@ -8292,6 +8342,7 @@ function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry, includeEmptyKno
     lines.push(`  disposition_source: ${recoveryAudit.disposition_source}`);
     lines.push(`  recovery_basis: ${recoveryAudit.recovery_basis}`);
     lines.push(`  controlled_attempt_limit: ${recoveryAudit.controlled_attempt_limit}`);
+    lines.push(`  authorized_repair_waves: ${recoveryAudit.authorized_repair_waves}`);
     lines.push(`  decision_source: ${JSON.stringify(recoveryAudit.decision_source)}`);
     lines.push(`  decision_sha256: ${recoveryAudit.decision_sha256}`);
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action as DraftAuditAction)) {
@@ -14402,6 +14453,7 @@ function makeControlledRepairRecoveryAudit(
     grant_id: delta.grant_id,
     repair_wave_id: delta.repair_wave_id,
     controlled_attempt_limit: MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING,
+    authorized_repair_waves: delta.additional_controlled_repair_waves ?? 1,
     decision_source: delta.decision_source,
     decision_sha256: sha256(delta.decision_text),
     recorded_at: now,
@@ -14611,6 +14663,7 @@ export type ControlledRepairRecoveryBlockerCode =
 
 export type ControlledRepairRecoveryEligibility = {
   eligible: boolean;
+  review_blocker_code: RepairRecoveryReviewBlockerCode | null;
   recovery_scope: ControlledRecoveryScope | null;
   repair_fingerprints: string[];
   recovery_fingerprints: string[];
@@ -14619,6 +14672,8 @@ export type ControlledRepairRecoveryEligibility = {
   repair_round: number;
   repair_round_limit: number;
   controlled_attempt_limit: number;
+  authorized_repair_waves: number;
+  remaining_repair_waves: number;
   blocking_reasons: Array<{
     code: ControlledRepairRecoveryBlockerCode;
     message: string;
@@ -14630,14 +14685,60 @@ export function repairWaveIdForRepairSet(reviewId: string, fingerprints: readonl
   return `repair-wave-${digest({ review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
 }
 
+export const REPAIR_RECOVERY_REVIEW_BLOCKER_CODES = ['REPAIR_BUDGET_EXHAUSTED', 'FORMAT_CHECK_SCOPE_BLOCKED'] as const;
+export type RepairRecoveryReviewBlockerCode = (typeof REPAIR_RECOVERY_REVIEW_BLOCKER_CODES)[number];
+
+/** A format-scope failure blocks the format gate, not the business finding ledger. */
+export function isRepairRecoveryReviewBlocked(pending: PendingReviewResult | null | undefined): boolean {
+  return pending?.verdict === 'blocked'
+    && typeof pending.blocker?.code === 'string'
+    && REPAIR_RECOVERY_REVIEW_BLOCKER_CODES.includes(pending.blocker.code as RepairRecoveryReviewBlockerCode);
+}
+
+function controlledGrantAuthorizedWaves(grant: ControlledRepairRecoveryGrant): number {
+  return grant.authorized_repair_waves ?? 1;
+}
+
+function controlledGrantConsumedWaveIds(grant: ControlledRepairRecoveryGrant): string[] {
+  if (grant.consumed_repair_wave_ids !== undefined) return [...grant.consumed_repair_wave_ids];
+  return grant.status === 'consumed' ? [grant.repair_wave_id] : [];
+}
+
+function controlledGrantRemainingWaves(grant: ControlledRepairRecoveryGrant): number {
+  return Math.max(0, controlledGrantAuthorizedWaves(grant) - controlledGrantConsumedWaveIds(grant).length);
+}
+
+function controlledGrantIsAvailable(grant: ControlledRepairRecoveryGrant): boolean {
+  return grant.status === 'issued' && controlledGrantRemainingWaves(grant) > 0;
+}
+
+function controlledGrantAttemptLimit(grant: ControlledRepairRecoveryGrant): number {
+  return grant.kind === 'controlled-repair-recovery/v1'
+    ? MAX_LEGACY_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING
+    : MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING;
+}
+
+function controlledRepairWaveIdForGrant(
+  grant: ControlledRepairRecoveryGrant,
+  reviewId: string,
+  fingerprints: readonly string[],
+): string {
+  // v1 grants are retained exactly as issued for replay compatibility. v2
+  // grants use a fresh, review-bound wave id on every subsequent review.
+  if (grant.kind === 'controlled-repair-recovery/v1') return grant.repair_wave_id;
+  return `controlled-repair-wave-${digest({ grant_id: grant.grant_id, review_id: reviewId, fingerprints: [...fingerprints].sort() }).slice(0, 32)}`;
+}
+
 function pendingReviewDispositionMap(pending: PendingReviewResult): Map<string, RepairFindingDisposition> {
   return new Map((pending.finding_dispositions ?? []).map(item => [item.fingerprint, item]));
 }
 
 /**
  * Controlled recovery is available only after ordinary extension is no longer
- * executable.  It grants one exact repair wave and, for selected must-fix
- * findings already at their ordinary cap, a separate bounded attempt counter.
+ * executable. It grants an exact repair target set and a finite number of
+ * separate repair waves. A format-scope blocker may remain attached to the
+ * review: it is not converted into a clean result and does not erase the
+ * business finding set.
  * Missing dispositions are treated as a legacy state: the user must name the
  * exact targets explicitly in the authorization transaction; prose is never
  * interpreted by Runtime.
@@ -14647,11 +14748,16 @@ export function controlledRepairRecoveryEligibility(current: CanonicalCurrentTas
   const repairFingerprints = repairFingerprintsForPendingReview(current);
   const reviewCycle = current.runtimeState.review_cycle;
   const base = {
+    review_blocker_code: (pending?.blocker?.code === 'REPAIR_BUDGET_EXHAUSTED' || pending?.blocker?.code === 'FORMAT_CHECK_SCOPE_BLOCKED')
+      ? pending.blocker.code
+      : null,
     repair_fingerprints: repairFingerprints,
     candidate_recovery_fingerprints: [],
     repair_round: reviewCycle.repair_round,
     repair_round_limit: repairRoundLimit(reviewCycle),
     controlled_attempt_limit: MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING,
+    authorized_repair_waves: MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT,
+    remaining_repair_waves: MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT,
   } satisfies Omit<ControlledRepairRecoveryEligibility, 'eligible' | 'recovery_scope' | 'recovery_fingerprints' | 'disposition_source' | 'blocking_reasons'>;
   const blocked = (code: ControlledRepairRecoveryBlockerCode, message: string, fingerprints?: string[]): ControlledRepairRecoveryEligibility => ({
     ...base,
@@ -14661,8 +14767,8 @@ export function controlledRepairRecoveryEligibility(current: CanonicalCurrentTas
     disposition_source: null,
     blocking_reasons: [{ code, message, ...(fingerprints && fingerprints.length ? { fingerprints } : {}) }],
   });
-  if (!pending || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') {
-    return blocked('not-pending-budget-review', 'An exact pending REPAIR_BUDGET_EXHAUSTED review is required before controlled recovery can be authorized.');
+  if (!isRepairRecoveryReviewBlocked(pending)) {
+    return blocked('not-pending-budget-review', 'A pending REPAIR_BUDGET_EXHAUSTED or FORMAT_CHECK_SCOPE_BLOCKED review is required before controlled recovery can be authorized.');
   }
   const ordinary = repairBudgetExtensionEligibility(current);
   if (ordinary.eligible) {
@@ -14691,11 +14797,18 @@ export function controlledRepairRecoveryEligibility(current: CanonicalCurrentTas
       return blocked('must-fix-disposition-required', `Every exhausted unresolved finding must be explicitly classified as must-fix for controlled recovery: ${unclassifiedExhausted.join(', ')}.`, unclassifiedExhausted);
     }
   }
+  const lineageGrant = pending
+    ? (current.runtimeState.controlled_repair_grants ?? []).find(grant =>
+      controlledGrantIsAvailable(grant) && controlledGrantLineageMatchesPending(current, grant, pending))
+    : undefined;
+  if (lineageGrant) {
+    return blocked('controlled-recovery-grant-already-issued', `Controlled recovery grant ${lineageGrant.grant_id} still has ${controlledGrantRemainingWaves(lineageGrant)} authorized wave(s); consume that grant through the linked repair review before requesting another grant.`);
+  }
   const grantsForReview = (current.runtimeState.controlled_repair_grants ?? []).filter(grant =>
     grant.review_id === pending.review_id && grant.task_id === current.runtimeState.task_id,
   );
   if (grantsForReview.length >= MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW) {
-    return blocked('controlled-recovery-grant-already-issued', 'This exact pending review already has its one controlled recovery grant; review the resulting execution before requesting a later grant.');
+    return blocked('controlled-recovery-grant-already-issued', 'This exact pending review already has its one controlled recovery grant; consume its remaining waves through the linked repair reviews instead of issuing a duplicate grant.');
   }
   const exhaustedControlledLimit = currentFindings
     .filter(item => candidateRecoveryFingerprints.includes(item.fingerprint) && (item.controlled_repair_attempts ?? 0) >= MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING)
@@ -14720,33 +14833,59 @@ export function controlledRepairRecoveryEligibility(current: CanonicalCurrentTas
   };
 }
 
-export function controlledRepairContinuationForPendingReview(current: CanonicalCurrentTask): (ControlledRepairRecoveryGrant & { repair_fingerprints: string[] }) | null {
-  const pending = current.runtimeState.pending_review_result;
-  if (!pending || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') return null;
-  const repairFingerprints = repairFingerprintsForPendingReview(current);
-  const waveId = repairWaveIdForRepairSet(pending.review_id, repairFingerprints);
-  const grant = (current.runtimeState.controlled_repair_grants ?? []).find(item =>
-    item.status === 'issued'
-    && item.task_id === current.runtimeState.task_id
-    && item.task_slug === current.runtimeState.task_slug
-    && item.document_id === current.sourceTuple.document_id
-    && item.review_id === pending.review_id
-    && item.execution_id === pending.execution_id
-    && item.cycle_id === pending.cycle_id
-    && item.cycle_phase === pending.cycle_phase
-    && item.change_set_id === pending.change_set_id
-    && item.review_target_revision === pending.review_target_revision
-    && digest(item.repair_fingerprints) === digest(repairFingerprints)
-    && item.repair_wave_id === waveId
-    && item.recovery_fingerprints.every(fingerprint => repairFingerprints.includes(fingerprint))
-    && item.consumed_fingerprints.length < item.repair_fingerprints.length,
+function controlledGrantLineageMatchesPending(current: CanonicalCurrentTask, grant: ControlledRepairRecoveryGrant, pending: PendingReviewResult): boolean {
+  if (grant.task_id !== current.runtimeState.task_id
+    || grant.task_slug !== current.runtimeState.task_slug
+    || grant.document_id !== current.sourceTuple.document_id
+    || grant.cycle_id !== pending.cycle_id
+    || grant.cycle_phase !== pending.cycle_phase
+    || grant.change_set_id !== pending.change_set_id) return false;
+  if (grant.review_id === pending.review_id && grant.execution_id === pending.execution_id) return true;
+  return currentDefinitionExecutionLog(current).some(entry =>
+    !('action' in entry)
+    && entry.idempotency_key === pending.execution_id
+    && entry.mode === 'repair'
+    && entry.controlled_recovery_grant_id === grant.grant_id,
   );
-  return grant ? { ...grant, repair_fingerprints: [...grant.repair_fingerprints] } : null;
+}
+
+export function controlledRepairContinuationForPendingReview(current: CanonicalCurrentTask): (ControlledRepairRecoveryGrant & { repair_fingerprints: string[]; current_repair_wave_id: string }) | null {
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending || (pending.verdict !== 'findings' && !isRepairRecoveryReviewBlocked(pending))) return null;
+  const repairFingerprints = repairFingerprintsForPendingReview(current);
+  if (repairFingerprints.length === 0) return null;
+  const grant = (current.runtimeState.controlled_repair_grants ?? []).find(item =>
+    controlledGrantIsAvailable(item)
+    && controlledGrantLineageMatchesPending(current, item, pending)
+    && item.recovery_fingerprints.some(fingerprint => repairFingerprints.includes(fingerprint)),
+  );
+  if (!grant) return null;
+  const retainedRecovery = grant.recovery_fingerprints.filter(fingerprint => repairFingerprints.includes(fingerprint));
+  return {
+    ...grant,
+    repair_fingerprints: [...repairFingerprints],
+    recovery_fingerprints: retainedRecovery,
+    current_repair_wave_id: controlledRepairWaveIdForGrant(grant, pending.review_id, repairFingerprints),
+  };
 }
 
 function controlledGrantForRepairWave(current: CanonicalCurrentTask, repairWaveId: string): ControlledRepairRecoveryGrant | null {
   const continuation = controlledRepairContinuationForPendingReview(current);
-  return continuation && continuation.repair_wave_id === repairWaveId ? continuation : null;
+  if (continuation && continuation.current_repair_wave_id === repairWaveId) return continuation;
+  // A v2 wave is consumed on the first finding attempt, but the remaining
+  // findings in that same active execution must still use the same grant.
+  // Bind this exception to the retained preflight identity so a consumed wave
+  // cannot be replayed from a later execution.
+  const active = current.runtimeState.execution_preflight;
+  if (active?.mode === 'repair' && active.repair_wave_id === repairWaveId && active.controlled_recovery_grant_id) {
+    const grant = (current.runtimeState.controlled_repair_grants ?? []).find(item =>
+      item.grant_id === active.controlled_recovery_grant_id
+      && item.kind === 'controlled-repair-recovery/v2'
+      && controlledGrantConsumedWaveIds(item).includes(repairWaveId),
+    );
+    if (grant) return grant;
+  }
+  return null;
 }
 
 export function repairBudgetExtensionTargets(current: CanonicalCurrentTask): string[] | null {
@@ -15034,6 +15173,7 @@ function assertStepProgressReplay(current: CanonicalCurrentTask, proposal: Runti
     || !sameOptionalValue(entry.repair_fingerprint, delta.repair_fingerprint)
     || !sameOptionalValue(entry.repair_fingerprints, delta.repair_fingerprints)
     || !sameOptionalValue(entry.repair_wave_id, delta.repair_wave_id)
+    || !sameOptionalValue(entry.controlled_recovery_grant_id, delta.controlled_recovery_grant_id)
     || !sameOptionalValue(entry.change_set_id, delta.change_set_id ?? delta.review_receipt?.change_set_id)
     || !sameOptionalValue(entry.review_receipt, delta.review_receipt)
     || !sameOptionalValue(entry.claim_evidence, delta.claim_evidence)
@@ -15133,10 +15273,13 @@ function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, prop
     const grant = current.runtimeState.controlled_repair_grants?.find(item => item.grant_id === delta.grant_id);
     const basis = readCanonicalTaskBasis(root, current).basis;
     const decision = [basis.original_request, ...basis.user_decisions].find(item => item.source === delta.decision_source);
+    const authorizedRepairWaves = delta.additional_controlled_repair_waves ?? 1;
     if (!grant || grant.review_id !== delta.review_id || !['issued', 'consumed'].includes(grant.status)
       || grant.decision_sha256 !== sha256(delta.decision_text)
       || !decision
       || audit.grant_id !== delta.grant_id
+      || audit.authorized_repair_waves !== authorizedRepairWaves
+      || controlledGrantAuthorizedWaves(grant) !== authorizedRepairWaves
       || digest(grant.repair_fingerprints) !== digest(delta.repair_fingerprints)
       || digest(grant.recovery_fingerprints) !== digest(delta.recovery_fingerprints)
       || grant.repair_wave_id !== delta.repair_wave_id) {
@@ -15275,8 +15418,8 @@ function applyTaskStateDelta(
       fail('CONTROLLED_RECOVERY_STATE_INVALID', 'Controlled recovery requires an active task without a resume-review gate.');
     }
     const pending = current.runtimeState.pending_review_result;
-    if (!pending || pending.review_id !== delta.review_id || pending.verdict !== 'blocked' || pending.blocker?.code !== 'REPAIR_BUDGET_EXHAUSTED') {
-      fail('CONTROLLED_RECOVERY_STATE_INVALID', 'The exact pending REPAIR_BUDGET_EXHAUSTED review is required for controlled recovery.');
+    if (!pending || pending.review_id !== delta.review_id || !isRepairRecoveryReviewBlocked(pending)) {
+      fail('CONTROLLED_RECOVERY_STATE_INVALID', 'The exact pending REPAIR_BUDGET_EXHAUSTED or FORMAT_CHECK_SCOPE_BLOCKED review is required for controlled recovery.');
     }
     const eligibility = controlledRepairRecoveryEligibility(current);
     if (!eligibility.eligible) {
@@ -15313,6 +15456,10 @@ function applyTaskStateDelta(
       || delta.change_set_id !== pending.change_set_id || delta.review_target_revision !== pending.review_target_revision) {
       fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'Controlled recovery must bind the exact pending review execution, cycle, change set, and reviewed target revision.');
     }
+    const authorizedRepairWaves = delta.additional_controlled_repair_waves ?? 1;
+    if (!Number.isInteger(authorizedRepairWaves) || authorizedRepairWaves < 1 || authorizedRepairWaves > MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT) {
+      fail('CONTROLLED_RECOVERY_QUOTA_INVALID', `Controlled recovery must authorize between 1 and ${MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT} repair waves.`);
+    }
     const expectedWaveId = repairWaveIdForRepairSet(pending.review_id, eligibility.repair_fingerprints);
     if (delta.repair_wave_id !== expectedWaveId) fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'Controlled recovery repair wave is not Runtime-derived from the exact review target set.');
     const expectedGrantId = `controlled-recovery-${digest({
@@ -15328,6 +15475,7 @@ function applyTaskStateDelta(
       recovery_scope: eligibility.recovery_scope,
       disposition_source: eligibility.disposition_source,
       recovery_basis: delta.recovery_basis,
+      additional_controlled_repair_waves: authorizedRepairWaves,
       decision_source: delta.decision_source,
       decision_text: delta.decision_text,
     }).slice(0, 40)}`;
@@ -15341,7 +15489,7 @@ function applyTaskStateDelta(
     if (priorDecision && priorDecision.verbatim !== delta.decision_text) fail('CONTROLLED_RECOVERY_AUTHORITY_INVALID', 'An existing decision source cannot be assigned different text.');
     if (!priorDecision) basis.user_decisions.push({ source: delta.decision_source, verbatim: delta.decision_text });
     const grant: ControlledRepairRecoveryGrant = {
-      kind: 'controlled-repair-recovery/v1',
+      kind: 'controlled-repair-recovery/v2',
       grant_id: delta.grant_id,
       task_id: current.runtimeState.task_id,
       task_slug: current.runtimeState.task_slug,
@@ -15364,6 +15512,8 @@ function applyTaskStateDelta(
       issued_source_revision: current.sourceTuple.revision,
       status: 'issued',
       consumed_fingerprints: [],
+      authorized_repair_waves: authorizedRepairWaves,
+      consumed_repair_wave_ids: [],
       issued_at: now,
     };
     const nextWithoutAudit: RuntimeState = {
@@ -16022,8 +16172,8 @@ function applyTaskStateDelta(
       }
       if (controlledContinuation) {
         if (delta.controlled_recovery_grant_id !== controlledContinuation.grant_id) fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'repair preflight must bind the active controlled recovery grant.');
-        if (delta.repair_wave_id !== controlledContinuation.repair_wave_id) fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'repair preflight must bind the Runtime-derived controlled recovery wave.');
-        if (digest(controlledContinuation.repair_fingerprints) !== digest(repairFingerprints)) fail('CONTROLLED_RECOVERY_TARGET_INVALID', 'controlled recovery preflight must consume the complete latest review repair set.');
+        if (delta.repair_wave_id !== controlledContinuation.current_repair_wave_id) fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'repair preflight must bind the Runtime-derived controlled recovery wave.');
+        if (controlledContinuation.recovery_fingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) fail('CONTROLLED_RECOVERY_TARGET_INVALID', 'controlled recovery preflight must retain every unresolved authorized recovery target.');
       } else if (delta.controlled_recovery_grant_id !== undefined) {
         fail('CONTROLLED_RECOVERY_IDENTITY_INVALID', 'repair preflight references a controlled recovery grant that is not active for the pending review.');
       }
@@ -16600,6 +16750,7 @@ function applyTaskStateDelta(
       ...(delta.repair_fingerprint ? { repair_fingerprint: delta.repair_fingerprint } : {}),
       ...(delta.repair_fingerprints ? { repair_fingerprints: [...delta.repair_fingerprints] } : {}),
       ...(delta.repair_wave_id ? { repair_wave_id: delta.repair_wave_id } : {}),
+      ...(delta.controlled_recovery_grant_id ? { controlled_recovery_grant_id: delta.controlled_recovery_grant_id } : {}),
       ...(executionChangeSetId ? { change_set_id: executionChangeSetId } : {}),
       checkpoint,
       advancement: advancement.outcome,
@@ -16774,7 +16925,7 @@ function applyFindingQueueDelta(
       if (!['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_STATE_INVALID', `finding ${finding.fingerprint} is not repairable from ${finding.status}.`);
       const ordinaryAttemptAvailable = finding.repair_attempts < finding.max_repair_attempts;
       const controlledAttemptAvailable = controlledGrant?.recovery_fingerprints.includes(finding.fingerprint)
-        && (finding.controlled_repair_attempts ?? 0) < MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING;
+        && (finding.controlled_repair_attempts ?? 0) < controlledGrantAttemptLimit(controlledGrant);
       if (!ordinaryAttemptAvailable && !controlledAttemptAvailable) {
         fail('REPAIR_BUDGET_EXHAUSTED', `finding ${finding.fingerprint} has exhausted both its ordinary and controlled repair budget.`);
       }
@@ -16814,10 +16965,27 @@ function applyFindingQueueDelta(
       finding.status = 'in-progress';
       finding.updated_at = now;
       finding.evidence_refs = [...new Set([...finding.evidence_refs, ...delta.evidence_refs])];
-      if (controlledGrant) {
+      const controlledAttemptUsed = controlledGrant !== null
+        && controlledGrant.recovery_fingerprints.includes(finding.fingerprint)
+        && !ordinaryAttemptAvailable;
+      if (controlledAttemptUsed) {
         controlledRepairGrants = (current.runtimeState.controlled_repair_grants ?? []).map(grant => {
           if (grant.grant_id !== controlledGrant.grant_id) return grant;
           const consumedFingerprints = [...new Set([...grant.consumed_fingerprints, finding.fingerprint])].sort();
+          if (grant.kind === 'controlled-repair-recovery/v2') {
+            const consumedRepairWaveIds = [...new Set([
+              ...controlledGrantConsumedWaveIds(grant),
+              delta.repair_wave_id,
+            ])].sort();
+            const consumed = consumedRepairWaveIds.length >= controlledGrantAuthorizedWaves(grant);
+            return {
+              ...grant,
+              consumed_fingerprints: consumedFingerprints,
+              consumed_repair_wave_ids: consumedRepairWaveIds,
+              status: consumed ? 'consumed' as const : 'issued' as const,
+              ...(consumed ? { consumed_at: grant.consumed_at ?? now } : {}),
+            };
+          }
           return consumedFingerprints.length === grant.repair_fingerprints.length
             ? { ...grant, consumed_fingerprints: consumedFingerprints, status: 'consumed' as const, consumed_at: now }
             : { ...grant, consumed_fingerprints: consumedFingerprints };
@@ -18945,6 +19113,7 @@ export function createTaskStateProposal(
     repair_fingerprint?: string;
     repair_fingerprints?: string[];
     repair_wave_id?: string;
+    controlled_recovery_grant_id?: string;
     change_set_id?: string;
     review_receipt?: StepReviewReceipt;
     claim_evidence?: ClaimEvidenceRecord[];
@@ -18973,6 +19142,7 @@ export function createTaskStateProposal(
       ...(input.repair_fingerprint ? { repair_fingerprint: input.repair_fingerprint } : {}),
       ...(input.repair_fingerprints ? { repair_fingerprints: input.repair_fingerprints } : {}),
       ...(input.repair_wave_id ? { repair_wave_id: input.repair_wave_id } : {}),
+      ...(input.controlled_recovery_grant_id ? { controlled_recovery_grant_id: input.controlled_recovery_grant_id } : {}),
       ...(input.change_set_id ? { change_set_id: input.change_set_id } : {}),
       ...(input.review_receipt ? { review_receipt: input.review_receipt } : {}),
       ...(input.claim_evidence === undefined ? {} : { claim_evidence: input.claim_evidence }),
@@ -19366,13 +19536,16 @@ export function extendRepairBudget(root: string, input: unknown, options: Runtim
  */
 export function authorizeControlledRepairRecovery(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const value = expectRecord(input, 'authorize-controlled-repair-recovery input');
-  expectExactKeys(value, ['review_id', 'recovery_fingerprints', 'recovery_basis', 'decision_source', 'decision_text', 'evidence_refs'], 'authorize-controlled-repair-recovery input');
+  expectExactKeys(value, ['review_id', 'recovery_fingerprints', 'recovery_basis', 'decision_source', 'decision_text', 'evidence_refs', ...(value.additional_controlled_repair_waves === undefined ? [] : ['additional_controlled_repair_waves'])], 'authorize-controlled-repair-recovery input');
   const current = readCanonicalCurrentTask(root);
   const pending = current.runtimeState.pending_review_result;
   if (!pending) fail('CONTROLLED_RECOVERY_STATE_INVALID', 'A pending budget-blocked review is required before controlled recovery authorization.');
   const recoveryFingerprints = expectStringArray(value.recovery_fingerprints, 'recovery_fingerprints', false, MAX_FINDINGS)
     .map((item, index) => expectString(item, `recovery_fingerprints[${index}]`, FINGERPRINT_PATTERN)).sort();
   const recoveryBasis = expectEnum(value.recovery_basis, REPAIR_FINDING_DISPOSITION_BASES, 'recovery_basis');
+  const additionalControlledRepairWaves = value.additional_controlled_repair_waves === undefined
+    ? 1
+    : expectInteger(value.additional_controlled_repair_waves, 'additional_controlled_repair_waves', 1, MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT);
   const decisionSource = expectText(value.decision_source, 'decision_source');
   const decisionText = expectVerbatim(value.decision_text, 'decision_text', 32768);
   const suppliedEvidenceRefs = validateEvidenceRefs(value.evidence_refs, 'evidence_refs');
@@ -19389,6 +19562,7 @@ export function authorizeControlledRepairRecovery(root: string, input: unknown, 
       && entry.review_id === pending.review_id
       && digest(entry.recovery_fingerprints) === digest(recoveryFingerprints)
       && entry.recovery_basis === recoveryBasis
+      && entry.authorized_repair_waves === additionalControlledRepairWaves
       && entry.decision_source === decisionSource
       && entry.decision_sha256 === decisionSha256
       && digest(entry.evidence_refs) === digest(expectedEvidenceRefs),
@@ -19412,6 +19586,7 @@ export function authorizeControlledRepairRecovery(root: string, input: unknown, 
     recovery_scope: recoveryScope,
     disposition_source: dispositionSource,
     recovery_basis: recoveryBasis,
+    additional_controlled_repair_waves: additionalControlledRepairWaves,
     decision_source: decisionSource,
     decision_text: decisionText,
   }).slice(0, 40)}`;
@@ -19437,6 +19612,7 @@ export function authorizeControlledRepairRecovery(root: string, input: unknown, 
     recovery_basis: recoveryBasis,
     grant_id: grantId,
     repair_wave_id: waveId,
+    additional_controlled_repair_waves: additionalControlledRepairWaves,
     decision_source: decisionSource,
     decision_text: decisionText,
     evidence_refs: expectedEvidenceRefs,
@@ -19449,7 +19625,7 @@ export function authorizeControlledRepairRecovery(root: string, input: unknown, 
       kind: kind as AuthorityEvidence['kind'], source: decisionSource, subject: current.runtimeState.task_id,
     })),
     semantic_delta: delta,
-    preconditions: ['current-task-is-active', 'pending-review-repair-budget-exhausted', 'exact-review-repair-set', 'explicit-must-fix-recovery-decision', 'bounded-controlled-recovery-quota'],
+    preconditions: ['current-task-is-active', 'pending-repair-recovery-blocker', 'exact-review-repair-set', 'explicit-must-fix-recovery-decision', 'bounded-controlled-recovery-quota'],
     evidence_refs: delta.evidence_refs,
     idempotency_key: key,
     requested_write_targets: [current.relativePath, basisPath],

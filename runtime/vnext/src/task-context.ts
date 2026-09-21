@@ -23,6 +23,7 @@ import {
   repairBudgetExtensionEligibility,
   controlledRepairContinuationForPendingReview,
   controlledRepairRecoveryEligibility,
+  isRepairRecoveryReviewBlocked,
   currentDefinitionExecutionLog,
   outstandingRepairPreflight,
   readCanonicalCurrentTask,
@@ -560,9 +561,13 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const budgetExhausted = pendingReview?.verdict === 'blocked'
     && record(pendingReview.blocker)
     && pendingReview.blocker.code === 'REPAIR_BUDGET_EXHAUSTED';
+  const repairRecoveryBlocked = isRepairRecoveryReviewBlocked(pendingReview);
+  const formatScopeBlocked = pendingReview?.verdict === 'blocked'
+    && record(pendingReview.blocker)
+    && pendingReview.blocker.code === 'FORMAT_CHECK_SCOPE_BLOCKED';
   const budgetExtensionEligibility = budgetExhausted ? repairBudgetExtensionEligibility(current) : null;
   const budgetExtensionAvailable = budgetExtensionEligibility?.eligible === true;
-  const controlledRecoveryEligibility = budgetExhausted ? controlledRepairRecoveryEligibility(current) : null;
+  const controlledRecoveryEligibility = repairRecoveryBlocked ? controlledRepairRecoveryEligibility(current) : null;
   const controlledRecoveryAvailable = controlledRecoveryEligibility?.eligible === true;
   const outstandingRepair = outstandingRepairPreflight(current);
   const reviewableUnreviewedExecution = latestReviewableUnreviewedExecution(current);
@@ -585,10 +590,12 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       : budgetExtensionAvailable
         ? 'prepare-task:extend-repair-budget'
         : controlledRecoveryAvailable
-          ? 'prepare-task:authorize-controlled-repair-recovery'
-        : budgetExhausted
-          ? 'debug-task'
-          : retainedCleanReview
+        ? 'prepare-task:authorize-controlled-repair-recovery'
+      : budgetExhausted
+        ? 'debug-task'
+        : formatScopeBlocked
+          ? 'prepare-task:prepare-evidence-plan-amendment'
+        : retainedCleanReview
             ? 'execute-step:complete-reviewed-step'
             : retainedFindingReview
               ? 'execute-step:repair'
@@ -611,6 +618,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         ? ['prepare-task:authorize-controlled-repair-recovery', 'debug-task']
       : budgetExhausted
         ? ['debug-task']
+        : formatScopeBlocked
+          ? ['prepare-task:prepare-evidence-plan-amendment', 'debug-task']
         : state.workflow_status === 'blocked_by_replan'
           ? ['prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
           : state.active_step_status === 'blocked'
@@ -722,6 +731,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     },
     controlled_recovery: controlledRecoveryEligibility === null ? null : {
       eligible: controlledRecoveryEligibility.eligible,
+      review_blocker_code: controlledRecoveryEligibility.review_blocker_code,
       recovery_scope: controlledRecoveryEligibility.recovery_scope,
       repair_fingerprints: controlledRecoveryEligibility.repair_fingerprints,
       recovery_fingerprints: controlledRecoveryEligibility.recovery_fingerprints,
@@ -730,11 +740,24 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       repair_round: controlledRecoveryEligibility.repair_round,
       repair_round_limit: controlledRecoveryEligibility.repair_round_limit,
       controlled_attempt_limit: controlledRecoveryEligibility.controlled_attempt_limit,
+      authorized_repair_waves: controlledRecoveryEligibility.authorized_repair_waves,
+      remaining_repair_waves: controlledRecoveryEligibility.remaining_repair_waves,
       blocking_reasons: controlledRecoveryEligibility.blocking_reasons,
       user_decision_route: controlledRecoveryEligibility.eligible
         ? 'prepare-task:authorize-controlled-repair-recovery'
         : 'user-owned-blocker:record-structured-review-disposition-or-stop',
     },
+    ...(formatScopeBlocked ? {
+      format_scope_blocker: {
+        present: true,
+        blocker: pendingReview?.blocker ?? null,
+        preserves_business_findings: true,
+        user_decision_route: 'prepare-task:prepare-evidence-plan-amendment',
+        controlled_recovery_route: controlledRecoveryAvailable
+          ? 'prepare-task:authorize-controlled-repair-recovery'
+          : null,
+      },
+    } : {}),
     storage: storeNavigation(root, current, manifest),
   };
 }

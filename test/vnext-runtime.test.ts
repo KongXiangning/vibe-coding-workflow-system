@@ -9649,7 +9649,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(taskContext(root, {}).overview.next_entry).toBe('prepare-task:authorize-controlled-repair-recovery');
     expect(taskContext(root, {}).overview.controlled_recovery).toMatchObject({
       eligible: true, recovery_scope: 'mixed', repair_fingerprints: [a, b, d].sort(),
-      recovery_fingerprints: [a], disposition_source: 'review-disposition', controlled_attempt_limit: 2,
+      recovery_fingerprints: [a], disposition_source: 'review-disposition', controlled_attempt_limit: 5,
     });
     expect(controlledRepairRecoveryEligibility(blocked)).toMatchObject({
       eligible: true, repair_fingerprints: [a, b, d].sort(), recovery_fingerprints: [a],
@@ -9716,7 +9716,9 @@ describe('vNext Phase 2 Runtime contract', () => {
       repair_attempts: 1, max_repair_attempts: 2, status: 'in-progress',
     });
     expect(afterRecoveryExecution.runtimeState.findings.find(item => item.fingerprint === c)?.status).toBe('resolved');
-    expect(afterRecoveryExecution.runtimeState.controlled_repair_grants![0]?.status).toBe('consumed');
+    expect(afterRecoveryExecution.runtimeState.controlled_repair_grants![0]).toMatchObject({
+      status: 'consumed', consumed_fingerprints: [a], consumed_repair_wave_ids: [continuation.receipt.repair_wave_id],
+    });
 
     const clean = reviewContext(root, {});
     expect(recordReviewResult(root, {
@@ -9827,6 +9829,152 @@ describe('vNext Phase 2 Runtime contract', () => {
     const continuation = beginRepair(root, { candidate_paths: [file] });
     expect(continuation.receipt.repair_fingerprints).toEqual([a, c].sort());
     expect(continuation.receipt.controlled_recovery_grant_id).toBe(authorized.runtimeState.controlled_repair_grants![0]!.grant_id);
+  });
+
+  test('carries a five-wave controlled recovery grant across fresh reviews and consumes it exactly once per wave', { timeout: 360000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise multi-wave controlled recovery', mutation_scope: [file],
+        commands: [{ command, expected_repo_writes: 'none' }], validation: [validation],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    const finding = {
+      category: 'correctness', file,
+      failure_condition: 'the controlled recovery invariant remains incomplete',
+      required_behavior: 'preserve the invariant through every authorized recovery wave',
+      root_cause_status: 'confirmed' as const,
+      evidence_refs: ['test:multi-wave-finding'],
+    };
+    const execute = (receipt: ReturnType<typeof preflightStep>['receipt'] | ReturnType<typeof beginRepair>['receipt'], content: string) => {
+      fs.writeFileSync(product, content, 'utf8');
+      return recordStepResult(root, {
+        preflight_receipt: receipt, actual_changed_paths: [file],
+        command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:multi-wave-command'] }],
+        validation_results: [{ validation, status: 'passed', evidence_refs: ['test:multi-wave-validation'] }],
+        acceptance_evidence: receipt.mode === 'default' ? [reportFixture(root)] : [],
+        outcome: 'implemented', note: content.trim(),
+      });
+    };
+    const initial = preflightStep(root, { candidate_paths: [file] });
+    expect(execute(initial.receipt, 'multi-wave initial\n').status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt, verdict: 'findings', findings: [finding],
+      unresolved_fingerprints: [], evidence_refs: ['test:multi-wave-discovery'], blocker: null,
+    }).status).toBe('success');
+    const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+
+    for (let round = 1; round <= 8; round += 1) {
+      const repair = beginRepair(root, { candidate_paths: [file] });
+      expect(execute(repair.receipt, `ordinary repair ${round}\n`).status).toBe('success');
+      expect(recordReviewResult(root, {
+        context_receipt: reviewContext(root, {}).receipt, verdict: 'findings', findings: [],
+        unresolved_fingerprints: [fingerprint], evidence_refs: [`test:multi-wave-ordinary-${round}`], blocker: null,
+      }).status).toBe('success');
+      const current = readCanonicalCurrentTask(root);
+      if (round === 1) continue;
+      if (round < 8) {
+        expect(extendRepairBudget(root, {
+          review_id: current.runtimeState.pending_review_result!.review_id,
+          finding_fingerprints: [fingerprint], additional_repair_attempts: 1,
+          decision_source: `user:multi-wave-ordinary-${round}`,
+          decision_text: `Authorize the ordinary bounded attempt for round ${round}.`,
+        })).toMatchObject({ status: 'success' });
+      }
+    }
+
+    const blocked = readCanonicalCurrentTask(root);
+    expect(blocked.runtimeState.pending_review_result).toMatchObject({
+      verdict: 'blocked', blocker: { code: 'REPAIR_BUDGET_EXHAUSTED' },
+    });
+    const formatReceipt = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: formatReceipt.receipt, verdict: 'blocked', findings: [],
+      unresolved_fingerprints: [fingerprint], evidence_refs: ['test:multi-wave-format-scope'],
+      blocker: {
+        code: 'FORMAT_CHECK_SCOPE_BLOCKED',
+        summary: 'The original format check included Runtime-owned governance evidence.',
+        next_route: 'user',
+      },
+    }).status).toBe('success');
+    const formatBlocked = readCanonicalCurrentTask(root);
+    expect(formatBlocked.runtimeState.pending_review_result).toMatchObject({
+      verdict: 'blocked', blocker: { code: 'FORMAT_CHECK_SCOPE_BLOCKED' }, unresolved_fingerprints: [fingerprint],
+    });
+    expect(taskContext(root, {}).overview.format_scope_blocker).toMatchObject({
+      present: true, preserves_business_findings: true,
+      controlled_recovery_route: 'prepare-task:authorize-controlled-repair-recovery',
+    });
+    expect(taskContext(root, {}).overview.controlled_recovery).toMatchObject({
+      eligible: true, authorized_repair_waves: 5, remaining_repair_waves: 5, controlled_attempt_limit: 5,
+    });
+    const pending = formatBlocked.runtimeState.pending_review_result!;
+    expect(() => authorizeControlledRepairRecovery(root, {
+      review_id: pending.review_id, recovery_fingerprints: [fingerprint], recovery_basis: 'critical-invariant',
+      additional_controlled_repair_waves: 6,
+      decision_source: 'user:multi-wave-overflow', decision_text: 'Reject a grant above the controlled quota.', evidence_refs: ['test:multi-wave-overflow'],
+    })).toThrow('additional_controlled_repair_waves');
+    expect(readCanonicalCurrentTask(root).runtimeState.controlled_repair_grants ?? []).toHaveLength(0);
+
+    expect(authorizeControlledRepairRecovery(root, {
+      review_id: pending.review_id, recovery_fingerprints: [fingerprint], recovery_basis: 'critical-invariant',
+      additional_controlled_repair_waves: 5,
+      decision_source: 'user:multi-wave-authorize-five',
+      decision_text: 'This unresolved critical invariant remains a blocker; authorize exactly five bounded controlled repair waves.',
+      evidence_refs: ['test:multi-wave-authorize-five'],
+    })).toMatchObject({ status: 'success' });
+    let current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.controlled_repair_grants![0]).toMatchObject({
+      kind: 'controlled-repair-recovery/v2', status: 'issued', authorized_repair_waves: 5, consumed_repair_wave_ids: [],
+    });
+    const grantId = current.runtimeState.controlled_repair_grants![0]!.grant_id;
+    const waveIds: string[] = [];
+    for (let wave = 1; wave <= 5; wave += 1) {
+      const repair = beginRepair(root, { candidate_paths: [file] });
+      expect(repair.receipt.controlled_recovery_grant_id).toBe(grantId);
+      waveIds.push(repair.receipt.repair_wave_id);
+      expect(execute(repair.receipt, `controlled repair ${wave}\n`).status).toBe('success');
+      const review = reviewContext(root, {});
+      if (wave < 5) {
+        expect(recordReviewResult(root, {
+          context_receipt: review.receipt, verdict: 'blocked', findings: [],
+          unresolved_fingerprints: [fingerprint], evidence_refs: [`test:multi-wave-controlled-${wave}`],
+          blocker: {
+            code: 'FORMAT_CHECK_SCOPE_BLOCKED',
+            summary: 'The format gate remains separately blocked while the business finding is repaired.',
+            next_route: 'user',
+          },
+        }).status).toBe('success');
+        current = readCanonicalCurrentTask(root);
+        expect(current.runtimeState.pending_review_result?.blocker?.code).toBe('FORMAT_CHECK_SCOPE_BLOCKED');
+        expect(current.runtimeState.controlled_repair_grants![0]).toMatchObject({
+          status: 'issued', authorized_repair_waves: 5, consumed_repair_wave_ids: waveIds.slice().sort(),
+        });
+      } else {
+        expect(recordReviewResult(root, {
+          context_receipt: review.receipt, verdict: 'clean', findings: [],
+          unresolved_fingerprints: [], resolved_fingerprints: [fingerprint],
+          evidence_refs: ['test:multi-wave-controlled-clean'], blocker: null,
+        }).status).toBe('success');
+      }
+    }
+    current = readCanonicalCurrentTask(root);
+    expect(new Set(waveIds).size).toBe(5);
+    expect(current.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({
+      repair_attempts: 8, max_repair_attempts: 8, controlled_repair_attempts: 5, status: 'resolved',
+    });
+    expect(current.runtimeState.controlled_repair_grants![0]).toMatchObject({
+      status: 'consumed', authorized_repair_waves: 5, consumed_repair_wave_ids: waveIds.slice().sort(),
+    });
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'five controlled waves verified' })).toMatchObject({
+      status: 'success', advancement: { outcome: 'task-complete' },
+    });
   });
 
   test('starts a fresh repair cycle after step advancement and admits a finding from an older installed cycle', { timeout: 30000 }, () => {

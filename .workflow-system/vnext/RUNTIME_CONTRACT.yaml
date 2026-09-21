@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.11
+  package_version: 0.20.12
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -229,6 +229,7 @@ proposal:
         - repair_fingerprint
         - repair_fingerprints
         - repair_wave_id
+        - controlled_recovery_grant_id
         - change_set_id
         - review_receipt
         - claim_evidence
@@ -680,10 +681,10 @@ proposal:
       absolute_limits: eight-attempts-per-finding-and-eight-repair-rounds-per-cycle
     controlled_repair_recovery:
       route: authorize-controlled-repair-recovery
-      trigger: exact-pending-REPAIR_BUDGET_EXHAUSTED-review-where-ordinary-extension-is-not-executable
+      trigger: exact-pending-REPAIR_BUDGET_EXHAUSTED-or-FORMAT_CHECK_SCOPE_BLOCKED-review-where-ordinary-extension-is-not-executable
       authorization: explicit-structured-must-fix-targets-plus-basis-evidence-and-user-decision
       legacy_coverage: exact-explicit-target-must-cover-every-existing-unresolved-finding-with-no-ordinary-budget-before-grant-persistence
-      quota: one-review-bound-repair-wave-and-at-most-two-separate-controlled-attempts-per-finding
+      quota: up-to-five-review-bound-controlled-repair-waves-with-at-most-five-attempts-per-selected-finding
       preserves: ordinary-maxima-cumulative-attempts-review-history-resolved-findings-task-identity-and-change-set-binding
       stops: no-free-text-inference-no-new-task-no-supersede-no-reset-no-clean-or-close
     direct_replan_result: REPLAN_CONFIRMATION_REQUIRED

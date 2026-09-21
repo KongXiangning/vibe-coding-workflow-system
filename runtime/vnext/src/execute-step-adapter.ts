@@ -911,7 +911,9 @@ export function beginRepair(
     fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'the retained budget extension is not covered by the current review repair set.');
   }
   if (controlledContinuation) {
-    if (digest(controlledContinuation.repair_fingerprints) !== digest(fingerprints)) fail('CONTROLLED_RECOVERY_TARGET_INVALID', 'the active controlled recovery grant is not bound to the complete latest review repair set.');
+    if (controlledContinuation.recovery_fingerprints.some(fingerprint => !fingerprints.includes(fingerprint))) {
+      fail('CONTROLLED_RECOVERY_TARGET_INVALID', 'the active controlled recovery grant may continue only while each unresolved authorized target remains in the latest review repair set.');
+    }
   }
   for (const fingerprint of fingerprints) {
     const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
@@ -923,7 +925,7 @@ export function beginRepair(
       fail('REPAIR_BUDGET_EXHAUSTED', `finding ${fingerprint} has exhausted its repair budget.`);
     }
   }
-  const waveId = repairWaveIdForRepairSet(pending.review_id, fingerprints);
+  const waveId = controlledContinuation?.current_repair_wave_id ?? repairWaveIdForRepairSet(pending.review_id, fingerprints);
   const reviewTargetPaths = [...new Set([
     ...reviewedExecution.execution_result.review_target.entries.map(item => item.path),
     ...candidatePaths,
@@ -1748,7 +1750,11 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     authority_evidence: authority(current, ['active-task-owner', 'scope-admission', 'evidence-admission']),
     ...(note ? { note } : {}),
     ...(receipt.kind === 'execute-step-repair-preflight/v1'
-      ? { repair_fingerprints: receipt.repair_fingerprints, repair_wave_id: receipt.repair_wave_id }
+      ? {
+        repair_fingerprints: receipt.repair_fingerprints,
+        repair_wave_id: receipt.repair_wave_id,
+        ...(receipt.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: receipt.controlled_recovery_grant_id }),
+      }
       : receipt.repair_fingerprint ? { repair_fingerprint: receipt.repair_fingerprint } : {}),
     change_set_id: receipt.change_set_id,
     ...(claimEvidence === undefined ? {} : { claim_evidence: claimEvidence }),

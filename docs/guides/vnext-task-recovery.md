@@ -1,4 +1,4 @@
-# vNext 0.20.11：任务纠错、执行恢复与有界上下文
+# vNext 0.20.12：任务纠错、执行恢复与有界上下文
 
 ## 适用范围
 
@@ -70,9 +70,11 @@
 
 预算阻断不是“没有审查结论”。Runtime 保留 blocked review 中的结构化 `findings`、`unresolved_fingerprints`、`resolved_fingerprints` 和 `blocker`；`resolved_fingerprints` 会同步更新 finding queue，不能只留在文字证据里。对旧 0.20.5 状态，如果历史 blocked review 已经把这些字段清空，升级不会从自由文本猜测结论，也不会要求手改 `CURRENT_TASK.md`：先用正式 `upgrade` 完成分发升级，再用 `review-context` 取得绑定当前 execution/target 的新 receipt，重新提交一次带完整结构化 finding、未解决项、已解决项和证据引用的 `record-review-result`。只有这次审查重新形成精确的 `REPAIR_BUDGET_EXHAUSTED` pending review 后，才允许用户以这次重新记录返回的 `review_id` 和精确耗尽集合调用预算扩展；receipt、task/source revision、execution、change set 和目标路径任一过期都必须重新审查，不能靠重放或改状态绕过。
 
-当普通扩展已因周期或单 finding 的绝对上限不可执行，而最新审查仍确认某个问题是必须修复的 blocker，可走独立的受控恢复授权。审查结果可为仍需处理的 Runtime-admitted finding 写入结构化 `finding_dispositions`（`must-fix`、`normal-fix` 或 `defer`，并绑定 basis/evidence）；只有 `must-fix` 才能成为受控恢复目标。用户调用 `prepare-task:authorize-controlled-repair-recovery` 时只提交精确的 `review_id`、`recovery_fingerprints`、`recovery_basis`、`decision_source`、`decision_text` 和 `evidence_refs`，Runtime 自动绑定完整最新修复集合、task/document、execution、cycle、change set 与 review target revision。授权只发放一个 repair wave，并为选中的已耗尽 finding 记录独立且最多两次的 controlled attempt；普通尝试次数、周期次数、历史证据和审查基线均不重置。
+当普通扩展已因周期或单 finding 的绝对上限不可执行，而最新审查仍确认某个问题是必须修复的 blocker，可走独立的受控恢复授权。审查结果可为仍需处理的 Runtime-admitted finding 写入结构化 `finding_dispositions`（`must-fix`、`normal-fix` 或 `defer`，并绑定 basis/evidence）；只有 `must-fix` 才能成为受控恢复目标。用户调用 `prepare-task:authorize-controlled-repair-recovery` 时提交精确的 `review_id`、`recovery_fingerprints`、`recovery_basis`、`decision_source`、`decision_text`、`evidence_refs`，以及可选的 `additional_controlled_repair_waves`（1–5，省略时为 1）。Runtime 自动绑定完整最新修复集合、task/document、execution、cycle、change set 与 review target revision。授权记录有限数量的、各自可审查的 controlled repair wave，并可沿同一 execution/change-set/cycle 绑定继续后续审查；每个选中 finding 的普通尝试次数仍按原值累计，受控消费不能超过本次授权额度。普通尝试次数、周期次数、历史证据和审查基线均不重置。
 
 受控授权集合与本轮修复集合严格分离：仍有普通预算的未解决 finding 仍进入完整修复集合，已验证解决项不会再次进入，审查新发现必须先经过正常 finding admission，不能因受控授权自动获得权限。精确授权重放为 no-op；过期 review、越权目标、重复增额、超出受控次数、重建任务、supersede 或直接改状态均拒绝。没有结构化 disposition 的旧 blocked review 只能在用户明确列出 exact target/basis/evidence 后使用 legacy-explicit-user 桥接，且 exact target 必须覆盖完整修复集合中所有已耗尽普通额度的现有未解决 finding；否则事务在持久化唯一 grant 前拒绝，之后仍可补交完整授权。Runtime 不从自由文本推断。
+
+`FORMAT_CHECK_SCOPE_BLOCKED` 只阻断格式门禁，不代表本轮审查没有业务结论。Runtime 保留该 blocker 以及结构化 `findings`、`unresolved_fingerprints`、`resolved_fingerprints`；需要修正格式检查对象时，使用 `prepare-evidence-plan-amendment` → `confirm-evidence-plan-amendment` 正式路线。若业务 finding 已在普通绝对上限仍属于 `must-fix`，可以在格式 blocker 保持原样的同时使用受控修复额度；不能把格式阻断伪造成 clean。
 
 ### Repair 结果登记与格式检查范围
 
@@ -85,9 +87,9 @@ Repair 执行结果与步骤进度是两个事实。步骤已经处于 `complete
 
 ## 安装、升级和兼容
 
-使用固定 `vibe-governance-0.20.11.tgz`，先核对 SHA-256：
+使用固定 `vibe-governance-0.20.12.tgz`，先核对 SHA-256：
 
-`3A9DA6E77AD4A173D8F45775474D69A31D6ABFDE562DC5803E2F9F7B43474730`
+`123FBA6E9B7778F52F71EC5C26B7A15938CE63E6E45D4F087127E44267F5F4D2`
 
 可在独立安装目录执行：
 
