@@ -278,6 +278,9 @@ describe('vNext Phase 2 source contract', () => {
       'utf8',
     );
     expect(execute).toContain('Runtime `preflight-step`');
+    expect(execute).toContain('`resume-preflight`');
+    expect(execute).toContain('`reconcile-preflight`');
+    expect(execute).toContain('execute-step-preflight-decision');
     expect(execute).toContain('Runtime `record-step-result`');
     expect(execute).toContain('Runtime `complete-reviewed-step`');
     expect(execute).toContain('Do not redesign the task');
@@ -286,6 +289,7 @@ describe('vNext Phase 2 source contract', () => {
     expect(execute).toContain('`outcome: test-red`');
     expect(execute).toContain('`status: expected-failure`');
     expect(execute).toContain('Expected failure cannot satisfy positive acceptance');
+    expect(execute).toContain('a host boundary does not change task state or consume a business');
 
     const root = copyFixture();
     const executeFixture = fixtureFile(root, 'templates/vnext/skills/execute-step.SKILL.md.tmpl');

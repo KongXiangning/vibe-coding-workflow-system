@@ -133,7 +133,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.14';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.16';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -706,6 +706,8 @@ export type ExecutionPreflightState = {
   controlled_recovery_grant_id?: string;
 };
 
+export type PreflightReconciliationDisposition = 'not-started' | 'started-unknown';
+
 export type PendingReviewResult = {
   test_assessment?: TestAssessment;
   kind: 'review-result/v1';
@@ -879,6 +881,17 @@ export type TaskStateDelta =
       evidence_refs: string[];
     }
   | { kind: 'task-state'; action: 'retry-step'; step_id: string; blocked_attempt_id: string; blocker_resolution_refs: string[]; repair_diagnosis?: StepRepairDiagnosis; evidence_refs: string[] }
+  | {
+      kind: 'task-state';
+      action: 'reconcile-preflight';
+      step_id: string;
+      current_preflight_id: string;
+      mode: VNextExecuteStepMode;
+      execution_disposition: PreflightReconciliationDisposition;
+      decision_source: string;
+      decision_text: string;
+      evidence_refs: string[];
+    }
   | {
       kind: 'task-state';
       action: 'record-step-preflight';
@@ -1404,6 +1417,40 @@ export type ControlledRepairRecoveryAuditLogEntry = {
   recorded_at: string;
 };
 
+export type PreflightReconciliationAuditLogEntry = {
+  action: 'reconcile-preflight';
+  idempotency_key: string;
+  operation_kind: 'task-state-transaction';
+  caller: 'execute-step';
+  mode: VNextExecuteStepMode;
+  task_id: string;
+  task_slug: string;
+  document_id: string;
+  from_workflow_status: 'active';
+  from_lifecycle_state: 'active';
+  to_workflow_status: 'active';
+  to_lifecycle_state: 'active';
+  source_revision: string;
+  source_tuple: RuntimeSourceTuple;
+  authority_evidence: AuthorityEvidence[];
+  evidence_refs: string[];
+  step_id: string;
+  current_preflight_id: string;
+  execution_id: string | null;
+  attempt_id: string | null;
+  plan_revision: string | null;
+  candidate_paths: string[] | null;
+  change_set_id: string | null;
+  review_id: string | null;
+  repair_fingerprints: string[] | null;
+  repair_wave_id: string | null;
+  execution_disposition: PreflightReconciliationDisposition;
+  decision_source: string;
+  decision_text: string;
+  decision_sha256: string;
+  recorded_at: string;
+};
+
 export type ArchiveAuditLogEntry = {
   action: 'archive';
   idempotency_key: string;
@@ -1487,8 +1534,8 @@ export type ClaimEvidenceMigrationAuditLogEntry = {
   recorded_at: string;
 };
 
-export type ExecutionLogEntry = StepExecutionLogEntry | DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | RepairBudgetExtensionAuditLogEntry | ControlledRepairRecoveryAuditLogEntry | ArchiveAuditLogEntry;
-type RuntimeAuditLogEntry = DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | RepairBudgetExtensionAuditLogEntry | ControlledRepairRecoveryAuditLogEntry | ArchiveAuditLogEntry;
+export type ExecutionLogEntry = StepExecutionLogEntry | DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | RepairBudgetExtensionAuditLogEntry | ControlledRepairRecoveryAuditLogEntry | PreflightReconciliationAuditLogEntry | ArchiveAuditLogEntry;
+type RuntimeAuditLogEntry = DraftAuditLogEntry | ClaimEvidenceMigrationAuditLogEntry | ReplanAuditLogEntry | RepairBudgetExtensionAuditLogEntry | ControlledRepairRecoveryAuditLogEntry | PreflightReconciliationAuditLogEntry | ArchiveAuditLogEntry;
 
 export type RuntimeProposal = {
   schema_version: typeof VNEXT_RUNTIME_SCHEMA_VERSION;
@@ -2157,7 +2204,10 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
     step_id: expectString(source.step_id, `${location}.step_id`, STEP_ID_PATTERN),
     plan_revision: expectString(source.plan_revision, `${location}.plan_revision`, SHA256_PATTERN),
     execution_phase: expectEnum(source.execution_phase, ['flexible', 'test-first', 'red', 'green', 'implementation-first', 'not-applicable', 'legacy'], `${location}.execution_phase`),
-    candidate_paths: expectStringArray(source.candidate_paths, `${location}.candidate_paths`, false, 256).map(item => normalizeRepoPath(item, `${location}.candidate_paths`)),
+    // A read-only/no-product-write step may legitimately admit zero paths.
+    // The durable continuation record still binds the execution identity and
+    // review/change-set baseline; it does not need a synthetic path.
+    candidate_paths: expectStringArray(source.candidate_paths, `${location}.candidate_paths`, true, 256).map(item => normalizeRepoPath(item, `${location}.candidate_paths`)),
     change_set_id: expectString(source.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN),
     repair_fingerprints: repairFingerprints === null ? null : [...new Set(repairFingerprints)],
     repair_wave_id: repairWaveId,
@@ -2392,6 +2442,11 @@ function assertStepProgressExecutionIdentity(
 ): void {
   const active = current.runtimeState.execution_preflight;
   if (!active) return;
+
+  // A same-status audit append is not a new execution or completion claim.
+  // Keep this legacy history path readable without treating it as permission
+  // to advance the step, consume an attempt, or replace an execution result.
+  if (!delta.execution_result && !delta.review_receipt && delta.status === current.runtimeState.active_step_status) return;
 
   const executionResult = delta.execution_result;
   if (executionResult) {
@@ -2784,7 +2839,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectExactKeys(taskStateContract, ['actions', 'execution_admission', 'retry_step', 'step_progress', 'preflight', 'claim_evidence', 'claim_evidence_migration', 'advancement_outcomes', 'review_receipt', 'review_result', 'draft', 'confirm'], 'Runtime contract.proposal.task_state');
   expectSetEqual(
     expectStringArray(taskStateContract.actions, 'Runtime contract.proposal.task_state.actions'),
-    ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'],
+    ['retry-step', 'reconcile-preflight', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'],
     'Runtime contract task-state actions',
   );
   const executionAdmissionContract = expectRecord(taskStateContract.execution_admission, 'Runtime contract.proposal.task_state.execution_admission');
@@ -2834,7 +2889,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     'Runtime contract task-state optional fields',
   );
   const preflightContract = expectRecord(taskStateContract.preflight, 'Runtime contract.proposal.task_state.preflight');
-  expectExactKeys(preflightContract, ['initial', 'extension'], 'Runtime contract.proposal.task_state.preflight');
+  expectExactKeys(preflightContract, ['initial', 'extension', 'reconciliation'], 'Runtime contract.proposal.task_state.preflight');
   const initialPreflight = expectRecord(preflightContract.initial, 'Runtime contract.proposal.task_state.preflight.initial');
   expectExactKeys(initialPreflight, ['action', 'planned_footprint', 'in_envelope_unplanned', 'outside_envelope', 'first_touch', 'evaluator', 'execution_identity'], 'Runtime contract.proposal.task_state.preflight.initial');
   if (initialPreflight.action !== 'record-step-preflight'
@@ -2867,7 +2922,28 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
      || extensionPreflight.review !== 'risk-selected-cumulative-review-for-self-admitted-expansion'
      || extensionPreflight.repair !== 'same-evaluator-same-wave-no-retry-consumption'
      || extensionPreflight.first_touch !== 'append-only-for-new-targets') {
-    fail('RUNTIME_CONTRACT_INVALID', 'Runtime extend-preflight semantics are invalid.');
+     fail('RUNTIME_CONTRACT_INVALID', 'Runtime extend-preflight semantics are invalid.');
+  }
+  const reconciliationPreflight = expectRecord(preflightContract.reconciliation, 'Runtime contract.proposal.task_state.preflight.reconciliation');
+  expectExactKeys(reconciliationPreflight, ['action', 'required', 'dispositions', 'preserves', 'next'], 'Runtime contract.proposal.task_state.preflight.reconciliation');
+  expectSetEqual(
+    expectStringArray(reconciliationPreflight.required, 'Runtime contract.proposal.task_state.preflight.reconciliation.required'),
+    ['step_id', 'current_preflight_id', 'mode', 'execution_disposition', 'decision_source', 'decision_text', 'evidence_refs'],
+    'Runtime preflight reconciliation required fields',
+  );
+  expectSetEqual(
+    expectStringArray(reconciliationPreflight.dispositions, 'Runtime contract.proposal.task_state.preflight.reconciliation.dispositions'),
+    ['not-started', 'started-unknown'],
+    'Runtime preflight reconciliation dispositions',
+  );
+  expectSetEqual(
+    expectStringArray(reconciliationPreflight.preserves, 'Runtime contract.proposal.task_state.preflight.reconciliation.preserves'),
+    ['logical-attempt-count', 'execution-history', 'pending-review', 'findings', 'repair-and-retry-budgets', 'source-and-review-bindings'],
+    'Runtime preflight reconciliation preserved fields',
+  );
+  if (reconciliationPreflight.action !== 'reconcile-preflight'
+    || reconciliationPreflight.next !== 'fresh-preflight-after-explicit-caller-disposition') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime preflight reconciliation semantics are invalid.');
   }
   const claimEvidenceContract = expectRecord(taskStateContract.claim_evidence, 'Runtime contract.proposal.task_state.claim_evidence');
   expectExactKeys(claimEvidenceContract, ['stored_in', 'report_binding', 'record_fields', 'slot_fields', 'complete_dispositions', 'incomplete_dispositions', 'execution_selection', 'completion_rule'], 'Runtime contract.proposal.task_state.claim_evidence');
@@ -3052,7 +3128,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   if (executeStepAdapter.input !== 'stdin-json') fail('RUNTIME_CONTRACT_INVALID', 'Runtime execute-step adapter input must remain stdin-json.');
   expectSetEqual(
     expectStringArray(executeStepAdapter.commands, 'Runtime contract.proposal.execute_step.semantic_adapter.commands'),
-    ['preflight-step', 'extend-preflight', 'evidence-context', 'retry-step', 'replace-validation', 'begin-repair', 'record-step-result', 'complete-reviewed-step'],
+    ['preflight-step', 'resume-preflight', 'reconcile-preflight', 'extend-preflight', 'evidence-context', 'retry-step', 'replace-validation', 'begin-repair', 'record-step-result', 'complete-reviewed-step'],
     'Runtime contract execute-step adapter commands',
   );
   const testStrategyExecution = expectRecord(
@@ -3107,7 +3183,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   }
   expectSetEqual(
     expectStringArray(executeStepContract.bound_actions, 'Runtime contract.proposal.execute_step.bound_actions'),
-    ['admit', 'retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'record-repair-attempt', 'resolve'],
+    ['admit', 'retry-step', 'reconcile-preflight', 'record-step-preflight', 'extend-preflight', 'step-progress', 'record-repair-attempt', 'resolve'],
     'Runtime contract execute-step adapter bound actions',
   );
   const reviewChangeContract = expectRecord(proposal.review_change, 'Runtime contract.proposal.review_change');
@@ -5734,7 +5810,7 @@ export function assertReviewExecutionEligible(
 function validateTaskStateDelta(value: unknown): TaskStateDelta {
   const record = expectRecord(value, 'semantic_delta');
   const kind = expectEnum(record.kind, ['task-state'], 'semantic_delta.kind');
-  const action = expectEnum(record.action, ['retry-step', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'], 'semantic_delta.action');
+  const action = expectEnum(record.action, ['retry-step', 'reconcile-preflight', 'record-step-preflight', 'extend-preflight', 'step-progress', 'consume-retained-review', 'clear-resume-review-gate', 'record-evidence-challenge', 'dismiss-evidence-challenge', 'record-user-evidence', 'extend-repair-budget', 'authorize-controlled-repair-recovery', ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, 'commit-scope-amendment'], 'semantic_delta.action');
   if (action === 'extend-repair-budget') {
     expectExactKeys(record, ['kind', 'action', 'review_id', 'finding_fingerprints', 'additional_repair_attempts', 'decision_source', 'decision_text', 'evidence_refs', ...(record.extension_scope === undefined ? [] : ['extension_scope'])], 'extend-repair-budget');
     const findingFingerprints = expectStringArray(record.finding_fingerprints, 'finding_fingerprints', true, MAX_FINDINGS)
@@ -5831,6 +5907,20 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
   if (action === 'retry-step') {
     expectExactKeys(record, ['kind','action','step_id','blocked_attempt_id','blocker_resolution_refs',...(record.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),'evidence_refs'], 'retry-step');
     return {kind,action,step_id:expectString(record.step_id,'step_id',STEP_ID_PATTERN),blocked_attempt_id:expectString(record.blocked_attempt_id,'blocked_attempt_id',SAFE_KEY_PATTERN),blocker_resolution_refs:validateEvidenceRefs(record.blocker_resolution_refs,'blocker_resolution_refs'),...(record.repair_diagnosis === undefined ? {} : {repair_diagnosis:validateStepRepairDiagnosis(record.repair_diagnosis)}),evidence_refs:validateEvidenceRefs(record.evidence_refs,'evidence_refs')};
+  }
+  if (action === 'reconcile-preflight') {
+    expectExactKeys(record, ['kind', 'action', 'step_id', 'current_preflight_id', 'mode', 'execution_disposition', 'decision_source', 'decision_text', 'evidence_refs'], 'reconcile-preflight');
+    return {
+      kind,
+      action,
+      step_id: expectString(record.step_id, 'step_id', STEP_ID_PATTERN),
+      current_preflight_id: expectString(record.current_preflight_id, 'current_preflight_id', SAFE_KEY_PATTERN),
+      mode: expectEnum(record.mode, VNEXT_EXECUTE_STEP_MODES, 'mode'),
+      execution_disposition: expectEnum(record.execution_disposition, ['not-started', 'started-unknown'], 'execution_disposition'),
+      decision_source: expectText(record.decision_source, 'decision_source'),
+      decision_text: expectVerbatim(record.decision_text, 'decision_text', 32768),
+      evidence_refs: validateEvidenceRefs(record.evidence_refs, 'evidence_refs'),
+    };
   }
   if (action === 'record-step-preflight') {
     expectExactKeys(record, [
@@ -6856,7 +6946,7 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
       }
     } else if (caller === 'execute-step') {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode as VNextExecuteStepMode)) fail('RUNTIME_MODE_INVALID', 'execute-step task-state proposals must use default or repair mode.');
-      if (semanticDelta.kind !== 'task-state' || !['step-progress', 'consume-retained-review', 'record-step-preflight', 'extend-preflight', 'retry-step'].includes(semanticDelta.action)) fail('RUNTIME_MODE_INVALID', 'execute-step requires an execution task-state delta.');
+      if (semanticDelta.kind !== 'task-state' || !['step-progress', 'consume-retained-review', 'record-step-preflight', 'reconcile-preflight', 'extend-preflight', 'retry-step'].includes(semanticDelta.action)) fail('RUNTIME_MODE_INVALID', 'execute-step requires an execution task-state delta.');
     } else {
       fail('RUNTIME_CALLER_NOT_BOUND', 'task-state-transaction is not bound to task-lifecycle.');
     }
@@ -7497,10 +7587,80 @@ function validateControlledRepairRecoveryAuditLogEntry(value: AnyRecord, locatio
   };
 }
 
+function validatePreflightReconciliationAuditLogEntry(value: AnyRecord, location: string, taskId: string, taskSlug: string): PreflightReconciliationAuditLogEntry {
+  expectExactKeys(value, [
+    'action', 'idempotency_key', 'operation_kind', 'caller', 'mode', 'task_id', 'task_slug', 'document_id',
+    'from_workflow_status', 'from_lifecycle_state', 'to_workflow_status', 'to_lifecycle_state', 'source_revision', 'source_tuple',
+    'authority_evidence', 'evidence_refs', 'step_id', 'current_preflight_id', 'execution_id', 'attempt_id',
+    'plan_revision', 'candidate_paths', 'change_set_id', 'review_id', 'repair_fingerprints', 'repair_wave_id',
+    'execution_disposition', 'decision_source', 'decision_text', 'decision_sha256', 'recorded_at',
+  ], location);
+  if (value.action !== 'reconcile-preflight' || value.operation_kind !== 'task-state-transaction'
+    || value.caller !== 'execute-step'
+    || !VNEXT_EXECUTE_STEP_MODES.includes(value.mode as VNextExecuteStepMode)
+    || value.from_workflow_status !== 'active' || value.from_lifecycle_state !== 'active'
+    || value.to_workflow_status !== 'active' || value.to_lifecycle_state !== 'active') {
+    fail('RUNTIME_STATE_CONFLICT', `${location} preflight reconciliation audit has an invalid operation or lifecycle binding.`);
+  }
+  const entryTaskId = expectString(value.task_id, `${location}.task_id`);
+  const entryTaskSlug = expectString(value.task_slug, `${location}.task_slug`);
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug) fail('RUNTIME_STATE_CONFLICT', `${location} identity does not match runtime_state.`);
+  const documentId = expectString(value.document_id, `${location}.document_id`, DOCUMENT_ID_PATTERN);
+  const sourceRevision = expectString(value.source_revision, `${location}.source_revision`, SHA256_PATTERN);
+  const sourceTuple = validateSourceTuple(value.source_tuple);
+  if (sourceTuple.revision !== sourceRevision || sourceTuple.document_id !== documentId || sourceTuple.task_id !== entryTaskId || sourceTuple.task_slug !== entryTaskSlug) {
+    fail('RUNTIME_STATE_CONFLICT', `${location}.source_tuple does not match the audit identity.`);
+  }
+  const candidatePaths = value.candidate_paths === null
+    ? null
+    : expectStringArray(value.candidate_paths, `${location}.candidate_paths`, true, 256).map((item, index) => normalizeRepoPath(item, `${location}.candidate_paths[${index}]`));
+  const repairFingerprints = value.repair_fingerprints === null
+    ? null
+    : expectStringArray(value.repair_fingerprints, `${location}.repair_fingerprints`, true, MAX_FINDINGS)
+      .map((item, index) => expectString(item, `${location}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const decisionText = expectVerbatim(value.decision_text, `${location}.decision_text`, 32768);
+  const decisionSha256 = expectString(value.decision_sha256, `${location}.decision_sha256`, SHA256_PATTERN);
+  if (sha256(decisionText) !== decisionSha256) fail('RUNTIME_SCHEMA_INVALID', `${location}.decision_sha256 does not match decision_text.`);
+  return {
+    action: 'reconcile-preflight',
+    idempotency_key: expectString(value.idempotency_key, `${location}.idempotency_key`, SAFE_KEY_PATTERN),
+    operation_kind: 'task-state-transaction',
+    caller: 'execute-step',
+    mode: expectEnum(value.mode, VNEXT_EXECUTE_STEP_MODES, `${location}.mode`),
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: documentId,
+    from_workflow_status: 'active',
+    from_lifecycle_state: 'active',
+    to_workflow_status: 'active',
+    to_lifecycle_state: 'active',
+    source_revision: sourceRevision,
+    source_tuple: sourceTuple,
+    authority_evidence: validateAuthorityEvidence(value.authority_evidence),
+    evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location}.evidence_refs`),
+    step_id: expectString(value.step_id, `${location}.step_id`, STEP_ID_PATTERN),
+    current_preflight_id: expectString(value.current_preflight_id, `${location}.current_preflight_id`, SAFE_KEY_PATTERN),
+    execution_id: expectNullableString(value.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN),
+    attempt_id: expectNullableString(value.attempt_id, `${location}.attempt_id`, SAFE_KEY_PATTERN),
+    plan_revision: expectNullableString(value.plan_revision, `${location}.plan_revision`, SHA256_PATTERN),
+    candidate_paths: candidatePaths,
+    change_set_id: expectNullableString(value.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN),
+    review_id: expectNullableString(value.review_id, `${location}.review_id`, SAFE_KEY_PATTERN),
+    repair_fingerprints: repairFingerprints,
+    repair_wave_id: expectNullableString(value.repair_wave_id, `${location}.repair_wave_id`, SAFE_KEY_PATTERN),
+    execution_disposition: expectEnum(value.execution_disposition, ['not-started', 'started-unknown'], `${location}.execution_disposition`),
+    decision_source: expectText(value.decision_source, `${location}.decision_source`),
+    decision_text: decisionText,
+    decision_sha256: decisionSha256,
+    recorded_at: expectString(value.recorded_at, `${location}.recorded_at`),
+  };
+}
+
 function validateExecutionLogEntry(value: unknown, location: string, taskId: string, taskSlug: string): ExecutionLogEntry {
   const record = expectRecord(value, location);
   if (record.action === 'extend-repair-budget') return validateRepairBudgetExtensionAuditLogEntry(record, location, taskId, taskSlug);
   if (record.action === 'authorize-controlled-repair-recovery') return validateControlledRepairRecoveryAuditLogEntry(record, location, taskId, taskSlug);
+  if (record.action === 'reconcile-preflight') return validatePreflightReconciliationAuditLogEntry(record, location, taskId, taskSlug);
   if (record.action === 'migrate-claim-evidence') return validateClaimEvidenceMigrationAuditLogEntry(record, location, taskId, taskSlug);
   if (DRAFT_AUDIT_ACTIONS.includes(record.action as DraftAuditAction)) return validateDraftAuditLogEntry(record, location, taskId, taskSlug);
   if (record.action === 'archive') return validateArchiveAuditLogEntry(record, location, taskId, taskSlug);
@@ -8345,6 +8505,23 @@ function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry, includeEmptyKno
     lines.push(`  authorized_repair_waves: ${recoveryAudit.authorized_repair_waves}`);
     lines.push(`  decision_source: ${JSON.stringify(recoveryAudit.decision_source)}`);
     lines.push(`  decision_sha256: ${recoveryAudit.decision_sha256}`);
+  } else if (audit.action === 'reconcile-preflight') {
+    const reconciliationAudit = audit as PreflightReconciliationAuditLogEntry;
+    lines.push(`  step_id: ${reconciliationAudit.step_id}`);
+    lines.push(`  current_preflight_id: ${reconciliationAudit.current_preflight_id}`);
+    lines.push(`  source_revision: ${reconciliationAudit.source_tuple.revision}`);
+    lines.push(`  execution_id: ${reconciliationAudit.execution_id ?? 'null'}`);
+    lines.push(`  attempt_id: ${reconciliationAudit.attempt_id ?? 'null'}`);
+    lines.push(`  plan_revision: ${reconciliationAudit.plan_revision ?? 'null'}`);
+    lines.push(`  candidate_paths: ${JSON.stringify(reconciliationAudit.candidate_paths)}`);
+    lines.push(`  change_set_id: ${reconciliationAudit.change_set_id ?? 'null'}`);
+    lines.push(`  review_id: ${reconciliationAudit.review_id ?? 'null'}`);
+    lines.push(`  repair_fingerprints: ${JSON.stringify(reconciliationAudit.repair_fingerprints)}`);
+    lines.push(`  repair_wave_id: ${reconciliationAudit.repair_wave_id ?? 'null'}`);
+    lines.push(`  execution_disposition: ${reconciliationAudit.execution_disposition}`);
+    lines.push(`  decision_source: ${JSON.stringify(reconciliationAudit.decision_source)}`);
+    lines.push(`  decision_text: ${JSON.stringify(reconciliationAudit.decision_text)}`);
+    lines.push(`  decision_sha256: ${reconciliationAudit.decision_sha256}`);
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action as DraftAuditAction)) {
     const draftAudit = audit as DraftAuditLogEntry;
     lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
@@ -15239,6 +15416,32 @@ function assertReviewResultReplay(current: CanonicalCurrentTask, proposal: Runti
   }
 }
 
+function assertPreflightReconciliationReplay(root: string, current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
+  if (proposal.semantic_delta.kind !== 'task-state' || proposal.semantic_delta.action !== 'reconcile-preflight') return;
+  const delta = proposal.semantic_delta;
+  const audit = current.runtimeState.execution_log.find((entry): entry is PreflightReconciliationAuditLogEntry =>
+    'action' in entry && entry.action === 'reconcile-preflight' && entry.idempotency_key === proposal.idempotency_key,
+  );
+  if (!audit) fail('RUNTIME_REPLAY_INCOMPLETE', 'preflight reconciliation replay is missing its durable audit record.');
+  assertExecutionAudit(root, current, audit);
+  if (
+    audit.mode !== delta.mode
+    || audit.step_id !== delta.step_id
+    || audit.current_preflight_id !== delta.current_preflight_id
+    || audit.execution_disposition !== delta.execution_disposition
+    || audit.decision_source !== delta.decision_source
+    || audit.decision_text !== delta.decision_text
+    || audit.decision_sha256 !== sha256(delta.decision_text)
+    || audit.source_revision !== proposal.source_tuple.revision
+    || audit.evidence_refs.join('|') !== delta.evidence_refs.join('|')
+    || audit.task_id !== current.runtimeState.task_id
+    || audit.task_slug !== current.runtimeState.task_slug
+    || audit.document_id !== current.sourceTuple.document_id
+  ) {
+    fail('RUNTIME_REPLAY_INCOMPLETE', 'preflight reconciliation replay does not match the durable user decision or execution identity.');
+  }
+}
+
 function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
   if (proposal.semantic_delta.kind === 'task-state' && DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action as DraftTaskStateAction)) {
     assertDraftTaskReplay(root, current, proposal);
@@ -15250,6 +15453,10 @@ function assertTaskStateReplay(root: string, current: CanonicalCurrentTask, prop
   }
   if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'consume-retained-review') {
     assertRetainedReviewReplay(current, proposal);
+    return;
+  }
+  if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'reconcile-preflight') {
+    assertPreflightReconciliationReplay(root, current, proposal);
     return;
   }
   if (proposal.semantic_delta.kind === 'task-state' && proposal.semantic_delta.action === 'migrate-claim-evidence') {
@@ -16134,6 +16341,94 @@ function applyTaskStateDelta(
         ? { ...item, status: 'resolved' as const, resolution } : item),
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) } };
   }
+  if (delta.action === 'reconcile-preflight') {
+    ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission', 'user-confirmation']);
+    if (current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('PREFLIGHT_RECONCILIATION_STATE_INVALID', 'preflight reconciliation requires the active + active task.');
+    }
+    if (delta.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'preflight reconciliation must bind the current active step.');
+    assertTestStrategySequenceReady(current);
+
+    const active = current.runtimeState.execution_preflight;
+    const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+    const latestAttempt = ledger?.attempts.at(-1);
+    if (active) {
+      if (active.step_id !== delta.step_id || active.mode !== delta.mode || active.preflight_id !== delta.current_preflight_id) {
+        fail('EXECUTE_PREFLIGHT_STALE', 'preflight reconciliation does not bind the current durable preflight identity.');
+      }
+      if (delta.mode === 'repair' && !outstandingRepairPreflight(current)) {
+        fail('EXECUTE_PREFLIGHT_NOT_OUTSTANDING', 'the current repair preflight already has a recorded result or is no longer current.');
+      }
+      if (delta.mode === 'default' && (!latestAttempt || latestAttempt.status !== 'preflighted')) {
+        fail('EXECUTE_PREFLIGHT_NOT_OUTSTANDING', 'the current ordinary preflight is not attached to a preflighted attempt.');
+      }
+    } else if (delta.mode === 'default') {
+      // Legacy installations may have committed the attempt ledger without
+      // the durable execution_preflight marker.  The caller must bind the
+      // exact ledger key; candidate paths are intentionally unavailable here.
+      if (!latestAttempt || latestAttempt.status !== 'preflighted' || latestAttempt.idempotency_key !== delta.current_preflight_id) {
+        fail('EXECUTE_PREFLIGHT_NOT_OUTSTANDING', 'reconciliation requires the exact latest legacy preflighted attempt.');
+      }
+    } else {
+      fail('EXECUTE_PREFLIGHT_NOT_OUTSTANDING', 'a repair reconciliation requires the current durable repair preflight.');
+    }
+
+    const { execution_preflight: _staleExecutionPreflight, ...stateWithoutExecutionPreflight } = current.runtimeState;
+    const evidenceRefs = [...delta.evidence_refs];
+    const nextAttempts = delta.mode === 'default' && ledger && latestAttempt
+      ? {
+        ...current.runtimeState.step_attempts,
+        [delta.step_id]: {
+          ...ledger,
+          attempts: ledger.attempts.map((attempt, index) => index === ledger.attempts.length - 1
+            ? { ...attempt, status: 'ready' as const, blocker: null, evidence_refs: [...new Set([...attempt.evidence_refs, ...evidenceRefs])] }
+            : attempt),
+        },
+      }
+      : current.runtimeState.step_attempts;
+    const audit: PreflightReconciliationAuditLogEntry = {
+      action: 'reconcile-preflight',
+      idempotency_key: proposal.idempotency_key,
+      operation_kind: 'task-state-transaction',
+      caller: 'execute-step',
+      mode: delta.mode,
+      task_id: current.runtimeState.task_id,
+      task_slug: current.runtimeState.task_slug,
+      document_id: current.sourceTuple.document_id,
+      from_workflow_status: 'active',
+      from_lifecycle_state: 'active',
+      to_workflow_status: 'active',
+      to_lifecycle_state: 'active',
+      source_revision: current.sourceTuple.revision,
+      source_tuple: { ...current.sourceTuple, resume_review_reasons: [...current.sourceTuple.resume_review_reasons] },
+      authority_evidence: proposal.authority_evidence,
+      evidence_refs: [...delta.evidence_refs],
+      step_id: delta.step_id,
+      current_preflight_id: delta.current_preflight_id,
+      execution_id: active?.execution_id ?? null,
+      attempt_id: delta.mode === 'default' ? latestAttempt?.attempt_id ?? null : null,
+      plan_revision: active?.plan_revision ?? null,
+      candidate_paths: active?.candidate_paths ? [...active.candidate_paths] : null,
+      change_set_id: active?.change_set_id ?? null,
+      review_id: active?.review_id ?? null,
+      repair_fingerprints: active?.repair_fingerprints ? [...active.repair_fingerprints] : null,
+      repair_wave_id: active?.repair_wave_id ?? null,
+      execution_disposition: delta.execution_disposition,
+      decision_source: delta.decision_source,
+      decision_text: delta.decision_text,
+      decision_sha256: sha256(delta.decision_text),
+      recorded_at: now,
+    };
+    const nextWithoutAudit: RuntimeState = {
+      ...stateWithoutExecutionPreflight,
+      ...(nextAttempts ? { step_attempts: nextAttempts } : {}),
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision),
+    };
+    return {
+      next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
+      audit,
+    };
+  }
   if (delta.action === 'retry-step') {
     if ((recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3) fail('RETRY_BUDGET_EXHAUSTED', 'The same recovery problem has exhausted three retained failed attempts across plans.');
     ensureAuthorityKinds(proposal,['active-task-owner','scope-admission','evidence-admission']);
@@ -16239,7 +16534,14 @@ function applyTaskStateDelta(
         stepAttempts = { ...stepAttempts, [delta.step_id]: initialLedger };
       } else if (ledger.attempts.at(-1)?.status === 'ready') {
         stepAttempts = { ...stepAttempts, [delta.step_id]: { ...ledger, attempts: ledger.attempts.map((attempt, index) =>
-          index === ledger.attempts.length - 1 ? { ...attempt, status: 'preflighted' as const } : attempt) } };
+          index === ledger.attempts.length - 1
+            // The attempt key is the retry/admission identity. Keep it
+            // stable when the retry is later preflighted; the execution
+            // preflight has its own durable idempotency key below. Replacing
+            // this key would make a later exact retry replay look like a
+            // different request after the hot audit window moved on.
+            ? { ...attempt, status: 'preflighted' as const }
+            : attempt) } };
       }
     }
     const dynamicDecisions = authorityEvaluation?.decisions.filter(item => item.classification === 'dynamic-self-admitted') ?? [];
@@ -16267,23 +16569,26 @@ function applyTaskStateDelta(
         change_set_id: changeSetId,
         mode: executionMode,
       }));
-    const executionPreflight = current.mutationAuthority || executionMode === 'repair'
-      ? {
-        execution_id: executionId,
-        preflight_id: proposal.idempotency_key,
-        mode: executionMode,
-        step_id: delta.step_id,
-        plan_revision: planRevision,
-        execution_phase: executionPhase,
-        candidate_paths: [...delta.candidate_paths],
-        change_set_id: changeSetId,
-        repair_fingerprints: executionMode === 'repair' ? [...(delta.repair_fingerprints ?? [])] : null,
-        repair_wave_id: executionMode === 'repair' ? delta.repair_wave_id! : null,
-        review_id: executionMode === 'repair' ? delta.review_id! : null,
-        review_target_paths: executionMode === 'repair' ? [...delta.review_target_paths!] : null,
-        ...(executionMode === 'repair' && delta.controlled_recovery_grant_id ? { controlled_recovery_grant_id: delta.controlled_recovery_grant_id } : {}),
-      } satisfies ExecutionPreflightState
-      : undefined;
+    // Every admitted execution keeps its identity in canonical Runtime state,
+    // including legacy/v1 ordinary tasks.  This is a durable continuation
+    // record, not an agent-call budget: it carries no token, wall-clock or
+    // tool-count quota and is removed only when the execution is recorded or
+    // explicitly retried.
+    const executionPreflight = {
+      execution_id: executionId,
+      preflight_id: proposal.idempotency_key,
+      mode: executionMode,
+      step_id: delta.step_id,
+      plan_revision: planRevision,
+      execution_phase: executionPhase,
+      candidate_paths: [...delta.candidate_paths],
+      change_set_id: changeSetId,
+      repair_fingerprints: executionMode === 'repair' ? [...(delta.repair_fingerprints ?? [])] : null,
+      repair_wave_id: executionMode === 'repair' ? delta.repair_wave_id! : null,
+      review_id: executionMode === 'repair' ? delta.review_id! : null,
+      review_target_paths: executionMode === 'repair' ? [...delta.review_target_paths!] : null,
+      ...(executionMode === 'repair' && delta.controlled_recovery_grant_id ? { controlled_recovery_grant_id: delta.controlled_recovery_grant_id } : {}),
+    } satisfies ExecutionPreflightState;
     return { next: {
       ...current.runtimeState,
       review_coverage: coverage,
@@ -16317,7 +16622,10 @@ function applyTaskStateDelta(
     const stepLedger = current.runtimeState.step_attempts?.[delta.step_id];
     const latestAttempt = stepLedger?.attempts.at(-1);
     if (executionMode === 'default' && (!stepLedger || !latestAttempt || latestAttempt.status !== 'preflighted')) fail('EXECUTE_PREFLIGHT_REQUIRED', 'extend-preflight requires the latest ordinary attempt to be preflighted.');
-    if (executionMode === 'default' && latestAttempt && latestAttempt.idempotency_key !== delta.current_preflight_id) fail('EXECUTE_PREFLIGHT_STALE', 'extend-preflight does not bind the latest ordinary preflight receipt.');
+    // A retry-created attempt retains its retry/admission key. The exact
+    // execution identity is activePreflight.preflight_id, so extension must
+    // bind the durable preflight and the outstanding attempt status rather
+    // than conflating those two identities.
     if (executionMode === 'repair') {
       const pending = current.runtimeState.pending_review_result;
       if (!activePreflight || activePreflight.review_id === null || activePreflight.repair_wave_id === null || activePreflight.change_set_id !== pending?.change_set_id || activePreflight.review_id !== pending?.review_id || pending?.verdict !== 'findings') {
@@ -19246,6 +19554,57 @@ export function createStepRetryProposal(current: CanonicalCurrentTask, input: {s
   });
 }
 
+export function createPreflightReconciliationProposal(
+  current: CanonicalCurrentTask,
+  input: {
+    step_id: string;
+    current_preflight_id: string;
+    mode: VNextExecuteStepMode;
+    execution_disposition: PreflightReconciliationDisposition;
+    decision_source: string;
+    decision_text: string;
+    evidence_refs: string[];
+    idempotency_key: string;
+    source_tuple?: RuntimeSourceTuple;
+    authority_evidence?: AuthorityEvidence[];
+  },
+): RuntimeProposal {
+  const authorityKinds: AuthorityEvidence['kind'][] = ['active-task-owner', 'scope-admission', 'evidence-admission', 'user-confirmation'];
+  const sourceTuple = input.source_tuple ?? current.sourceTuple;
+  const authorityEvidence = input.authority_evidence ?? authorityKinds.map(kind => ({
+    kind,
+    source: current.relativePath,
+    subject: current.runtimeState.task_id,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+  }));
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: 'task-state-transaction',
+    caller: 'execute-step',
+    mode: input.mode,
+    source_tuple: sourceTuple,
+    authority_evidence: authorityEvidence,
+    semantic_delta: {
+      kind: 'task-state',
+      action: 'reconcile-preflight',
+      step_id: input.step_id,
+      current_preflight_id: input.current_preflight_id,
+      mode: input.mode,
+      execution_disposition: input.execution_disposition,
+      decision_source: input.decision_source,
+      decision_text: input.decision_text,
+      evidence_refs: input.evidence_refs,
+    },
+    preconditions: ['current-task-is-active', 'active-step-matches', 'execution-preflight-reconciliation', 'caller-reported-execution-disposition'],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath],
+  });
+}
+
 export function createStepPreflightProposal(
   current: CanonicalCurrentTask,
   candidatePaths: string[],
@@ -19267,6 +19626,25 @@ export function createStepPreflightProposal(
   const strategy = resolveTestStrategyExecutionContext(current);
   const executionPhase = input.execution_phase ?? executionPhaseForCurrentStep(current, strategy);
   const planRevision = input.plan_revision ?? digest({ step_id: current.runtimeState.active_step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
+  const changeSetId = input.change_set_id
+    ?? current.runtimeState.review_coverage?.change_set_id
+    ?? `change-set-${digest({
+      task_id: current.runtimeState.task_id,
+      document_id: current.sourceTuple.document_id,
+      step_id: current.runtimeState.active_step_id,
+      review_cycle_id: current.runtimeState.review_cycle.id,
+    }).slice(0, 40)}`;
+  // Reconciliation clears the dangling marker without creating a new logical
+  // attempt.  A subsequent fresh preflight still needs a new execution
+  // identity, otherwise its deterministic key would collide with the
+  // preflight that the caller just reconciled.
+  const reconciliationLineage = current.runtimeState.execution_log
+    .filter((item): item is PreflightReconciliationAuditLogEntry =>
+      'action' in item
+      && item.action === 'reconcile-preflight'
+      && item.step_id === current.runtimeState.active_step_id
+      && item.mode === mode)
+    .map(item => item.idempotency_key);
   const executionId = input.execution_id ?? `execution-${digest({
     task: current.sourceTuple.document_id,
     step: current.runtimeState.active_step_id,
@@ -19277,23 +19655,25 @@ export function createStepPreflightProposal(
     repair_wave_id: input.repair_wave_id ?? null,
     review_id: input.review_id ?? null,
     controlled_recovery_grant_id: input.controlled_recovery_grant_id ?? null,
+    reconciliation_lineage: reconciliationLineage,
   })}`;
-  const identity = current.mutationAuthority || mode === 'repair'
-    ? {
-      mode,
-      execution_id: executionId,
-      plan_revision: planRevision,
-      execution_phase: executionPhase,
-      ...(mode === 'repair' ? {
-        repair_fingerprints: input.repair_fingerprints ?? [],
-        repair_wave_id: input.repair_wave_id ?? '',
-        review_id: input.review_id ?? '',
-        review_target_paths: input.review_target_paths ?? [],
-        ...(input.controlled_recovery_grant_id ? { controlled_recovery_grant_id: input.controlled_recovery_grant_id } : {}),
-      } : {}),
-      ...(input.change_set_id ? { change_set_id: input.change_set_id } : {}),
-    }
-    : {};
+  // Ordinary v1 tasks need the same durable execution identity as v2 and
+  // repair executions.  These fields are continuation/audit identity only;
+  // they do not introduce a token, wall-clock, or tool-count quota.
+  const identity = {
+    mode,
+    execution_id: executionId,
+    plan_revision: planRevision,
+    execution_phase: executionPhase,
+    ...(mode === 'repair' ? {
+      repair_fingerprints: input.repair_fingerprints ?? [],
+      repair_wave_id: input.repair_wave_id ?? '',
+      review_id: input.review_id ?? '',
+      review_target_paths: input.review_target_paths ?? [],
+      ...(input.controlled_recovery_grant_id ? { controlled_recovery_grant_id: input.controlled_recovery_grant_id } : {}),
+    } : {}),
+    change_set_id: changeSetId,
+  };
   const preflightId = `preflight-${digest({
     task: current.sourceTuple.document_id,
     plan: planRevision,

@@ -65,6 +65,8 @@ import {
   repairFingerprintsForPendingReview,
   prepareDraft,
   preflightStep,
+  resumePreflight,
+  reconcilePreflight,
   extendPreflight,
   retryStep,
   createStepRetryProposal,
@@ -1053,6 +1055,14 @@ function useLegacyInlineCurrent(root: string): void {
   };
   fs.writeFileSync(current.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${current.body}`, 'utf8');
   fs.rmSync(path.join(root, 'docs', 'workflow', 'task-data', current.sourceTuple.document_id), { recursive: true, force: true });
+}
+
+function removeInlineExecutionPreflightMarker(root: string): void {
+  const current = readCanonicalCurrentTask(root);
+  const frontmatter = structuredClone(current.frontmatter);
+  const runtimeState = frontmatter.runtime_state as Record<string, unknown>;
+  delete runtimeState.execution_preflight;
+  fs.writeFileSync(current.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${current.body}`, 'utf8');
 }
 
 function runtimeFinding(fingerprint: string, status: FindingRecord['status'], overrides: Partial<FindingRecord> = {}): FindingRecord {
@@ -6691,7 +6701,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(after.runtimeState.execution_log).toEqual(before.runtimeState.execution_log);
     expect(after.runtimeState.claim_evidence![0]!.slots[0]!.report).toBeNull();
     expect(() => completeReviewedStep(root, { step_id: 'step-1', note: 'Old review must not certify a new selection.' })).toThrow();
-    expect(submitAmendmentExecution(root, preflightStep(root, { candidate_paths: [] }), [reportFixture(root)]).status).toBe('success');
+    const replacementPreflight = preflightStep(root, { candidate_paths: [] });
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts?.['step-1']?.attempts.at(-1)?.status).toBe('preflighted');
+    expect(readCanonicalCurrentTask(root).runtimeState.execution_preflight?.preflight_id).toBe(replacementPreflight.receipt.preflight_id);
+    expect(submitAmendmentExecution(root, replacementPreflight, [reportFixture(root)]).status).toBe('success');
     const fresh = reviewContext(root, {});
     expect(recordReviewResult(root, { context_receipt: fresh.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
     expect(completeReviewedStep(root, { step_id: 'step-1', note: 'The replacement check has fresh evidence and review.' }).status).toBe('success');
@@ -7340,7 +7353,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         const current = readCanonicalCurrentTask(root);
         expect(current.runtimeState.claim_evidence![0]!.slots[1]!.report, row.name).toBeNull();
         expect(applyVNextRuntimeProposal(root, taskProposal(root, { claim_evidence: current.runtimeState.claim_evidence, idempotency_key: 'matrix-missing-flow' })), row.name)
-          .toMatchObject({ status: 'blocked', code: 'CLAIM_EVIDENCE_INCOMPLETE' });
+          .toMatchObject({ status: 'blocked', code: 'EXECUTE_PREFLIGHT_REQUIRED' });
       }
     }
   });
@@ -7451,7 +7464,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     let current = readCanonicalCurrentTask(root);
     expect(current.runtimeState.claim_evidence![0]!.slots[0]!.report!.assurance).toBe('caller-reported');
     expect(current.runtimeState.claim_evidence![0]!.slots[1]!.report).toBeNull();
-    expect(applyVNextRuntimeProposal(root, taskProposal(root, { claim_evidence: current.runtimeState.claim_evidence, idempotency_key: 'missing-flow' }))).toMatchObject({ status: 'blocked', code: 'CLAIM_EVIDENCE_INCOMPLETE' });
+    expect(applyVNextRuntimeProposal(root, taskProposal(root, { claim_evidence: current.runtimeState.claim_evidence, idempotency_key: 'missing-flow' }))).toMatchObject({ status: 'blocked', code: 'EXECUTE_PREFLIGHT_REQUIRED' });
     expect(JSON.stringify(previewCloseTask(root, archiveDelta()))).toContain('incomplete');
     const context = reviewContext(root, {});
     expect(recordReviewResult(root, { context_receipt: context.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
@@ -7599,7 +7612,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const passed={preflight_receipt:second.receipt,actual_changed_paths:[],command_results:[{command,status:'passed',observed_repo_writes:[],evidence_refs:[resolutionPath]}],validation_results:[{validation:command,status:'passed',evidence_refs:[resolutionPath]}],outcome:'implemented',note:'fresh run after recovery'};
     expect(recordStepResult(root,{...passed,acceptance_evidence:[]}).status).toBe('success');
     const pendingEvidence=readCanonicalCurrentTask(root);
-    expect(applyVNextRuntimeProposal(root,taskProposal(root,{idempotency_key:'retry-missing-evidence',claim_evidence:pendingEvidence.runtimeState.claim_evidence}))).toMatchObject({status:'blocked',code:'CLAIM_EVIDENCE_INCOMPLETE'});
+    expect(applyVNextRuntimeProposal(root,taskProposal(root,{idempotency_key:'retry-missing-evidence',claim_evidence:pendingEvidence.runtimeState.claim_evidence}))).toMatchObject({status:'blocked',code:'EXECUTE_PREFLIGHT_REQUIRED'});
     // Bind the actual successful run to its still-required business check.
     const refreshed=preflightStep(root,{candidate_paths:[]});
     expect(recordStepResult(root,{...passed,preflight_receipt:refreshed.receipt,acceptance_evidence:[reportFixture(root)]}).status).toBe('success');
@@ -8109,6 +8122,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       mode: 'default', status: 'in-progress', evidence_refs: ['test:raw-negative'],
       idempotency_key: 'raw-negative', authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
       execution_result: {
+        execution_id: preflight.receipt.execution_id, attempt_id: preflight.receipt.attempt_id,
         outcome: 'test-red', change_set_id: preflight.receipt.change_set_id,
         review_base: preflight.receipt.review_base, review_target: target,
         change_delta: createReviewChangeDelta(preflight.receipt.review_base, target),
@@ -8125,6 +8139,136 @@ describe('vNext Phase 2 Runtime contract', () => {
     const current = readCanonicalCurrentTask(root);
     expect(current.runtimeState.business_evidence_version).toBe(1);
     expect(current.runtimeState.execution_log.some(entry => !('action' in entry) && entry.execution_result?.outcome === 'test-red')).toBe(false);
+  });
+
+  test('resumes a durable ordinary preflight across host calls without spending an attempt', () => {
+    const root = v2ConfirmedRoot();
+    const target = 'packages/node-rollout/src/session.ts';
+    const targetPath = path.join(root, ...target.split('/'));
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, 'export const session = "before";\n', 'utf8');
+
+    const initial = preflightStep(root, { candidate_paths: [target] });
+    const beforeResume = readCanonicalCurrentTask(root);
+    const resumed = resumePreflight(root, {});
+    expect(resumed).toMatchObject({
+      status: 'pass',
+      operation_kind: 'execute-step-preflight-resume',
+      committed: false,
+      receipt: initial.receipt,
+    });
+    const afterResume = readCanonicalCurrentTask(root);
+    expect(afterResume.sourceTuple.revision).toBe(beforeResume.sourceTuple.revision);
+    expect(afterResume.runtimeState.step_attempts?.['step-1']?.attempts).toHaveLength(1);
+    expect(afterResume.runtimeState.step_attempts?.['step-1']?.attempts[0]?.status).toBe('preflighted');
+
+    fs.writeFileSync(targetPath, 'export const session = "after";\n', 'utf8');
+    fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'The resumed execution used the retained receipt.\n', 'utf8');
+    const recorded = recordStepResult(root, {
+      preflight_receipt: resumed.receipt,
+      actual_changed_paths: [target],
+      command_results: initial.current_step.commands.map(item => ({
+        command: item.command,
+        status: 'passed',
+        observed_repo_writes: [],
+        evidence_refs: ['evidence-report.txt'],
+      })),
+      validation_results: initial.current_step.validation.map(validation => ({
+        validation,
+        status: 'passed',
+        evidence_refs: ['evidence-report.txt'],
+      })),
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'The host call ended after preflight; the next call resumed the same execution.',
+    });
+    expect(recorded.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts?.['step-1']?.attempts[0]?.status).toBe('implemented');
+    expect(() => resumePreflight(root, {})).toThrow('EXECUTE_PREFLIGHT_NOT_OUTSTANDING');
+  });
+
+  test('turns an unrecoverable legacy preflight into an explicit caller decision and reopens the same attempt', () => {
+    const root = v2ConfirmedRoot();
+    const target = 'packages/node-rollout/src/session.ts';
+    const targetPath = path.join(root, ...target.split('/'));
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, 'export const session = "before";\n', 'utf8');
+
+    const initial = preflightStep(root, { candidate_paths: [target] });
+    useLegacyInlineCurrent(root);
+    removeInlineExecutionPreflightMarker(root);
+    const beforeDecision = readCanonicalCurrentTask(root);
+    const beforeAttempts = beforeDecision.runtimeState.step_attempts?.['step-1']?.attempts ?? [];
+
+    const decision = resumePreflight(root, {});
+    expect(decision).toMatchObject({
+      status: 'decision-required',
+      operation_kind: 'execute-step-preflight-decision',
+      blocker: { code: 'EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE' },
+      preflight: {
+        mode: 'default',
+        step_id: 'step-1',
+        current_preflight_id: initial.receipt.preflight_id,
+        attempt_id: beforeAttempts[0]?.attempt_id,
+        candidate_paths: null,
+      },
+    });
+
+    const reconciliationInput = {
+      step_id: 'step-1',
+      current_preflight_id: initial.receipt.preflight_id,
+      mode: 'default',
+      execution_disposition: 'not-started',
+      decision_source: 'user:host-call-ended-before-business-execution',
+      decision_text: '本次宿主调用只完成准入，未开始业务执行；允许复用同一逻辑尝试。',
+      evidence_refs: ['evidence-report.txt'],
+      idempotency_key: 'reconcile-legacy-preflight-not-started',
+    } as const;
+    const reconciled = reconcilePreflight(root, reconciliationInput);
+    expect(reconciled).toMatchObject({ status: 'success', committed: true, read_back_verified: true });
+
+    expect(reconcilePreflight(root, reconciliationInput)).toMatchObject({ status: 'no-op', committed: false, read_back_verified: true });
+    expect(reconcilePreflight(root, {
+      ...reconciliationInput,
+      execution_disposition: 'started-unknown',
+      decision_text: '本次宿主调用可能已经启动业务执行，但结果未返回。',
+    })).toMatchObject({ status: 'conflict', code: 'IDEMPOTENCY_CONFLICT', committed: false });
+
+    const afterReconcile = readCanonicalCurrentTask(root);
+    expect(afterReconcile.runtimeState.execution_preflight).toBeUndefined();
+    expect(afterReconcile.runtimeState.step_attempts?.['step-1']?.attempts).toHaveLength(beforeAttempts.length);
+    expect(afterReconcile.runtimeState.step_attempts?.['step-1']?.attempts.at(-1)?.status).toBe('ready');
+    expect(afterReconcile.runtimeState.execution_log.find(item => 'action' in item && item.action === 'reconcile-preflight')).toMatchObject({
+      current_preflight_id: initial.receipt.preflight_id,
+      execution_disposition: 'not-started',
+      decision_source: 'user:host-call-ended-before-business-execution',
+    });
+
+    const fresh = preflightStep(root, { candidate_paths: [target] });
+    expect(fresh.status).toBe('pass');
+    expect(fresh.receipt.preflight_id).not.toBe(initial.receipt.preflight_id);
+    fs.writeFileSync(targetPath, 'export const session = "after";\n', 'utf8');
+    const recorded = recordStepResult(root, {
+      preflight_receipt: fresh.receipt,
+      actual_changed_paths: [target],
+      command_results: fresh.current_step.commands.map(item => ({
+        command: item.command,
+        status: 'passed' as const,
+        observed_repo_writes: [],
+        evidence_refs: ['evidence-report.txt'],
+      })),
+      validation_results: fresh.current_step.validation.map(validation => ({
+        validation,
+        status: 'passed' as const,
+        evidence_refs: ['evidence-report.txt'],
+      })),
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'The caller reconciled the missing legacy receipt and reran the same logical attempt.',
+    });
+    expect(recorded.status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts?.['step-1']?.attempts).toHaveLength(beforeAttempts.length);
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts?.['step-1']?.attempts.at(-1)?.status).toBe('implemented');
   });
 
   test('blocks explicit ordering at semantic and raw admission without replacing the requested strategy', () => {
@@ -10881,6 +11025,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     };
       expect(contract.proposal.execute_step.semantic_adapter.commands).toEqual([
         'preflight-step',
+        'resume-preflight',
+        'reconcile-preflight',
         'extend-preflight',
         'evidence-context',
         'retry-step',

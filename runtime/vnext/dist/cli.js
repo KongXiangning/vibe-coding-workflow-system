@@ -6182,7 +6182,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.14";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.20.16";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -6801,7 +6801,7 @@ function validateExecutionPreflight(value, location2 = "runtime_state.execution_
     step_id: expectString2(source.step_id, `${location2}.step_id`, STEP_ID_PATTERN2),
     plan_revision: expectString2(source.plan_revision, `${location2}.plan_revision`, SHA256_PATTERN2),
     execution_phase: expectEnum(source.execution_phase, ["flexible", "test-first", "red", "green", "implementation-first", "not-applicable", "legacy"], `${location2}.execution_phase`),
-    candidate_paths: expectStringArray2(source.candidate_paths, `${location2}.candidate_paths`, false, 256).map((item) => normalizeRepoPath2(item, `${location2}.candidate_paths`)),
+    candidate_paths: expectStringArray2(source.candidate_paths, `${location2}.candidate_paths`, true, 256).map((item) => normalizeRepoPath2(item, `${location2}.candidate_paths`)),
     change_set_id: expectString2(source.change_set_id, `${location2}.change_set_id`, SAFE_KEY_PATTERN2),
     repair_fingerprints: repairFingerprints === null ? null : [...new Set(repairFingerprints)],
     repair_wave_id: repairWaveId,
@@ -6975,6 +6975,8 @@ function assertExecutionAdmissionEvaluation(current, evaluation, location2) {
 function assertStepProgressExecutionIdentity(current, delta) {
   const active = current.runtimeState.execution_preflight;
   if (!active)
+    return;
+  if (!delta.execution_result && !delta.review_receipt && delta.status === current.runtimeState.active_step_status)
     return;
   const executionResult = delta.execution_result;
   if (executionResult) {
@@ -7333,7 +7335,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   }
   const taskStateContract = expectRecord2(proposal.task_state, "Runtime contract.proposal.task_state");
   expectExactKeys2(taskStateContract, ["actions", "execution_admission", "retry_step", "step_progress", "preflight", "claim_evidence", "claim_evidence_migration", "advancement_outcomes", "review_receipt", "review_result", "draft", "confirm"], "Runtime contract.proposal.task_state");
-  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "Runtime contract task-state actions");
+  expectSetEqual(expectStringArray2(taskStateContract.actions, "Runtime contract.proposal.task_state.actions"), ["retry-step", "reconcile-preflight", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "Runtime contract task-state actions");
   const executionAdmissionContract = expectRecord2(taskStateContract.execution_admission, "Runtime contract.proposal.task_state.execution_admission");
   expectExactKeys2(executionAdmissionContract, ["evaluator", "question", "shared_by", "classifications", "mutation_order", "error_mapping", "semantic_boundary"], "Runtime contract.proposal.task_state.execution_admission");
   if (executionAdmissionContract.evaluator !== "runtime-owned-exact-target-admission/v1" || executionAdmissionContract.question !== "current-task-step-phase-target-assessment-may-enter-this-execution" || executionAdmissionContract.semantic_boundary !== "runtime-owns-structural-checks-agent-owns-blast-radius-judgment") {
@@ -7356,7 +7358,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(stepProgressContract.required, "Runtime contract.proposal.task_state.step_progress.required"), ["step_id", "status", "evidence_refs"], "Runtime contract task-state required fields");
   expectSetEqual(expectStringArray2(stepProgressContract.optional, "Runtime contract.proposal.task_state.step_progress.optional", true), ["note", "repair_fingerprint", "repair_fingerprints", "repair_wave_id", "controlled_recovery_grant_id", "change_set_id", "review_receipt", "claim_evidence", "execution_result"], "Runtime contract task-state optional fields");
   const preflightContract = expectRecord2(taskStateContract.preflight, "Runtime contract.proposal.task_state.preflight");
-  expectExactKeys2(preflightContract, ["initial", "extension"], "Runtime contract.proposal.task_state.preflight");
+  expectExactKeys2(preflightContract, ["initial", "extension", "reconciliation"], "Runtime contract.proposal.task_state.preflight");
   const initialPreflight = expectRecord2(preflightContract.initial, "Runtime contract.proposal.task_state.preflight.initial");
   expectExactKeys2(initialPreflight, ["action", "planned_footprint", "in_envelope_unplanned", "outside_envelope", "first_touch", "evaluator", "execution_identity"], "Runtime contract.proposal.task_state.preflight.initial");
   if (initialPreflight.action !== "record-step-preflight" || initialPreflight.planned_footprint !== "normal-admission" || initialPreflight.in_envelope_unplanned !== "blast-radius-assessment-and-self-admit" || initialPreflight.outside_envelope !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || initialPreflight.first_touch !== "runtime-captured-before-state" || initialPreflight.evaluator !== "execution-admission" || initialPreflight.execution_identity !== "stable-per-execution-with-replacement-receipt") {
@@ -7368,6 +7370,14 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   expectSetEqual(expectStringArray2(extensionPreflight.optional, "Runtime contract.proposal.task_state.preflight.extension.optional", true), ["mode", "execution_id", "execution_phase", "repair_wave_id", "review_id", "controlled_recovery_grant_id"], "Runtime extend-preflight optional fields");
   if (extensionPreflight.action !== "extend-preflight" || extensionPreflight.same_attempt !== true || extensionPreflight.plan_revision_change !== "forbidden" || extensionPreflight.retry_budget_change !== "forbidden" || extensionPreflight.continuation !== "forbidden" || extensionPreflight.replacement_receipt !== "required" || extensionPreflight.review !== "risk-selected-cumulative-review-for-self-admitted-expansion" || extensionPreflight.repair !== "same-evaluator-same-wave-no-retry-consumption" || extensionPreflight.first_touch !== "append-only-for-new-targets") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime extend-preflight semantics are invalid.");
+  }
+  const reconciliationPreflight = expectRecord2(preflightContract.reconciliation, "Runtime contract.proposal.task_state.preflight.reconciliation");
+  expectExactKeys2(reconciliationPreflight, ["action", "required", "dispositions", "preserves", "next"], "Runtime contract.proposal.task_state.preflight.reconciliation");
+  expectSetEqual(expectStringArray2(reconciliationPreflight.required, "Runtime contract.proposal.task_state.preflight.reconciliation.required"), ["step_id", "current_preflight_id", "mode", "execution_disposition", "decision_source", "decision_text", "evidence_refs"], "Runtime preflight reconciliation required fields");
+  expectSetEqual(expectStringArray2(reconciliationPreflight.dispositions, "Runtime contract.proposal.task_state.preflight.reconciliation.dispositions"), ["not-started", "started-unknown"], "Runtime preflight reconciliation dispositions");
+  expectSetEqual(expectStringArray2(reconciliationPreflight.preserves, "Runtime contract.proposal.task_state.preflight.reconciliation.preserves"), ["logical-attempt-count", "execution-history", "pending-review", "findings", "repair-and-retry-budgets", "source-and-review-bindings"], "Runtime preflight reconciliation preserved fields");
+  if (reconciliationPreflight.action !== "reconcile-preflight" || reconciliationPreflight.next !== "fresh-preflight-after-explicit-caller-disposition") {
+    fail3("RUNTIME_CONTRACT_INVALID", "Runtime preflight reconciliation semantics are invalid.");
   }
   const claimEvidenceContract = expectRecord2(taskStateContract.claim_evidence, "Runtime contract.proposal.task_state.claim_evidence");
   expectExactKeys2(claimEvidenceContract, ["stored_in", "report_binding", "record_fields", "slot_fields", "complete_dispositions", "incomplete_dispositions", "execution_selection", "completion_rule"], "Runtime contract.proposal.task_state.claim_evidence");
@@ -7493,7 +7503,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   ], "Runtime contract.proposal.execute_step.semantic_adapter");
   if (executeStepAdapter.input !== "stdin-json")
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter input must remain stdin-json.");
-  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "extend-preflight", "evidence-context", "retry-step", "replace-validation", "begin-repair", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
+  expectSetEqual(expectStringArray2(executeStepAdapter.commands, "Runtime contract.proposal.execute_step.semantic_adapter.commands"), ["preflight-step", "resume-preflight", "reconcile-preflight", "extend-preflight", "evidence-context", "retry-step", "replace-validation", "begin-repair", "record-step-result", "complete-reviewed-step"], "Runtime contract execute-step adapter commands");
   const testStrategyExecution = expectRecord2(executeStepAdapter.test_strategy_execution, "Runtime contract.proposal.execute_step.semantic_adapter.test_strategy_execution");
   expectExactKeys2(testStrategyExecution, ["phase_source", "legacy_behavior", "test_first", "red_evidence", "non_red_outcome"], "Runtime contract execute-step test-strategy execution");
   const testFirstExecution = expectRecord2(testStrategyExecution.test_first, "Runtime contract execute-step test-first execution");
@@ -7505,7 +7515,7 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   if (executeStepAdapter.step_source !== "confirmed-current-task" || executeStepAdapter.scope_enforcement !== "task-authority-envelope-with-v1-step-compatibility" || executeStepAdapter.command_plan_source !== "confirmed-current-step" || executeStepAdapter.persistent_tests_enforcement !== "frozen-section-plus-authority-evaluator-existing-test-distinction" || executeStepAdapter.completion_evidence_source !== "recorded-step-result-only" || executeStepAdapter.change_detection !== "runtime-preflight-candidate-before-after-delta" || executeStepAdapter.proposal_file_policy !== "project-external-only" || executeStepAdapter.advancement_owner !== "runtime" || executeStepAdapter.post_completion_commit_owner !== "user-or-explicit-outer-orchestrator" || executeStepAdapter.post_completion_route !== "git-commit" || testStrategyExecution.phase_source !== "versioned-frozen-test-strategy-and-current-step-evidence-obligation" || testStrategyExecution.legacy_behavior !== "read-history-block-unversioned-execution" || testStrategyExecution.non_red_outcome !== "implemented-with-passed-results-or-bound-reproduction" || testFirstExecution.first_step_phase !== "test-first" || testFirstExecution.later_step_phase !== "test-first" || testFirstExecution.first_step_outcome !== "implemented" || testFirstExecution.later_step_outcome !== "implemented" || testFirstExecution.advancement_gate !== "runtime-consumed-bound-prerequisite-evidence" || redEvidence.result_status !== "expected-failure" || redEvidence.kind !== "behavior-not-implemented" || redEvidence.acceptance_evidence !== "forbidden" || redEvidence.unexpected_failure_outcome !== "blocked" || redEvidence.review_checkpoint !== "required") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime execute-step adapter semantic boundary is invalid.");
   }
-  expectSetEqual(expectStringArray2(executeStepContract.bound_actions, "Runtime contract.proposal.execute_step.bound_actions"), ["admit", "retry-step", "record-step-preflight", "extend-preflight", "step-progress", "record-repair-attempt", "resolve"], "Runtime contract execute-step adapter bound actions");
+  expectSetEqual(expectStringArray2(executeStepContract.bound_actions, "Runtime contract.proposal.execute_step.bound_actions"), ["admit", "retry-step", "reconcile-preflight", "record-step-preflight", "extend-preflight", "step-progress", "record-repair-attempt", "resolve"], "Runtime contract execute-step adapter bound actions");
   const reviewChangeContract = expectRecord2(proposal.review_change, "Runtime contract.proposal.review_change");
   expectExactKeys2(reviewChangeContract, ["semantic_adapter", "bound_actions"], "Runtime contract.proposal.review_change");
   const reviewChangeAdapter = expectRecord2(reviewChangeContract.semantic_adapter, "Runtime contract.proposal.review_change.semantic_adapter");
@@ -9703,7 +9713,7 @@ function assertReviewExecutionEligible(current, execution) {
 function validateTaskStateDelta(value) {
   const record4 = expectRecord2(value, "semantic_delta");
   const kind = expectEnum(record4.kind, ["task-state"], "semantic_delta.kind");
-  const action = expectEnum(record4.action, ["retry-step", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "semantic_delta.action");
+  const action = expectEnum(record4.action, ["retry-step", "reconcile-preflight", "record-step-preflight", "extend-preflight", "step-progress", "consume-retained-review", "clear-resume-review-gate", "record-evidence-challenge", "dismiss-evidence-challenge", "record-user-evidence", "extend-repair-budget", "authorize-controlled-repair-recovery", ...DRAFT_TASK_STATE_ACTIONS, ...CLAIM_EVIDENCE_MIGRATION_ACTIONS, ...REVIEW_TASK_STATE_ACTIONS, ...REPLAN_TASK_STATE_ACTIONS, "commit-scope-amendment"], "semantic_delta.action");
   if (action === "extend-repair-budget") {
     expectExactKeys2(record4, ["kind", "action", "review_id", "finding_fingerprints", "additional_repair_attempts", "decision_source", "decision_text", "evidence_refs", ...record4.extension_scope === undefined ? [] : ["extension_scope"]], "extend-repair-budget");
     const findingFingerprints = expectStringArray2(record4.finding_fingerprints, "finding_fingerprints", true, MAX_FINDINGS).map((item, index) => expectString2(item, `finding_fingerprints[${index}]`, FINGERPRINT_PATTERN));
@@ -9815,6 +9825,20 @@ function validateTaskStateDelta(value) {
   if (action === "retry-step") {
     expectExactKeys2(record4, ["kind", "action", "step_id", "blocked_attempt_id", "blocker_resolution_refs", ...record4.repair_diagnosis === undefined ? [] : ["repair_diagnosis"], "evidence_refs"], "retry-step");
     return { kind, action, step_id: expectString2(record4.step_id, "step_id", STEP_ID_PATTERN2), blocked_attempt_id: expectString2(record4.blocked_attempt_id, "blocked_attempt_id", SAFE_KEY_PATTERN2), blocker_resolution_refs: validateEvidenceRefs(record4.blocker_resolution_refs, "blocker_resolution_refs"), ...record4.repair_diagnosis === undefined ? {} : { repair_diagnosis: validateStepRepairDiagnosis(record4.repair_diagnosis) }, evidence_refs: validateEvidenceRefs(record4.evidence_refs, "evidence_refs") };
+  }
+  if (action === "reconcile-preflight") {
+    expectExactKeys2(record4, ["kind", "action", "step_id", "current_preflight_id", "mode", "execution_disposition", "decision_source", "decision_text", "evidence_refs"], "reconcile-preflight");
+    return {
+      kind,
+      action,
+      step_id: expectString2(record4.step_id, "step_id", STEP_ID_PATTERN2),
+      current_preflight_id: expectString2(record4.current_preflight_id, "current_preflight_id", SAFE_KEY_PATTERN2),
+      mode: expectEnum(record4.mode, VNEXT_EXECUTE_STEP_MODES, "mode"),
+      execution_disposition: expectEnum(record4.execution_disposition, ["not-started", "started-unknown"], "execution_disposition"),
+      decision_source: expectText(record4.decision_source, "decision_source"),
+      decision_text: expectVerbatim(record4.decision_text, "decision_text", 32768),
+      evidence_refs: validateEvidenceRefs(record4.evidence_refs, "evidence_refs")
+    };
   }
   if (action === "record-step-preflight") {
     expectExactKeys2(record4, [
@@ -10856,7 +10880,7 @@ function validateRuntimeProposal(value) {
     } else if (caller === "execute-step") {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode))
         fail3("RUNTIME_MODE_INVALID", "execute-step task-state proposals must use default or repair mode.");
-      if (semanticDelta.kind !== "task-state" || !["step-progress", "consume-retained-review", "record-step-preflight", "extend-preflight", "retry-step"].includes(semanticDelta.action))
+      if (semanticDelta.kind !== "task-state" || !["step-progress", "consume-retained-review", "record-step-preflight", "reconcile-preflight", "extend-preflight", "retry-step"].includes(semanticDelta.action))
         fail3("RUNTIME_MODE_INVALID", "execute-step requires an execution task-state delta.");
     } else {
       fail3("RUNTIME_CALLER_NOT_BOUND", "task-state-transaction is not bound to task-lifecycle.");
@@ -11610,12 +11634,101 @@ function validateControlledRepairRecoveryAuditLogEntry(value, location2, taskId,
     recorded_at: expectString2(value.recorded_at, `${location2}.recorded_at`)
   };
 }
+function validatePreflightReconciliationAuditLogEntry(value, location2, taskId, taskSlug) {
+  expectExactKeys2(value, [
+    "action",
+    "idempotency_key",
+    "operation_kind",
+    "caller",
+    "mode",
+    "task_id",
+    "task_slug",
+    "document_id",
+    "from_workflow_status",
+    "from_lifecycle_state",
+    "to_workflow_status",
+    "to_lifecycle_state",
+    "source_revision",
+    "source_tuple",
+    "authority_evidence",
+    "evidence_refs",
+    "step_id",
+    "current_preflight_id",
+    "execution_id",
+    "attempt_id",
+    "plan_revision",
+    "candidate_paths",
+    "change_set_id",
+    "review_id",
+    "repair_fingerprints",
+    "repair_wave_id",
+    "execution_disposition",
+    "decision_source",
+    "decision_text",
+    "decision_sha256",
+    "recorded_at"
+  ], location2);
+  if (value.action !== "reconcile-preflight" || value.operation_kind !== "task-state-transaction" || value.caller !== "execute-step" || !VNEXT_EXECUTE_STEP_MODES.includes(value.mode) || value.from_workflow_status !== "active" || value.from_lifecycle_state !== "active" || value.to_workflow_status !== "active" || value.to_lifecycle_state !== "active") {
+    fail3("RUNTIME_STATE_CONFLICT", `${location2} preflight reconciliation audit has an invalid operation or lifecycle binding.`);
+  }
+  const entryTaskId = expectString2(value.task_id, `${location2}.task_id`);
+  const entryTaskSlug = expectString2(value.task_slug, `${location2}.task_slug`);
+  if (entryTaskId !== taskId || entryTaskSlug !== taskSlug)
+    fail3("RUNTIME_STATE_CONFLICT", `${location2} identity does not match runtime_state.`);
+  const documentId = expectString2(value.document_id, `${location2}.document_id`, DOCUMENT_ID_PATTERN);
+  const sourceRevision = expectString2(value.source_revision, `${location2}.source_revision`, SHA256_PATTERN2);
+  const sourceTuple = validateSourceTuple(value.source_tuple);
+  if (sourceTuple.revision !== sourceRevision || sourceTuple.document_id !== documentId || sourceTuple.task_id !== entryTaskId || sourceTuple.task_slug !== entryTaskSlug) {
+    fail3("RUNTIME_STATE_CONFLICT", `${location2}.source_tuple does not match the audit identity.`);
+  }
+  const candidatePaths = value.candidate_paths === null ? null : expectStringArray2(value.candidate_paths, `${location2}.candidate_paths`, true, 256).map((item, index) => normalizeRepoPath2(item, `${location2}.candidate_paths[${index}]`));
+  const repairFingerprints = value.repair_fingerprints === null ? null : expectStringArray2(value.repair_fingerprints, `${location2}.repair_fingerprints`, true, MAX_FINDINGS).map((item, index) => expectString2(item, `${location2}.repair_fingerprints[${index}]`, FINGERPRINT_PATTERN));
+  const decisionText = expectVerbatim(value.decision_text, `${location2}.decision_text`, 32768);
+  const decisionSha256 = expectString2(value.decision_sha256, `${location2}.decision_sha256`, SHA256_PATTERN2);
+  if (sha2565(decisionText) !== decisionSha256)
+    fail3("RUNTIME_SCHEMA_INVALID", `${location2}.decision_sha256 does not match decision_text.`);
+  return {
+    action: "reconcile-preflight",
+    idempotency_key: expectString2(value.idempotency_key, `${location2}.idempotency_key`, SAFE_KEY_PATTERN2),
+    operation_kind: "task-state-transaction",
+    caller: "execute-step",
+    mode: expectEnum(value.mode, VNEXT_EXECUTE_STEP_MODES, `${location2}.mode`),
+    task_id: entryTaskId,
+    task_slug: entryTaskSlug,
+    document_id: documentId,
+    from_workflow_status: "active",
+    from_lifecycle_state: "active",
+    to_workflow_status: "active",
+    to_lifecycle_state: "active",
+    source_revision: sourceRevision,
+    source_tuple: sourceTuple,
+    authority_evidence: validateAuthorityEvidence2(value.authority_evidence),
+    evidence_refs: validateEvidenceRefs(value.evidence_refs, `${location2}.evidence_refs`),
+    step_id: expectString2(value.step_id, `${location2}.step_id`, STEP_ID_PATTERN2),
+    current_preflight_id: expectString2(value.current_preflight_id, `${location2}.current_preflight_id`, SAFE_KEY_PATTERN2),
+    execution_id: expectNullableString(value.execution_id, `${location2}.execution_id`, SAFE_KEY_PATTERN2),
+    attempt_id: expectNullableString(value.attempt_id, `${location2}.attempt_id`, SAFE_KEY_PATTERN2),
+    plan_revision: expectNullableString(value.plan_revision, `${location2}.plan_revision`, SHA256_PATTERN2),
+    candidate_paths: candidatePaths,
+    change_set_id: expectNullableString(value.change_set_id, `${location2}.change_set_id`, SAFE_KEY_PATTERN2),
+    review_id: expectNullableString(value.review_id, `${location2}.review_id`, SAFE_KEY_PATTERN2),
+    repair_fingerprints: repairFingerprints,
+    repair_wave_id: expectNullableString(value.repair_wave_id, `${location2}.repair_wave_id`, SAFE_KEY_PATTERN2),
+    execution_disposition: expectEnum(value.execution_disposition, ["not-started", "started-unknown"], `${location2}.execution_disposition`),
+    decision_source: expectText(value.decision_source, `${location2}.decision_source`),
+    decision_text: decisionText,
+    decision_sha256: decisionSha256,
+    recorded_at: expectString2(value.recorded_at, `${location2}.recorded_at`)
+  };
+}
 function validateExecutionLogEntry(value, location2, taskId, taskSlug) {
   const record4 = expectRecord2(value, location2);
   if (record4.action === "extend-repair-budget")
     return validateRepairBudgetExtensionAuditLogEntry(record4, location2, taskId, taskSlug);
   if (record4.action === "authorize-controlled-repair-recovery")
     return validateControlledRepairRecoveryAuditLogEntry(record4, location2, taskId, taskSlug);
+  if (record4.action === "reconcile-preflight")
+    return validatePreflightReconciliationAuditLogEntry(record4, location2, taskId, taskSlug);
   if (record4.action === "migrate-claim-evidence")
     return validateClaimEvidenceMigrationAuditLogEntry(record4, location2, taskId, taskSlug);
   if (DRAFT_AUDIT_ACTIONS.includes(record4.action))
@@ -12465,6 +12578,23 @@ function renderExecutionAuditRecord(audit, includeEmptyKnowledge = true) {
     lines.push(`  authorized_repair_waves: ${recoveryAudit.authorized_repair_waves}`);
     lines.push(`  decision_source: ${JSON.stringify(recoveryAudit.decision_source)}`);
     lines.push(`  decision_sha256: ${recoveryAudit.decision_sha256}`);
+  } else if (audit.action === "reconcile-preflight") {
+    const reconciliationAudit = audit;
+    lines.push(`  step_id: ${reconciliationAudit.step_id}`);
+    lines.push(`  current_preflight_id: ${reconciliationAudit.current_preflight_id}`);
+    lines.push(`  source_revision: ${reconciliationAudit.source_tuple.revision}`);
+    lines.push(`  execution_id: ${reconciliationAudit.execution_id ?? "null"}`);
+    lines.push(`  attempt_id: ${reconciliationAudit.attempt_id ?? "null"}`);
+    lines.push(`  plan_revision: ${reconciliationAudit.plan_revision ?? "null"}`);
+    lines.push(`  candidate_paths: ${JSON.stringify(reconciliationAudit.candidate_paths)}`);
+    lines.push(`  change_set_id: ${reconciliationAudit.change_set_id ?? "null"}`);
+    lines.push(`  review_id: ${reconciliationAudit.review_id ?? "null"}`);
+    lines.push(`  repair_fingerprints: ${JSON.stringify(reconciliationAudit.repair_fingerprints)}`);
+    lines.push(`  repair_wave_id: ${reconciliationAudit.repair_wave_id ?? "null"}`);
+    lines.push(`  execution_disposition: ${reconciliationAudit.execution_disposition}`);
+    lines.push(`  decision_source: ${JSON.stringify(reconciliationAudit.decision_source)}`);
+    lines.push(`  decision_text: ${JSON.stringify(reconciliationAudit.decision_text)}`);
+    lines.push(`  decision_sha256: ${reconciliationAudit.decision_sha256}`);
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action)) {
     const draftAudit = audit;
     lines.push(`  from_task_id: ${draftAudit.from_task_id}`);
@@ -19135,6 +19265,18 @@ function assertReviewResultReplay(current, proposal) {
     fail3("RUNTIME_REPLAY_INCOMPLETE", "review-result replay does not match the durable pending result.");
   }
 }
+function assertPreflightReconciliationReplay(root, current, proposal) {
+  if (proposal.semantic_delta.kind !== "task-state" || proposal.semantic_delta.action !== "reconcile-preflight")
+    return;
+  const delta = proposal.semantic_delta;
+  const audit = current.runtimeState.execution_log.find((entry) => ("action" in entry) && entry.action === "reconcile-preflight" && entry.idempotency_key === proposal.idempotency_key);
+  if (!audit)
+    fail3("RUNTIME_REPLAY_INCOMPLETE", "preflight reconciliation replay is missing its durable audit record.");
+  assertExecutionAudit(root, current, audit);
+  if (audit.mode !== delta.mode || audit.step_id !== delta.step_id || audit.current_preflight_id !== delta.current_preflight_id || audit.execution_disposition !== delta.execution_disposition || audit.decision_source !== delta.decision_source || audit.decision_text !== delta.decision_text || audit.decision_sha256 !== sha2565(delta.decision_text) || audit.source_revision !== proposal.source_tuple.revision || audit.evidence_refs.join("|") !== delta.evidence_refs.join("|") || audit.task_id !== current.runtimeState.task_id || audit.task_slug !== current.runtimeState.task_slug || audit.document_id !== current.sourceTuple.document_id) {
+    fail3("RUNTIME_REPLAY_INCOMPLETE", "preflight reconciliation replay does not match the durable user decision or execution identity.");
+  }
+}
 function assertTaskStateReplay(root, current, proposal) {
   if (proposal.semantic_delta.kind === "task-state" && DRAFT_TASK_STATE_ACTIONS.includes(proposal.semantic_delta.action)) {
     assertDraftTaskReplay(root, current, proposal);
@@ -19146,6 +19288,10 @@ function assertTaskStateReplay(root, current, proposal) {
   }
   if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "consume-retained-review") {
     assertRetainedReviewReplay(current, proposal);
+    return;
+  }
+  if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "reconcile-preflight") {
+    assertPreflightReconciliationReplay(root, current, proposal);
     return;
   }
   if (proposal.semantic_delta.kind === "task-state" && proposal.semantic_delta.action === "migrate-claim-evidence") {
@@ -19983,6 +20129,86 @@ function applyTaskStateDelta(root, current, proposal, now) {
       applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
     } };
   }
+  if (delta.action === "reconcile-preflight") {
+    ensureAuthorityKinds(proposal, ["active-task-owner", "scope-admission", "evidence-admission", "user-confirmation"]);
+    if (current.runtimeState.workflow_status !== "active" || current.runtimeState.lifecycle_state !== "active") {
+      fail3("PREFLIGHT_RECONCILIATION_STATE_INVALID", "preflight reconciliation requires the active + active task.");
+    }
+    if (delta.step_id !== current.runtimeState.active_step_id)
+      fail3("ACTIVE_STEP_CONFLICT", "preflight reconciliation must bind the current active step.");
+    assertTestStrategySequenceReady(current);
+    const active = current.runtimeState.execution_preflight;
+    const ledger = current.runtimeState.step_attempts?.[delta.step_id];
+    const latestAttempt = ledger?.attempts.at(-1);
+    if (active) {
+      if (active.step_id !== delta.step_id || active.mode !== delta.mode || active.preflight_id !== delta.current_preflight_id) {
+        fail3("EXECUTE_PREFLIGHT_STALE", "preflight reconciliation does not bind the current durable preflight identity.");
+      }
+      if (delta.mode === "repair" && !outstandingRepairPreflight(current)) {
+        fail3("EXECUTE_PREFLIGHT_NOT_OUTSTANDING", "the current repair preflight already has a recorded result or is no longer current.");
+      }
+      if (delta.mode === "default" && (!latestAttempt || latestAttempt.status !== "preflighted")) {
+        fail3("EXECUTE_PREFLIGHT_NOT_OUTSTANDING", "the current ordinary preflight is not attached to a preflighted attempt.");
+      }
+    } else if (delta.mode === "default") {
+      if (!latestAttempt || latestAttempt.status !== "preflighted" || latestAttempt.idempotency_key !== delta.current_preflight_id) {
+        fail3("EXECUTE_PREFLIGHT_NOT_OUTSTANDING", "reconciliation requires the exact latest legacy preflighted attempt.");
+      }
+    } else {
+      fail3("EXECUTE_PREFLIGHT_NOT_OUTSTANDING", "a repair reconciliation requires the current durable repair preflight.");
+    }
+    const { execution_preflight: _staleExecutionPreflight, ...stateWithoutExecutionPreflight } = current.runtimeState;
+    const evidenceRefs = [...delta.evidence_refs];
+    const nextAttempts = delta.mode === "default" && ledger && latestAttempt ? {
+      ...current.runtimeState.step_attempts,
+      [delta.step_id]: {
+        ...ledger,
+        attempts: ledger.attempts.map((attempt, index) => index === ledger.attempts.length - 1 ? { ...attempt, status: "ready", blocker: null, evidence_refs: [...new Set([...attempt.evidence_refs, ...evidenceRefs])] } : attempt)
+      }
+    } : current.runtimeState.step_attempts;
+    const audit = {
+      action: "reconcile-preflight",
+      idempotency_key: proposal.idempotency_key,
+      operation_kind: "task-state-transaction",
+      caller: "execute-step",
+      mode: delta.mode,
+      task_id: current.runtimeState.task_id,
+      task_slug: current.runtimeState.task_slug,
+      document_id: current.sourceTuple.document_id,
+      from_workflow_status: "active",
+      from_lifecycle_state: "active",
+      to_workflow_status: "active",
+      to_lifecycle_state: "active",
+      source_revision: current.sourceTuple.revision,
+      source_tuple: { ...current.sourceTuple, resume_review_reasons: [...current.sourceTuple.resume_review_reasons] },
+      authority_evidence: proposal.authority_evidence,
+      evidence_refs: [...delta.evidence_refs],
+      step_id: delta.step_id,
+      current_preflight_id: delta.current_preflight_id,
+      execution_id: active?.execution_id ?? null,
+      attempt_id: delta.mode === "default" ? latestAttempt?.attempt_id ?? null : null,
+      plan_revision: active?.plan_revision ?? null,
+      candidate_paths: active?.candidate_paths ? [...active.candidate_paths] : null,
+      change_set_id: active?.change_set_id ?? null,
+      review_id: active?.review_id ?? null,
+      repair_fingerprints: active?.repair_fingerprints ? [...active.repair_fingerprints] : null,
+      repair_wave_id: active?.repair_wave_id ?? null,
+      execution_disposition: delta.execution_disposition,
+      decision_source: delta.decision_source,
+      decision_text: delta.decision_text,
+      decision_sha256: sha2565(delta.decision_text),
+      recorded_at: now
+    };
+    const nextWithoutAudit = {
+      ...stateWithoutExecutionPreflight,
+      ...nextAttempts ? { step_attempts: nextAttempts } : {},
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision)
+    };
+    return {
+      next: { ...nextWithoutAudit, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
+      audit
+    };
+  }
   if (delta.action === "retry-step") {
     if ((recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3)
       fail3("RETRY_BUDGET_EXHAUSTED", "The same recovery problem has exhausted three retained failed attempts across plans.");
@@ -20132,7 +20358,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       change_set_id: changeSetId,
       mode: executionMode2
     }));
-    const executionPreflight = current.mutationAuthority || executionMode2 === "repair" ? {
+    const executionPreflight = {
       execution_id: executionId,
       preflight_id: proposal.idempotency_key,
       mode: executionMode2,
@@ -20146,7 +20372,7 @@ function applyTaskStateDelta(root, current, proposal, now) {
       review_id: executionMode2 === "repair" ? delta.review_id : null,
       review_target_paths: executionMode2 === "repair" ? [...delta.review_target_paths] : null,
       ...executionMode2 === "repair" && delta.controlled_recovery_grant_id ? { controlled_recovery_grant_id: delta.controlled_recovery_grant_id } : {}
-    } : undefined;
+    };
     return { next: {
       ...current.runtimeState,
       review_coverage: coverage2,
@@ -20190,8 +20416,6 @@ function applyTaskStateDelta(root, current, proposal, now) {
     const latestAttempt = stepLedger?.attempts.at(-1);
     if (executionMode2 === "default" && (!stepLedger || !latestAttempt || latestAttempt.status !== "preflighted"))
       fail3("EXECUTE_PREFLIGHT_REQUIRED", "extend-preflight requires the latest ordinary attempt to be preflighted.");
-    if (executionMode2 === "default" && latestAttempt && latestAttempt.idempotency_key !== delta.current_preflight_id)
-      fail3("EXECUTE_PREFLIGHT_STALE", "extend-preflight does not bind the latest ordinary preflight receipt.");
     if (executionMode2 === "repair") {
       const pending = current.runtimeState.pending_review_result;
       if (!activePreflight || activePreflight.review_id === null || activePreflight.repair_wave_id === null || activePreflight.change_set_id !== pending?.change_set_id || activePreflight.review_id !== pending?.review_id || pending?.verdict !== "findings") {
@@ -22763,11 +22987,54 @@ function createStepRetryProposal(current, input) {
     requested_write_targets: [current.relativePath]
   });
 }
+function createPreflightReconciliationProposal(current, input) {
+  const authorityKinds = ["active-task-owner", "scope-admission", "evidence-admission", "user-confirmation"];
+  const sourceTuple = input.source_tuple ?? current.sourceTuple;
+  const authorityEvidence = input.authority_evidence ?? authorityKinds.map((kind) => ({
+    kind,
+    source: current.relativePath,
+    subject: current.runtimeState.task_id,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision
+  }));
+  return validateRuntimeProposal({
+    schema_version: 1,
+    kind: VNEXT_RUNTIME_PROPOSAL_KIND,
+    operation_kind: "task-state-transaction",
+    caller: "execute-step",
+    mode: input.mode,
+    source_tuple: sourceTuple,
+    authority_evidence: authorityEvidence,
+    semantic_delta: {
+      kind: "task-state",
+      action: "reconcile-preflight",
+      step_id: input.step_id,
+      current_preflight_id: input.current_preflight_id,
+      mode: input.mode,
+      execution_disposition: input.execution_disposition,
+      decision_source: input.decision_source,
+      decision_text: input.decision_text,
+      evidence_refs: input.evidence_refs
+    },
+    preconditions: ["current-task-is-active", "active-step-matches", "execution-preflight-reconciliation", "caller-reported-execution-disposition"],
+    evidence_refs: input.evidence_refs,
+    idempotency_key: input.idempotency_key,
+    requested_write_targets: [current.relativePath]
+  });
+}
 function createStepPreflightProposal(current, candidatePaths, blastRadiusAssessments = [], input = {}) {
   const mode = input.mode ?? "default";
   const strategy = resolveTestStrategyExecutionContext(current);
   const executionPhase = input.execution_phase ?? executionPhaseForCurrentStep(current, strategy);
   const planRevision = input.plan_revision ?? digest3({ step_id: current.runtimeState.active_step_id, evidence_plan_revision: current.runtimeState.evidence_plan_revision });
+  const changeSetId = input.change_set_id ?? current.runtimeState.review_coverage?.change_set_id ?? `change-set-${digest3({
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    step_id: current.runtimeState.active_step_id,
+    review_cycle_id: current.runtimeState.review_cycle.id
+  }).slice(0, 40)}`;
+  const reconciliationLineage = current.runtimeState.execution_log.filter((item) => ("action" in item) && item.action === "reconcile-preflight" && item.step_id === current.runtimeState.active_step_id && item.mode === mode).map((item) => item.idempotency_key);
   const executionId = input.execution_id ?? `execution-${digest3({
     task: current.sourceTuple.document_id,
     step: current.runtimeState.active_step_id,
@@ -22777,9 +23044,10 @@ function createStepPreflightProposal(current, candidatePaths, blastRadiusAssessm
     repair_fingerprints: input.repair_fingerprints ?? null,
     repair_wave_id: input.repair_wave_id ?? null,
     review_id: input.review_id ?? null,
-    controlled_recovery_grant_id: input.controlled_recovery_grant_id ?? null
+    controlled_recovery_grant_id: input.controlled_recovery_grant_id ?? null,
+    reconciliation_lineage: reconciliationLineage
   })}`;
-  const identity = current.mutationAuthority || mode === "repair" ? {
+  const identity = {
     mode,
     execution_id: executionId,
     plan_revision: planRevision,
@@ -22791,8 +23059,8 @@ function createStepPreflightProposal(current, candidatePaths, blastRadiusAssessm
       review_target_paths: input.review_target_paths ?? [],
       ...input.controlled_recovery_grant_id ? { controlled_recovery_grant_id: input.controlled_recovery_grant_id } : {}
     } : {},
-    ...input.change_set_id ? { change_set_id: input.change_set_id } : {}
-  } : {};
+    change_set_id: changeSetId
+  };
   const preflightId = `preflight-${digest3({
     task: current.sourceTuple.document_id,
     plan: planRevision,
@@ -28417,6 +28685,8 @@ async function runTaskContextCli(command, args = process.argv.slice(2)) {
 // runtime/vnext/src/execute-step-adapter.ts
 var EXECUTE_STEP_ADAPTER_COMMANDS = [
   "preflight-step",
+  "resume-preflight",
+  "reconcile-preflight",
   "extend-preflight",
   "apply-artifact-restore",
   "artifact-checkpoints",
@@ -28464,6 +28734,12 @@ function text4(value, location2, maximumLength = 4096) {
     fail7("EXECUTE_ADAPTER_INPUT_INVALID", `${location2} must be one non-empty line of at most ${maximumLength} characters.`);
   }
   return normalized;
+}
+function verbatimText(value, location2, maximumLength = 32768) {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > maximumLength || /\0/u.test(value)) {
+    fail7("EXECUTE_ADAPTER_INPUT_INVALID", `${location2} must be a non-empty string of at most ${maximumLength} characters without NUL bytes.`);
+  }
+  return value;
 }
 function nullableText(value, location2, maximumLength = 4096) {
   return value === null ? null : text4(value, location2, maximumLength);
@@ -28676,6 +28952,12 @@ function stepPlanRevision(stepPlan) {
     commands: stepPlan.commands
   });
 }
+function ordinaryPreflightPlanRevision(current) {
+  return digest5({
+    step_id: current.runtimeState.active_step_id,
+    evidence_plan_revision: current.runtimeState.evidence_plan_revision
+  });
+}
 function changeSetId(current, stepId) {
   if (current.runtimeState.review_coverage)
     return current.runtimeState.review_coverage.change_set_id;
@@ -28814,11 +29096,12 @@ function assertCurrentReceipt(root, current, stepPlan, receipt) {
       fail7("EXECUTE_PREFLIGHT_STALE", "CURRENT_TASK changed after preflight; run preflight-step again before editing or committing.");
     }
   }
-  if (receipt.step_id !== current.runtimeState.active_step_id || receipt.plan_revision !== stepPlanRevision(stepPlan)) {
+  const activePreflight = current.runtimeState.execution_preflight;
+  const expectedPlanRevision = activePreflight?.step_id === receipt.step_id ? activePreflight.plan_revision : receipt.execution_id === undefined ? stepPlanRevision(stepPlan) : ordinaryPreflightPlanRevision(current);
+  if (receipt.step_id !== current.runtimeState.active_step_id || receipt.plan_revision !== expectedPlanRevision) {
     fail7("EXECUTE_PREFLIGHT_STALE", "the active step or its executable plan changed after preflight.");
   }
   const strategy = resolveTestStrategyExecutionContext(current);
-  const activePreflight = current.runtimeState.execution_preflight;
   const expectedPhase = activePreflight?.step_id === receipt.step_id ? activePreflight.execution_phase : executionPhaseForCurrentStep(current, strategy);
   if (receipt.test_strategy_mode !== strategy.mode || receipt.execution_phase !== expectedPhase) {
     fail7("EXECUTE_PREFLIGHT_STALE", "the frozen test strategy or current execution phase changed after preflight.");
@@ -28842,11 +29125,11 @@ function assertCurrentReceipt(root, current, stepPlan, receipt) {
       fail7("EXECUTE_PREFLIGHT_STALE", "the repair review or Runtime-owned change set changed after preflight.");
     }
   } else {
-    if (current.mutationAuthority) {
-      const latestAttempt = current.runtimeState.step_attempts?.[receipt.step_id]?.attempts.at(-1);
-      if (!receipt.preflight_id || !latestAttempt || latestAttempt.idempotency_key !== receipt.preflight_id) {
-        fail7("EXECUTE_PREFLIGHT_STALE", "the ordinary preflight receipt is no longer the latest receipt; use the replacement receipt returned by extend-preflight.");
-      }
+    const latestAttempt = current.runtimeState.step_attempts?.[receipt.step_id]?.attempts.at(-1);
+    const activePreflightForStep = current.runtimeState.execution_preflight?.step_id === receipt.step_id ? current.runtimeState.execution_preflight : undefined;
+    const receiptBindsAttempt = activePreflightForStep ? activePreflightForStep.preflight_id === receipt.preflight_id : latestAttempt?.idempotency_key === receipt.preflight_id;
+    if (!receipt.preflight_id || !latestAttempt || !receiptBindsAttempt) {
+      fail7("EXECUTE_PREFLIGHT_STALE", "the ordinary preflight receipt is no longer the latest durable execution identity; use resume-preflight before an unrecorded execution or obtain a fresh admitted attempt.");
     }
     if (receipt.change_set_id !== changeSetId(current, receipt.step_id)) {
       fail7("EXECUTE_PREFLIGHT_STALE", "the Runtime-owned change set identity changed after preflight.");
@@ -28872,6 +29155,205 @@ function currentStepResult(stepPlan, strategy) {
     persistent_tests: [...strategy.persistent_tests]
   };
 }
+function isJsonRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function exactReviewBaseForCandidates(current, candidatePaths) {
+  const coverageTarget = current.runtimeState.review_coverage?.target;
+  if (!coverageTarget) {
+    fail7("EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE", "the durable preflight has no registered review baseline; obtain a fresh preflight before execution.");
+  }
+  const entries = candidatePaths.map((candidate) => coverageTarget.entries.find((entry) => entry.path === candidate));
+  if (entries.some((entry) => entry === undefined)) {
+    fail7("EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE", "the durable preflight baseline does not cover every admitted candidate path.");
+  }
+  return createReviewTargetManifest(entries);
+}
+function historicalOrdinaryPreflightCandidates(root, current, preflightId, stepId) {
+  const store = TaskStore.forCurrent(root, current);
+  const match = store.lookupIdempotency(preflightId);
+  if (!match || match.event.resulting_source_revision !== current.sourceTuple.revision)
+    return null;
+  const reference = match.event.object_refs.proposal;
+  let proposal = null;
+  if (isJsonRecord(reference) && reference.object_type === "proposal" && typeof reference.sha256 === "string") {
+    proposal = store.readTransactionPayload(reference, "proposal");
+  } else if (isJsonRecord(match.event.transaction?.proposal)) {
+    const inline = match.event.transaction.proposal;
+    if (isJsonRecord(inline) && inline.object_type === "proposal" && typeof inline.sha256 === "string") {
+      proposal = store.readTransactionPayload(inline, "proposal");
+    } else {
+      proposal = inline;
+    }
+  }
+  if (!isJsonRecord(proposal) || proposal.idempotency_key !== preflightId || proposal.caller !== "execute-step" || proposal.operation_kind !== "task-state-transaction" || !isJsonRecord(proposal.semantic_delta) || proposal.semantic_delta.action !== "record-step-preflight" || proposal.semantic_delta.step_id !== stepId || proposal.semantic_delta.mode !== undefined && proposal.semantic_delta.mode !== "default" || !Array.isArray(proposal.semantic_delta.candidate_paths)) {
+    return null;
+  }
+  return pathList(proposal.semantic_delta.candidate_paths, "durable preflight candidate_paths", true);
+}
+function preflightResumeResult(root, current, stepPlan, strategy, receipt) {
+  const activeStrategy = { ...strategy, phase: receipt.execution_phase };
+  return {
+    status: "pass",
+    operation_kind: "execute-step-preflight-resume",
+    committed: false,
+    read_back_verified: true,
+    current_step: currentStepResult(stepPlan, activeStrategy),
+    context_projection: taskContextReferenceForCurrent(root, current, "preflight-step", receipt.mode),
+    receipt
+  };
+}
+function preflightDecisionResult(root, current, stepPlan, strategy, mode, currentPreflightId, message, active, attemptId) {
+  const activeStrategy = active?.mode === mode ? { ...strategy, phase: active.execution_phase } : strategy;
+  return {
+    status: "decision-required",
+    operation_kind: "execute-step-preflight-decision",
+    committed: false,
+    read_back_verified: true,
+    current_step: currentStepResult(stepPlan, activeStrategy),
+    context_projection: taskContextReferenceForCurrent(root, current, "preflight-step", mode),
+    blocker: {
+      code: "EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE",
+      message
+    },
+    preflight: {
+      mode,
+      step_id: stepPlan.step.id,
+      current_preflight_id: currentPreflightId,
+      execution_id: active?.mode === mode ? active.execution_id : null,
+      attempt_id: attemptId,
+      candidate_paths: active?.mode === mode ? [...active.candidate_paths] : null
+    },
+    available_decisions: [
+      {
+        execution_disposition: "not-started",
+        effect: "清除悬挂准入并复用同一个逻辑尝试；不增加尝试次数。",
+        command: "reconcile-preflight"
+      },
+      {
+        execution_disposition: "started-unknown",
+        effect: "记录可能已启动且结果未知，再复用同一个逻辑尝试；不伪造结果或增加预算。",
+        command: "reconcile-preflight"
+      }
+    ]
+  };
+}
+function resumePreflight(root, input) {
+  const source = record6(input, "resume-preflight input");
+  exactKeys3(source, [], "resume-preflight input");
+  const current = readCanonicalCurrentTask(root);
+  assertExecutableTask(current);
+  const stepPlan = currentStepPlan(current);
+  const strategy = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, strategy);
+  const active = current.runtimeState.execution_preflight;
+  if (active?.mode === "repair") {
+    const outstanding = outstandingRepairPreflight(current);
+    if (!outstanding)
+      fail7("EXECUTE_PREFLIGHT_NOT_OUTSTANDING", "the current repair preflight already has a recorded result or is no longer current.");
+    const receipt2 = recoverOutstandingRepairReceipt(current, stepPlan, strategy, active.candidate_paths);
+    if (!receipt2) {
+      return preflightDecisionResult(root, current, stepPlan, strategy, "repair", active.preflight_id, "the retained repair preflight has no exact Runtime review baseline; choose the caller-reported execution disposition and run reconcile-preflight.", active, null);
+    }
+    return preflightResumeResult(root, current, stepPlan, strategy, receipt2);
+  }
+  assertOrdinaryPreflight(current, root);
+  const ledger = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id];
+  const latestAttempt = ledger?.attempts.at(-1);
+  if (!latestAttempt || latestAttempt.status !== "preflighted") {
+    fail7("EXECUTE_PREFLIGHT_NOT_OUTSTANDING", "there is no current preflighted attempt to resume.");
+  }
+  if (active?.mode === "default") {
+    if (active.step_id !== stepPlan.step.id) {
+      fail7("EXECUTE_PREFLIGHT_STALE", "the durable preflight does not bind the latest active ordinary attempt.");
+    }
+    const receipt2 = {
+      kind: "execute-step-preflight/v1",
+      preflight_id: active.preflight_id,
+      execution_id: active.execution_id,
+      attempt_id: latestAttempt.attempt_id,
+      task_id: current.runtimeState.task_id,
+      document_id: current.sourceTuple.document_id,
+      source_revision: current.sourceTuple.revision,
+      step_id: stepPlan.step.id,
+      plan_revision: active.plan_revision,
+      mode: "default",
+      test_strategy_mode: strategy.mode,
+      execution_phase: active.execution_phase,
+      candidate_paths: [...active.candidate_paths],
+      repair_fingerprint: null,
+      change_set_id: active.change_set_id,
+      review_base: exactReviewBaseForCandidates(current, active.candidate_paths),
+      ...current.mutationAuthority ? { mutation_authority_version: 2 } : {}
+    };
+    return preflightResumeResult(root, current, stepPlan, strategy, receipt2);
+  }
+  const candidatePaths = historicalOrdinaryPreflightCandidates(root, current, latestAttempt.idempotency_key, stepPlan.step.id);
+  if (!candidatePaths) {
+    return preflightDecisionResult(root, current, stepPlan, strategy, "default", latestAttempt.idempotency_key, "the older preflight has no exact committed proposal; Runtime will not invent a receipt. Choose whether the execution was not started or started with an unknown result, then run reconcile-preflight.", active, latestAttempt.attempt_id);
+  }
+  const receipt = {
+    kind: "execute-step-preflight/v1",
+    preflight_id: latestAttempt.idempotency_key,
+    attempt_id: latestAttempt.attempt_id,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    step_id: stepPlan.step.id,
+    plan_revision: stepPlanRevision(stepPlan),
+    mode: "default",
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
+    candidate_paths: candidatePaths,
+    repair_fingerprint: null,
+    change_set_id: changeSetId(current, stepPlan.step.id),
+    review_base: exactReviewBaseForCandidates(current, candidatePaths),
+    ...current.mutationAuthority ? { mutation_authority_version: 2 } : {}
+  };
+  return preflightResumeResult(root, current, stepPlan, strategy, receipt);
+}
+function reconcilePreflight(root, input, options = {}) {
+  const source = record6(input, "reconcile-preflight input");
+  exactKeys3(source, [
+    "step_id",
+    "current_preflight_id",
+    "mode",
+    "execution_disposition",
+    "decision_source",
+    "decision_text",
+    "idempotency_key",
+    ...source.evidence_refs === undefined ? [] : ["evidence_refs"]
+  ], "reconcile-preflight input");
+  const current = readCanonicalCurrentTask(root);
+  const mode = text4(source.mode, "mode", 32);
+  if (mode !== "default" && mode !== "repair")
+    fail7("EXECUTE_ADAPTER_INPUT_INVALID", "mode must be default or repair.");
+  const executionDisposition = text4(source.execution_disposition, "execution_disposition", 32);
+  if (executionDisposition !== "not-started" && executionDisposition !== "started-unknown") {
+    fail7("EXECUTE_ADAPTER_INPUT_INVALID", "execution_disposition must be not-started or started-unknown.");
+  }
+  const evidenceRefs = source.evidence_refs === undefined ? [] : textList2(source.evidence_refs, "evidence_refs", true);
+  const normalized = {
+    step_id: text4(source.step_id, "step_id", 128),
+    current_preflight_id: text4(source.current_preflight_id, "current_preflight_id", 128),
+    mode,
+    execution_disposition: executionDisposition,
+    decision_source: text4(source.decision_source, "decision_source", 1024),
+    decision_text: verbatimText(source.decision_text, "decision_text"),
+    evidence_refs: [...new Set([current.relativePath, ...evidenceRefs])],
+    idempotency_key: text4(source.idempotency_key, "idempotency_key", 128)
+  };
+  const prior = current.runtimeState.execution_log.find((item) => ("action" in item) && item.action === "reconcile-preflight" && item.idempotency_key === normalized.idempotency_key);
+  const replayMatches = prior !== undefined && prior.step_id === normalized.step_id && prior.current_preflight_id === normalized.current_preflight_id && prior.mode === normalized.mode && prior.execution_disposition === normalized.execution_disposition && prior.decision_source === normalized.decision_source && prior.decision_text === normalized.decision_text && prior.evidence_refs.join("|") === normalized.evidence_refs.join("|");
+  const proposal = createPreflightReconciliationProposal(current, {
+    ...normalized,
+    ...replayMatches && prior ? {
+      source_tuple: prior.source_tuple,
+      authority_evidence: prior.authority_evidence
+    } : {}
+  });
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
 function recoverOutstandingRepairReceipt(current, stepPlan, strategy, candidatePaths) {
   const active = outstandingRepairPreflight(current);
   if (!active)
@@ -28884,7 +29366,7 @@ function recoverOutstandingRepairReceipt(current, stepPlan, strategy, candidateP
   const coverageTarget = current.runtimeState.review_coverage?.target;
   const expectedBasePaths = [...new Set([...reviewTargetPaths ?? [], ...active.candidate_paths])].sort();
   if (!pending || !reviewTargetPaths || !coverageTarget || digest5(coverageTarget.entries.map((item) => item.path).sort()) !== digest5(expectedBasePaths)) {
-    fail7("EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE", "the retained repair preflight has no exact Runtime review baseline; obtain a fresh review receipt before retrying.");
+    return null;
   }
   const receipt = {
     kind: "execute-step-repair-preflight/v1",
@@ -29200,15 +29682,15 @@ function preflightStep(root, input) {
   if (coverage && !hasPrerequisites && captureReviewTarget(root, coverage.target.entries.map((entry) => entry.path)).revision !== coverage.target.revision)
     fail7("REVIEW_TARGET_STALE", "Unrecorded changes cannot refresh the cumulative baseline.");
   const activePreflightMatchesStep = current.runtimeState.execution_preflight?.step_id === stepPlan.step.id;
-  if (current.mutationAuthority && activePreflightMatchesStep && digest5(current.runtimeState.execution_preflight.candidate_paths) !== digest5(candidatePaths)) {
-    fail7("EXECUTE_PREFLIGHT_STALE", "the active v2 preflight already owns a different target set; use extend-preflight for additional targets.");
+  if (activePreflightMatchesStep && digest5(current.runtimeState.execution_preflight.candidate_paths) !== digest5(candidatePaths)) {
+    fail7("EXECUTE_PREFLIGHT_STALE", "the active preflight already owns a different target set; use extend-preflight for additional targets.");
   }
   if (!current.runtimeState.step_attempts?.[stepPlan.step.id] || !coverage || candidatePaths.some((p) => !coverage.base.entries.some((entry) => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === "ready" || current.mutationAuthority && !activePreflightMatchesStep) {
-    const proposal = createStepPreflightProposal(current, candidatePaths, assessments, current.mutationAuthority ? {
-      plan_revision: stepPlanRevision(stepPlan),
+    const proposal = createStepPreflightProposal(current, candidatePaths, assessments, {
+      ...current.mutationAuthority ? { plan_revision: stepPlanRevision(stepPlan) } : {},
       execution_phase: phase,
       change_set_id: changeSetId(current, stepPlan.step.id)
-    } : {});
+    });
     preflightId = proposal.idempotency_key;
     const registration = applyVNextRuntimeProposal(root, proposal);
     if (!["success", "no-op"].includes(registration.status))
@@ -29216,9 +29698,9 @@ function preflightStep(root, input) {
     committed = registration.committed;
     current = readCanonicalCurrentTask(root);
   }
-  if (!preflightId)
-    preflightId = current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.idempotency_key;
   const executionPreflight = current.runtimeState.execution_preflight;
+  if (!preflightId)
+    preflightId = executionPreflight?.step_id === stepPlan.step.id ? executionPreflight.preflight_id : current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.idempotency_key;
   const activeStrategy = executionPreflight?.step_id === stepPlan.step.id ? { ...strategy, phase: executionPreflight.execution_phase } : { ...strategy, phase };
   const receipt = {
     kind: "execute-step-preflight/v1",
@@ -29229,14 +29711,14 @@ function preflightStep(root, input) {
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
     step_id: stepPlan.step.id,
-    plan_revision: stepPlanRevision(stepPlan),
+    plan_revision: executionPreflight?.plan_revision ?? (executionPreflight ? ordinaryPreflightPlanRevision(current) : stepPlanRevision(stepPlan)),
     mode: "default",
     test_strategy_mode: strategy.mode,
     execution_phase: activeStrategy.phase,
-    candidate_paths: candidatePaths,
+    candidate_paths: executionPreflight?.candidate_paths ?? candidatePaths,
     repair_fingerprint: null,
-    change_set_id: changeSetId(current, stepPlan.step.id),
-    review_base: captureReviewTarget(root, candidatePaths),
+    change_set_id: executionPreflight?.change_set_id ?? changeSetId(current, stepPlan.step.id),
+    review_base: executionPreflight?.step_id === stepPlan.step.id ? exactReviewBaseForCandidates(current, executionPreflight.candidate_paths) : captureReviewTarget(root, candidatePaths),
     ...current.mutationAuthority ? { mutation_authority_version: 2 } : {}
   };
   return {
@@ -29989,6 +30471,12 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
     switch (args.command) {
       case "preflight-step":
         result = preflightStep(args.root, input);
+        break;
+      case "resume-preflight":
+        result = resumePreflight(args.root, input);
+        break;
+      case "reconcile-preflight":
+        result = reconcilePreflight(args.root, input, { dryRun: args.dryRun });
         break;
       case "extend-preflight":
         result = extendPreflight(args.root, input, { dryRun: args.dryRun });

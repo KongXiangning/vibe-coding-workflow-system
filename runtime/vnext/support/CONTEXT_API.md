@@ -52,6 +52,25 @@ means the operation context is incomplete. Context/read receipts prove only the
 version and returned range; they are read-only and do not authorize a write.
 Repeated reads do not append audit events.
 
+After `preflight-step` has committed an execution admission, `resume-preflight`
+accepts `{}` and returns the exact current receipt without creating an attempt,
+consuming retry/repair/finding budget, or changing task state. Use it when a
+host/session call ended before the receipt was returned. Runtime persists the
+ordinary execution identity for new tasks; upgraded legacy tasks are recovered
+only from the exact committed preflight proposal and current source revision.
+If that proof is unavailable, `resume-preflight` returns a structured
+`execute-step-preflight-decision` result instead of becoming a dead end. After
+the caller explicitly chooses `not-started` or `started-unknown`, send
+`reconcile-preflight` with the exact `current_preflight_id`, `step_id`,
+`mode`, decision source/text, and evidence references. This append-only audit
+clears only the dangling admission and reopens the same logical attempt; it
+does not infer candidate paths, fabricate a result, add an attempt, consume a
+repair/finding grant, or alter pending review, findings, or budgets. The caller
+then obtains a fresh `preflight-step` or `begin-repair` receipt.
+Runtime has no per-invocation token, wall-clock,
+or tool-count quota; context page limits below are transport limits and require
+continuation, not task splitting or budget consumption.
+
 New transaction events keep `transaction.proposal` and `transaction.result` as
 exact committed object references. Read them with `kind:proposal` or
 `kind:result`; `kind:semantic-delta` restores the semantic delta from the
@@ -627,6 +646,13 @@ Read returns `sha256`. Subsequent pages must send it back; a changed file requir
 For a line range, pass optional 1-based inclusive `start_line` and `end_line` to either read command; for `diff`, these count rendered diff lines. Keep the same range on subsequent pages. Byte offsets and `total_bytes` are relative to the selected range. Text pages use UTF-8 byte offsets, never split a character, and return `next_offset`, `total_bytes`, and `truncated`. Send `next_offset` as the next `offset` with the same file/view and receipt or file hash. Default text budget is 16 KiB; callers may request 4 bytes–64 KiB. The complete review file index is separate from this text budget. Even a single very long line is bounded.
 
 Search defaults to 50 hits (maximum 200), uses the same byte budget, and stops after 10 seconds. Partial results exit 2 with a reason; narrow the scope/query or read a known candidate. Exit 0 with no hits means no match in that searched scope, not that no relevant tests exist. Tool errors, unreadable output and timeouts must not be treated as clean results. Metadata and JSON escaping add overhead beyond the text budget.
+
+These text, hit-count, and search-duration bounds limit one context page or
+probe response, not an agent invocation or a business execution. A partial
+page/search result must be continued or narrowed; it must not be converted into
+a failed task attempt, a consumed repair budget, or a reason to split one
+confirmed step. If the host call ends, resume the admitted execution with
+`resume-preflight` and the same receipt identity.
 
 ## rg dependency
 

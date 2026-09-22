@@ -31,6 +31,22 @@
 4. 用 `confirm-replan` 提交精确 receipt 和 caller-reported 决定。任何来源、候选、证据或写入计划漂移使确认失效；不需要的候选用 `discard-replan` 丢弃。同一时刻仅一个未确认批次。
 5. 通过普通 `preflight-step`、执行、`record-step-result`、`review-context`、`record-review-result` 和 `complete-reviewed-step` 完成恢复。全部步骤已完成而尚未结项时，可以尾部追加恢复。
 
+### 宿主调用中断后的执行续接
+
+`preflight-step` 一旦成功提交，Runtime 就会把本次执行的
+`execution_id`、`preflight_id`、attempt、计划 revision、精确候选路径、change
+set 和审查基线保存在当前任务中。若宿主调用在返回 receipt 前结束，下一次调用直接以
+`{}` 执行 `resume-preflight`，使用它返回的同一 receipt 继续真实命令和
+`record-step-result`；该入口只读，不新建 attempt、不扣 retry/repair/finding 预算，
+也不要求为了重建 receipt 重跑业务命令。
+
+升级 0.20.5–0.20.15 的旧任务时，Runtime 只从同一 `preflight_id`、当前
+`source_revision` 和已提交的 `record-step-preflight` proposal 恢复；缺少完整证据时返回
+结构化 `execute-step-preflight-decision`，不能从自由文本或 Git diff 猜候选路径。用户明确
+选择 `not-started` 或 `started-unknown` 后，调用 `reconcile-preflight` 记录决定并清除悬挂
+准入，再重新 `preflight-step`/`begin-repair`；不会伪造 receipt、结果或预算。宿主的 token、
+时间和工具次数属于调用承载层，不是 vNext 任务预算；调用结束只意味着稍后续接，不改变任务状态。
+
 ### 已授权的增量范围延续
 
 当 `execute-step` 发现确实需要新增文件，但用户已经明确授权了这一次精确增量，可由用户在后续独立调用公共 `prepare-task`，模式为 `amend-scope`。这条路线是独立版本化的 `scope-amendment-candidate/v1`，保留旧 `correction-replan/v2` 的 `permission_change: none` 语义。调用者提交精确的新增路径、可选的持久测试路径，以及原授权的来源和原文；若缺少 exact-path 授权，Runtime 只返回缺失路径并停止；若授权已存在，Runtime 生成候选 digest/receipt 并在同一路由内完成提交，不把 digest 当成第二次用户批准对象。

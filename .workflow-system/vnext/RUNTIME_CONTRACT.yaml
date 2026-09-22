@@ -11,7 +11,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.14
+  package_version: 0.20.16
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -163,6 +163,7 @@ proposal:
   task_state:
     actions:
       - retry-step
+      - reconcile-preflight
       - record-step-preflight
       - extend-preflight
       - step-progress
@@ -265,6 +266,27 @@ proposal:
         review: risk-selected-cumulative-review-for-self-admitted-expansion
         repair: same-evaluator-same-wave-no-retry-consumption
         first_touch: append-only-for-new-targets
+      reconciliation:
+        action: reconcile-preflight
+        required:
+          - step_id
+          - current_preflight_id
+          - mode
+          - execution_disposition
+          - decision_source
+          - decision_text
+          - evidence_refs
+        dispositions:
+          - not-started
+          - started-unknown
+        preserves:
+          - logical-attempt-count
+          - execution-history
+          - pending-review
+          - findings
+          - repair-and-retry-budgets
+          - source-and-review-bindings
+        next: fresh-preflight-after-explicit-caller-disposition
     claim_evidence:
       stored_in: canonical CURRENT_TASK.runtime_state
       report_binding: exact-claim-slot-check-only; command pass never creates or satisfies another slot
@@ -471,6 +493,8 @@ proposal:
       input: stdin-json
       commands:
         - preflight-step
+        - resume-preflight
+        - reconcile-preflight
         - extend-preflight
         - evidence-context
         - retry-step
@@ -513,6 +537,7 @@ proposal:
     bound_actions:
       - admit
       - retry-step
+      - reconcile-preflight
       - record-step-preflight
       - extend-preflight
       - step-progress

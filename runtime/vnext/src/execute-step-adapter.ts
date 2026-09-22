@@ -28,6 +28,7 @@ import {
   createStepPreflightProposal,
   createStepExtendPreflightProposal,
   createStepRetryProposal,
+  createPreflightReconciliationProposal,
   type StepRepairDiagnosis,
   nextStepAttemptId,
   evaluateClaimEvidence,
@@ -70,6 +71,8 @@ import {
   type StepExecutionLogEntry,
   type StepReviewReceipt,
   type TestStrategyExecutionContext,
+  type PreflightReconciliationDisposition,
+  type PreflightReconciliationAuditLogEntry,
 } from './kernel';
 import {
   auditCommandMutation,
@@ -79,6 +82,7 @@ import {
   parseMutationScope,
   type MutationTransformationKind,
 } from './mutation-scope';
+import { TaskStore, type TaskStoreObjectReference } from './task-store';
 import {
   MutationAuthorityError,
   normalizeBlastRadiusAssessments,
@@ -93,6 +97,8 @@ import { contextInput, integer } from './file-context';
 
 export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'preflight-step',
+  'resume-preflight',
+  'reconcile-preflight',
   'extend-preflight',
   'apply-artifact-restore',
   'artifact-checkpoints',
@@ -193,6 +199,33 @@ export type ExecuteStepRepairPreflightResult = Omit<ExecuteStepPreflightResult, 
   receipt: ExecuteStepRepairPreflightReceipt;
 };
 
+export type ExecuteStepPreflightResumeResult = Omit<ExecuteStepPreflightResult, 'operation_kind' | 'receipt'> & {
+  operation_kind: 'execute-step-preflight-resume';
+  receipt: AnyExecuteStepPreflightReceipt;
+};
+
+export type ExecuteStepPreflightDecisionResult = Omit<ExecuteStepPreflightResult, 'status' | 'operation_kind' | 'receipt'> & {
+  status: 'decision-required';
+  operation_kind: 'execute-step-preflight-decision';
+  blocker: {
+    code: 'EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE';
+    message: string;
+  };
+  preflight: {
+    mode: ExecuteStepMode;
+    step_id: string;
+    current_preflight_id: string;
+    execution_id: string | null;
+    attempt_id: string | null;
+    candidate_paths: string[] | null;
+  };
+  available_decisions: Array<{
+    execution_disposition: PreflightReconciliationDisposition;
+    effect: string;
+    command: 'reconcile-preflight';
+  }>;
+};
+
 export type ExecuteStepEvidenceContext = {
   status: 'pass' | 'partial';
   operation_kind: 'execute-step-evidence-context';
@@ -229,7 +262,7 @@ export type ExecuteStepEvidenceContext = {
   context_projection: TaskContextReference;
 };
 
-export type ExecuteStepAdapterResult = RuntimeResult | ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult | ExecuteStepEvidenceContext;
+export type ExecuteStepAdapterResult = RuntimeResult | ExecuteStepPreflightResult | ExecuteStepRepairPreflightResult | ExecuteStepPreflightResumeResult | ExecuteStepPreflightDecisionResult | ExecuteStepEvidenceContext;
 
 const MAX_ITEMS = 256;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
@@ -280,6 +313,13 @@ function text(value: unknown, location: string, maximumLength = 4096): string {
     fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location} must be one non-empty line of at most ${maximumLength} characters.`);
   }
   return normalized;
+}
+
+function verbatimText(value: unknown, location: string, maximumLength = 32768): string {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > maximumLength || /\0/u.test(value)) {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', `${location} must be a non-empty string of at most ${maximumLength} characters without NUL bytes.`);
+  }
+  return value;
 }
 
 function nullableText(value: unknown, location: string, maximumLength = 4096): string | null {
@@ -530,6 +570,13 @@ function stepPlanRevision(stepPlan: StepPlan): string {
   });
 }
 
+function ordinaryPreflightPlanRevision(current: CanonicalCurrentTask): string {
+  return digest({
+    step_id: current.runtimeState.active_step_id,
+    evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+  });
+}
+
 function changeSetId(current: CanonicalCurrentTask, stepId: string): string {
   if (current.runtimeState.review_coverage) return current.runtimeState.review_coverage.change_set_id;
   return `change-set-${digest({
@@ -671,11 +718,16 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
       fail('EXECUTE_PREFLIGHT_STALE', 'CURRENT_TASK changed after preflight; run preflight-step again before editing or committing.');
     }
   }
-  if (receipt.step_id !== current.runtimeState.active_step_id || receipt.plan_revision !== stepPlanRevision(stepPlan)) {
+  const activePreflight = current.runtimeState.execution_preflight;
+  const expectedPlanRevision = activePreflight?.step_id === receipt.step_id
+    ? activePreflight.plan_revision
+    : receipt.execution_id === undefined
+      ? stepPlanRevision(stepPlan)
+      : ordinaryPreflightPlanRevision(current);
+  if (receipt.step_id !== current.runtimeState.active_step_id || receipt.plan_revision !== expectedPlanRevision) {
     fail('EXECUTE_PREFLIGHT_STALE', 'the active step or its executable plan changed after preflight.');
   }
   const strategy = resolveTestStrategyExecutionContext(current);
-  const activePreflight = current.runtimeState.execution_preflight;
   const expectedPhase = activePreflight?.step_id === receipt.step_id
     ? activePreflight.execution_phase
     : executionPhaseForCurrentStep(current, strategy);
@@ -712,11 +764,20 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
       fail('EXECUTE_PREFLIGHT_STALE', 'the repair review or Runtime-owned change set changed after preflight.');
     }
   } else {
-    if (current.mutationAuthority) {
-      const latestAttempt = current.runtimeState.step_attempts?.[receipt.step_id]?.attempts.at(-1);
-      if (!receipt.preflight_id || !latestAttempt || latestAttempt.idempotency_key !== receipt.preflight_id) {
-        fail('EXECUTE_PREFLIGHT_STALE', 'the ordinary preflight receipt is no longer the latest receipt; use the replacement receipt returned by extend-preflight.');
-      }
+    const latestAttempt = current.runtimeState.step_attempts?.[receipt.step_id]?.attempts.at(-1);
+    const activePreflightForStep = current.runtimeState.execution_preflight?.step_id === receipt.step_id
+      ? current.runtimeState.execution_preflight
+      : undefined;
+    const receiptBindsAttempt = activePreflightForStep
+      ? activePreflightForStep.preflight_id === receipt.preflight_id
+      : latestAttempt?.idempotency_key === receipt.preflight_id;
+    // The transaction kernel still enforces whether this attempt may accept a
+    // result.  The adapter only verifies the exact execution identity here:
+    // an in-progress execution may legitimately submit another evidence-bound
+    // result while its same preflight marker is retained, and a host call may
+    // resume that same identity without spending another attempt.
+    if (!receipt.preflight_id || !latestAttempt || !receiptBindsAttempt) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'the ordinary preflight receipt is no longer the latest durable execution identity; use resume-preflight before an unrecorded execution or obtain a fresh admitted attempt.');
     }
     if (receipt.change_set_id !== changeSetId(current, receipt.step_id)) {
       fail('EXECUTE_PREFLIGHT_STALE', 'the Runtime-owned change set identity changed after preflight.');
@@ -745,6 +806,279 @@ function currentStepResult(stepPlan: StepPlan, strategy: TestStrategyExecutionCo
   };
 }
 
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function exactReviewBaseForCandidates(current: CanonicalCurrentTask, candidatePaths: readonly string[]): ReviewTarget {
+  const coverageTarget = current.runtimeState.review_coverage?.target;
+  if (!coverageTarget) {
+    fail('EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE', 'the durable preflight has no registered review baseline; obtain a fresh preflight before execution.');
+  }
+  const entries = candidatePaths.map(candidate => coverageTarget.entries.find(entry => entry.path === candidate));
+  if (entries.some(entry => entry === undefined)) {
+    fail('EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE', 'the durable preflight baseline does not cover every admitted candidate path.');
+  }
+  return createReviewTargetManifest(entries as ReviewTarget['entries']);
+}
+
+function historicalOrdinaryPreflightCandidates(
+  root: string,
+  current: CanonicalCurrentTask,
+  preflightId: string,
+  stepId: string,
+): string[] | null {
+  const store = TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent);
+  const match = store.lookupIdempotency(preflightId);
+  if (!match || match.event.resulting_source_revision !== current.sourceTuple.revision) return null;
+
+  const reference = match.event.object_refs.proposal;
+  let proposal: unknown = null;
+  if (isJsonRecord(reference) && reference.object_type === 'proposal' && typeof reference.sha256 === 'string') {
+    proposal = store.readTransactionPayload(reference as unknown as TaskStoreObjectReference, 'proposal');
+  } else if (isJsonRecord(match.event.transaction?.proposal)) {
+    const inline = match.event.transaction!.proposal;
+    if (isJsonRecord(inline) && inline.object_type === 'proposal' && typeof inline.sha256 === 'string') {
+      proposal = store.readTransactionPayload(inline as unknown as TaskStoreObjectReference, 'proposal');
+    } else {
+      proposal = inline;
+    }
+  }
+  if (!isJsonRecord(proposal)
+    || proposal.idempotency_key !== preflightId
+    || proposal.caller !== 'execute-step'
+    || proposal.operation_kind !== 'task-state-transaction'
+    || !isJsonRecord(proposal.semantic_delta)
+    || proposal.semantic_delta.action !== 'record-step-preflight'
+    || proposal.semantic_delta.step_id !== stepId
+    || (proposal.semantic_delta.mode !== undefined && proposal.semantic_delta.mode !== 'default')
+    || !Array.isArray(proposal.semantic_delta.candidate_paths)) {
+    return null;
+  }
+  return pathList(proposal.semantic_delta.candidate_paths, 'durable preflight candidate_paths', true);
+}
+
+function preflightResumeResult(
+  root: string,
+  current: CanonicalCurrentTask,
+  stepPlan: StepPlan,
+  strategy: TestStrategyExecutionContext,
+  receipt: AnyExecuteStepPreflightReceipt,
+): ExecuteStepPreflightResumeResult {
+  const activeStrategy = { ...strategy, phase: receipt.execution_phase };
+  return {
+    status: 'pass',
+    operation_kind: 'execute-step-preflight-resume',
+    committed: false,
+    read_back_verified: true,
+    current_step: currentStepResult(stepPlan, activeStrategy),
+    context_projection: taskContextReferenceForCurrent(root, current, 'preflight-step', receipt.mode),
+    receipt,
+  };
+}
+
+function preflightDecisionResult(
+  root: string,
+  current: CanonicalCurrentTask,
+  stepPlan: StepPlan,
+  strategy: TestStrategyExecutionContext,
+  mode: ExecuteStepMode,
+  currentPreflightId: string,
+  message: string,
+  active: CanonicalCurrentTask['runtimeState']['execution_preflight'],
+  attemptId: string | null,
+): ExecuteStepPreflightDecisionResult {
+  const activeStrategy = active?.mode === mode ? { ...strategy, phase: active.execution_phase } : strategy;
+  return {
+    status: 'decision-required',
+    operation_kind: 'execute-step-preflight-decision',
+    committed: false,
+    read_back_verified: true,
+    current_step: currentStepResult(stepPlan, activeStrategy),
+    context_projection: taskContextReferenceForCurrent(root, current, 'preflight-step', mode),
+    blocker: {
+      code: 'EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE',
+      message,
+    },
+    preflight: {
+      mode,
+      step_id: stepPlan.step.id,
+      current_preflight_id: currentPreflightId,
+      execution_id: active?.mode === mode ? active.execution_id : null,
+      attempt_id: attemptId,
+      candidate_paths: active?.mode === mode ? [...active.candidate_paths] : null,
+    },
+    available_decisions: [
+      {
+        execution_disposition: 'not-started',
+        effect: '清除悬挂准入并复用同一个逻辑尝试；不增加尝试次数。',
+        command: 'reconcile-preflight',
+      },
+      {
+        execution_disposition: 'started-unknown',
+        effect: '记录可能已启动且结果未知，再复用同一个逻辑尝试；不伪造结果或增加预算。',
+        command: 'reconcile-preflight',
+      },
+    ],
+  };
+}
+
+/**
+ * Rehydrate the exact latest preflight after a host/session interruption.
+ *
+ * This is deliberately read-only.  It neither creates an attempt nor changes
+ * a retry/finding budget.  The canonical execution identity is sufficient for
+ * new Runtime records; a compact store also lets upgraded Runtime versions
+ * recover a v1 preflight proposal committed before execution_preflight became
+ * durable.  No token, time or tool-count quota is represented here.
+ */
+export function resumePreflight(root: string, input: unknown): ExecuteStepPreflightResumeResult | ExecuteStepPreflightDecisionResult {
+  const source = record(input, 'resume-preflight input');
+  exactKeys(source, [], 'resume-preflight input');
+  const current = readCanonicalCurrentTask(root);
+  assertExecutableTask(current);
+  const stepPlan = currentStepPlan(current);
+  const strategy = resolveTestStrategyExecutionContext(current);
+  assertTestStrategySequenceReady(current, strategy);
+  const active = current.runtimeState.execution_preflight;
+
+  if (active?.mode === 'repair') {
+    const outstanding = outstandingRepairPreflight(current);
+    if (!outstanding) fail('EXECUTE_PREFLIGHT_NOT_OUTSTANDING', 'the current repair preflight already has a recorded result or is no longer current.');
+    const receipt = recoverOutstandingRepairReceipt(current, stepPlan, strategy, active.candidate_paths);
+    if (!receipt) {
+      return preflightDecisionResult(
+        root,
+        current,
+        stepPlan,
+        strategy,
+        'repair',
+        active.preflight_id,
+        'the retained repair preflight has no exact Runtime review baseline; choose the caller-reported execution disposition and run reconcile-preflight.',
+        active,
+        null,
+      );
+    }
+    return preflightResumeResult(root, current, stepPlan, strategy, receipt);
+  }
+
+  assertOrdinaryPreflight(current, root);
+  const ledger = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id];
+  const latestAttempt = ledger?.attempts.at(-1);
+  if (!latestAttempt || latestAttempt.status !== 'preflighted') {
+    fail('EXECUTE_PREFLIGHT_NOT_OUTSTANDING', 'there is no current preflighted attempt to resume.');
+  }
+
+  if (active?.mode === 'default') {
+    if (active.step_id !== stepPlan.step.id) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'the durable preflight does not bind the latest active ordinary attempt.');
+    }
+    const receipt: ExecuteStepPreflightReceipt = {
+      kind: 'execute-step-preflight/v1',
+      preflight_id: active.preflight_id,
+      execution_id: active.execution_id,
+      attempt_id: latestAttempt.attempt_id,
+      task_id: current.runtimeState.task_id,
+      document_id: current.sourceTuple.document_id,
+      source_revision: current.sourceTuple.revision,
+      step_id: stepPlan.step.id,
+      plan_revision: active.plan_revision,
+      mode: 'default',
+      test_strategy_mode: strategy.mode,
+      execution_phase: active.execution_phase,
+      candidate_paths: [...active.candidate_paths],
+      repair_fingerprint: null,
+      change_set_id: active.change_set_id,
+      review_base: exactReviewBaseForCandidates(current, active.candidate_paths),
+      ...(current.mutationAuthority ? { mutation_authority_version: 2 as const } : {}),
+    };
+    return preflightResumeResult(root, current, stepPlan, strategy, receipt);
+  }
+
+  // 0.20.5–0.20.14 v1 tasks may have committed the preflight proposal and
+  // attempt ledger before execution_preflight was persisted.  Recover only
+  // from that exact committed proposal; never infer candidate paths from
+  // prose, Git diff or a caller-provided replacement.
+  const candidatePaths = historicalOrdinaryPreflightCandidates(root, current, latestAttempt.idempotency_key, stepPlan.step.id);
+  if (!candidatePaths) {
+    return preflightDecisionResult(
+      root,
+      current,
+      stepPlan,
+      strategy,
+      'default',
+      latestAttempt.idempotency_key,
+      'the older preflight has no exact committed proposal; Runtime will not invent a receipt. Choose whether the execution was not started or started with an unknown result, then run reconcile-preflight.',
+      active,
+      latestAttempt.attempt_id,
+    );
+  }
+  const receipt: ExecuteStepPreflightReceipt = {
+    kind: 'execute-step-preflight/v1',
+    preflight_id: latestAttempt.idempotency_key,
+    attempt_id: latestAttempt.attempt_id,
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision,
+    step_id: stepPlan.step.id,
+    plan_revision: stepPlanRevision(stepPlan),
+    mode: 'default',
+    test_strategy_mode: strategy.mode,
+    execution_phase: strategy.phase,
+    candidate_paths: candidatePaths,
+    repair_fingerprint: null,
+    change_set_id: changeSetId(current, stepPlan.step.id),
+    review_base: exactReviewBaseForCandidates(current, candidatePaths),
+    ...(current.mutationAuthority ? { mutation_authority_version: 2 as const } : {}),
+  };
+  return preflightResumeResult(root, current, stepPlan, strategy, receipt);
+}
+
+export function reconcilePreflight(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  const source = record(input, 'reconcile-preflight input');
+  exactKeys(source, [
+    'step_id', 'current_preflight_id', 'mode', 'execution_disposition', 'decision_source', 'decision_text', 'idempotency_key',
+    ...(source.evidence_refs === undefined ? [] : ['evidence_refs']),
+  ], 'reconcile-preflight input');
+  const current = readCanonicalCurrentTask(root);
+  const mode = text(source.mode, 'mode', 32) as ExecuteStepMode;
+  if (mode !== 'default' && mode !== 'repair') fail('EXECUTE_ADAPTER_INPUT_INVALID', 'mode must be default or repair.');
+  const executionDisposition = text(source.execution_disposition, 'execution_disposition', 32) as PreflightReconciliationDisposition;
+  if (executionDisposition !== 'not-started' && executionDisposition !== 'started-unknown') {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', 'execution_disposition must be not-started or started-unknown.');
+  }
+  const evidenceRefs = source.evidence_refs === undefined ? [] : textList(source.evidence_refs, 'evidence_refs', true);
+  const normalized = {
+    step_id: text(source.step_id, 'step_id', 128),
+    current_preflight_id: text(source.current_preflight_id, 'current_preflight_id', 128),
+    mode,
+    execution_disposition: executionDisposition,
+    decision_source: text(source.decision_source, 'decision_source', 1024),
+    decision_text: verbatimText(source.decision_text, 'decision_text'),
+    evidence_refs: [...new Set([current.relativePath, ...evidenceRefs])],
+    idempotency_key: text(source.idempotency_key, 'idempotency_key', 128),
+  };
+  const prior = current.runtimeState.execution_log.find((item): item is PreflightReconciliationAuditLogEntry =>
+    'action' in item && item.action === 'reconcile-preflight' && item.idempotency_key === normalized.idempotency_key,
+  );
+  const replayMatches = prior !== undefined
+    && prior.step_id === normalized.step_id
+    && prior.current_preflight_id === normalized.current_preflight_id
+    && prior.mode === normalized.mode
+    && prior.execution_disposition === normalized.execution_disposition
+    && prior.decision_source === normalized.decision_source
+    && prior.decision_text === normalized.decision_text
+    && prior.evidence_refs.join('|') === normalized.evidence_refs.join('|');
+  const proposal = createPreflightReconciliationProposal(current, {
+    ...normalized,
+    ...(replayMatches && prior ? {
+      source_tuple: prior.source_tuple,
+      authority_evidence: prior.authority_evidence,
+    } : {}),
+  });
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
+}
+
 function recoverOutstandingRepairReceipt(
   current: CanonicalCurrentTask,
   stepPlan: StepPlan,
@@ -762,7 +1096,7 @@ function recoverOutstandingRepairReceipt(
   const expectedBasePaths = [...new Set([...(reviewTargetPaths ?? []), ...active.candidate_paths])].sort();
   if (!pending || !reviewTargetPaths || !coverageTarget
     || digest(coverageTarget.entries.map(item => item.path).sort()) !== digest(expectedBasePaths)) {
-    fail('EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE', 'the retained repair preflight has no exact Runtime review baseline; obtain a fresh review receipt before retrying.');
+    return null;
   }
   const receipt: ExecuteStepRepairPreflightReceipt = {
     kind: 'execute-step-repair-preflight/v1',
@@ -1099,22 +1433,20 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   const hasPrerequisites = current.runtimeState.claim_evidence?.some(claim => claim.slots.some(slot => slot.before_step_id === stepPlan.step.id && !slot.prerequisite_receipt));
   if (coverage && !hasPrerequisites && captureReviewTarget(root, coverage.target.entries.map(entry => entry.path)).revision !== coverage.target.revision) fail('REVIEW_TARGET_STALE', 'Unrecorded changes cannot refresh the cumulative baseline.');
   const activePreflightMatchesStep = current.runtimeState.execution_preflight?.step_id === stepPlan.step.id;
-  if (current.mutationAuthority && activePreflightMatchesStep
+  if (activePreflightMatchesStep
     && digest(current.runtimeState.execution_preflight!.candidate_paths) !== digest(candidatePaths)) {
-    fail('EXECUTE_PREFLIGHT_STALE', 'the active v2 preflight already owns a different target set; use extend-preflight for additional targets.');
+    fail('EXECUTE_PREFLIGHT_STALE', 'the active preflight already owns a different target set; use extend-preflight for additional targets.');
   }
   if (!current.runtimeState.step_attempts?.[stepPlan.step.id] || !coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready' || (current.mutationAuthority && !activePreflightMatchesStep)) {
   const proposal = createStepPreflightProposal(
     current,
     candidatePaths,
     assessments,
-    current.mutationAuthority
-      ? {
-        plan_revision: stepPlanRevision(stepPlan),
-        execution_phase: phase,
-        change_set_id: changeSetId(current, stepPlan.step.id),
-      }
-      : {},
+    {
+      ...(current.mutationAuthority ? { plan_revision: stepPlanRevision(stepPlan) } : {}),
+      execution_phase: phase,
+      change_set_id: changeSetId(current, stepPlan.step.id),
+    },
   );
     preflightId = proposal.idempotency_key;
     const registration = applyVNextRuntimeProposal(root, proposal);
@@ -1122,8 +1454,14 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     committed = registration.committed;
     current = readCanonicalCurrentTask(root);
   }
-  if (!preflightId) preflightId = current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.idempotency_key;
   const executionPreflight = current.runtimeState.execution_preflight;
+  // A retry/admission key belongs to the attempt ledger.  Once a durable
+  // execution marker exists, receipts must use its own preflight identity;
+  // otherwise a retry key would masquerade as the execution key when the
+  // same preflight is read again after a partial result.
+  if (!preflightId) preflightId = executionPreflight?.step_id === stepPlan.step.id
+    ? executionPreflight.preflight_id
+    : current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.idempotency_key;
   const activeStrategy = executionPreflight?.step_id === stepPlan.step.id
     ? { ...strategy, phase: executionPreflight.execution_phase }
     : { ...strategy, phase };
@@ -1136,14 +1474,17 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
     step_id: stepPlan.step.id,
-    plan_revision: stepPlanRevision(stepPlan),
+    plan_revision: executionPreflight?.plan_revision
+      ?? (executionPreflight ? ordinaryPreflightPlanRevision(current) : stepPlanRevision(stepPlan)),
     mode: 'default',
     test_strategy_mode: strategy.mode,
     execution_phase: activeStrategy.phase,
-    candidate_paths: candidatePaths,
+    candidate_paths: executionPreflight?.candidate_paths ?? candidatePaths,
     repair_fingerprint: null,
-    change_set_id: changeSetId(current, stepPlan.step.id),
-    review_base: captureReviewTarget(root, candidatePaths),
+    change_set_id: executionPreflight?.change_set_id ?? changeSetId(current, stepPlan.step.id),
+    review_base: executionPreflight?.step_id === stepPlan.step.id
+      ? exactReviewBaseForCandidates(current, executionPreflight.candidate_paths)
+      : captureReviewTarget(root, candidatePaths),
     ...(current.mutationAuthority ? { mutation_authority_version: 2 as const } : {}),
   };
   return {
@@ -2018,6 +2359,12 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
     switch (args.command) {
       case 'preflight-step':
         result = preflightStep(args.root, input);
+        break;
+      case 'resume-preflight':
+        result = resumePreflight(args.root, input);
+        break;
+      case 'reconcile-preflight':
+        result = reconcilePreflight(args.root, input, { dryRun: args.dryRun });
         break;
       case 'extend-preflight':
         result = extendPreflight(args.root, input, { dryRun: args.dryRun });
