@@ -87,6 +87,88 @@ may replace the live pointer through the typed draft schema below only after
 the archive is verified. `TASK_SUMMARY.md` is retained as a legacy/source-
 repository schema and is not a vNext close-task durable output.
 
+### Finding facts and user-decision transaction
+
+vNext keeps review facts, repair priority, and user disposition as separate
+durable values. A finding may be `observed`, `admitted`, `in-progress`,
+`resolved`, `deferred`, `rejected`, or `accepted-risk`; the last three are
+explicit terminal user dispositions and must not be inferred from a reviewer's
+free text. `record-review-result` retains the structured finding, blocker,
+failed/not-run check, resolved fingerprint, and evidence references even when
+execution is blocked. It does not consume a finding or fabricate `clean`.
+`rejected` means the user declined repair; it is not evidence that the finding
+was a false positive or was resolved. It remains a closure and successor
+obligation until explicitly handled by the corresponding decision.
+
+`record-user-decision` is an atomic `user-decision/v1` transaction. Its minimum
+record is `decision_source`, verbatim `decision_text`, `task_id`,
+`source_revision`, `effects`, and `idempotency_key`; it may additionally bind a
+`review_id`, `change_set_id`, and `evidence_refs`. Effects explicitly name
+`repair-finding`, `defer-finding`, `reject-finding`, `accept-finding-risk`,
+`reopen-finding`, `continue-after-warning`, `cancel-replan-block`, `authorize-mutation`, or
+`advance-with-exceptions` / `close-with-exceptions`.
+Runtime writes the decision event, Task Basis reference, applicable finding
+transition, pending-review consumption or repair handoff, and audit projection
+together.
+Exact replay is a no-op; stale identity or cross-review targets are rejected.
+Disposition-only decisions preserve the pending review and do not advance a
+step. `continue-after-warning` binds the exact pending recovery review, change
+set, `CONTROLLED_RECOVERY_LIMIT` gate, selected open `finding:<fingerprint>`
+targets, and the exact `authorized_repair_waves` count. It records an auditable
+warning acknowledgement; a later controlled grant must bind its unused
+decision ID when crossing the historical thresholds.
+Several distinct `continue-after-warning` effects may share one decision when
+the same operation crosses multiple process-policy gates; each effect names
+its own exact gate and targets. A blocked review with repair or new-finding
+budget exhaustion may consume that decision for its selected findings without
+claiming a clean review. The selected decision ID stays on the execution
+preflight, replacement receipt and result.
+For `blocked_by_replan + active`, a separate `cancel-replan-block` decision
+targets only `gate:blocked-by-replan`. It returns workflow status to `active`
+while preserving the review, findings and evidence. A subsequent
+`close-with-exceptions` decision can then authorize stopped-by-user archival.
+Review findings outside the current mutation or step authority are retained in
+the structured pending review with `repair_scope_hint: outside-current-authority`;
+the hint grants no write permission. A separate `authorize-mutation` effect
+names sorted exact paths from that pending review and binds its review and
+change set. `prepare-task:amend-scope` may then accept
+`authorization: {decision_id: <that decision's idempotency_key>}` and reuse its
+verbatim source/text and exact path authorization. The decision's `review_id`
+and `change_set_id` must still identify the current pending review. Runtime
+preserves the decision ID and both coordinates in the candidate, candidate
+receipt, and commit audit, and rechecks them at both preparation and commit.
+An ended or changed review returns `SCOPE_AMENDMENT_AUTHORIZATION_CONFLICT`;
+record a new review-bound decision instead of reusing the old one. The
+existing amendment transaction still checks path safety, plan validity and
+execution settlement before changing authority. A user may instead defer,
+reject or accept the risk of the observed finding without any scope amendment.
+
+`advance-with-exceptions` yields a `disposition` review receipt with
+`completion_disposition: user-directed-with-exceptions`, never a clean receipt.
+Every candidate and unresolved fingerprint in the current review must have a
+durable disposition bound to that review. The effect names every exceptional
+`finding:<fingerprint>` and `blocker:<code>`; the decision audit retains the full
+`consumed_review` atomically with the queue and advancement.
+Discovery disposition receipts keep `admitted_fingerprints: []`; disposition
+targets remain in `consumed_review`. The existing phase constraint is unchanged,
+and Runtime validates the constructed receipt before committing it.
+`reopen-finding` preserves previous attempts/evidence and creates a fresh bound
+repair handoff. Terminal archive exceptions use exact durable decision IDs and
+must name each remaining obligation (such as `step:<id>`, `task-complete`,
+`acceptance`, or `validation`); they retain false acceptance/validation facts.
+Close decisions retain `closure_obligation_snapshot: {state_digest,
+obligation_ids}`. Runtime compares it against the current definition, runtime
+facts, reviewed file contents and evidence satisfaction before closure. Missing
+or changed snapshots require a fresh decision. Deferred, rejected and accepted-risk
+findings prohibit ordinary `verified` closure: each must appear as an exact
+`finding:<fingerprint>` in both the close decision and `remaining_risks`.
+`stopped-by-user` requires `gate:stopped-by-user`, the exact pending
+`review:<review_id>` and `blocker:<code>` when present, and all remaining finding
+targets. Its archive transaction preserves pending review, open findings, step
+progress and evidence facts; it does not require advancement or repair first.
+No state file, finding, pending review, or audit history may be edited directly
+to simulate a decision.
+
 ### Ordinary draft / confirmation schema
 
 An independent request is persisted in the single canonical

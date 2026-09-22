@@ -23,9 +23,16 @@ import {
   repairBudgetExtensionEligibility,
   controlledRepairContinuationForPendingReview,
   controlledRepairRecoveryEligibility,
+  CONTROLLED_RECOVERY_WARNING_GATE,
+  MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING,
+  MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT,
+  MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW,
   isRepairRecoveryReviewBlocked,
+  repairFingerprintsForPendingReview,
   currentDefinitionExecutionLog,
   outstandingRepairPreflight,
+  policyGateDescriptor,
+  policyTargetIdsForCurrent,
   readCanonicalCurrentTask,
   recoverPendingTaskStoreCommit,
   type CanonicalCurrentTask,
@@ -445,7 +452,7 @@ function dependencyResults(current: CanonicalCurrentTask): AnyRecord[] {
 function unresolvedFindings(current: CanonicalCurrentTask): AnyRecord[] {
   return (Array.isArray(current.runtimeState.findings) ? current.runtimeState.findings : [])
     .filter(record)
-    .filter(finding => finding.status !== 'resolved' && finding.status !== 'rejected')
+    .filter(finding => !['resolved', 'deferred', 'rejected', 'accepted-risk'].includes(String(finding.status)))
     .map(finding => ({
       fingerprint: finding.fingerprint ?? null,
       status: finding.status ?? null,
@@ -534,6 +541,57 @@ function storeNavigation(root: string, current: CanonicalCurrentTask, manifest: 
   };
 }
 
+function executableContextEntry(route: string | undefined): string | undefined {
+  // `user` is a legacy review-blocker label, not an executable command. The
+  // user-decision transaction is the concrete Runtime route for that label.
+  return route === 'user' ? 'record-user-decision' : route;
+}
+
+function policyGatesForCurrent(current: CanonicalCurrentTask): AnyRecord[] {
+  const state = current.runtimeState;
+  const pendingReview = record(state.pending_review_result) ? state.pending_review_result : null;
+  const policyGates: AnyRecord[] = [];
+  const pendingPolicy = policyGateDescriptor(pendingReview?.blocker?.code);
+  if (pendingPolicy) {
+    policyGates.push({
+      code: pendingPolicy.gate_code,
+      warning_only: true,
+      command: pendingPolicy.route,
+      effect: pendingPolicy.effect,
+      target_ids: policyTargetIdsForCurrent(current, pendingPolicy.gate_code),
+      ...(pendingReview?.review_id === undefined ? {} : { review_id: pendingReview.review_id }),
+      ...(pendingReview?.change_set_id === undefined ? {} : { change_set_id: pendingReview.change_set_id }),
+    });
+  }
+  const activeLedger = state.step_attempts?.[state.active_step_id];
+  if (state.active_step_status === 'blocked'
+    && (activeLedger?.attempts.length ?? 0) >= (activeLedger?.max_attempts ?? 3)) {
+    const retryPolicy = policyGateDescriptor('RETRY_BUDGET_EXHAUSTED');
+    if (retryPolicy && !policyGates.some(item => item.code === retryPolicy.gate_code)) {
+      policyGates.push({
+        code: retryPolicy.gate_code,
+        warning_only: true,
+        command: retryPolicy.route,
+        effect: retryPolicy.effect,
+        target_ids: policyTargetIdsForCurrent(current, retryPolicy.gate_code),
+      });
+    }
+  }
+  if (dynamicReviewRequiredForCurrentExecution(current) && state.active_step_status === 'in-progress') {
+    const dynamicPolicy = policyGateDescriptor('DYNAMIC_REVIEW_REQUIRED');
+    if (dynamicPolicy && !policyGates.some(item => item.code === dynamicPolicy.gate_code)) {
+      policyGates.push({
+        code: dynamicPolicy.gate_code,
+        warning_only: true,
+        command: dynamicPolicy.route,
+        effect: dynamicPolicy.effect,
+        target_ids: policyTargetIdsForCurrent(current, dynamicPolicy.gate_code),
+      });
+    }
+  }
+  return policyGates;
+}
+
 function contextOverview(root: string, current: CanonicalCurrentTask, manifest: TaskStoreManifest | null): AnyRecord {
   const state = current.runtimeState;
   const ledger = record(state.step_attempts) && record(state.step_attempts[state.active_step_id]) ? state.step_attempts[state.active_step_id] as AnyRecord : null;
@@ -556,8 +614,19 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     ? state.evidence_challenges.filter(record).filter(item => item.status !== 'resolved').length
     : 0;
   const pendingReview = record(state.pending_review_result) ? state.pending_review_result : null;
+  const pendingScopeFindings = (state.pending_review_result?.findings ?? [])
+    .filter(item => item.repair_scope_hint === 'outside-current-authority')
+    .filter(item => !state.findings.some(finding => finding.fingerprint === item.fingerprint && ['resolved', 'deferred', 'rejected', 'accepted-risk'].includes(finding.status)))
+    .map(item => ({ fingerprint: item.fingerprint, file: item.file }));
   const budgetContinuation = repairBudgetContinuationForPendingReview(current);
   const controlledRecoveryContinuation = controlledRepairContinuationForPendingReview(current);
+  const unselectedExhaustedFingerprints = controlledRecoveryContinuation?.repair_fingerprints.filter(fingerprint => {
+    if (controlledRecoveryContinuation.recovery_fingerprints.includes(fingerprint)) return false;
+    const finding = state.findings.find(item => item.fingerprint === fingerprint);
+    return finding !== undefined
+      && ['admitted', 'in-progress'].includes(finding.status)
+      && finding.repair_attempts >= finding.max_repair_attempts;
+  }) ?? [];
   const budgetExhausted = pendingReview?.verdict === 'blocked'
     && record(pendingReview.blocker)
     && pendingReview.blocker.code === 'REPAIR_BUDGET_EXHAUSTED';
@@ -569,62 +638,82 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const budgetExtensionAvailable = budgetExtensionEligibility?.eligible === true;
   const controlledRecoveryEligibility = repairRecoveryBlocked ? controlledRepairRecoveryEligibility(current) : null;
   const controlledRecoveryAvailable = controlledRecoveryEligibility?.eligible === true;
+  const policyGates = policyGatesForCurrent(current);
+  const pendingPolicy = policyGateDescriptor(pendingReview?.blocker?.code);
   const outstandingRepair = outstandingRepairPreflight(current);
   const reviewableUnreviewedExecution = latestReviewableUnreviewedExecution(current);
   const pendingRepair = pendingReview?.verdict === 'findings';
   const repairExecutionRequired = outstandingRepair !== null || pendingRepair;
+  const pendingDispositionRequired = pendingReview !== null
+    && ['findings', 'blocked'].includes(String(pendingReview.verdict))
+    && repairFingerprintsForPendingReview(current).length === 0;
   const retainedCleanReview = pendingReview?.verdict === 'clean' && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === 'findings' && state.scope_amendment_pending_review_step_id !== undefined;
   const dynamicReviewReady = dynamicReviewRequiredForCurrentExecution(current)
     && state.active_step_status === 'in-progress'
     && latest?.execution_result_status !== null
     && latest?.execution_result_status !== undefined;
-  const nextEntry = state.resume_requires_review
-    ? 'prepare-task:clear-resume-review'
+  const pendingPolicyEntry = executableContextEntry(pendingPolicy?.route);
+  const nextEntry = state.workflow_status === 'blocked_by_replan'
+    ? 'record-user-decision'
+    : state.resume_requires_review
+      ? 'prepare-task:clear-resume-review'
     : reviewableUnreviewedExecution !== null
       ? 'review-change'
+    : pendingDispositionRequired
+      ? 'record-user-decision'
+    : unselectedExhaustedFingerprints.length > 0
+      ? 'record-user-decision'
     : budgetContinuation || controlledRecoveryContinuation
       ? 'execute-step:repair'
       : repairExecutionRequired
-        ? 'execute-step:repair'
+        ? pendingScopeFindings.length > 0 ? 'record-user-decision' : 'execute-step:repair'
       : budgetExtensionAvailable
         ? 'prepare-task:extend-repair-budget'
-        : controlledRecoveryAvailable
+      : controlledRecoveryAvailable
         ? 'prepare-task:authorize-controlled-repair-recovery'
       : budgetExhausted
-        ? 'debug-task'
+        ? 'record-user-decision'
+        : pendingPolicyEntry
+          ? pendingPolicyEntry
         : formatScopeBlocked
           ? 'prepare-task:prepare-evidence-plan-amendment'
         : retainedCleanReview
             ? 'execute-step:complete-reviewed-step'
             : retainedFindingReview
               ? 'execute-step:repair'
-              : state.workflow_status === 'blocked_by_replan'
-                ? 'prepare-task:amend-scope'
-                : state.active_step_status === 'blocked'
-                  ? 'debug-task'
-                  : dynamicReviewReady
-                    ? 'review-change'
-                    : 'preflight-step';
-  const nextOptions = reviewableUnreviewedExecution !== null
+              : state.active_step_status === 'blocked'
+                ? 'debug-task'
+                : dynamicReviewReady
+                  ? 'review-change'
+                  : 'preflight-step';
+  const nextOptions = state.workflow_status === 'blocked_by_replan'
+    ? ['record-user-decision', 'prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
+    : reviewableUnreviewedExecution !== null
     ? ['review-change']
+    : pendingDispositionRequired
+    ? ['record-user-decision']
+    : unselectedExhaustedFingerprints.length > 0
+    ? ['record-user-decision']
     : budgetContinuation || controlledRecoveryContinuation
     ? ['execute-step:repair']
     : repairExecutionRequired
-      ? ['execute-step:repair']
+      ? pendingScopeFindings.length > 0
+        ? ['record-user-decision', 'prepare-task:amend-scope', 'execute-step:repair']
+        : ['execute-step:repair']
     : budgetExtensionAvailable
-      ? ['prepare-task:extend-repair-budget', 'debug-task']
+      ? ['record-user-decision', 'prepare-task:extend-repair-budget', 'debug-task']
       : controlledRecoveryAvailable
-        ? ['prepare-task:authorize-controlled-repair-recovery', 'debug-task']
-      : budgetExhausted
-        ? ['debug-task']
+        ? ['record-user-decision', 'prepare-task:authorize-controlled-repair-recovery', 'debug-task']
+    : budgetExhausted
+        ? ['record-user-decision', 'debug-task']
+        : pendingPolicyEntry
+          ? [...new Set(['record-user-decision', pendingPolicyEntry])]
         : formatScopeBlocked
-          ? ['prepare-task:prepare-evidence-plan-amendment', 'debug-task']
-        : state.workflow_status === 'blocked_by_replan'
-          ? ['prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
-          : state.active_step_status === 'blocked'
-            ? ['debug-task', 'execute-step']
-            : [nextEntry];
+          ? ['record-user-decision', 'prepare-task:prepare-evidence-plan-amendment', 'debug-task']
+        : state.active_step_status === 'blocked'
+          ? ['debug-task', 'execute-step']
+          : [nextEntry];
   return {
     identity: {
       task_id: state.task_id,
@@ -651,6 +740,12 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         exact_exceptions: [...current.mutationAuthority.exact_exceptions],
         forbidden: [...current.mutationAuthority.forbidden],
       },
+    pending_scope_findings: {
+      findings: pendingScopeFindings,
+      decision_route: pendingScopeFindings.length > 0 ? 'record-user-decision' : null,
+      authorization_effect: pendingScopeFindings.length > 0 ? 'authorize-mutation' : null,
+      amendment_route: pendingScopeFindings.length > 0 ? 'prepare-task:amend-scope' : null,
+    },
     dynamic_mutation: {
       review_required: dynamicReviewRequiredForCurrentExecution(current),
       expansions: (state.dynamic_expansions ?? []).slice(0, 64).map(item => ({
@@ -727,7 +822,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         ? 'prepare-task:extend-repair-budget'
         : controlledRecoveryAvailable
           ? 'prepare-task:authorize-controlled-repair-recovery'
-          : 'user-owned-blocker:diagnose-or-request-controlled-recovery-authorization',
+          : 'record-user-decision',
     },
     controlled_recovery: controlledRecoveryEligibility === null ? null : {
       eligible: controlledRecoveryEligibility.eligible,
@@ -736,23 +831,37 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       repair_fingerprints: controlledRecoveryEligibility.repair_fingerprints,
       recovery_fingerprints: controlledRecoveryEligibility.recovery_fingerprints,
       candidate_recovery_fingerprints: controlledRecoveryEligibility.candidate_recovery_fingerprints,
+      candidate_controlled_attempts: controlledRecoveryEligibility.candidate_recovery_fingerprints.map(fingerprint => ({
+        fingerprint,
+        consumed_attempts: state.findings.find(item => item.fingerprint === fingerprint)?.controlled_repair_attempts ?? 0,
+      })),
+      unselected_exhausted_fingerprints: unselectedExhaustedFingerprints,
       disposition_source: controlledRecoveryEligibility.disposition_source,
       repair_round: controlledRecoveryEligibility.repair_round,
       repair_round_limit: controlledRecoveryEligibility.repair_round_limit,
       controlled_attempt_limit: controlledRecoveryEligibility.controlled_attempt_limit,
       authorized_repair_waves: controlledRecoveryEligibility.authorized_repair_waves,
       remaining_repair_waves: controlledRecoveryEligibility.remaining_repair_waves,
+      warning_thresholds: {
+        controlled_attempts_per_finding: MAX_CONTROLLED_REPAIR_ATTEMPTS_PER_FINDING,
+        waves_per_grant: MAX_CONTROLLED_REPAIR_WAVES_PER_GRANT,
+        grants_per_review: MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW,
+      },
+      warning_gate_code: CONTROLLED_RECOVERY_WARNING_GATE,
+      warning_decision_route: 'record-user-decision',
+      prior_grants_for_review: (state.controlled_repair_grants ?? []).filter(item => item.review_id === pendingReview?.review_id).length,
       blocking_reasons: controlledRecoveryEligibility.blocking_reasons,
       user_decision_route: controlledRecoveryEligibility.eligible
         ? 'prepare-task:authorize-controlled-repair-recovery'
-        : 'user-owned-blocker:record-structured-review-disposition-or-stop',
+        : 'record-user-decision',
     },
     ...(formatScopeBlocked ? {
       format_scope_blocker: {
         present: true,
         blocker: pendingReview?.blocker ?? null,
         preserves_business_findings: true,
-        user_decision_route: 'prepare-task:prepare-evidence-plan-amendment',
+        user_decision_route: 'record-user-decision',
+        scope_amendment_route: 'prepare-task:prepare-evidence-plan-amendment',
         controlled_recovery_route: controlledRecoveryAvailable
           ? 'prepare-task:authorize-controlled-repair-recovery'
           : null,
@@ -760,6 +869,50 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     } : {}),
     storage: storeNavigation(root, current, manifest),
   };
+}
+
+/**
+ * Keep the response envelope usable for callers that deliberately request the
+ * smallest supported context page.  Required detail still lives in paged
+ * blocks; this removes only redundant zero/null navigation metadata from the
+ * envelope and leaves the full projection unchanged at the normal budget.
+ */
+function compactContextOverviewForSmallPage(overview: AnyRecord): AnyRecord {
+  const compact = structuredClone(overview) as AnyRecord;
+  const pendingScopeFindings = record(compact.pending_scope_findings) ? compact.pending_scope_findings : null;
+  if (pendingScopeFindings && Array.isArray(pendingScopeFindings.findings) && pendingScopeFindings.findings.length === 0) {
+    delete compact.pending_scope_findings;
+  }
+  const dynamicMutation = record(compact.dynamic_mutation) ? compact.dynamic_mutation : null;
+  if (dynamicMutation && dynamicMutation.review_required === false
+    && Array.isArray(dynamicMutation.expansions) && dynamicMutation.expansions.length === 0) {
+    delete compact.dynamic_mutation;
+  }
+  for (const key of ['latest_execution', 'repair_execution_recovery', 'budget_extension', 'controlled_recovery'] as const) {
+    if (compact[key] === null) delete compact[key];
+  }
+  const storage = record(compact.storage) ? compact.storage : null;
+  if (storage?.available === false) delete compact.storage;
+  const obligations = record(compact.obligations) ? compact.obligations : null;
+  if (obligations) {
+    if (obligations.unfinished_count === 0) delete obligations.unfinished_block;
+    if (obligations.dependencies_recorded_count === 0) delete obligations.dependencies_block;
+    if (obligations.dependencies_unknown === 0) delete obligations.unknown_dependencies_block;
+  }
+  const gates = record(compact.gates) ? compact.gates : null;
+  if (gates) {
+    if (gates.pending_review_verdict === null) delete gates.pending_review_verdict;
+    if (gates.pending_review_step_id === null) delete gates.pending_review_step_id;
+    if (gates.unresolved_findings_count === 0) delete gates.unresolved_findings_block;
+    if (gates.unresolved_evidence_challenges_count === 0) delete gates.unresolved_evidence_challenges_block;
+    if (gates.attempt_count === 0) delete gates.attempt_count;
+    if (gates.attempt_budget === null) delete gates.attempt_budget;
+    if (gates.pending_replan_candidates === 0) delete gates.pending_replan_candidates;
+    if (gates.pending_scope_amendment_candidates === 0) delete gates.pending_scope_amendment_candidates;
+    if (gates.dynamic_review_required === false) delete gates.dynamic_review_required;
+    if (gates.dynamic_expansion_count === 0) delete gates.dynamic_expansion_count;
+  }
+  return compact;
 }
 
 function operationBlocks(root: string, current: CanonicalCurrentTask, entry: string, mode: string, definitionReused: boolean, manifest: TaskStoreManifest | null): { blocks: TaskContextBlock[]; required: string[]; optional: string[] } {
@@ -802,6 +955,7 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
     unresolved_findings: unresolvedFindings(current),
     unresolved_evidence_challenges: Array.isArray(current.runtimeState.evidence_challenges) ? current.runtimeState.evidence_challenges.filter(record).filter(item => item.status !== 'resolved').map(item => ({ challenge_id: item.challenge_id ?? null, status: item.status ?? null, claim_id: item.claim_id ?? null, slot_id: item.slot_id ?? null, result_id: item.result_id ?? null })) : [],
     active_attempt: record(current.runtimeState.step_attempts) && record(current.runtimeState.step_attempts[current.runtimeState.active_step_id]) ? current.runtimeState.step_attempts[current.runtimeState.active_step_id] : null,
+    policy_gates: policyGatesForCurrent(current),
     dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
     dynamic_expansions: current.runtimeState.dynamic_expansions ?? [],
   });
@@ -883,7 +1037,9 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
   const built = operationBlocks(root, current, entry, mode, definitionReused, manifest);
   selection.required = built.required;
   selection.optional = built.optional;
-  const overview = contextOverview(root, current, manifest);
+  const overview = maxBytes <= 4096
+    ? compactContextOverviewForSmallPage(contextOverview(root, current, manifest))
+    : contextOverview(root, current, manifest);
   const base: AnyRecord = {
     status: 'success',
     operation_kind: TASK_CONTEXT_OPERATION,
@@ -944,7 +1100,10 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
     const original = built.blocks[blockIndex]!;
     const serialized = stableJson(original.value);
     const full: TaskContextBlock = { id: original.id, required: original.required, value: original.value };
-    const candidate = { ...base, blocks: [...returned, full] };
+    const fullCursor = blockIndex + 1 < built.blocks.length
+      ? { kind: 'task-context-page/v1' as const, source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, block_index: blockIndex + 1, byte_offset: 0 }
+      : null;
+    const candidate = makePage([...returned, full], fullCursor);
     if (fits(candidate, maxBytes)) {
       returned.push(full);
       blockIndex++;
@@ -952,6 +1111,32 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
       continue;
     }
     const serializedBytes = Buffer.byteLength(serialized, 'utf8');
+    const deferredCursor = {
+      kind: 'task-context-page/v1' as const,
+      source_revision: current.sourceTuple.revision,
+      definition_revision: definitionRevision,
+      state_revision: stateRevision,
+      block_index: blockIndex,
+      byte_offset: byteOffset,
+    };
+    // A valid page may have no room for even one byte of the next required
+    // block after an earlier block was returned.  Defer that block to the
+    // continuation instead of treating the caller's small page budget as a
+    // malformed context request.
+    const minimalBlock: TaskContextBlock = {
+      id: original.id,
+      required: original.required,
+      value: undefined,
+      encoding: 'json',
+      text: '',
+      byte_offset: byteOffset,
+      total_bytes: serializedBytes,
+      truncated: true,
+    };
+    if (returned.length > 0 && !fits(makePage([...returned, minimalBlock], deferredCursor), maxBytes)) {
+      next = deferredCursor;
+      break;
+    }
     const chunked = jsonChunk(
       serialized,
       byteOffset,

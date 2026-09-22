@@ -246,6 +246,15 @@ separate caller invocations; a successful amendment alone is not completion.
 Implemented results require passed companions; an expected-failure result must
 bind the exact admitted before-step reproduction check and successful report. Expected-failure/test-red remain historical data types, never positive
 acceptance. New reproduction results must bind the admitted before-step check; they never satisfy positive acceptance.
+An actual `test-red` result in a Red preflight requires no additional warning
+decision. Outside Red, only a decision for the exact
+`TEST_STRATEGY_SEQUENCE_INVALID` gate permits recording and reviewing it as
+`test-red`; its `acceptance_evidence` must contain a new report for the exact
+unconsumed before-step non-acceptance reproduction check. Positive acceptance
+remains forbidden and unsatisfied.
+The user may record that warning after preflight, call `resume-preflight` for
+the current source revision of the same execution, and supply its ID with
+`record-step-result`; the result audit retains the decision ID.
 Unversioned tasks remain readable, including archives, but execution/closure
 returns `TASK_SEMANTICS_UPGRADE_REQUIRED`. Unknown versions fail closed. New
 Runtime never silently upgrades an active task: use its previous installation
@@ -429,8 +438,77 @@ preimage remains explicitly missing.
 
 Explicit human observations and risk waivers use the source-bound internal
 prepare-task commands defined in FILE_SCHEMAS.md. They are caller-reported:
-manual acceptance is not automated PASS, and waiver is not evidence. Critical
-invariants, prerequisites, policy, required review and findings are not bypassed.
+manual acceptance is not automated PASS, and waiver is not evidence. Fact and
+transaction-integrity failures (wrong task, stale source revision, forged or
+stale receipt, changed review target, and conflicting idempotency/identity)
+remain hard rejects. Process-policy gates (budget, review, checkpoint, retry,
+test strategy, and user-directed exception handling) are different: without a
+matching explicit user decision they return a concrete `record-user-decision`
+route; with one, Runtime records a warning and audit and executes the exact
+authorized operation. A decision never turns a failed, blocked, or not-run
+check into PASS or `clean`.
+Review facts and user disposition are separate records. `record-review-result`
+must preserve the review's `findings`, `blocked` reason, unresolved and resolved
+fingerprints, failed checks, and evidence even when the review cannot execute a
+repair. A caller-reported decision is submitted through the atomic internal
+`record-user-decision` transaction, never by first writing an authorization and
+then hand-editing a finding or pending review. Its exact source text, task/source
+revision, optional review/change-set binding, effects, evidence references and
+idempotency key are retained in Task Basis and audit history. The transaction
+may repair a named finding, defer it, reject it, accept its risk, reopen a
+terminal finding, or advance/close with explicitly named exceptions. It never
+turns a failed or blocked check into PASS or `clean`.
+
+For a mixed review, a repair effect and a defer/reject/accept-risk effect may be
+committed together: the repair set contains only the still-open admitted targets,
+while the terminal disposition is recorded as a separate decision. A disposition
+can be recorded on its own while preserving the pending review and step. Only
+when the user also authorizes advancement does `advance-with-exceptions` produce
+a `disposition` receipt with
+`completion_disposition: user-directed-with-exceptions`; it does not invoke an
+empty repair wave or fabricate a clean receipt. `reopen-finding` is an explicit
+new decision that creates a bound repair handoff when needed, preserves previous
+attempts and evidence, and never reuses an old clean review. Exact replay is a
+no-op; stale identity, cross-task/review/change-set targets, and mismatched
+source revisions remain integrity errors. A later `close-with-exceptions`
+decision may authorize terminal closure only for its exact remaining obligations;
+false acceptance/validation facts and the exception decision IDs remain visible
+in the archive.
+Advancement requires dispositions for every current review candidate and
+unresolved fingerprint, and an exact `blocker:<code>` target for any blocker;
+the consumed review is retained in the same atomic decision audit. Discovery
+disposition receipts keep `admitted_fingerprints` empty under the existing phase
+constraint. Deferred, rejected and accepted-risk findings require exceptional closure, with exact
+`finding:<fingerprint>` targets in the close decision and `remaining_risks`.
+`rejected` records a refusal to repair, not a proven false positive or resolution.
+Each close decision binds a Runtime-generated obligation snapshot; changes to
+the definition, runtime facts, reviewed files or evidence satisfaction invalidate
+it. Historical decisions without that snapshot cannot authorize closure.
+Stopping is independently authorized with `gate:stopped-by-user`, exact pending
+review/blocker targets and remaining finding targets. The stop archive preserves
+pending review, open findings and unfinished progress without advancing or
+claiming verification. `continue-after-warning` records a review-bound,
+target-bound and quota-bound acknowledgement for a process-policy continuation;
+it does not consume a repair wave or claim a clean review. The same warning
+decision is retained on the consuming preflight, attempt, queue delta, or
+execution record.
+Distinct process-policy gates crossed by the same operation may be covered by
+separate `continue-after-warning` effects in one decision; each gate checks
+its own exact targets. A blocked repair or new-finding budget review may
+resume selected repair targets with that decision, retaining the blocked
+review as an audit fact. To stop a `blocked_by_replan + active` task, first
+record a separate `cancel-replan-block` decision for
+`gate:blocked-by-replan`. It restores active workflow status without removing
+review or finding facts; a subsequent `close-with-exceptions` decision may
+authorize stopped-by-user archival. When a user explicitly advances while
+skipping a validation,
+the affected evidence remains `not-run` (or its original failed/blocked status)
+and the step receives a user-directed exception receipt, never a clean receipt.
+`authorize-mutation` records
+an exact-path decision bound to pending review findings, but does not itself
+change task or step mutation scope. The existing scope amendment may consume
+its decision ID before any mutation.
+
 An exact pending `REPAIR_BUDGET_EXHAUSTED` review remains owned by its findings,
 not correction replan. With an explicit caller-reported user decision,
 `prepare-task:extend-repair-budget` adds exactly one attempt to every and only
@@ -450,21 +528,28 @@ unresolved fingerprints, and resolved fingerprints; verified resolutions update
 the finding queue in the same Runtime transaction, and the extra-budget
 authorization is not a replacement for the full repair target set.
 
-When ordinary repair extension reaches an absolute boundary, the diagnostic may
-route to controlled recovery only after a structured review disposition marks an
-unresolved finding `must-fix`. The user-owned authorization names exact
-`recovery_fingerprints`, basis, decision source/text and evidence; Runtime
+When ordinary repair extension reaches its eight-attempt or eight-round route
+boundary, the user may authorize controlled recovery for an exact nonempty
+subset of admitted unresolved findings. Structured review dispositions inform
+that decision but do not force every exhausted finding into the grant. Runtime
 derives the complete repair set and binds the pending review, execution, cycle,
-change set and target revision. It issues one bounded wave and at most two
-controlled attempts per selected finding, preserving ordinary maxima and all
-history. Findings with remaining budget remain in the repair set, resolved
-findings remain excluded, and new findings must complete ordinary admission.
-Legacy reviews without dispositions require an explicit exact-target bridge;
-that target must cover every existing unresolved finding in the full repair set
-with no ordinary attempt remaining. A partial request is rejected before the
-one-per-review grant is persisted, so a complete authorization can still be
-submitted afterward. Free text never grants recovery permission. Replay is a no-op, while stale,
-cross-task, duplicate, over-target or over-quota authorization is rejected.
+change set and target revision. The grant carries a finite positive number of
+separately reviewable repair waves across linked reviews, preserving ordinary
+maxima, cumulative attempts and all history. An unselected exhausted finding
+stays open until an explicit disposition or separate applicable budget. The
+current `begin-repair` may select the authorized controlled findings together
+with still-ordinary-budgeted findings; it does not force an unselected exhausted
+finding into the execution.
+Findings with remaining budget remain in the repair set, resolved findings
+remain excluded, and new findings must complete ordinary admission. Five waves
+per grant, five controlled attempts per finding and one grant per review are
+warning thresholds. Crossing any threshold requires a separate
+`continue-after-warning` decision bound to the exact review, change set,
+selected `finding:<fingerprint>` targets and `authorized_repair_waves` count;
+the new grant records that decision ID. A still-usable prior grant or
+unfinished repair preflight must be completed or reconciled first. Free text
+never grants recovery permission. Exact replay is a no-op; stale, cross-task,
+duplicate, over-target or unacknowledged authorization is rejected.
 Local equivalent read-only validation adjustments use execute-step's internal
 replace-validation, preserving the task and its obligations. Low-risk private
 same-domain discoveries do not add a review beyond the confirmed checkpoint;

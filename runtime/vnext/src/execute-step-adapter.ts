@@ -20,6 +20,7 @@ import {
   VNextRuntimeError,
   applyVNextRuntimeProposal,
   assertTestStrategySequenceReady,
+  assertTestRedReproductionEvidence,
   assertOrdinaryPreflight,
   assertExecutionTargetAdmissions,
   assertBusinessEvidenceVersion,
@@ -54,7 +55,9 @@ import {
   currentExecutionDynamicExpansions,
   dynamicReviewRequiredForCurrentExecution,
   controlledRepairContinuationForPendingReview,
+  policyDecisionForOperation,
   repairWaveIdForRepairSet,
+  isTerminalFindingStatus,
   validateRuntimeEnvironment,
   validateRuntimeReviewTarget,
   validateVNextRuntimeContract,
@@ -145,6 +148,7 @@ export type ExecuteStepPreflightReceipt = {
   change_set_id: string;
   review_base: ReviewTarget;
   mutation_authority_version?: 2;
+  policy_decision_id?: string;
 };
 
 export type ExecuteStepRepairPreflightReceipt = {
@@ -167,6 +171,7 @@ export type ExecuteStepRepairPreflightReceipt = {
   review_id: string;
   review_base: ReviewTarget;
   controlled_recovery_grant_id?: string;
+  policy_decision_id?: string;
 };
 
 type AnyExecuteStepPreflightReceipt = ExecuteStepPreflightReceipt | ExecuteStepRepairPreflightReceipt;
@@ -624,6 +629,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       'review_id',
       'review_base',
       ...(source.controlled_recovery_grant_id === undefined ? [] : ['controlled_recovery_grant_id']),
+      ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id']),
     ], 'preflight_receipt');
     if (source.mode !== 'repair') fail('EXECUTE_ADAPTER_INPUT_INVALID', 'repair preflight receipt mode must be repair.');
     const sourceRevision = text(source.source_revision, 'preflight_receipt.source_revision', 64);
@@ -649,6 +655,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       review_id: text(source.review_id, 'preflight_receipt.review_id', 128),
       review_base: validateRuntimeReviewTarget(source.review_base, 'preflight_receipt.review_base'),
       ...(source.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: text(source.controlled_recovery_grant_id, 'preflight_receipt.controlled_recovery_grant_id', 128) }),
+      ...(source.policy_decision_id === undefined ? {} : { policy_decision_id: text(source.policy_decision_id, 'preflight_receipt.policy_decision_id', 128) }),
     };
   }
   exactKeys(source, [
@@ -669,6 +676,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     'review_base',
     ...(source.attempt_id === undefined ? [] : ['attempt_id']),
     ...(source.mutation_authority_version === undefined ? [] : ['mutation_authority_version']),
+    ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id']),
   ], 'preflight_receipt');
   if (source.kind !== 'execute-step-preflight/v1') {
     fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.kind must be execute-step-preflight/v1.');
@@ -700,6 +708,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     change_set_id: text(source.change_set_id, 'preflight_receipt.change_set_id', 128),
     review_base: validateRuntimeReviewTarget(source.review_base, 'preflight_receipt.review_base'),
     ...(source.mutation_authority_version === undefined ? {} : source.mutation_authority_version === 2 ? { mutation_authority_version: 2 as const } : fail('EXECUTE_ADAPTER_INPUT_INVALID', 'preflight_receipt.mutation_authority_version must be 2.')),
+    ...(source.policy_decision_id === undefined ? {} : { policy_decision_id: text(source.policy_decision_id, 'preflight_receipt.policy_decision_id', 128) }),
   };
 }
 
@@ -740,6 +749,7 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
       || ((current.mutationAuthority || receipt.mode === 'repair') && receipt.execution_id !== activePreflight.execution_id)
       || (receipt.execution_id !== undefined && activePreflight.execution_id !== receipt.execution_id)
       || (digest(activePreflight.candidate_paths) !== digest(receipt.candidate_paths))
+      || activePreflight.policy_decision_id !== receipt.policy_decision_id
       || (receipt.preflight_id !== undefined && activePreflight.preflight_id !== receipt.preflight_id)) {
       fail('EXECUTE_PREFLIGHT_STALE', 'the preflight receipt does not bind the current Runtime execution identity.');
     }
@@ -962,9 +972,9 @@ export function resumePreflight(root: string, input: unknown): ExecuteStepPrefli
     return preflightResumeResult(root, current, stepPlan, strategy, receipt);
   }
 
-  assertOrdinaryPreflight(current, root);
   const ledger = current.runtimeState.step_attempts?.[current.runtimeState.active_step_id];
   const latestAttempt = ledger?.attempts.at(-1);
+  assertOrdinaryPreflight(current, root, active?.policy_decision_id ?? latestAttempt?.policy_decision_id);
   if (!latestAttempt || latestAttempt.status !== 'preflighted') {
     fail('EXECUTE_PREFLIGHT_NOT_OUTSTANDING', 'there is no current preflighted attempt to resume.');
   }
@@ -990,6 +1000,7 @@ export function resumePreflight(root: string, input: unknown): ExecuteStepPrefli
       repair_fingerprint: null,
       change_set_id: active.change_set_id,
       review_base: exactReviewBaseForCandidates(current, active.candidate_paths),
+      ...(active.policy_decision_id === undefined ? {} : { policy_decision_id: active.policy_decision_id }),
       ...(current.mutationAuthority ? { mutation_authority_version: 2 as const } : {}),
     };
     return preflightResumeResult(root, current, stepPlan, strategy, receipt);
@@ -1029,6 +1040,7 @@ export function resumePreflight(root: string, input: unknown): ExecuteStepPrefli
     repair_fingerprint: null,
     change_set_id: changeSetId(current, stepPlan.step.id),
     review_base: exactReviewBaseForCandidates(current, candidatePaths),
+    ...(latestAttempt.policy_decision_id === undefined ? {} : { policy_decision_id: latestAttempt.policy_decision_id }),
     ...(current.mutationAuthority ? { mutation_authority_version: 2 as const } : {}),
   };
   return preflightResumeResult(root, current, stepPlan, strategy, receipt);
@@ -1117,6 +1129,7 @@ function recoverOutstandingRepairReceipt(
     review_target_paths: [...reviewTargetPaths],
     review_id: active.review_id!,
     ...(active.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: active.controlled_recovery_grant_id }),
+    ...(active.policy_decision_id === undefined ? {} : { policy_decision_id: active.policy_decision_id }),
     review_base: coverageTarget,
   };
   return receipt;
@@ -1128,8 +1141,15 @@ export function beginRepair(
   options: RuntimeApplyOptions = {},
 ): ExecuteStepRepairPreflightResult {
   const source = record(input, 'begin-repair input');
-  exactKeys(source, ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments'])], 'begin-repair input');
+  exactKeys(source, ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments']), ...(source.repair_fingerprints === undefined ? [] : ['repair_fingerprints']), ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id'])], 'begin-repair input');
   const candidatePaths = pathList(source.candidate_paths, 'candidate_paths', false);
+  const requestedRepairFingerprints = source.repair_fingerprints === undefined
+    ? undefined
+    : [...new Set(textList(source.repair_fingerprints, 'repair_fingerprints', false))].sort();
+  if (requestedRepairFingerprints !== undefined && requestedRepairFingerprints.length === 0) {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', 'repair_fingerprints must contain at least one finding fingerprint.');
+  }
+  const policyDecisionId = source.policy_decision_id === undefined ? undefined : text(source.policy_decision_id, 'policy_decision_id', 128);
   let assessments: BlastRadiusAssessment[] = [];
   if (source.blast_radius_assessments !== undefined) {
     try { assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments); }
@@ -1141,8 +1161,8 @@ export function beginRepair(
   const budgetContinuation = repairBudgetContinuationForPendingReview(current);
   const controlledContinuation = controlledRepairContinuationForPendingReview(current);
   const outstandingPreflight = outstandingRepairPreflight(current);
-  if (!pending || (pending.verdict !== 'findings' && budgetContinuation === null && controlledContinuation === null && outstandingPreflight === null)) {
-    fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires findings or an explicitly authorized continuation of the exact budget-blocked review.');
+  if (!pending || !['findings', 'blocked'].includes(pending.verdict)) {
+    fail('REVIEW_FINDINGS_REQUIRED', 'begin-repair requires the current findings or blocked review.');
   }
   const reviewedExecution = current.runtimeState.execution_log.map(item => 'action' in item
     ? item
@@ -1166,6 +1186,10 @@ export function beginRepair(
 
   const recoveredReceipt = recoverOutstandingRepairReceipt(current, stepPlan, strategy, candidatePaths);
   if (recoveredReceipt) {
+    if (requestedRepairFingerprints !== undefined
+      && digest(requestedRepairFingerprints) !== digest([...recoveredReceipt.repair_fingerprints].sort())) {
+      fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', 'the outstanding repair preflight owns a different repair target set; reuse its exact finding fingerprints.');
+    }
     return {
       status: 'pass',
       operation_kind: 'execute-step-repair-preflight',
@@ -1177,6 +1201,45 @@ export function beginRepair(
     };
   }
 
+  const pendingRepairFingerprints = repairFingerprintsForPendingReview(current);
+  const defaultRepairFingerprints = pendingRepairFingerprints.filter(fingerprint => {
+    const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
+    const controlledAuthorized = controlledContinuation?.recovery_fingerprints.includes(fingerprint) === true;
+    const ordinaryAuthorized = finding === undefined || finding.repair_attempts < finding.max_repair_attempts;
+    return controlledAuthorized || ordinaryAuthorized;
+  });
+  const selectedRepairFingerprints = requestedRepairFingerprints ?? defaultRepairFingerprints;
+  if (selectedRepairFingerprints.length === 0) {
+    fail('REPAIR_TARGET_SET_INVALID', 'No executable finding target remains. Select an explicitly authorized recovery target or record a finding disposition.');
+  }
+  if (selectedRepairFingerprints.some(fingerprint => !pendingRepairFingerprints.includes(fingerprint))) {
+    fail('REPAIR_TARGET_SET_INVALID', 'repair_fingerprints must be a canonical subset of the current pending review repair set.');
+  }
+  const blockedPolicyGate = pending.blocker?.code === 'REPAIR_BUDGET_EXHAUSTED'
+    || pending.blocker?.code === 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED'
+    ? pending.blocker.code
+    : null;
+  const blockedPolicy = pending.verdict === 'blocked' && blockedPolicyGate !== null
+    ? policyDecisionForOperation(root, current, blockedPolicyGate,
+      selectedRepairFingerprints.map(fingerprint => `finding:${fingerprint}`), policyDecisionId)
+    : null;
+  if (pending.verdict === 'blocked' && budgetContinuation === null && controlledContinuation === null
+    && outstandingPreflight === null && blockedPolicy === null) {
+    fail('REVIEW_FINDINGS_REQUIRED', 'A blocked review requires its exact continuation grant or a matching user warning decision for selected repair findings.');
+  }
+  if (requestedRepairFingerprints !== undefined && controlledContinuation === null && policyDecisionId === undefined
+    && selectedRepairFingerprints.length !== pendingRepairFingerprints.length) {
+    fail('REPAIR_TARGET_SET_INVALID', 'A partial repair target set requires an explicit recovery authorization or finding disposition.');
+  }
+  if (selectedRepairFingerprints.length !== pendingRepairFingerprints.length && controlledContinuation === null) {
+    policyDecisionForOperation(
+      root,
+      current,
+      blockedPolicyGate ?? 'REPAIR_BUDGET_EXHAUSTED',
+      selectedRepairFingerprints.map(fingerprint => `finding:${fingerprint}`),
+      policyDecisionId,
+    );
+  }
   const admissionWaveId = findingAdmissionWaveId(pending.review_id);
   // Older installations kept the previous step's converged repair budget when
   // advancing. Rotate only when its completion is durably bound to this step;
@@ -1194,13 +1257,15 @@ export function beginRepair(
     ? reviewCycleForNextStep(current.runtimeState.review_cycle.id, pending.step_id, previousStepCompletion.idempotency_key).id
     : current.runtimeState.review_cycle.id;
   for (const candidate of pending.findings) {
-    if (pending.finding_dispositions?.some(item => item.fingerprint === candidate.fingerprint && item.disposition === 'defer')) continue;
+    if (!selectedRepairFingerprints.includes(candidate.fingerprint)) continue;
+    const existingFinding = current.runtimeState.findings.find(item => item.fingerprint === candidate.fingerprint);
+    // The pending review is immutable, but a user-decision transaction may
+    // have terminalized this historical candidate. Terminal dispositions are
+    // not repair targets and therefore must not force their old file into the
+    // new repair preflight candidate set.
+    if (existingFinding !== undefined && isTerminalFindingStatus(existingFinding.status)) continue;
     if (!candidatePaths.includes(candidate.file)) {
       fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', `candidate_paths must include review finding path ${candidate.file}.`);
-    }
-    const existingFinding = current.runtimeState.findings.find(item => item.fingerprint === candidate.fingerprint);
-    if (existingFinding?.status === 'resolved') {
-      fail('FINDING_ALREADY_RESOLVED', `review finding ${candidate.fingerprint} is already resolved and cannot be re-admitted.`);
     }
     const admissionKey = idempotencyKey('execute-review-admit', { review_id: pending.review_id, fingerprint: candidate.fingerprint });
     if (hasAppliedProposal(current, admissionKey)) continue;
@@ -1211,6 +1276,7 @@ export function beginRepair(
         action: 'admit',
         cycle_phase: pending.cycle_phase,
         finding_admission_wave_id: admissionWaveId,
+        ...(policyDecisionId === undefined ? {} : { policy_decision_id: policyDecisionId }),
         finding: {
           fingerprint: candidate.fingerprint,
           category: candidate.category,
@@ -1237,7 +1303,7 @@ export function beginRepair(
     if (!options.dryRun) current = readCanonicalCurrentTask(root);
   }
 
-  const fingerprints = repairFingerprintsForPendingReview(current);
+  const fingerprints = selectedRepairFingerprints;
   if (fingerprints.length === 0) {
     fail('REVIEW_FINDINGS_REQUIRED', 'the current review has no structured repair target; resubmit the exact review result before repairing.');
   }
@@ -1255,7 +1321,8 @@ export function beginRepair(
       fail('FINDING_ADMISSION_REQUIRED', `review finding ${fingerprint} is not repairable.`);
     }
     if (!options.dryRun && finding!.repair_attempts >= finding!.max_repair_attempts
-      && (!controlledContinuation || !controlledContinuation.recovery_fingerprints.includes(fingerprint))) {
+      && (!controlledContinuation || !controlledContinuation.recovery_fingerprints.includes(fingerprint))
+      && policyDecisionForOperation(root, current, 'REPAIR_BUDGET_EXHAUSTED', [`finding:${fingerprint}`], policyDecisionId) === null) {
       fail('REPAIR_BUDGET_EXHAUSTED', `finding ${fingerprint} has exhausted its repair budget.`);
     }
   }
@@ -1274,6 +1341,7 @@ export function beginRepair(
     review_target_paths: reviewedExecution.execution_result.review_target.entries.map(item => item.path),
     change_set_id: pending.change_set_id,
     ...(controlledContinuation ? { controlled_recovery_grant_id: controlledContinuation.grant_id } : {}),
+    ...(policyDecisionId === undefined ? {} : { policy_decision_id: policyDecisionId }),
   });
   const preflightResult = verifyReadBack(root, applyVNextRuntimeProposal(root, preflightProposal, options), options);
   if (preflightResult.status !== 'success' && preflightResult.status !== 'no-op') fail('PREFLIGHT_BLOCKED', preflightResult.message);
@@ -1298,6 +1366,7 @@ export function beginRepair(
     review_target_paths: executionPreflight?.review_target_paths ?? reviewedExecution.execution_result.review_target.entries.map(item => item.path),
     review_id: executionPreflight?.review_id ?? pending.review_id,
     ...(executionPreflight?.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: executionPreflight.controlled_recovery_grant_id }),
+    ...(executionPreflight?.policy_decision_id === undefined ? {} : { policy_decision_id: executionPreflight.policy_decision_id }),
     review_base: captureReviewTarget(root, reviewTargetPaths),
   };
   return {
@@ -1313,13 +1382,14 @@ export function beginRepair(
 
 export function retryStep(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input,'retry-step input');
-  exactKeys(source,['step_id','blocked_attempt_id','blocker_resolution_refs',...(source.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),'idempotency_key'],'retry-step input');
+  exactKeys(source,['step_id','blocked_attempt_id','blocker_resolution_refs',...(source.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),...(source.policy_decision_id === undefined ? [] : ['policy_decision_id']),'idempotency_key'],'retry-step input');
   const current = readCanonicalCurrentTask(root);
   const proposal = createStepRetryProposal(current,{
     step_id:text(source.step_id,'step_id',128),
     blocked_attempt_id:text(source.blocked_attempt_id,'blocked_attempt_id',128),
     blocker_resolution_refs:textList(source.blocker_resolution_refs,'blocker_resolution_refs',false),
     ...(source.repair_diagnosis === undefined ? {} : {repair_diagnosis:source.repair_diagnosis as StepRepairDiagnosis}),
+    ...(source.policy_decision_id === undefined ? {} : { policy_decision_id: text(source.policy_decision_id, 'policy_decision_id', 128) }),
     idempotency_key:text(source.idempotency_key,'idempotency_key',128),
   });
   return verifyReadBack(root,applyVNextRuntimeProposal(root,proposal,options),options);
@@ -1407,9 +1477,10 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   const source = record(input, 'preflight-step input');
   const currentForInput = readCanonicalCurrentTask(root);
   exactKeys(source, currentForInput.mutationAuthority
-    ? ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments'])]
-    : ['candidate_paths'], 'preflight-step input');
+    ? ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments']), ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id'])]
+    : ['candidate_paths', ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id'])], 'preflight-step input');
   const candidatePaths = pathList(source.candidate_paths, 'candidate_paths', true);
+  const policyDecisionId = source.policy_decision_id === undefined ? undefined : text(source.policy_decision_id, 'policy_decision_id', 128);
   let assessments: BlastRadiusAssessment[] = [];
   if (currentForInput.mutationAuthority && source.blast_radius_assessments !== undefined) {
     try { assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments); }
@@ -1417,7 +1488,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   }
 
   let current = currentForInput;
-  assertOrdinaryPreflight(current, root);
+  assertOrdinaryPreflight(current, root, policyDecisionId ?? current.runtimeState.execution_preflight?.policy_decision_id);
   assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
   const strategy = resolveTestStrategyExecutionContext(current);
@@ -1437,7 +1508,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     && digest(current.runtimeState.execution_preflight!.candidate_paths) !== digest(candidatePaths)) {
     fail('EXECUTE_PREFLIGHT_STALE', 'the active preflight already owns a different target set; use extend-preflight for additional targets.');
   }
-  if (!current.runtimeState.step_attempts?.[stepPlan.step.id] || !coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready' || (current.mutationAuthority && !activePreflightMatchesStep)) {
+  if (!current.runtimeState.step_attempts?.[stepPlan.step.id] || !coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready' || (current.mutationAuthority && !activePreflightMatchesStep) || (policyDecisionId !== undefined && current.runtimeState.execution_preflight?.policy_decision_id !== policyDecisionId)) {
   const proposal = createStepPreflightProposal(
     current,
     candidatePaths,
@@ -1446,6 +1517,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
       ...(current.mutationAuthority ? { plan_revision: stepPlanRevision(stepPlan) } : {}),
       execution_phase: phase,
       change_set_id: changeSetId(current, stepPlan.step.id),
+      ...(policyDecisionId === undefined ? {} : { policy_decision_id: policyDecisionId }),
     },
   );
     preflightId = proposal.idempotency_key;
@@ -1485,6 +1557,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     review_base: executionPreflight?.step_id === stepPlan.step.id
       ? exactReviewBaseForCandidates(current, executionPreflight.candidate_paths)
       : captureReviewTarget(root, candidatePaths),
+    ...(executionPreflight?.policy_decision_id === undefined ? {} : { policy_decision_id: executionPreflight.policy_decision_id }),
     ...(current.mutationAuthority ? { mutation_authority_version: 2 as const } : {}),
   };
   return {
@@ -1516,7 +1589,7 @@ export function extendPreflight(
   }
   const current = readCanonicalCurrentTask(root);
   if (!current.mutationAuthority) fail('MUTATION_AUTHORITY_VERSION_REQUIRED', 'extend-preflight is available only for Mutation Authority v2 tasks.');
-  if (receipt.mode === 'default') assertOrdinaryPreflight(current, root);
+  if (receipt.mode === 'default') assertOrdinaryPreflight(current, root, receipt.policy_decision_id);
   else assertExecutableTask(current);
   const stepPlan = currentStepPlan(current);
   assertCurrentReceipt(root, current, stepPlan, receipt);
@@ -1543,6 +1616,7 @@ export function extendPreflight(
     mode: receipt.mode,
     ...(receipt.execution_id === undefined ? {} : { execution_id: receipt.execution_id }),
     execution_phase: receipt.execution_phase,
+    ...(receipt.policy_decision_id === undefined ? {} : { policy_decision_id: receipt.policy_decision_id }),
   });
   // The execution receipt carries a baseline for this execution's candidate
   // set.  Preserve the prior receipt baseline and capture only newly admitted
@@ -1582,6 +1656,7 @@ export function extendPreflight(
       review_id: active?.review_id ?? receipt.review_id,
       ...(active?.controlled_recovery_grant_id === undefined ? (receipt.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: receipt.controlled_recovery_grant_id }) : { controlled_recovery_grant_id: active.controlled_recovery_grant_id }),
       review_base: coverage?.target ?? nextBase,
+      ...(active?.policy_decision_id === undefined ? (receipt.policy_decision_id === undefined ? {} : { policy_decision_id: receipt.policy_decision_id }) : { policy_decision_id: active.policy_decision_id }),
     };
     return {
       status: 'pass',
@@ -1618,6 +1693,7 @@ export function extendPreflight(
       change_set_id: active?.change_set_id ?? coverage?.change_set_id ?? changeSetId(next, stepPlan.step.id),
       review_base: extensionReviewBase,
       mutation_authority_version: 2,
+      ...(active?.policy_decision_id === undefined ? (receipt.policy_decision_id === undefined ? {} : { policy_decision_id: receipt.policy_decision_id }) : { policy_decision_id: active.policy_decision_id }),
     },
   };
   return ordinaryResult;
@@ -1873,6 +1949,7 @@ function applyRepairAttempts(
   evidenceRefs: string[],
   keySeed: unknown,
   options: RuntimeApplyOptions,
+  policyDecisionId?: string,
 ): CanonicalCurrentTask | RuntimeResult {
   const fingerprints = receipt.kind === 'execute-step-repair-preflight/v1'
     ? receipt.repair_fingerprints
@@ -1898,6 +1975,7 @@ function applyRepairAttempts(
         repair_wave_id: waveId,
         evidence_refs: evidenceRefs,
         note: `execute-step repair for ${receipt.step_id}`,
+        ...((policyDecisionId ?? receipt.policy_decision_id) === undefined ? {} : { policy_decision_id: policyDecisionId ?? receipt.policy_decision_id }),
       },
       idempotency_key: key,
       authority_evidence: authority(fresh, ['active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission']),
@@ -1922,6 +2000,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     'acceptance_evidence',
     'outcome',
     'note',
+    ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id']),
   ], 'record-step-result input');
   if (source.blocker_kind !== undefined && !['environment','unknown'].includes(String(source.blocker_kind))) fail('EXECUTE_ADAPTER_INPUT_INVALID','blocker_kind must be environment or unknown.');
   const receipt = normalizePreflightReceipt(source.preflight_receipt);
@@ -1933,6 +2012,12 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     fail('EXECUTE_ADAPTER_INPUT_INVALID', 'outcome must be implemented, test-red, or blocked.');
   }
   const outcome = source.outcome;
+  const resultPolicyDecisionId = source.policy_decision_id === undefined
+    ? receipt.policy_decision_id
+    : text(source.policy_decision_id, 'policy_decision_id', 128);
+  if (source.policy_decision_id !== undefined && (outcome !== 'test-red' || receipt.execution_phase === 'red')) {
+    fail('EXECUTE_ADAPTER_INPUT_INVALID', 'result-level policy_decision_id is only for an authorized test-red result outside Red.');
+  }
   const note = nullableText(source.note, 'note');
   const unplannedActual = actualChangedPaths.filter(file => !receipt.candidate_paths.includes(file));
   if (unplannedActual.length > 0) {
@@ -1964,6 +2049,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     change_delta: changeDelta,
     outcome,
     note,
+    ...(source.policy_decision_id === undefined ? {} : { result_policy_decision_id: resultPolicyDecisionId }),
   };
   const resultKey = idempotencyKey('execute-step-result', resultKeySeed);
   let current = readCanonicalCurrentTask(root);
@@ -2000,16 +2086,15 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   }
   if (outcome === 'test-red') {
     const resultStatuses = [...commandResults, ...validationResults].map(item => item.status);
-    if (strategy.phase !== 'red') {
-      fail('TEST_STRATEGY_SEQUENCE_INVALID', `outcome=test-red is not valid during phase=${strategy.phase}.`);
+    if (receipt.execution_phase !== 'red'
+      && policyDecisionForOperation(root, current, 'TEST_STRATEGY_SEQUENCE_INVALID', [`step:${receipt.step_id}`], resultPolicyDecisionId) === null) {
+      fail('TEST_STRATEGY_SEQUENCE_INVALID', `outcome=test-red during phase=${receipt.execution_phase} requires an exact user warning decision.`);
     }
     if (!resultStatuses.some(status => status === 'expected-failure')
       || resultStatuses.some(status => status !== 'passed' && status !== 'expected-failure')) {
       fail('EXECUTE_EXPECTED_FAILURE_INVALID', 'test-red requires at least one expected-failure result and permits only passed companion results.');
     }
-    if (acceptanceEvidence.length > 0) {
-      fail('TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN', 'test-red evidence cannot satisfy final acceptance claims before implementation reaches Green.');
-    }
+    assertTestRedReproductionEvidence(current, receipt.step_id, acceptanceEvidence);
   }
   if (outcome === 'blocked' && note === null) {
     fail('EXECUTE_RESULT_BLOCKED', 'blocked requires a concise blocker in note.');
@@ -2065,7 +2150,7 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     blocker: outcome === 'blocked' ? note : null,
   };
   if (receipt.mode === 'repair') {
-    const repairState = applyRepairAttempts(root, current, receipt, evidenceRefs, resultKeySeed, options);
+    const repairState = applyRepairAttempts(root, current, receipt, evidenceRefs, resultKeySeed, options, resultPolicyDecisionId);
     if ('status' in repairState) return repairState;
     current = repairState;
     stepPlan = currentStepPlan(current);
@@ -2095,8 +2180,12 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
         repair_fingerprints: receipt.repair_fingerprints,
         repair_wave_id: receipt.repair_wave_id,
         ...(receipt.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: receipt.controlled_recovery_grant_id }),
+        ...(resultPolicyDecisionId === undefined ? {} : { policy_decision_id: resultPolicyDecisionId }),
       }
-      : receipt.repair_fingerprint ? { repair_fingerprint: receipt.repair_fingerprint } : {}),
+      : {
+        ...(receipt.repair_fingerprint ? { repair_fingerprint: receipt.repair_fingerprint } : {}),
+        ...(resultPolicyDecisionId === undefined ? {} : { policy_decision_id: resultPolicyDecisionId }),
+      }),
     change_set_id: receipt.change_set_id,
     ...(claimEvidence === undefined ? {} : { claim_evidence: claimEvidence }),
     execution_result: executionResult,
@@ -2171,6 +2260,19 @@ export function completeReviewedStep(root: string, input: unknown, options: Runt
   });
   if (replay && !('action' in replay)) {
     return semanticNoOp(current, replay.idempotency_key, 'This exact reviewed-step completion was already committed.', options);
+  }
+  const retainedDisposition = currentDefinitionExecutionLog(current).findLast((item): item is StepExecutionLogEntry =>
+    !('action' in item)
+    && item.step_id === stepId
+    && item.review_receipt?.verdict === 'disposition'
+    && item.completion_disposition === 'user-directed-with-exceptions'
+    && item.user_decision_id !== undefined,
+  );
+  if (retainedDisposition && current.runtimeState.pending_review_result === null) {
+    // record-user-decision atomically consumed the review and recorded the
+    // disposition receipt. Repeating complete-reviewed-step must not ask the
+    // caller to manufacture a clean receipt or run the step again.
+    return semanticNoOp(current, retainedDisposition.user_decision_id!, 'This reviewed step was already completed with an explicit user-directed disposition.', options);
   }
   const pending = current.runtimeState.pending_review_result;
   let reviewReceipt: StepReviewReceipt;

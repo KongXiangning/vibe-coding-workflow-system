@@ -119,6 +119,7 @@ proposal:
   operation_kinds:
     - task-state-transaction
     - finding-queue-transaction
+    - user-decision-transaction
     - lifecycle-transaction
     - inbox-record-transaction
     - project-status-transaction
@@ -155,11 +156,37 @@ proposal:
       - review_cycle_id
       - repair_wave_id
   process_control:
+    user_decision: atomic-task-bound-decision; preserve-verbatim-source-and-history; repair-defer-reject-accept-risk-reopen-exception-advance-and-exact-mutation-authorization; never-rewrite-findings-or-failures-as-clean; exact-source-revision-review-change-set-and-idempotency-binding; replay-is-no-op
     evidence_plan_amendment: prepare-confirm-discard-evidence-plan-amendment; explicit-user; same-task-no-challenge-required; preserve-goal-acceptance-authority-findings-history-budgets; fresh-checks-and-affected-review-revalidation; unbound-planned-read-only-command-scope-correction-without-slot-or-waiver
     user_evidence: exact-frozen-slot-and-subject; append-verbatim-Task-Basis; caller-reported-not-authenticated
     waiver: user-owned-current-obligation-only; preserve-failed-or-missing-report; exact-result-waiver-decision-id; validation-labels-require-exclusive-frozen-check-ownership-at-record-and-consume; no-review-or-policy-bypass
     successor: explicit-predecessor-decision-and-complete-obligation-map; fresh-draft-identity; predecessor-remains-superseded; exact-prepared-orphan-retry-only; ordinary-confirmation-required
     validation_adjustment: replace-validation; one-read-only-check; preserve-observation-boundary-subjects-validation-ownership-exact-granularity-selector-authority-and-budgets; no-task-redefinition
+    policy_gate_routing:
+      commands:
+        - record-user-decision
+        - prepare-task:amend-scope
+      codes:
+        - CONTROLLED_RECOVERY_LIMIT
+        - RETRY_BUDGET_EXHAUSTED
+        - REPAIR_BUDGET_EXHAUSTED
+        - NEW_FINDING_WAVE_BUDGET_EXHAUSTED
+        - PENDING_REVIEW_REQUIRED
+        - REVIEW_CONVERGENCE_REQUIRED
+        - DYNAMIC_REVIEW_REQUIRED
+        - REVIEW_CHECKPOINT_REQUIRED
+        - REVIEW_EXECUTION_REQUIRED
+        - REVIEW_VERIFICATION_REQUIRED
+        - REVIEW_PHASE_INVALID
+        - CLAIM_EVIDENCE_INCOMPLETE
+        - CLAIM_EVIDENCE_REQUIRED
+        - CLAIM_EVIDENCE_ACCEPTANCE_REQUIRED
+        - EVIDENCE_CHALLENGE_UNRESOLVED
+        - TEST_STRATEGY_SEQUENCE_INVALID
+        - MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED
+        - MUTATION_AUTHORITY_EXPANSION_REQUIRED
+      integrity_boundary: fact-identity-revision-receipt-and-target-conflicts-remain-hard-rejects
+      task_context_next_entry: must-resolve-to-a-declared-runtime-command
   task_state:
     actions:
       - retry-step
@@ -231,6 +258,7 @@ proposal:
         - repair_fingerprints
         - repair_wave_id
         - controlled_recovery_grant_id
+        - policy_decision_id
         - change_set_id
         - review_receipt
         - claim_evidence
@@ -258,6 +286,7 @@ proposal:
           - repair_wave_id
           - review_id
           - controlled_recovery_grant_id
+          - policy_decision_id
         same_attempt: true
         plan_revision_change: forbidden
         retry_budget_change: forbidden
@@ -386,7 +415,10 @@ proposal:
         - verdict
         - admitted_fingerprints
         - evidence_refs
-      verdict: clean
+      optional:
+        - completion_disposition
+        - user_decision_id
+      verdict: clean-or-disposition; disposition-requires-user-directed-with-exceptions-and-user-decision-id
       cycle_phase:
         - discovery
         - verification
@@ -413,7 +445,7 @@ proposal:
       consumed_by:
         clean: execute-step:complete-reviewed-step
         findings: execute-step:begin-repair
-        blocked: caller-route
+        blocked: record-user-decision-or-caller-route
     draft:
       mode: default
       actions:
@@ -524,7 +556,7 @@ proposal:
             - failed
             - blocked
             - not-run
-          acceptance_evidence: forbidden
+          acceptance_evidence: positive-forbidden-bound-reproduction-required
           unexpected_failure_outcome: blocked
           review_checkpoint: required
         non_red_outcome: implemented-with-passed-results-or-bound-reproduction
@@ -697,6 +729,16 @@ proposal:
     scope_amendment_mode: amend-scope
     scope_amendment_actions:
       - commit-scope-amendment
+    scope_amendment_authorization:
+      source: record-user-decision
+      effect: authorize-mutation
+      binding: current-pending-review-id-and-change-set-id
+      persisted_in:
+        - scope-amendment-candidate
+        - scope-amendment-candidate-receipt
+        - commit-scope-amendment-audit
+      preparation_and_commit: revalidate-against-current-pending-review
+      stale_route: record-new-review-bound-decision
     repair_budget_extension:
       route: extend-repair-budget
       increment: one-bounded-continuation-unit-finding-or-repair-round
@@ -707,9 +749,9 @@ proposal:
     controlled_repair_recovery:
       route: authorize-controlled-repair-recovery
       trigger: exact-pending-REPAIR_BUDGET_EXHAUSTED-or-FORMAT_CHECK_SCOPE_BLOCKED-review-where-ordinary-extension-is-not-executable
-      authorization: explicit-structured-must-fix-targets-plus-basis-evidence-and-user-decision
-      legacy_coverage: exact-explicit-target-must-cover-every-existing-unresolved-finding-with-no-ordinary-budget-before-grant-persistence
-      quota: up-to-five-review-bound-controlled-repair-waves-with-at-most-five-attempts-per-selected-finding
+      authorization: explicit-user-selected-repair-target-subset-plus-basis-evidence-and-decision
+      legacy_coverage: unselected-exhausted-findings-remain-open-until-explicit-disposition-or-separate-budget
+      quota: finite-review-bound-waves-with-explicit-warning-decision-beyond-five-waves-five-attempts-or-one-grant-per-review
       preserves: ordinary-maxima-cumulative-attempts-review-history-resolved-findings-task-identity-and-change-set-binding
       stops: no-free-text-inference-no-new-task-no-supersede-no-reset-no-clean-or-close
     direct_replan_result: REPLAN_CONFIRMATION_REQUIRED
@@ -838,6 +880,11 @@ proposal:
       - active + active
     terminal_to:
       - closed + archived
+    completion_disposition:
+      - verified
+      - completed-with-exceptions
+      - stopped-by-user
+    exceptional_completion: exact-user-decision-close-with-exceptions; target-ids-cover-every-remaining-obligation; preserve-false-acceptance-validation-and-risk-facts; no-clean-rewrite
     claim_evidence: derive acceptance_satisfied and validation_complete from the non-empty frozen CURRENT_TASK claim_evidence plan; require an acceptance claim; aggregate command success is insufficient
     lesson_admission:
       - admit
@@ -1187,6 +1234,30 @@ operations:
       - CURRENT_TASK.md
     allowed_callers:
       - execute-step
+    result_states:
+      - success
+      - no-op
+      - conflict
+      - blocked
+    atomic: true
+    idempotence: fail-closed
+    conflict_policy: fail-closed
+
+  - id: user-decision-transaction
+    status: bound
+    binding: vnext-runtime
+    operation: user-decision-transaction
+    source_targets:
+      - CURRENT_TASK.md
+      - task-basis/TASK_BASIS-<TASK_ID>.md
+    write_targets:
+      - CURRENT_TASK.md
+      - task-basis/TASK_BASIS-<TASK_ID>.md
+    allowed_callers:
+      - prepare-task
+      - review-change
+      - execute-step
+      - close-task
     result_states:
       - success
       - no-op

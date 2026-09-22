@@ -21,6 +21,7 @@ import {
   applyVNextRuntimeProposal,
   createArchiveProposal,
   createFindingQueueProposal,
+  createUserDecisionProposal,
   createInboxRecordProposal,
   createLessonRecordProposal,
   createLifecycleProposal,
@@ -88,6 +89,9 @@ import {
   readLessonMarkers,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
+  POLICY_GATE_DESCRIPTORS,
+  policyGateDescriptor,
+  integrityRecoveryRouteForCode,
   type AuthorityEvidence,
   type ArchiveDelta,
   type ClosureEvidence,
@@ -110,6 +114,7 @@ import {
   type TaskBasis,
   type ProjectStatusDelta,
   type PrepareTaskSemanticDraft,
+  type UserDecision,
 } from '../scripts/vnext-runtime';
 import { fingerprintKnowledgeStatement } from '../scripts/project-context-resolver';
 import { validateCurrentTaskStatusTuple as validatePureVNextStatusTuple } from '../runtime/vnext/src/task-identity';
@@ -723,12 +728,17 @@ function reportFixture(root: string, claimId = 'A1', slotId = 'a1', status?: str
   return { claim_id: claimId, slot_id: slotId, check_id: slot.check!.check_id, minimum_type: slot.minimum_type, disposition: 'newly-executed', evidence_refs: ['evidence-report.txt'], report: { result_id: `result-${slot.check!.check_id}`, status, evidence_plan_revision: current.runtimeState.evidence_plan_revision!, subject_revision: captureReviewTarget(root, slot.check!.subject_paths).revision, actual_method: slot.check!.method, environment: 'isolated test fixture', assurance: 'caller-reported' } };
 }
 
-function completeCurrentStepThroughExecution(root: string) {
-  const preflight = preflightStep(root, { candidate_paths: [] });
+function completeCurrentStepThroughExecution(root: string, candidatePaths: string[] = []) {
+  const preflight = preflightStep(root, { candidate_paths: candidatePaths });
+  for (const candidatePath of candidatePaths) {
+    const filePath = path.join(root, ...candidatePath.split('/'));
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.appendFileSync(filePath, '\n// fixture execution change\n', 'utf8');
+  }
   const claims = readCanonicalCurrentTask(root).runtimeState.claim_evidence ?? [];
   return recordStepResult(root, {
     preflight_receipt: preflight.receipt,
-    actual_changed_paths: [],
+    actual_changed_paths: [...candidatePaths],
     command_results: preflight.current_step.commands.map(item => ({
       command: item.command,
       status: 'passed',
@@ -1353,12 +1363,51 @@ afterEach(() => {
 });
 
 describe('vNext Phase 2 Runtime contract', () => {
+  test('S5 exposes an executable user-decision route for every declared policy gate', () => {
+    const executableCommands = new Set(['record-user-decision', 'prepare-task:amend-scope']);
+    for (const code of Object.keys(POLICY_GATE_DESCRIPTORS)) {
+      const descriptor = policyGateDescriptor(code);
+      expect(descriptor, code).not.toBeNull();
+      expect(descriptor?.warning_only, code).toBe(true);
+      expect(executableCommands.has(descriptor!.route), code).toBe(true);
+      expect(descriptor?.route, code).toMatch(/^[a-z][a-z-]*(?::[a-z-]+)?$/u);
+    }
+    for (const code of ['SOURCE_TUPLE_MISMATCH', 'EXECUTE_PREFLIGHT_STALE', 'REVIEW_TARGET_STALE', 'USER_DECISION_SOURCE_CONFLICT']) {
+      expect(integrityRecoveryRouteForCode(code), code).toMatchObject({
+        kind: 'integrity-recovery-route/v1', hard_reject: true,
+      });
+    }
+
+    const context = taskContext(makeRoot(), {});
+    const declaredRuntimeCommands = new Set([
+      'record-user-decision',
+      'prepare-task:clear-resume-review',
+      'prepare-task:amend-scope',
+      'prepare-task:extend-repair-budget',
+      'prepare-task:authorize-controlled-repair-recovery',
+      'prepare-task:prepare-evidence-plan-amendment',
+      'prepare-task:prepare-replan',
+      'execute-step:repair',
+      'execute-step:complete-reviewed-step',
+      'review-change',
+      'preflight-step',
+      'resume-preflight',
+      'reconcile-preflight',
+      'retry-step',
+      'debug-task',
+      'execute-step',
+    ]);
+    expect(declaredRuntimeCommands.has(context.overview.next_entry)).toBe(true);
+    for (const option of context.overview.next_options) expect(declaredRuntimeCommands.has(option)).toBe(true);
+  });
+
   test('validates the bound Runtime slice including capture-work-item', () => {
     const result = validateVNextRuntimeContract(ROOT);
     expect(result.phase).toBe('Phase 2');
     expect(result.bound_operations).toEqual([
       'task-state-transaction',
       'finding-queue-transaction',
+      'user-decision-transaction',
       'lifecycle-transaction',
       'inbox-record-transaction',
       'project-status-transaction',
@@ -1797,6 +1846,132 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(result.status).toBe('blocked');
     expect(result.code).toBe('CLOSURE_NOT_ELIGIBLE');
     expect(fs.existsSync(path.join(root, 'TASKS', 'TASK-010-runtime-fixture.md'))).toBe(false);
+  });
+
+  test('archives an explicit close exception without rewriting incomplete validation as verified', () => {
+    const root = confirmedSemanticRoot();
+    const preflight = preflightStep(root, { candidate_paths: [] });
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: [],
+      command_results: [{
+        command: preflight.current_step.commands[0]!.command,
+        status: 'failed',
+        observed_repo_writes: [],
+        evidence_refs: ['test:evidence:close-failed-command'],
+      }],
+      validation_results: [{
+        validation: preflight.current_step.validation[0]!,
+        status: 'not-run',
+        evidence_refs: [],
+      }],
+      acceptance_evidence: [],
+      outcome: 'blocked',
+      blocker_kind: 'unknown',
+      note: 'The validation command failed; the user explicitly chose a stopped-by-user terminal state.',
+    }).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    const decision: UserDecision = {
+      decision_source: 'user:s1-close-exception',
+      decision_text: '停止继续验证，按明确记录的验证例外归档；不得把未完成验证改写为通过。',
+      task_id: current.runtimeState.task_id,
+      source_revision: current.sourceTuple.revision,
+      effects: [{ kind: 'close-with-exceptions', gate_code: 'user-directed-stop', target_ids: ['gate:stopped-by-user', 'step:step-1', 'review-coverage', 'acceptance', 'validation'] }],
+      idempotency_key: 'user-decision-close-exception-1',
+      evidence_refs: ['test:evidence:close-exception'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(current, {
+      caller: 'close-task',
+      decision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: decision.evidence_refs!,
+    }))).toMatchObject({ status: 'success' });
+
+    const delta = archiveDelta({
+      completion_disposition: 'stopped-by-user',
+      exception_decision_ids: [decision.idempotency_key],
+      closure_evidence: closureEvidence({ acceptance_satisfied: false, validation_complete: false }),
+      evidence_refs: ['test:evidence:closure'],
+    });
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, delta, 'archive-close-exception-1'))).toMatchObject({
+      status: 'success', operation_kind: 'archive-transaction',
+    });
+    const archived = readCanonicalCurrentTask(root);
+    expect(archived.runtimeState.workflow_status).toBe('closed');
+    expect(archived.runtimeState.lifecycle_state).toBe('archived');
+    expect(archived.runtimeState.claim_evidence?.some(claim => claim.slots.some(slot => slot.disposition === 'missing'))).toBe(true);
+    expect(fs.readFileSync(path.join(root, 'TASKS', 'TASK-001-add-the-prepare-task-runtime-adapter.md'), 'utf8')).toContain('completion_disposition: stopped-by-user');
+  });
+
+  test('stops with a pending review and open finding without consuming either fact', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise a user stop during repair',
+        mutation_scope: [file], commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+      }],
+    }));
+    expect(completeCurrentStepThroughExecution(root, [file]).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: review.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness', file,
+        failure_condition: 'the implementation still violates the reviewed invariant',
+        required_behavior: 'retain the unresolved finding on a user stop',
+        root_cause_status: 'confirmed', evidence_refs: ['test:stop-pending-finding'],
+      }],
+      unresolved_fingerprints: [], evidence_refs: ['test:stop-pending-review'], blocker: null,
+    }).status).toBe('success');
+    const pending = readCanonicalCurrentTask(root).runtimeState.pending_review_result!;
+    const fingerprint = pending.findings[0]!.fingerprint;
+    expect(beginRepair(root, { candidate_paths: [file] }).receipt.kind).toBe('execute-step-repair-preflight/v1');
+    const beforeStop = readCanonicalCurrentTask(root);
+    const openFinding = beforeStop.runtimeState.findings.find(item => item.fingerprint === fingerprint)!;
+    expect(['admitted', 'in-progress']).toContain(openFinding.status);
+    expect(beforeStop.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
+
+    const decision: UserDecision = {
+      decision_source: 'user:s1-stop-pending-review',
+      decision_text: '停止当前任务；保留待处理审查和 finding，不宣称已经修复。',
+      task_id: beforeStop.runtimeState.task_id,
+      source_revision: beforeStop.sourceTuple.revision,
+      review_id: pending.review_id,
+      change_set_id: pending.change_set_id,
+      effects: [{
+        kind: 'close-with-exceptions',
+        gate_code: 'user-directed-stop',
+        target_ids: ['gate:stopped-by-user', 'step:step-1', `review:${pending.review_id}`, `finding:${fingerprint}`],
+      }],
+      idempotency_key: 'user-decision-stop-pending-review-1',
+      evidence_refs: ['test:stop-pending-decision'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(beforeStop, {
+      caller: 'close-task', decision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: decision.evidence_refs!,
+    })).status).toBe('success');
+    const delta = archiveDelta({
+      completion_disposition: 'stopped-by-user',
+      exception_decision_ids: [decision.idempotency_key],
+      remaining_risks: [`finding:${fingerprint}`],
+      closure_evidence: closureEvidence({ no_admitted_or_in_progress_findings: false }),
+      delivery_summary: deliverySummary({
+        verification: ['review remains pending; finding repair was not completed'],
+        next_action: 'retain the unresolved finding for an explicit future decision',
+      }),
+    });
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, delta, 'archive-stop-pending-review-1'))).toMatchObject({
+      status: 'success', operation_kind: 'archive-transaction',
+    });
+    const archived = readCanonicalCurrentTask(root);
+    expect(archived.runtimeState).toMatchObject({ workflow_status: 'closed', lifecycle_state: 'archived' });
+    expect(archived.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
+    expect(archived.runtimeState.findings.find(item => item.fingerprint === fingerprint)?.status).toBe(openFinding.status);
+    expect(archived.runtimeState.execution_preflight).toBeDefined();
   });
 
   test('captures one unrelated work item in an isolated pure-vNext Virtual Project and preserves record-only state', () => {
@@ -7944,6 +8119,40 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.review_coverage!.pending_paths.sort()).toEqual([a,b,c].sort());
   });
 
+  test('records a bound test-red reproduction without positive acceptance and keeps it reviewable', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const semantic = semanticDraft();
+    semantic.test_strategy = { mode: 'test-first', source: 'explicit-user', source_ref: 'test:original-request', task_classification: 'contract-clear-behavior', rationale: 'Reproduce the defect before fixing it' };
+    const prerequisite = structuredClone(semantic.claim_evidence[0]!);
+    prerequisite.claim_id = 'reproduction'; prerequisite.claim_kind = 'invariant'; prerequisite.requirement = 'Observe the admitted defect before editing';
+    const slot = prerequisite.slots[0]!;
+    slot.slot_id = 'reproduce'; slot.due_step_id = 'step-1'; slot.applicability = 'before-step'; slot.before_step_id = 'step-2'; slot.prerequisite_receipt = null;
+    slot.check!.check_id = 'reproduce-check'; slot.check!.expected_result = 'expected-failure'; slot.check!.entry = semantic.implementation_steps[1]!.commands[0]!.command;
+    semantic.implementation_steps[0]!.commands = [{ command: slot.check!.entry, expected_repo_writes: 'none' }];
+    semantic.implementation_steps[0]!.validation = [slot.check!.entry];
+    semantic.claim_evidence.push(prerequisite);
+    const root = confirmedSemanticRoot(semantic);
+    const preflight = preflightStep(root, { candidate_paths: ['test/vnext-runtime.test.ts'] });
+    expect(preflight.receipt.execution_phase).toBe('red');
+    const report = reportFixture(root, 'reproduction', 'reproduce', 'expected-failure');
+    const expectedFailure = { kind: 'behavior-not-implemented' as const, expected_behavior: 'defect fixed', observed_failure_signature: 'defect reproduced' };
+    const input = {
+      preflight_receipt: preflight.receipt, actual_changed_paths: [],
+      command_results: [{ command: slot.check!.entry, status: 'expected-failure', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'], expected_failure: expectedFailure }],
+      validation_results: [{ validation: slot.check!.entry, status: 'expected-failure', evidence_refs: ['evidence-report.txt'], expected_failure: expectedFailure }],
+      acceptance_evidence: [report], outcome: 'test-red', note: 'Bound Red reproduction; positive acceptance is still missing',
+    };
+    expect(recordStepResult(root, { ...input, acceptance_evidence: [report, reportFixture(root)] })).toMatchObject({ status: 'blocked', code: 'TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN', committed: false });
+    expect(recordStepResult(root, input).status).toBe('success');
+    const context = reviewContext(root, {});
+    expect(context.recorded_execution.execution_result?.outcome).toBe('test-red');
+    expect(context.recorded_execution.execution_result?.acceptance_evidence).toEqual([report]);
+    expect(recordReviewResult(root, { context_receipt: context.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'reproduction reviewed' }).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.active_step_id).toBe('step-2');
+    expect(current.runtimeState.claim_evidence!.find(claim => claim.claim_id === 'A1')!.slots[0]!.report).toBeNull();
+  });
+
   test('S2 consumes reproduction before editing, preserves H0 after H1 repair, and rejects forged/stale consumption', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const semantic = semanticDraft();
     semantic.test_strategy = { mode: 'test-first', source: 'explicit-user', source_ref: 'test:original-request', task_classification: 'contract-clear-behavior', rationale: 'Reproduce the defect before fixing it' };
@@ -8903,6 +9112,548 @@ describe('vNext Phase 2 Runtime contract', () => {
     const complete = readCanonicalCurrentTask(root);
     expect(complete.runtimeState.findings.every(item => item.status === 'resolved')).toBe(true);
     expect(complete.runtimeState.pending_review_result).toBeNull();
+  });
+
+  test('records a partial user disposition atomically, preserves the pending review, and replays idempotently', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const deferredFile = 'runtime/vnext/src/kernel.ts';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file, deferredFile], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise the user-directed finding disposition loop',
+        mutation_scope: [file, deferredFile], commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    fs.writeFileSync(product, 'initial implementation\n', 'utf8');
+    expect(completeCurrentStepThroughExecution(root, [file, deferredFile]).status).toBe('success');
+
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt,
+      verdict: 'findings',
+      findings: [
+        {
+          category: 'correctness', file,
+          failure_condition: 'finding A remains unresolved',
+          required_behavior: 'preserve the A invariant',
+          root_cause_status: 'confirmed', evidence_refs: ['test:user-decision-finding-a'],
+        },
+        {
+          category: 'validation', file: deferredFile,
+          failure_condition: 'finding C is deferred by the user',
+          required_behavior: 'retain the C risk decision',
+          root_cause_status: 'bounded', evidence_refs: ['test:user-decision-finding-c'],
+        },
+      ],
+      unresolved_fingerprints: [],
+      evidence_refs: ['test:user-decision-review'],
+      blocker: null,
+    }).status).toBe('success');
+
+    const reviewed = readCanonicalCurrentTask(root);
+    const pending = reviewed.runtimeState.pending_review_result!;
+    const findingA = pending.findings.find(item => item.failure_condition.includes('finding A'))!.fingerprint;
+    const findingC = pending.findings.find(item => item.failure_condition.includes('finding C'))!.fingerprint;
+    const decisionText = '修复 finding A；将 finding C 延后，保留审查事实和风险。';
+    const decision: UserDecision = {
+      decision_source: 'user:s1-partial-disposition',
+      decision_text: decisionText,
+      task_id: reviewed.runtimeState.task_id,
+      source_revision: reviewed.sourceTuple.revision,
+      review_id: pending.review_id,
+      change_set_id: pending.change_set_id,
+      effects: [
+        { kind: 'repair-finding', fingerprint: findingA, continuation: 'once' },
+        { kind: 'defer-finding', fingerprint: findingC },
+      ],
+      idempotency_key: 'user-decision-partial-disposition-1',
+      evidence_refs: ['test:user-decision-audit'],
+    };
+    const { review_id: _reviewId, ...decisionWithoutReview } = decision;
+    const unboundPendingDecision: UserDecision = {
+      ...decisionWithoutReview,
+      idempotency_key: 'user-decision-unbound-pending-review-1',
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(reviewed, {
+      caller: 'execute-step', decision: unboundPendingDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission', 'finding-admission'),
+      evidence_refs: unboundPendingDecision.evidence_refs!,
+    }))).toMatchObject({ status: 'blocked', code: 'USER_DECISION_REVIEW_REQUIRED', committed: false });
+    const proposal = createUserDecisionProposal(reviewed, {
+      caller: 'execute-step',
+      decision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission', 'finding-admission'),
+      evidence_refs: ['test:user-decision-audit'],
+    });
+    expect(applyVNextRuntimeProposal(root, proposal)).toMatchObject({
+      status: 'success', operation_kind: 'user-decision-transaction', idempotency_key: decision.idempotency_key,
+    });
+    const afterDecision = readCanonicalCurrentTask(root);
+    expect(afterDecision.runtimeState.pending_review_result).toMatchObject({ review_id: pending.review_id, verdict: 'findings' });
+    expect(afterDecision.runtimeState.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fingerprint: findingA, status: 'admitted' }),
+      expect.objectContaining({ fingerprint: findingC, status: 'deferred' }),
+    ]));
+    expect(readCanonicalTaskBasis(root, afterDecision).basis.user_decisions.at(-1)).toEqual({
+      source: decision.decision_source, verbatim: decisionText,
+    });
+    expect(afterDecision.runtimeState.execution_log.findLast(item => 'action' in item && item.action === 'record-user-decision')).toMatchObject({
+      action: 'record-user-decision', idempotency_key: decision.idempotency_key,
+      effects: expect.arrayContaining([
+        expect.objectContaining({ kind: 'repair-finding', fingerprint: findingA }),
+        expect.objectContaining({ kind: 'defer-finding', fingerprint: findingC }),
+      ]),
+    });
+    expect(taskContext(root, {}).overview.next_entry).toBe('execute-step:repair');
+
+    // The exact proposal is a durable no-op after publication; it neither
+    // repeats the finding transition nor appends another user decision.
+    expect(applyVNextRuntimeProposal(root, proposal)).toMatchObject({ status: 'no-op', committed: false });
+    expect(readCanonicalCurrentTask(root).runtimeState.execution_log.filter(item => 'action' in item && item.action === 'record-user-decision')).toHaveLength(1);
+
+    const repair = beginRepair(root, { candidate_paths: [file] });
+    fs.writeFileSync(product, 'repaired A while C remains deferred\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: repair.receipt,
+      actual_changed_paths: [file],
+      command_results: [{ command: 'bun test test/vnext-runtime.test.ts', status: 'passed', observed_repo_writes: [], evidence_refs: ['test:user-decision-repair-command'] }],
+      validation_results: [{ validation: 'bun test test/vnext-runtime.test.ts passes', status: 'passed', evidence_refs: ['test:user-decision-repair-validation'] }],
+      acceptance_evidence: [], outcome: 'implemented', note: 'Repair only the user-authorized finding A.',
+    }).status).toBe('success');
+    const verification = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: verification.receipt,
+      verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['test:user-decision-clean-verification'], blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Verify A; retain C as an explicit user deferral.' })).toMatchObject({
+      status: 'success', advancement: { outcome: 'task-complete' },
+    });
+    const completed = readCanonicalCurrentTask(root);
+    expect(completed.runtimeState.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fingerprint: findingA, status: 'resolved' }),
+      expect.objectContaining({ fingerprint: findingC, status: 'deferred' }),
+    ]));
+    expect(completed.runtimeState.pending_review_result).toBeNull();
+
+    // Rejecting C later is still a user decision to leave the reviewed
+    // finding unresolved; verifying A must not make the whole task verified.
+    const rejectDecision: UserDecision = {
+      decision_source: 'user:s1-reject-after-partial-repair',
+      decision_text: 'A 已验证；C 不继续修复，保留审查事实和剩余风险。',
+      task_id: completed.runtimeState.task_id,
+      source_revision: completed.sourceTuple.revision,
+      effects: [{ kind: 'reject-finding', fingerprint: findingC }],
+      idempotency_key: 'user-decision-reject-after-partial-repair-1',
+      evidence_refs: ['test:reject-after-partial-repair'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(completed, {
+      caller: 'close-task', decision: rejectDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: rejectDecision.evidence_refs!,
+    })).status).toBe('success');
+    const rejected = readCanonicalCurrentTask(root);
+    expect(rejected.runtimeState.findings.find(item => item.fingerprint === findingC)?.status).toBe('rejected');
+    const ordinaryClose = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta(), 'archive-rejected-without-exception-1'));
+    expect(ordinaryClose).toMatchObject({ status: 'blocked', code: 'CLOSURE_NOT_ELIGIBLE', committed: false });
+    expect(ordinaryClose.message).toContain(`finding:${findingC}`);
+
+    const closeDecision: UserDecision = {
+      decision_source: 'user:s1-close-rejected-finding',
+      decision_text: '按例外完成任务；C 未修复，须在归档中列为剩余风险。',
+      task_id: rejected.runtimeState.task_id,
+      source_revision: rejected.sourceTuple.revision,
+      effects: [{ kind: 'close-with-exceptions', target_ids: [`finding:${findingC}`] }],
+      idempotency_key: 'user-decision-close-rejected-finding-1',
+      evidence_refs: ['test:close-rejected-finding'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(rejected, {
+      caller: 'close-task', decision: closeDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: closeDecision.evidence_refs!,
+    })).status).toBe('success');
+    expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+      completion_disposition: 'completed-with-exceptions',
+      exception_decision_ids: [closeDecision.idempotency_key],
+      remaining_risks: [`finding:${findingC}`],
+    }), 'archive-rejected-with-exception-1'))).toMatchObject({ status: 'success', operation_kind: 'archive-transaction' });
+    const archived = readCanonicalCurrentTask(root);
+    expect(archived.runtimeState.findings.find(item => item.fingerprint === findingC)?.status).toBe('rejected');
+    expect(fs.readFileSync(path.join(root, 'TASKS', 'TASK-001-add-the-prepare-task-runtime-adapter.md'), 'utf8'))
+      .toContain('completion_disposition: completed-with-exceptions');
+  });
+
+  test('uses a disposition receipt for all-defer advancement instead of fabricating clean', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise all-defer advancement',
+        mutation_scope: [file], commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+      }],
+    }));
+    expect(completeCurrentStepThroughExecution(root, [file]).status).toBe('success');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness', file,
+        failure_condition: 'the optional behavior remains risky',
+        required_behavior: 'retain the explicit risk decision',
+        root_cause_status: 'confirmed', evidence_refs: ['test:all-defer-finding'],
+      }],
+      unresolved_fingerprints: [], evidence_refs: ['test:all-defer-review'], blocker: null,
+    }).status).toBe('success');
+    const reviewed = readCanonicalCurrentTask(root);
+    const pending = reviewed.runtimeState.pending_review_result!;
+    const fingerprint = pending.findings[0]!.fingerprint;
+    const decision: UserDecision = {
+      decision_source: 'user:s1-all-defer',
+      decision_text: '暂缓修复该 finding，保留审查事实和对应风险记录。',
+      task_id: reviewed.runtimeState.task_id,
+      source_revision: reviewed.sourceTuple.revision,
+      review_id: pending.review_id,
+      change_set_id: pending.change_set_id,
+      effects: [
+        { kind: 'defer-finding', fingerprint },
+        { kind: 'advance-with-exceptions', gate_code: 'user-directed-finding-disposition', target_ids: [`finding:${fingerprint}`] },
+      ],
+      idempotency_key: 'user-decision-all-defer-1',
+      evidence_refs: ['test:all-defer-decision'],
+    };
+    const result = applyVNextRuntimeProposal(root, createUserDecisionProposal(reviewed, {
+      caller: 'execute-step', decision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: decision.evidence_refs!,
+    }));
+    expect(result).toMatchObject({ status: 'success', advancement: { outcome: 'task-complete' } });
+    const completed = readCanonicalCurrentTask(root);
+    expect(completed.runtimeState.pending_review_result).toBeNull();
+    expect(completed.runtimeState.findings).toEqual([expect.objectContaining({ fingerprint, status: 'deferred' })]);
+    const disposition = completed.runtimeState.execution_log.findLast(item => !('action' in item) && item.user_decision_id === decision.idempotency_key);
+    expect(disposition).toMatchObject({
+      completion_disposition: 'user-directed-with-exceptions',
+      review_receipt: { verdict: 'disposition', cycle_phase: 'discovery', admitted_fingerprints: [], user_decision_id: decision.idempotency_key },
+    });
+    const decisionAudit = completed.runtimeState.execution_log.findLast(item =>
+      'action' in item && item.action === 'record-user-decision' && item.idempotency_key === decision.idempotency_key);
+    expect(decisionAudit).toMatchObject({
+      consumed_review: {
+        review_id: pending.review_id,
+        findings: [expect.objectContaining({ fingerprint })],
+      },
+    });
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'A clean receipt must not be invented for a deferred finding.' })).toMatchObject({
+      status: 'no-op', committed: false,
+    });
+  });
+
+  test('records out-of-scope review findings and binds an exact mutation decision to scope amendment', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const original = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const later = 'src/later-finding.ts';
+    const authorized = 'src/authorized-finding.ts';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [original], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Review an exact implementation change', mutation_scope: [original],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['The implementation check passes'],
+      }],
+    }));
+    const preflight = preflightStep(root, { candidate_paths: [original] });
+    const product = path.join(root, ...original.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    fs.writeFileSync(product, 'reviewed implementation\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt, actual_changed_paths: [original],
+      command_results: preflight.current_step.commands.map(command => ({
+        command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: ['test:scope-review-command'],
+      })),
+      validation_results: [{ validation: preflight.current_step.validation[0]!, status: 'passed', evidence_refs: ['test:scope-review-validation'] }],
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Record the scoped change',
+    }).status).toBe('success');
+    const context = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: context.receipt, verdict: 'findings',
+      findings: [later, authorized].map(file => ({
+        category: 'correctness', file, failure_condition: `Review observed a defect in ${file}`,
+        required_behavior: `Handle ${file} correctly`, root_cause_status: 'confirmed', evidence_refs: ['test:scope-review-finding'],
+      })),
+      unresolved_fingerprints: [], evidence_refs: ['test:scope-review-finding'], blocker: null,
+    }).status).toBe('success');
+    let current = readCanonicalCurrentTask(root);
+    const pending = current.runtimeState.pending_review_result!;
+    expect(pending.findings.map(item => item.repair_scope_hint)).toEqual(['outside-current-authority', 'outside-current-authority']);
+    expect(taskContext(root, {}).overview.pending_scope_findings.findings).toHaveLength(2);
+    const laterFingerprint = pending.findings.find(item => item.file === later)!.fingerprint;
+    const deferDecision: UserDecision = {
+      task_id: current.runtimeState.task_id, source_revision: current.sourceTuple.revision,
+      review_id: pending.review_id, change_set_id: pending.change_set_id,
+      decision_source: 'user:defer-outside-scope', decision_text: 'Leave the first observed issue for later.',
+      effects: [{ kind: 'defer-finding', fingerprint: laterFingerprint }],
+      idempotency_key: 'decision-defer-outside-scope', evidence_refs: ['test:defer-outside-scope'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(current, {
+      caller: 'prepare-task', decision: deferDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: deferDecision.evidence_refs!,
+    })).status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.findings.find(item => item.fingerprint === laterFingerprint)).toMatchObject({ status: 'deferred', scope: 'observed' });
+    const mutationDecision: UserDecision = {
+      task_id: current.runtimeState.task_id, source_revision: current.sourceTuple.revision,
+      review_id: pending.review_id, change_set_id: pending.change_set_id,
+      decision_source: 'user:authorize-observed-path', decision_text: 'Authorize the exact second finding path for repair.',
+      effects: [{ kind: 'authorize-mutation', exact_paths: [authorized] }],
+      idempotency_key: 'decision-authorize-observed-path', evidence_refs: ['test:authorize-observed-path'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(current, {
+      caller: 'prepare-task', decision: mutationDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: mutationDecision.evidence_refs!,
+    })).status).toBe('success');
+    expect(() => prepareScopeAmendment(root, {
+      added_paths: [later], authorization: { decision_id: mutationDecision.idempotency_key },
+      amendment_step: {
+        id: 'scope-unapproved-finding', description: 'This path lacks authorization', mutation_scope: [later],
+        required_evidence: ['fresh review'], commands: [],
+      },
+    })).toThrow('SCOPE_AMENDMENT_AUTHORIZATION_REQUIRED');
+    const prepared = prepareScopeAmendment(root, {
+      added_paths: [authorized], authorization: { decision_id: mutationDecision.idempotency_key },
+      amendment_step: {
+        id: 'scope-authorized-finding', description: 'Repair the authorized finding path', mutation_scope: [authorized],
+        required_evidence: ['fresh execution', 'fresh review'], commands: [],
+      },
+    });
+    expect(prepared.status).toBe('success');
+    expect(prepared.candidate_receipt).toMatchObject({
+      decision_id: mutationDecision.idempotency_key,
+      review_id: mutationDecision.review_id,
+      change_set_id: mutationDecision.change_set_id,
+    });
+    const candidatePath = path.join(root, ...prepared.candidate_path.split('/'));
+    const storedCandidate = JSON.parse(fs.readFileSync(candidatePath, 'utf8')) as {
+      authorization?: { decision_id?: string; review_id?: string; change_set_id?: string };
+    };
+    expect(storedCandidate.authorization).toMatchObject({
+      decision_id: mutationDecision.idempotency_key,
+      review_id: mutationDecision.review_id,
+      change_set_id: mutationDecision.change_set_id,
+    });
+    current = readCanonicalCurrentTask(root);
+    expect(current.body).toContain(authorized);
+    expect(current.body).not.toContain(later);
+    expect(current.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
+    expect(current.runtimeState.findings.find(item => item.fingerprint === laterFingerprint)?.status).toBe('deferred');
+    const amendmentAudit = current.runtimeState.execution_log.find(item => 'action' in item && item.action === 'commit-scope-amendment');
+    expect(amendmentAudit).toMatchObject({
+      decision_id: mutationDecision.idempotency_key,
+      review_id: mutationDecision.review_id,
+      change_set_id: mutationDecision.change_set_id,
+    });
+  });
+
+  test('rejects reusing a mutation decision after its pending review is consumed', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const original = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const authorized = 'src/authorized-after-review.ts';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [original], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Create a review-bound mutation decision', mutation_scope: [original],
+        commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['The review-bound mutation decision is exercised'],
+      }],
+    }));
+    const preflight = preflightStep(root, { candidate_paths: [original] });
+    const product = path.join(root, ...original.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    fs.writeFileSync(product, 'review-bound implementation\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt, actual_changed_paths: [original],
+      command_results: preflight.current_step.commands.map(command => ({
+        command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: ['test:review-bound-command'],
+      })),
+      validation_results: [{ validation: preflight.current_step.validation[0]!, status: 'passed', evidence_refs: ['test:review-bound-validation'] }],
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Create the review-bound mutation decision',
+    }).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: review.receipt, verdict: 'findings',
+      findings: [{
+        category: 'correctness', file: authorized,
+        failure_condition: 'The out-of-scope path needs an explicit mutation decision',
+        required_behavior: 'Authorize and review the exact continuation path',
+        root_cause_status: 'confirmed', evidence_refs: ['test:review-bound-finding'],
+      }],
+      unresolved_fingerprints: [], evidence_refs: ['test:review-bound-finding'], blocker: null,
+    }).status).toBe('success');
+    let current = readCanonicalCurrentTask(root);
+    const pending = current.runtimeState.pending_review_result!;
+    const fingerprint = pending.findings[0]!.fingerprint;
+    const mutationDecision: UserDecision = {
+      task_id: current.runtimeState.task_id, source_revision: current.sourceTuple.revision,
+      review_id: pending.review_id, change_set_id: pending.change_set_id,
+      decision_source: 'user:review-bound-scope', decision_text: 'Authorize this exact path only for the current pending review.',
+      effects: [{ kind: 'authorize-mutation', exact_paths: [authorized] }],
+      idempotency_key: 'decision-review-bound-scope', evidence_refs: ['test:review-bound-decision'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(current, {
+      caller: 'prepare-task', decision: mutationDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: mutationDecision.evidence_refs!,
+    })).status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    const deferDecision: UserDecision = {
+      task_id: current.runtimeState.task_id, source_revision: current.sourceTuple.revision,
+      review_id: pending.review_id, change_set_id: pending.change_set_id,
+      decision_source: 'user:consume-review-disposition', decision_text: 'Defer this finding after recording the exact review conclusion.',
+      effects: [{ kind: 'defer-finding', fingerprint }],
+      idempotency_key: 'decision-consume-review-disposition', evidence_refs: ['test:review-consumed'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(current, {
+      caller: 'prepare-task', decision: deferDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: deferDecision.evidence_refs!,
+    })).status).toBe('success');
+    current = readCanonicalCurrentTask(root);
+    const advanceDecision: UserDecision = {
+      task_id: current.runtimeState.task_id, source_revision: current.sourceTuple.revision,
+      review_id: pending.review_id, change_set_id: pending.change_set_id,
+      decision_source: 'user:consume-review-advance', decision_text: 'Advance with the explicitly deferred finding retained as an exception.',
+      effects: [{ kind: 'advance-with-exceptions', gate_code: 'user-directed-finding-disposition', target_ids: [`finding:${fingerprint}`] }],
+      idempotency_key: 'decision-consume-review-advance', evidence_refs: ['test:review-consumed'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(current, {
+      caller: 'prepare-task', decision: advanceDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: advanceDecision.evidence_refs!,
+    })).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.pending_review_result).toBeNull();
+    expect(() => prepareScopeAmendment(root, {
+      added_paths: [authorized], authorization: { decision_id: mutationDecision.idempotency_key },
+      amendment_step: {
+        id: 'scope-after-review-ended', description: 'This must require a new review-bound decision',
+        mutation_scope: [authorized], required_evidence: ['fresh review'], commands: [],
+      },
+    })).toThrow('SCOPE_AMENDMENT_AUTHORIZATION_CONFLICT');
+  });
+
+  test('reopens a terminal finding through an explicit user decision without resetting repair history', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{
+        id: 'step-1', description: 'Exercise finding reopen admission',
+        mutation_scope: [file], commands: [{ command: 'bun test test/vnext-runtime.test.ts', expected_repo_writes: 'none' }],
+        validation: ['bun test test/vnext-runtime.test.ts passes'],
+      }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    fs.writeFileSync(product, 'initial implementation\n', 'utf8');
+    expect(completeCurrentStepThroughExecution(root, [file]).status).toBe('success');
+
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: discovery.receipt,
+      verdict: 'findings',
+      findings: [{
+        category: 'correctness', file,
+        failure_condition: 'the behavior remains optional',
+        required_behavior: 'retain the explicit finding decision',
+        root_cause_status: 'confirmed', evidence_refs: ['test:reopen-finding'],
+      }],
+      unresolved_fingerprints: [], evidence_refs: ['test:reopen-review'], blocker: null,
+    }).status).toBe('success');
+    const reviewed = readCanonicalCurrentTask(root);
+    const pending = reviewed.runtimeState.pending_review_result!;
+    const fingerprint = pending.findings[0]!.fingerprint;
+    const acceptDecision: UserDecision = {
+      decision_source: 'user:s1-reopen-baseline',
+      decision_text: '先接受该风险并完成本轮记录；后续明确要求重新修复。',
+      task_id: reviewed.runtimeState.task_id,
+      source_revision: reviewed.sourceTuple.revision,
+      review_id: pending.review_id,
+      change_set_id: pending.change_set_id,
+      effects: [
+        { kind: 'accept-finding-risk', fingerprint },
+        { kind: 'advance-with-exceptions', gate_code: 'user-directed-finding-disposition', target_ids: [`finding:${fingerprint}`] },
+      ],
+      idempotency_key: 'user-decision-reopen-baseline-1',
+      evidence_refs: ['test:reopen-baseline-decision'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(reviewed, {
+      caller: 'execute-step', decision: acceptDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: acceptDecision.evidence_refs!,
+    })).status).toBe('success');
+
+    const terminal = readCanonicalCurrentTask(root);
+    const attemptsBeforeReopen = terminal.runtimeState.findings.find(item => item.fingerprint === fingerprint)!.repair_attempts;
+    const invalidDirectRepair: UserDecision = {
+      decision_source: 'user:s1-reopen-invalid-direct-repair',
+      decision_text: '直接重新修复已结案 finding。',
+      task_id: terminal.runtimeState.task_id,
+      source_revision: terminal.sourceTuple.revision,
+      effects: [{ kind: 'repair-finding', fingerprint, continuation: 'once' }],
+      idempotency_key: 'user-decision-reopen-invalid-direct-repair-1',
+      evidence_refs: ['test:reopen-invalid-direct-repair'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(terminal, {
+      caller: 'execute-step', decision: invalidDirectRepair,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission', 'finding-admission'),
+      evidence_refs: invalidDirectRepair.evidence_refs!,
+    }))).toMatchObject({ status: 'blocked', code: 'USER_DECISION_TARGET_INVALID', committed: false });
+    const reopenDecision: UserDecision = {
+      decision_source: 'user:s1-reopen',
+      decision_text: '重新打开该 finding，按原任务范围再进行一次修复，并保留历史尝试记录。',
+      task_id: terminal.runtimeState.task_id,
+      source_revision: terminal.sourceTuple.revision,
+      effects: [{ kind: 'reopen-finding', fingerprint }],
+      idempotency_key: 'user-decision-reopen-1',
+      evidence_refs: ['test:reopen-decision'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(terminal, {
+      caller: 'execute-step', decision: reopenDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission', 'finding-admission'),
+      evidence_refs: reopenDecision.evidence_refs!,
+    })).status).toBe('success');
+    const reopened = readCanonicalCurrentTask(root);
+    expect(reopened.runtimeState.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fingerprint, status: 'admitted', repair_attempts: attemptsBeforeReopen }),
+    ]));
+    expect(reopened.runtimeState.pending_review_result).toMatchObject({
+      origin: 'user-decision-reopen', user_decision_id: reopenDecision.idempotency_key,
+      verdict: 'findings', unresolved_fingerprints: [fingerprint],
+    });
+
+    const repair = beginRepair(root, { candidate_paths: [file] });
+    fs.writeFileSync(product, 'repaired after explicit reopen\n', 'utf8');
+    expect(recordStepResult(root, {
+      preflight_receipt: repair.receipt,
+      actual_changed_paths: [file],
+      command_results: [{ command: 'bun test test/vnext-runtime.test.ts', status: 'passed', observed_repo_writes: [], evidence_refs: ['test:reopen-repair-command'] }],
+      validation_results: [{ validation: 'bun test test/vnext-runtime.test.ts passes', status: 'passed', evidence_refs: ['test:reopen-repair-validation'] }],
+      acceptance_evidence: [], outcome: 'implemented', note: 'Repair after explicit reopen.',
+    }).status).toBe('success');
+    const verification = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: verification.receipt,
+      verdict: 'clean', findings: [], unresolved_fingerprints: [],
+      evidence_refs: ['test:reopen-clean'], blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Verify explicitly reopened finding.' })).toMatchObject({
+      status: 'success', advancement: { outcome: 'task-complete' },
+    });
+    const completed = readCanonicalCurrentTask(root);
+    expect(completed.runtimeState.findings).toEqual([expect.objectContaining({ fingerprint, status: 'resolved', repair_attempts: attemptsBeforeReopen + 1 })]);
+    expect(completed.runtimeState.pending_review_result).toBeNull();
   });
 
   test('extends only the exact exhausted repair budget and resumes the retained blocked review', { timeout: 40_000 }, () => {
@@ -9906,7 +10657,20 @@ describe('vNext Phase 2 Runtime contract', () => {
     const partialRecovery = readCanonicalCurrentTask(root);
     expect(applyVNextRuntimeProposal(root, createFindingQueueProposal(partialRecovery, {
       mode: 'repair',
-      delta: repairAttempt(a, partialRecovery.runtimeState.review_cycle.id, continuation.receipt.repair_wave_id),
+      delta: repairAttempt(b, partialRecovery.runtimeState.review_cycle.id, continuation.receipt.repair_wave_id),
+      idempotency_key: 'controlled-recovery-ordinary-attempt',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
+      evidence_refs: ['test:evidence:repair', 'test:controlled-recovery-ordinary-attempt'],
+    })).status).toBe('success');
+    const afterOrdinaryAttempt = readCanonicalCurrentTask(root);
+    expect(afterOrdinaryAttempt.runtimeState.findings.find(item => item.fingerprint === b)?.repair_attempts).toBe(1);
+    expect(afterOrdinaryAttempt.runtimeState.findings.find(item => item.fingerprint === b)?.controlled_repair_attempts ?? 0).toBe(0);
+    expect(afterOrdinaryAttempt.runtimeState.controlled_repair_grants![0]).toMatchObject({
+      status: 'consumed', consumed_fingerprints: [], consumed_repair_wave_ids: [continuation.receipt.repair_wave_id],
+    });
+    expect(applyVNextRuntimeProposal(root, createFindingQueueProposal(afterOrdinaryAttempt, {
+      mode: 'repair',
+      delta: repairAttempt(a, afterOrdinaryAttempt.runtimeState.review_cycle.id, continuation.receipt.repair_wave_id),
       idempotency_key: 'controlled-recovery-partial-attempt',
       authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
       evidence_refs: ['test:evidence:repair', 'test:controlled-recovery-partial-attempt'],
@@ -9951,14 +10715,14 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(complete.runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({ repair_attempts: 8, controlled_repair_attempts: 1 });
   });
 
-  test('rejects a partial legacy controlled recovery before consuming the one grant', { timeout: 240_000 }, () => {
+  test('authorizes a selected legacy recovery target while an unselected exhausted finding awaits user disposition', { timeout: 240_000 }, () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
     const command = 'bun test test/vnext-runtime.test.ts';
     const validation = 'bun test test/vnext-runtime.test.ts passes';
     const root = confirmedSemanticRoot(singleStepSemanticDraft({
       mutation_scope: { allowed: [file], conditional: [], forbidden: ['.git/**'] },
       implementation_steps: [{
-        id: 'step-1', description: 'Reject partial controlled recovery before grant issuance', mutation_scope: [file],
+        id: 'step-1', description: 'Select controlled recovery without dropping an exhausted finding', mutation_scope: [file],
         commands: [{ command, expected_repo_writes: 'none' }], validation: [validation],
       }],
     }));
@@ -10027,28 +10791,62 @@ describe('vNext Phase 2 Runtime contract', () => {
       decision_text: 'Authorize only finding A even though the legacy review has two exhausted unresolved findings.',
       evidence_refs: ['test:partial-controlled-decision'],
     };
-    const before = fs.readFileSync(blocked.filePath, 'utf8');
-    expect(authorizeControlledRepairRecovery(root, partialAuthorization)).toMatchObject({
-      status: 'blocked', code: 'CONTROLLED_RECOVERY_TARGET_INVALID',
+    expect(controlledRepairRecoveryEligibility(blocked)).toMatchObject({
+      eligible: true, recovery_fingerprints: [a, c].sort(), disposition_source: 'legacy-explicit-user',
     });
-    expect(fs.readFileSync(blocked.filePath, 'utf8')).toBe(before);
-    expect(readCanonicalCurrentTask(root).runtimeState.controlled_repair_grants ?? []).toHaveLength(0);
-
-    const completeAuthorization = {
-      ...partialAuthorization,
-      recovery_fingerprints: [a, c].sort(),
-      decision_source: 'user:complete-controlled-recovery',
-      decision_text: 'Authorize both exhausted unresolved findings for one bounded controlled recovery wave.',
-    };
-    expect(authorizeControlledRepairRecovery(root, completeAuthorization)).toMatchObject({ status: 'success' });
+    const structured = structuredClone(blocked);
+    structured.runtimeState.pending_review_result!.finding_dispositions = [
+      { fingerprint: a, disposition: 'must-fix', basis: 'critical-invariant', evidence_refs: ['test:partial-controlled-a'] },
+      { fingerprint: c, disposition: 'normal-fix', basis: 'risk-reduction', evidence_refs: ['test:partial-controlled-c'] },
+    ];
+    expect(controlledRepairRecoveryEligibility(structured)).toMatchObject({
+      eligible: true, recovery_fingerprints: [a, c].sort(), disposition_source: 'review-disposition',
+    });
+    structured.runtimeState.pending_review_result!.finding_dispositions![1]!.disposition = 'defer';
+    expect(repairFingerprintsForPendingReview(structured)).toEqual([a, c].sort());
+    expect(authorizeControlledRepairRecovery(root, partialAuthorization)).toMatchObject({ status: 'success' });
     const authorized = readCanonicalCurrentTask(root);
     expect(authorized.runtimeState.controlled_repair_grants).toHaveLength(1);
+    expect(authorized.runtimeState.controlled_repair_grants![0]).toMatchObject({
+      recovery_fingerprints: [a], repair_fingerprints: [a, c].sort(), status: 'issued',
+    });
+    expect(authorized.runtimeState.findings.find(item => item.fingerprint === c)).toMatchObject({
+      status: 'in-progress', repair_attempts: 8,
+    });
+    expect(taskContext(root, {}).overview.next_entry).toBe('record-user-decision');
+    expect(taskContext(root, {}).overview.controlled_recovery).toMatchObject({
+      unselected_exhausted_fingerprints: [c],
+    });
+    const disposition: UserDecision = {
+      task_id: authorized.runtimeState.task_id,
+      source_revision: authorized.sourceTuple.revision,
+      review_id: pending.review_id,
+      change_set_id: pending.change_set_id,
+      decision_source: 'user:defer-unselected-controlled-finding',
+      decision_text: 'Continue repairing A and defer C, preserving its exhausted attempts and review evidence.',
+      effects: [{ kind: 'defer-finding', fingerprint: c }],
+      idempotency_key: 'user-decision-defer-unselected-controlled-finding',
+      evidence_refs: ['test:partial-controlled-decision'],
+    };
+    const proposal = createUserDecisionProposal(authorized, {
+      caller: 'prepare-task', decision: disposition,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: disposition.evidence_refs!,
+    });
+    expect(applyVNextRuntimeProposal(root, proposal)).toMatchObject({ status: 'success' });
+    const deferred = readCanonicalCurrentTask(root);
+    expect(deferred.runtimeState.findings.find(item => item.fingerprint === c)).toMatchObject({
+      status: 'deferred', repair_attempts: 8,
+    });
+    expect(deferred.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
+    expect(authorizeControlledRepairRecovery(root, partialAuthorization)).toMatchObject({ status: 'no-op' });
+    expect(taskContext(root, {}).overview.next_entry).toBe('execute-step:repair');
     const continuation = beginRepair(root, { candidate_paths: [file] });
-    expect(continuation.receipt.repair_fingerprints).toEqual([a, c].sort());
+    expect(continuation.receipt.repair_fingerprints).toEqual([a]);
     expect(continuation.receipt.controlled_recovery_grant_id).toBe(authorized.runtimeState.controlled_repair_grants![0]!.grant_id);
   });
 
-  test('carries a five-wave controlled recovery grant across fresh reviews and consumes it exactly once per wave', { timeout: 360000 }, () => {
+  test('uses an exact warning decision to authorize six controlled waves without resetting prior attempts', { timeout: 360000 }, () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
     const command = 'bun test test/vnext-runtime.test.ts';
     const validation = 'bun test test/vnext-runtime.test.ts passes';
@@ -10132,33 +10930,62 @@ describe('vNext Phase 2 Runtime contract', () => {
       eligible: true, authorized_repair_waves: 5, remaining_repair_waves: 5, controlled_attempt_limit: 5,
     });
     const pending = formatBlocked.runtimeState.pending_review_result!;
-    expect(() => authorizeControlledRepairRecovery(root, {
+    expect(authorizeControlledRepairRecovery(root, {
       review_id: pending.review_id, recovery_fingerprints: [fingerprint], recovery_basis: 'critical-invariant',
       additional_controlled_repair_waves: 6,
-      decision_source: 'user:multi-wave-overflow', decision_text: 'Reject a grant above the controlled quota.', evidence_refs: ['test:multi-wave-overflow'],
-    })).toThrow('additional_controlled_repair_waves');
+      decision_source: 'user:multi-wave-overflow', decision_text: 'Continue beyond the five-wave warning threshold.', evidence_refs: ['test:multi-wave-overflow'],
+    })).toMatchObject({ status: 'blocked', code: 'CONTROLLED_RECOVERY_WARNING_REQUIRED' });
     expect(readCanonicalCurrentTask(root).runtimeState.controlled_repair_grants ?? []).toHaveLength(0);
+
+    const warningState = readCanonicalCurrentTask(root);
+    const warningDecision: UserDecision = {
+      task_id: warningState.runtimeState.task_id,
+      source_revision: warningState.sourceTuple.revision,
+      review_id: pending.review_id,
+      change_set_id: pending.change_set_id,
+      decision_source: 'user:multi-wave-warning',
+      decision_text: 'I understand the five-wave and five-attempt warnings and authorize six controlled repair waves for this exact finding.',
+      effects: [{ kind: 'continue-after-warning', gate_code: 'CONTROLLED_RECOVERY_LIMIT', target_ids: [`finding:${fingerprint}`], authorized_repair_waves: 6 }],
+      idempotency_key: 'user-decision-multi-wave-warning',
+      evidence_refs: ['test:multi-wave-warning'],
+    };
+    expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(warningState, {
+      caller: 'prepare-task', decision: warningDecision,
+      authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+      evidence_refs: warningDecision.evidence_refs!,
+    }))).toMatchObject({ status: 'success' });
 
     expect(authorizeControlledRepairRecovery(root, {
       review_id: pending.review_id, recovery_fingerprints: [fingerprint], recovery_basis: 'critical-invariant',
-      additional_controlled_repair_waves: 5,
-      decision_source: 'user:multi-wave-authorize-five',
-      decision_text: 'This unresolved critical invariant remains a blocker; authorize exactly five bounded controlled repair waves.',
-      evidence_refs: ['test:multi-wave-authorize-five'],
+      additional_controlled_repair_waves: 7,
+      warning_decision_id: warningDecision.idempotency_key,
+      decision_source: 'user:multi-wave-mismatched-quota',
+      decision_text: 'The warning decision authorized six waves, not seven.',
+      evidence_refs: ['test:multi-wave-mismatched-quota'],
+    })).toMatchObject({ status: 'blocked', code: 'CONTROLLED_RECOVERY_WARNING_REQUIRED' });
+
+    expect(authorizeControlledRepairRecovery(root, {
+      review_id: pending.review_id, recovery_fingerprints: [fingerprint], recovery_basis: 'critical-invariant',
+      additional_controlled_repair_waves: 6,
+      warning_decision_id: warningDecision.idempotency_key,
+      decision_source: 'user:multi-wave-authorize-six',
+      decision_text: 'This unresolved critical invariant remains a blocker; authorize exactly six controlled repair waves.',
+      evidence_refs: ['test:multi-wave-authorize-six'],
     })).toMatchObject({ status: 'success' });
     let current = readCanonicalCurrentTask(root);
     expect(current.runtimeState.controlled_repair_grants![0]).toMatchObject({
-      kind: 'controlled-repair-recovery/v2', status: 'issued', authorized_repair_waves: 5, consumed_repair_wave_ids: [],
+      kind: 'controlled-repair-recovery/v2', status: 'issued', authorized_repair_waves: 6,
+      controlled_attempt_limit: 6, warning_decision_id: warningDecision.idempotency_key, consumed_repair_wave_ids: [],
     });
     const grantId = current.runtimeState.controlled_repair_grants![0]!.grant_id;
     const waveIds: string[] = [];
-    for (let wave = 1; wave <= 5; wave += 1) {
+    for (let wave = 1; wave <= 6; wave += 1) {
       const repair = beginRepair(root, { candidate_paths: [file] });
       expect(repair.receipt.controlled_recovery_grant_id).toBe(grantId);
       waveIds.push(repair.receipt.repair_wave_id);
       expect(execute(repair.receipt, `controlled repair ${wave}\n`).status).toBe('success');
       const review = reviewContext(root, {});
-      if (wave < 5) {
+      if (wave < 6) {
         expect(recordReviewResult(root, {
           context_receipt: review.receipt, verdict: 'blocked', findings: [],
           unresolved_fingerprints: [fingerprint], evidence_refs: [`test:multi-wave-controlled-${wave}`],
@@ -10171,7 +10998,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         current = readCanonicalCurrentTask(root);
         expect(current.runtimeState.pending_review_result?.blocker?.code).toBe('FORMAT_CHECK_SCOPE_BLOCKED');
         expect(current.runtimeState.controlled_repair_grants![0]).toMatchObject({
-          status: 'issued', authorized_repair_waves: 5, consumed_repair_wave_ids: waveIds.slice().sort(),
+          status: 'issued', authorized_repair_waves: 6, consumed_repair_wave_ids: waveIds.slice().sort(),
         });
       } else {
         expect(recordReviewResult(root, {
@@ -10182,14 +11009,14 @@ describe('vNext Phase 2 Runtime contract', () => {
       }
     }
     current = readCanonicalCurrentTask(root);
-    expect(new Set(waveIds).size).toBe(5);
+    expect(new Set(waveIds).size).toBe(6);
     expect(current.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({
-      repair_attempts: 8, max_repair_attempts: 8, controlled_repair_attempts: 5, status: 'resolved',
+      repair_attempts: 8, max_repair_attempts: 8, controlled_repair_attempts: 6, status: 'resolved',
     });
     expect(current.runtimeState.controlled_repair_grants![0]).toMatchObject({
-      status: 'consumed', authorized_repair_waves: 5, consumed_repair_wave_ids: waveIds.slice().sort(),
+      status: 'consumed', authorized_repair_waves: 6, consumed_repair_wave_ids: waveIds.slice().sort(),
     });
-    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'five controlled waves verified' })).toMatchObject({
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'six controlled waves verified' })).toMatchObject({
       status: 'success', advancement: { outcome: 'task-complete' },
     });
   });
@@ -11056,7 +11883,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         kind: 'behavior-not-implemented',
         companion_statuses: ['passed'],
         forbidden_statuses: ['failed', 'blocked', 'not-run'],
-        acceptance_evidence: 'forbidden',
+        acceptance_evidence: 'positive-forbidden-bound-reproduction-required',
         unexpected_failure_outcome: 'blocked',
         review_checkpoint: 'required',
       },

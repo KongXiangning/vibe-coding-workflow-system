@@ -294,29 +294,71 @@ Verified resolutions update the finding queue in the same Runtime transaction;
 the extension audit is only an authorization set. Repair preflight recomputes
 the full current review set and excludes findings already marked resolved.
 
+### Process-policy gates and integrity boundary
+
+The Runtime has one declared policy-gate table. Each policy gate names a real
+route (`record-user-decision`, or the existing `prepare-task:amend-scope` route
+for an explicit mutation-authority decision), an effect, and canonical target
+IDs. `task-context.overview.gates.policy_gates` and a blocked Runtime result
+must expose the same route. A policy gate without a declared executable route
+is a contract error. Without a matching caller-reported decision the operation
+remains blocked; with one, the transaction records the decision ID and proceeds
+only for the exact task, active step, review/change set, finding, or blocker
+named by that decision.
+
+This table never weakens facts or transaction integrity. Wrong task identity,
+stale source revision, stale or forged receipt, changed review target, replay
+conflict, cross-execution binding, and conflicting target sets remain hard
+rejects and require a fresh, correctly bound operation. A user decision also
+does not create a clean review or PASS result. If it explicitly advances while
+skipping a check, the original failed/blocked fact is retained and an
+applicable evidence slot is recorded as `not-run`; the step/close result is
+`user-directed-with-exceptions` or `completed-with-exceptions` and lists the
+decision and remaining risk.
+
 At the ordinary absolute boundary, a blocked review may include structured
 `finding_dispositions` for unresolved Runtime-admitted findings. The closed
 dispositions are `must-fix`, `normal-fix`, and `defer`; each record also carries
 one basis (`acceptance`, `critical-invariant`, `release-gate`, `risk-reduction`,
-or `user-decision`) and non-empty evidence references. Only an explicit
-`must-fix` disposition can authorize the independent
-`prepare-task:authorize-controlled-repair-recovery` route. Its semantic input
-is `{review_id, recovery_fingerprints, recovery_basis, decision_source,
-decision_text, evidence_refs}`. Runtime binds the complete latest repair set
-and task/execution/cycle/change-set/review-target identity, issues one exact
-repair wave, and allows at most two separate controlled attempts per selected
-finding. Ordinary maxima, cumulative attempts, repair rounds, pending review,
-resolved findings, history and evidence are retained. The selected recovery
-set is not a replacement for the full repair set: normally-budgeted findings
-remain in scope, resolved findings are excluded, and review-new findings still
-require normal admission. Exact replay is idempotent; stale, cross-task,
-over-target, duplicate or over-quota requests fail closed. A legacy blocked
-review without dispositions may use only the explicit exact-target
-`legacy-explicit-user` bridge; that target must cover every existing unresolved
-finding in the full repair set with no ordinary attempt remaining. A partial
-legacy request fails before the one-per-review grant is persisted, so the
-complete authorization can still be submitted afterward. Prose is never
+or `user-decision`) and non-empty evidence references. The user may authorize
+the independent `prepare-task:authorize-controlled-repair-recovery` route for
+an exact nonempty subset of admitted unresolved findings; dispositions inform
+but do not force that selection. Its input includes `{review_id,
+recovery_fingerprints, recovery_basis, decision_source, decision_text,
+evidence_refs}` and optional positive `additional_controlled_repair_waves`.
+Runtime binds the complete latest repair set and
+task/execution/cycle/change-set/review-target identity, then issues a finite
+number of separately reviewable waves. Ordinary maxima, cumulative attempts,
+repair rounds, pending review, resolved findings, history and evidence are
+retained. Unselected exhausted findings remain open until an explicit
+disposition or separate budget; normally-budgeted findings remain in scope,
+resolved findings are excluded, and new findings still require ordinary
+admission. Five waves per grant, five controlled attempts per finding and one
+grant per review are warning thresholds. Crossing any requires a distinct
+`continue-after-warning` decision for the exact review, change set, selected
+finding targets and `authorized_repair_waves`; the new grant binds its unused
+`warning_decision_id`. Exact replay is idempotent; stale, cross-task,
+over-target, duplicate or unacknowledged requests fail closed. Prose is never
 interpreted as a finding decision.
+Distinct process-policy warnings for one operation may be recorded as multiple
+`continue-after-warning` effects in one decision, each with its own gate and
+exact targets. The decision ID remains bound to the preflight, replacement
+receipt and result. A blocked repair or new-finding budget review may resume
+selected repair findings with this exact decision without a clean claim.
+To stop a `blocked_by_replan + active` task, first record a separate
+`cancel-replan-block` effect targeting `gate:blocked-by-replan`; this preserves
+the pending review, findings and evidence while returning workflow status to
+`active`. Then record `close-with-exceptions` and archive as stopped-by-user.
+
+A review finding outside the current task or step mutation authority is still
+recorded as a structured finding with the historical advisory field
+`repair_scope_hint: outside-current-authority`. It may be deferred, rejected or
+accepted as risk through `record-user-decision` without any scope expansion.
+For repair, a separate `authorize-mutation` effect names sorted exact paths
+from the pending review and binds its review and change set. The decision alone
+grants no file-write permission; `prepare-task:amend-scope` may consume
+`authorization: {decision_id: <idempotency_key>}` and perform the usual additive
+scope and execution checks before the path becomes executable.
 
 Persistent Tests retain exact path + stable claim IDs in `proves`, plus `owner`,
 `owner_source`, `source_ref`, `basis` (acceptance/regression/critical-invariant/
@@ -382,8 +424,15 @@ P-12 record (`path`, `proves`, `owner`, `owner_source`, `source_ref`, `basis`,
 `failure_disposition`) and records `authority_diff: none`. It then uses the
 candidate receipt only internally for drift/idempotency checks and commits the
 definition change in the same route. The candidate records the old/new plan
-identity and, when present, caller-reported authorization. The amendment
-creates a continuation step and preserves prior definitions, failures,
+identity and, when present, caller-reported authorization. A
+`record-user-decision` `authorize-mutation` consumed by this route must still
+carry the exact current pending `review_id` and `change_set_id`. Runtime
+preserves that `decision_id` plus both binding coordinates in the
+scope-amendment candidate, candidate receipt, and `commit-scope-amendment`
+audit; preparation and commit revalidate the decision against the current
+pending review. If the review has ended or changed, Runtime returns
+`SCOPE_AMENDMENT_AUTHORIZATION_CONFLICT` and the user must record a new
+review-bound decision. The amendment creates a continuation step and preserves prior definitions, failures,
 uncompleted obligations, admitted/in-progress findings, pending review,
 cumulative review baseline, review cycle, and budget. It does not clear a
 pending review or reset the review cycle and does not alter the legacy
@@ -419,8 +468,11 @@ expected_failure:
 
 Companion results must pass; syntax, type, import, fixture, tool, unrelated-test
 and environment failures do not count as successful reproduction. Historical
-`test-red` carries no final acceptance evidence. New executions use implemented for completing the admitted reproduction work;
-that outcome does not satisfy any separate positive acceptance claim.
+`test-red` carries no positive acceptance evidence. A new `test-red` result
+must submit the exact unconsumed before-step non-acceptance reproduction report
+in `acceptance_evidence`; its expected failure does not satisfy any separate
+positive acceptance claim. New executions may also use `implemented` for
+completing admitted reproduction work with the same bound report.
 
 The typed `confirm-draft` action is the only draft-to-active transition. It
 must repeat the draft identity, carry the exact current `source_tuple.revision`

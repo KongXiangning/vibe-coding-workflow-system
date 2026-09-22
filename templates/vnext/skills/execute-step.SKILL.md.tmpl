@@ -89,6 +89,25 @@ records the choice, clears only the dangling admission, preserves the same
 logical attempt and all review/finding/budget history, and requires a fresh
 `preflight-step` or `begin-repair` afterward.
 
+Process-policy gates are user decisions, not host-call limits. If Runtime
+returns a budget, retry, review, checkpoint, or test-strategy gate, inspect its
+`policy_route`/`task-context.overview.gates.policy_gates`. Without an exact
+caller decision, report the concrete `record-user-decision` route; after the
+user authorizes it, pass that decision's ID through the next preflight or
+result-registration call. Runtime records the warning and continues only for
+the named target. Stale task/revision/receipt/target facts remain hard errors.
+When one operation crosses multiple process-policy gates, one user decision
+may contain a distinct `continue-after-warning` effect for each gate and its
+exact targets. Carry its ID through resume, preflight extension and result
+registration. A blocked repair or new-finding budget review can continue
+selected findings under its matching warning decision without becoming clean.
+For a test-strategy warning recorded after preflight, call `resume-preflight`
+to refresh the receipt's source revision for the same execution. Supply the
+decision ID in `record-step-result.policy_decision_id` when recording the
+actual `test-red` result.
+If the user chooses to skip a check, submit `not-run` (or the actual failed or
+blocked result) and use an exception disposition; never submit PASS or clean.
+
 The compact-v3 CURRENT_TASK file is only an active navigation projection. Read
 exact definition, authority, obligations and reports through the bounded Runtime
 context/read APIs; do not treat summary text as the complete task or hand-edit
@@ -126,7 +145,16 @@ when contradictions emerge during execution; preserve existing explicit decision
 6. Obey the Runtime phase returned by the shared evaluator. `flexible` has no mandatory Red or tests-only first step; an admitted test may pass immediately. In a `test-first` Red execution, a test-only target may be admitted, but a product target discovered by `extend-preflight` is rejected before Runtime state changes; the same restriction applies to repair. `not-applicable` remains closed under discovery and every target must stay inside the project non-executable boundary. Use `outcome: implemented` only when planned results pass or explicitly match the admitted reproduction check. Explicit ordering requires Runtime-consumed before-step evidence; do not substitute flexible. Historical `outcome: test-red` and `status: expected-failure` remain readable. A new expected-failure result requires a new report submitted in this execution for its exact unconsumed before-step check constraining a later step. Historical reproduction reports cannot authorize later repair or delivery failures. Expected failure cannot satisfy positive acceptance. Syntax, type, import, fixture, tool, unrelated-test, and environment failures are not Red evidence; record actual failures as blocked before considering same-plan recovery.
 7. Run only the current step's planned commands and validation. Do not substitute an unplanned write-capable command, full suite, whole target, broad regression, or E2E command. For an equivalent read-only invocation adjustment between attempts, use internal `replace-validation` under the constraints below. If the selection or business obligation must grow or change, use the existing bounded correction/replan mechanism; do not silently expand the command. If a command or validation fails, retain its real output, record the blocked result, and diagnose within the current owner and retained business attempt budget. A confirmed current-step code/test/fixture error may use **Same-plan blocked-step recovery** below without a separate public `debug-task` invocation or user route. Stop when the failure requires a changed goal, scope, acceptance, contract decision, external authority, or unavailable evidence; never stop merely because a host call is ending.
 8. When the canonical review result contains findings, ask Runtime `begin-repair` for the complete admitted finding set. Repair only those findings in one bounded wave and do not use repair as an opportunity for unrelated improvements.
-9. Send declared actual changed paths, command results, validation results, and permitted acceptance evidence to Runtime `record-step-result` on stdin. Do not submit `outcome: test-red` without an admitted reproduction obligation (new executions use implemented and a bound expected-failure report). Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns phase/order enforcement, scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement. If the host call ends before this submission, preserve the live workspace and continue in a later call with `resume-preflight`; if exact recovery is unavailable, use the explicit `reconcile-preflight` disposition route described above rather than a dead-end or an invented result.
+   If the pending review contains findings that the user explicitly wants to
+   defer, reject, or accept as risk, route the exact decision through
+   `record-user-decision`; do not remove them from the review by editing task
+   data. A mixed decision leaves only the still-open admitted findings in the
+   repair handoff. A disposition alone preserves the pending review and step.
+   If all review findings are disposed and the user also authorizes advancement,
+   use `advance-with-exceptions` with exact finding/blocker targets and keep the disposition receipt separate from
+   `clean`. If the user later reopens a terminal finding, Runtime creates the
+   fresh bound repair handoff while preserving its attempts and evidence.
+9. Send declared actual changed paths, command results, validation results, and permitted acceptance evidence to Runtime `record-step-result` on stdin. A `test-red` result requires actual expected-failure results plus the new report for the exact unconsumed before-step non-acceptance reproduction check in `acceptance_evidence`; it cannot satisfy positive acceptance. In a Red preflight it needs no extra policy decision; outside Red it requires an exact `TEST_STRATEGY_SEQUENCE_INVALID` user warning decision from the preflight receipt or supplied as `record-step-result.policy_decision_id` after preflight. Subsequent review retains the `test-red` fact. Normal new reproduction evidence may also use `implemented` with a bound expected-failure report. Runtime captures the after-state, derives the exact before/after delta, rejects a mismatched path declaration, and owns phase/order enforcement, scope re-checking, finding bookkeeping, proposal construction, state, read-back, and step advancement. If the host call ends before this submission, preserve the live workspace and continue in a later call with `resume-preflight`; if exact recovery is unavailable, use the explicit `reconcile-preflight` disposition route described above rather than a dead-end or an invented result.
    For a repair on a step that is already `completed` and awaiting verification, `outcome: blocked` records the repair execution fact while preserving the step progress as `completed`; it does not claim acceptance and does not consume the pending review. If an older Runtime retained the repair preflight or committed only the finding attempt, call `begin-repair` with the exact admitted paths to recover the same receipt, then retry `record-step-result` with the same execution identity. The exact replay is idempotent: it does not spend another finding attempt or controlled grant. After a blocked repair result, follow the `review-change` remediation review; do not call `complete-reviewed-step` until a later repair result has passed and received a clean review. Ordinary blocked steps keep their existing blocked-state recovery rules.
 10. When the canonical review result is `clean`, call Runtime `complete-reviewed-step`; completion cannot add evidence, never supply or copy a review receipt, and do not edit product code again. When Runtime reports a risk-selected dynamic-review gate, obtain its fresh cumulative `review-change` result even if the ordinary checkpoint is not required. Do not add review merely because a low-risk private path was discovered. Runtime retains the existing required review and repair verification gates.
 

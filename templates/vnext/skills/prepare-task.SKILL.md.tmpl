@@ -385,13 +385,14 @@ transaction use this same qualification. At the limit, report the structured
 reason and the user-owned diagnostic/controlled-recovery decision route; do not
 recommend an extension that the transaction will reject.
 
-For a confirmed must-fix blocker at that boundary, the separate
+At that boundary, the separate
 `authorize-controlled-repair-recovery` command accepts
 `{review_id, recovery_fingerprints, recovery_basis, decision_source,
 decision_text, evidence_refs}` plus optional
-`additional_controlled_repair_waves` from 1 through 5 (default 1). The latest
-review must provide the structured finding disposition, unless this is an old
-state using the explicit `legacy-explicit-user` bridge. Runtime binds the
+`additional_controlled_repair_waves` as a positive integer (default 1). The user
+names a nonempty subset of admitted unresolved repair targets; review
+dispositions inform that decision but do not force every exhausted finding
+into the grant. Runtime binds the
 entire current repair set and all task/review/execution/cycle/change-set/target
 identities, records the finite number of separately reviewable controlled
 repair waves, and carries the grant across the linked follow-up reviews. Each
@@ -402,7 +403,24 @@ resolved findings, pending review, evidence and Task Basis history. A
 normally-budgeted finding is not dropped, an already resolved finding is not
 requeued, and a new review finding must complete normal admission. Exact
 replay is a no-op; stale, duplicate, cross-task, over-target and over-quota
-requests stop at the transaction gate.
+requests stop at the transaction gate. An unselected exhausted finding stays
+open; before the full repair wave can execute, record its defer, reject, or
+accepted-risk decision through `record-user-decision` or provide a separate
+applicable budget.
+
+Five waves per grant, five controlled attempts per finding, and one grant per
+review are warning thresholds, not terminal repair limits. To cross one, first
+record a separate `continue-after-warning` user decision bound to the exact
+pending `review_id` and `change_set_id`, with
+`gate_code: CONTROLLED_RECOVERY_LIMIT`, sorted `target_ids` for precisely
+the selected `finding:<fingerprint>` values, and `authorized_repair_waves`
+equal to the requested wave count. Then pass that decision's
+`idempotency_key` as `warning_decision_id` to the grant command. Runtime records
+the raised cumulative controlled-attempt limit, the new finite wave quota and
+the prior grant history. Do not issue a second grant while a prior applicable
+grant still has waves or a repair preflight remains unfinished. Ordinary
+eight-attempt/eight-round limits continue through this controlled route with
+an explicit user authorization; no task reset or fabricated clean is needed.
 
 `FORMAT_CHECK_SCOPE_BLOCKED` is reserved for a format failure reported inside
 the authorized mutable business/product scope. A whole-tree format check that
@@ -414,10 +432,9 @@ waiver, or route the user through evidence-plan amendment solely to exclude
 those paths. Re-run the hygiene check against the authorized mutable paths when
 the confirmed plan requires it. Historical blocked reviews remain truthful and
 may be reviewed as legacy state, but a fresh review must use this scope rule.
-For the legacy bridge, the explicit recovery target must cover every existing
-unresolved finding in the complete repair set with no ordinary attempt
-remaining; a partial request is rejected before the one-per-review grant is
-persisted.
+Legacy reviews without structured dispositions also require an explicit
+nonempty selected target set; Runtime preserves the complete repair set and
+does not infer selection from free text.
 
 In `confirm` mode, submit the user's explicit confirmation through
 `confirm-draft` with the exact confirmation receipt returned by the committed
@@ -474,7 +491,15 @@ paths and, for any absent new persistent test, a complete caller-provided
 `owner_source`, `source_ref`, `basis`, `existing_evidence_insufficiency`,
 `assertion_boundary`, and `failure_disposition`; pass the user's original
 decision source and verbatim text only when authority actually expands to
-another domain or exact exception. Runtime computes and verifies its immutable
+another domain or exact exception. If `record-user-decision` already retained
+a review-bound `authorize-mutation` for the requested finding paths, pass
+`authorization: {decision_id: <idempotency_key>}` instead of re-entering the
+decision text. Runtime verifies the recorded exact paths and that the
+decision's `review_id` and `change_set_id` still identify the current pending
+review, then preserves the decision ID and binding in the candidate, receipt,
+and commit audit. The same binding is revalidated at commit; after the review
+ends or changes, record a new review-bound decision instead of reusing the old
+one. Runtime reuses that authorization in the same scope-amendment transaction. Runtime computes and verifies its immutable
 candidate internally, preserves old definitions/findings/obligations and
 budget, and retains the existing v1 pending-review preservation behavior. An
 in-envelope P-12-only transition has `authority_diff: none`; it is a real

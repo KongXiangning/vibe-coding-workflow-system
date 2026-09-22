@@ -35,7 +35,6 @@ import {
   validateTestAssessment,
   readCanonicalCurrentTask,
   readDraftDefinitionFromBody,
-  resolveTestStrategyExecutionContext,
   validateRuntimeEnvironment,
   validateVNextRuntimeContract,
   type AuthorityEvidence,
@@ -57,8 +56,8 @@ import {
   parseMutationScope,
 } from './mutation-scope';
 import {
-  MutationAuthorityError,
-  evaluateMutationAuthority,
+  authorityDomainForPath,
+  isMutationAuthorityGovernanceBoundary,
   readProjectMutationAuthority,
 } from './mutation-authority';
 import { resolveTaskStep } from './task-steps';
@@ -329,7 +328,7 @@ export function dismissEvidenceChallenge(root: string, input: unknown, options: 
   return applyVNextRuntimeProposal(root, proposal, options);
 }
 
-function latestRecordedExecution(current: CanonicalCurrentTask): StepExecutionLogEntry {
+function latestRecordedExecution(root: string, current: CanonicalCurrentTask): StepExecutionLogEntry {
   const records = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
     !('action' in item)
     && item.step_id === current.runtimeState.active_step_id
@@ -344,7 +343,7 @@ function latestRecordedExecution(current: CanonicalCurrentTask): StepExecutionLo
   if (latest.execution_result.change_set_id !== latest.change_set_id) {
     fail('REVIEW_TARGET_CONFLICT', 'the latest execution change-set identity is inconsistent.');
   }
-  assertReviewExecutionEligible(current, latest);
+  assertReviewExecutionEligible(root, current, latest);
   return cumulativeReviewExecution(current, latest);
 }
 
@@ -529,7 +528,7 @@ export function reviewContext(root: string, input: unknown): ReviewContextResult
   exactKeys(source, [], 'review-context input');
   const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
-  const execution = latestRecordedExecution(current);
+  const execution = latestRecordedExecution(root, current);
   const currentTarget = captureReviewTarget(root, execution.execution_result!.review_target.entries.map(item => item.path));
   if (currentTarget.revision !== execution.execution_result!.review_target.revision) {
     fail('REVIEW_TARGET_STALE', 'product files changed after the latest execution result was recorded.');
@@ -725,7 +724,7 @@ function assertCurrentContext(root: string, current: CanonicalCurrentTask, recei
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) fail('REVIEW_CONTEXT_STALE', 'review context belongs to a different task document.');
   if (!taskSourceRevisionMatches(root, current, receipt.source_revision)) fail('REVIEW_CONTEXT_STALE', 'CURRENT_TASK changed after review context was issued.');
   if (receipt.step_id !== current.runtimeState.active_step_id || receipt.cycle_id !== current.runtimeState.review_cycle.id) fail('REVIEW_CONTEXT_STALE', 'active step or review cycle changed after review context was issued.');
-  const latest = latestRecordedExecution(current);
+  const latest = latestRecordedExecution(root, current);
   if (latest.idempotency_key !== receipt.execution_id) fail('REVIEW_CONTEXT_STALE', 'recorded execution changed after review context was issued.');
   const currentTarget = captureReviewTarget(root, latest.execution_result.review_target.entries.map(item => item.path));
   if (currentTarget.revision !== latest.execution_result.review_target.revision) {
@@ -770,30 +769,25 @@ function normalizeFinding(value: unknown, index: number, current: CanonicalCurre
     evidence_refs: textList(source.evidence_refs, `findings[${index}].evidence_refs`, false),
   };
   const step = resolveTaskStep(current.body, current.runtimeState.active_step_id).current;
-  if (current.mutationAuthority) {
-    let project;
-    try { project = readProjectMutationAuthority(root); }
-    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error)); }
-    if (!project) fail('MUTATION_AUTHORITY_PROJECT_REQUIRED', 'v2 review requires PROJECT_PROFILE.yaml.mutation_authority.domains.');
-    const authorityDecision = evaluateMutationAuthority({
-      root,
-      project,
-      task: current.mutationAuthority,
-      candidate_paths: [candidate.file],
-      planned_targets: stepScope(step.planned_mutation_targets ?? step.mutation_scope, `step ${step.id} planned_mutation_targets`),
-      assessments: currentExecutionDynamicExpansions(current).map(item => item.assessment),
-      persistent_test_paths: resolveTestStrategyExecutionContext(current).persistent_tests,
-    });
-    if (authorityDecision.status !== 'pass') {
-      fail('REVIEW_FINDING_SCOPE_BLOCKED', `finding path ${candidate.file} cannot be repaired within the v2 task authority: ${authorityDecision.blockers.join(' ')}`);
+  let outsideCurrentAuthority = false;
+  try {
+    if (current.mutationAuthority) {
+      const project = readProjectMutationAuthority(root);
+      const domain = project ? authorityDomainForPath(project, candidate.file) : null;
+      outsideCurrentAuthority = !project
+        || isMutationAuthorityGovernanceBoundary(candidate.file)
+        || current.mutationAuthority.forbidden.some(pattern => mutationScopePatternMatchesPath(candidate.file, pattern))
+        || (!current.mutationAuthority.exact_exceptions.includes(candidate.file)
+          && (domain === null || !current.mutationAuthority.domains.includes(domain)));
+    } else {
+      const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+      outsideCurrentAuthority = evaluateMutationScope(scope, { changed_paths: [candidate.file] }).status !== 'pass'
+        || !stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some(pattern => mutationScopePatternMatchesPath(candidate.file, pattern));
     }
-  } else {
-    const scope = parseMutationScope(current.body, current.sourceTuple.revision);
-    const decision = evaluateMutationScope(scope, { changed_paths: [candidate.file] });
-    const admittedByStep = stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some(pattern => mutationScopePatternMatchesPath(candidate.file, pattern));
-    if (decision.status !== 'pass' || !admittedByStep) {
-      fail('REVIEW_FINDING_SCOPE_BLOCKED', `finding path ${candidate.file} cannot be repaired within the confirmed current-step scope.`);
-    }
+  } catch {
+    // A failed authority probe must not erase the reviewer's observation.
+    // Mutation preflight and scope amendment still enforce actual authority.
+    outsideCurrentAuthority = true;
   }
   return {
     fingerprint: `finding-${digest({
@@ -803,6 +797,7 @@ function normalizeFinding(value: unknown, index: number, current: CanonicalCurre
       required_behavior: candidate.required_behavior,
     }).slice(0, 32)}`,
     ...candidate,
+    ...(outsideCurrentAuthority ? { repair_scope_hint: 'outside-current-authority' as const } : {}),
   };
 }
 
@@ -818,7 +813,7 @@ function convergenceBlocker(
   const activeFindings = findings.filter(item => !resolvedSet.has(item.fingerprint));
   const activeUnresolved = unresolved.filter(fingerprint => !resolvedSet.has(fingerprint));
   if (activeFindings.length > 0 && current.runtimeState.review_cycle.verification_new_finding_wave_used) {
-    return { code: 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED', summary: 'Verification found another new-finding wave after the one allowed wave was already used.', next_route: 'debug-task' };
+    return { code: 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED', summary: 'Verification found another new-finding wave after the warning threshold was already used; an explicit user decision can authorize continuation.', next_route: 'record-user-decision' };
   }
   const currentRoundLimit = repairRoundLimit(current.runtimeState.review_cycle);
   if (current.runtimeState.review_cycle.repair_round >= currentRoundLimit && (activeFindings.length > 0 || activeUnresolved.length > 0)) {
@@ -828,7 +823,7 @@ function convergenceBlocker(
       summary: absolute
         ? `The current review cycle reached the absolute repair-round limit of ${MAX_EXTENDED_REPAIR_ROUNDS}; no ordinary budget extension is executable.`
         : 'The current review cycle has exhausted its repair-wave budget.',
-      next_route: 'debug-task',
+      next_route: 'record-user-decision',
     };
   }
   const exhausted = activeUnresolved.filter(fingerprint => {
@@ -842,7 +837,7 @@ function convergenceBlocker(
       summary: absolute.length > 0
         ? `Findings reached the absolute repair-attempt limit of ${MAX_EXTENDED_REPAIR_ATTEMPTS}: ${absolute.join(', ')}; no ordinary budget extension is executable.`
         : `Findings exhausted their repair-attempt budget: ${exhausted.join(', ')}.`,
-      next_route: 'debug-task',
+      next_route: 'record-user-decision',
     };
   }
   return null;
@@ -920,7 +915,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   else {
     const raw = record(source.blocker, 'blocker');
     exactKeys(raw, ['code', 'summary', 'next_route'], 'blocker');
-    if (!['review-change', 'debug-task', 'prepare-task:replan', 'prepare-task:amend-scope', 'user'].includes(String(raw.next_route))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocker.next_route is invalid.');
+    if (!['review-change', 'debug-task', 'prepare-task:replan', 'prepare-task:amend-scope', 'record-user-decision', 'user'].includes(String(raw.next_route))) fail('REVIEW_ADAPTER_INPUT_INVALID', 'blocker.next_route is invalid.');
     blocker = { code: text(raw.code, 'blocker.code', 128), summary: text(raw.summary, 'blocker.summary'), next_route: raw.next_route as ReviewBlocker['next_route'] };
   }
   if (verdict === 'clean' && (findings.length > 0 || unresolved.length > 0 || blocker !== null)) fail('REVIEW_ADAPTER_INPUT_INVALID', 'clean must not contain findings or a blocker.');

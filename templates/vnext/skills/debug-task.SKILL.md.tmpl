@@ -101,19 +101,27 @@ absolute eight-attempt limit. In that case, follow the structured blocker and
 user-owned diagnostic/controlled-recovery decision route emitted by task-context;
 never recommend a transaction that will fail.
 
-Controlled recovery is a separate, finite route at that boundary. It requires a
-blocked review with a structured `finding_dispositions` entry whose disposition
-is `must-fix`, or an explicit exact-target legacy authorization when that field
-does not exist. Recommend `prepare-task:authorize-controlled-repair-recovery`
-only with the exact review identity and user decision; Runtime derives the full
-repair set, preserves ordinary counters and history, and limits the grant to
-one wave and two controlled attempts per selected finding. For the legacy
-bridge, the explicit target must cover every existing unresolved finding in
-the full repair set with no ordinary attempt remaining; a partial request is
-rejected before the one-per-review grant is persisted. Findings with
+Controlled recovery is a separate, finite route at that boundary. Recommend
+`prepare-task:authorize-controlled-repair-recovery` with the exact review
+identity, a nonempty user-selected subset of admitted unresolved findings,
+decision basis, source, text and evidence. Runtime derives the full repair set
+and preserves ordinary counters and history. A grant has a positive finite
+wave count and carries across linked reviews. Unselected exhausted findings
+remain open until explicitly disposed or separately budgeted; findings with
 ordinary budget remain in scope, resolved findings stay out, and newly found
-items still need normal admission. Never infer a target from prose or use a
-new task, supersede, reset, or direct status edit as recovery.
+items still need normal admission. Five waves per grant, five controlled
+attempts per finding and one grant per review are warning thresholds. Crossing
+one requires a separate `continue-after-warning` decision bound to the exact
+review, change set, selected finding targets and requested wave count; pass its
+unused ID with the new grant. Never infer a target from prose or use a new
+task, supersede, reset, or direct status edit as recovery.
+
+A pending review may retain a finding with
+`repair_scope_hint: outside-current-authority`. Keep the finding as an observed
+fact. The user may record a terminal disposition without changing scope, or
+record a separate `authorize-mutation` decision for its exact path and pass
+that decision ID to `prepare-task:amend-scope`. Do not claim the decision alone
+permits an execution preflight.
 
 An external counterexample to an earlier completed claim is a reviewable
 evidence challenge, not automatic goal invalidation. Identify its exact

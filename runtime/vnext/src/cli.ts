@@ -6,8 +6,9 @@ import { EXECUTE_STEP_ADAPTER_COMMANDS, runExecuteStepAdapterCli } from './execu
 import { REVIEW_CHANGE_ADAPTER_COMMANDS, runReviewChangeAdapterCli } from './review-change-adapter';
 import { runFileContextCli } from './file-context-cli';
 import { runTaskContextCli } from './task-context';
+import { USER_DECISION_ADAPTER_COMMANDS, runUserDecisionAdapterCli } from './user-decision-adapter';
 
-export { runCli, runBootstrapCli, runBootstrapSupportCli, runPrepareTaskAdapterCli, runExecuteStepAdapterCli, runReviewChangeAdapterCli, runTaskContextCli };
+export { runCli, runBootstrapCli, runBootstrapSupportCli, runPrepareTaskAdapterCli, runExecuteStepAdapterCli, runReviewChangeAdapterCli, runTaskContextCli, runUserDecisionAdapterCli };
 
 const args = process.argv.slice(2);
 let runner: Promise<number>;
@@ -23,6 +24,8 @@ else if (PREPARE_TASK_ADAPTER_COMMANDS.includes(args[0] as (typeof PREPARE_TASK_
   runner = runExecuteStepAdapterCli(args);
 } else if (REVIEW_CHANGE_ADAPTER_COMMANDS.includes(args[0] as (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number])) {
   runner = runReviewChangeAdapterCli(args);
+} else if (USER_DECISION_ADAPTER_COMMANDS.includes(args[0] as (typeof USER_DECISION_ADAPTER_COMMANDS)[number])) {
+  runner = runUserDecisionAdapterCli(args);
 } else runner = runCli(args);
 
 runner.then((exitCode) => {

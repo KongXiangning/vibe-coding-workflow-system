@@ -99,7 +99,32 @@ fallback.
 8. A `closed + archived` re-entry validates the matching archive receipt and reconstructs the archived knowledge admissions. It runs only missing Contract/Decision/Lesson/STATUS reconciliation; already persisted records are deterministic no-ops, and it never repeats archive or creates a next task.
 9. After archive success the task is non-owner. Contract, Decision, STATUS, and Lesson operations use the matching archive receipt plus evidence admission for reconciliation; they must not require or recreate active-task ownership.
 10. Implementation anchors are optional observed navigation hints (normally 0–5), not completeness claims or mutation authority. Record only paths/symbols confirmed by existing task evidence; future consumers validate anchors against current code and expand live impact analysis according to risk.
-11. Closure is allowed only after the final canonical implementation step is durably marked `task-complete` by the Runtime. A required checkpoint must have its clean receipt, and every repair record must have same-diff verification and a terminal finding state; close-task cannot bypass an unfinished step, checkpoint, or repair route.
+11. Ordinary verified closure is allowed only after the final canonical implementation step is durably marked `task-complete` by the Runtime. A required checkpoint must have its clean receipt, and every repair record must have same-diff verification and a terminal finding state; without an explicit exception decision, close-task cannot bypass an unfinished step, checkpoint, or repair route.
+   When the user explicitly chooses to stop or proceed with known exceptions,
+   submit a `close-with-exceptions` user decision bound to the exact remaining
+   obligations and durable decision IDs (for example `step:<id>`, `validation`,
+   `acceptance`, `task-complete`, or `remaining-risks`). Runtime may then archive with
+   `completion_disposition: completed-with-exceptions` or
+   `stopped-by-user`, but it preserves the real `acceptance_satisfied` and
+   `validation_complete` values, failed/not-run checks, findings, risks, and
+   evidence. This route is not `clean`, `verified`, or an automatic waiver for
+   an unlisted obligation; ordinary closure remains required when the user has
+   not made that explicit decision.
+   Deferred, rejected and accepted-risk findings prohibit ordinary `verified` closure.
+   `rejected` means declining repair; it does not prove a false positive or resolution.
+   Include each exact `finding:<fingerprint>` in both the close decision's
+   targets and `remaining_risks`. Runtime binds a current obligation snapshot to
+   the decision; any subsequent change requires a fresh close authorization.
+   For `stopped-by-user`, explicitly target `gate:stopped-by-user`, the pending
+   `review:<review_id>` and `blocker:<code>` when present, and every remaining
+   finding. Stopping preserves pending review, open findings, unfinished step
+   progress and actual closure evidence; do not advance or clear findings as a
+   prerequisite. A disposition-only decision does not authorize closing.
+   If the task is `blocked_by_replan + active`, first record a separate
+   `cancel-replan-block` decision targeting only `gate:blocked-by-replan`.
+   This restores active workflow status while retaining pending review,
+   findings and evidence. Bind the subsequent stop decision to the new current
+   revision, then archive as `stopped-by-user`.
 
 ## Required result
 

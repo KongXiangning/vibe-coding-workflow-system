@@ -13,6 +13,7 @@ export * from '../runtime/vnext/src/bootstrap';
 export * from '../runtime/vnext/src/prepare-task-adapter';
 export * from '../runtime/vnext/src/execute-step-adapter';
 export * from '../runtime/vnext/src/review-change-adapter';
+export * from '../runtime/vnext/src/user-decision-adapter';
 export * from '../runtime/vnext/src/task-context';
 export * from '../runtime/vnext/src/task-store';
 
@@ -20,6 +21,7 @@ import { runCli } from '../runtime/vnext/src/kernel';
 import { PREPARE_TASK_ADAPTER_COMMANDS, runPrepareTaskAdapterCli } from '../runtime/vnext/src/prepare-task-adapter';
 import { EXECUTE_STEP_ADAPTER_COMMANDS, runExecuteStepAdapterCli } from '../runtime/vnext/src/execute-step-adapter';
 import { REVIEW_CHANGE_ADAPTER_COMMANDS, runReviewChangeAdapterCli } from '../runtime/vnext/src/review-change-adapter';
+import { USER_DECISION_ADAPTER_COMMANDS, runUserDecisionAdapterCli } from '../runtime/vnext/src/user-decision-adapter';
 import { runFileContextCli } from '../runtime/vnext/src/file-context-cli';
 import { runTaskContextCli } from '../runtime/vnext/src/task-context';
 
@@ -36,6 +38,8 @@ if (import.meta.main) {
     runner = runExecuteStepAdapterCli(args);
   } else if (REVIEW_CHANGE_ADAPTER_COMMANDS.includes(args[0] as (typeof REVIEW_CHANGE_ADAPTER_COMMANDS)[number])) {
     runner = runReviewChangeAdapterCli(args);
+  } else if (USER_DECISION_ADAPTER_COMMANDS.includes(args[0] as (typeof USER_DECISION_ADAPTER_COMMANDS)[number])) {
+    runner = runUserDecisionAdapterCli(args);
   } else runner = runCli(args);
   runner.then((exitCode) => {
     process.exitCode = exitCode;
