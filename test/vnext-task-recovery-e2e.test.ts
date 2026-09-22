@@ -28,7 +28,10 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
   }
   fs.writeFileSync(path.join(npmHome, 'package.json'), '{"name":"isolated-recovery-installer","private":true}\n');
   execFileSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', tgz], { cwd: npmHome, encoding: 'utf8' });
-  const bin = path.join(npmHome, 'node_modules/.bin', process.platform === 'win32' ? 'vibe-governance.cmd' : 'vibe-governance');
+  const binLink = path.join(npmHome, 'node_modules/.bin', process.platform === 'win32' ? 'vibe-governance.cmd' : 'vibe-governance');
+  // npm installs a POSIX symlink; execute the resolved CLI file so process.argv[1]
+  // and import.meta.url identify the same entrypoint.
+  const bin = process.platform === 'win32' ? binLink : fs.realpathSync(binLink);
   const install = spawnSync(bin, ['install', '--root', target, '--json'], { cwd: npmHome, encoding: 'utf8', shell: process.platform === 'win32' });
   if (install.status !== 0) throw new Error(`install: ${install.stdout}\n${install.stderr}`);
   const cli = path.join(target, '.workflow-system/runtime/dist/cli.js');
@@ -394,7 +397,10 @@ test('D02 original 0.18.7 CLI creates active data; fixed tgz upgrade preserves b
   expect(path.basename(oldTgz)).toBe('vibe-governance-0.18.7.tgz');
   fs.writeFileSync(path.join(npmHome, 'package.json'), '{"name":"isolated-upgrade","private":true}\n');
   execFileSync(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', oldTgz], { cwd: npmHome });
-  const bin = path.join(npmHome, 'node_modules/.bin', process.platform === 'win32' ? 'vibe-governance.cmd' : 'vibe-governance');
+  const binLink = path.join(npmHome, 'node_modules/.bin', process.platform === 'win32' ? 'vibe-governance.cmd' : 'vibe-governance');
+  // npm installs a POSIX symlink; execute the resolved CLI file so process.argv[1]
+  // and import.meta.url identify the same entrypoint.
+  const bin = process.platform === 'win32' ? binLink : fs.realpathSync(binLink);
   function distribution(command: string) {
     const result = spawnSync(bin, [command, '--root', target, '--json'], { cwd: npmHome, encoding: 'utf8', shell: process.platform === 'win32' });
     if (result.status !== 0) throw new Error(`${command}: ${result.stdout}\n${result.stderr}`);

@@ -1,3 +1,4 @@
+import { formatEntryRecoveryError } from './entry-recovery';
 /**
  * Target-local Bootstrap support.
  *
@@ -746,6 +747,9 @@ const PUBLIC_ENTRY_TERMINAL_GUIDANCE = [
   '## Public entry terminal boundary',
   '',
   '`public-entry-terminal/v1` applies to every public Skill invocation.',
+  '- An explicit Skill invocation authorizes its stated intent and routine internal recovery within the caller\'s scope. Do not require a second instruction for a corrected request, retained-state recovery, or an unambiguous warning decision already covered by the caller\'s words.',
+  '- A Runtime rejection is diagnostic: inspect current state, correct the request, and use this entry\'s typed recovery operations before returning blocked. Preserve failed evidence, cumulative changes, findings, and audit history.',
+  '- Ask the caller only when a materially new choice or authority is needed, or a required fact cannot be established. Record any warning decision from the caller\'s actual instruction; never invent one.',
   '- Complete only this entry intent, its internal capabilities, and its bound Runtime operations.',
   '- After a terminal result, return to the caller and stop.',
   '- Report at most one `next_route` / `recommended_route`; it is recommendation-only for a later caller invocation, and the current invocation must not invoke another public Skill.',
@@ -777,7 +781,7 @@ function renderWorkflowGuide(project: { name: string; slug: string }): string {
   return [
     '# vNext Workflow Guide', '', `Project: ${project.name} (${project.slug})`, '',
     '## Administrative entry', '', '- `bootstrap-project`: design, greenfield, inventory, adopt, or realign.', '',
-    '## Daily entries', '', '- Public-entry progression is caller-driven: each arrow below means a later independent caller invocation.', '- Every public Skill returns its terminal result to the caller; a next route is recommendation-only and never an automatic public-entry handoff.', '- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.', '- `task-lifecycle` owns pause, interrupt, resume, and supersede transitions.', '- `capture-work-item` remains record-only.', '',
+    '## Daily entries', '', '- Public-entry progression is caller-driven: each arrow below means a later independent caller invocation.', '- An explicit Skill invocation authorizes its own intent and routine internal recovery; correct recoverable Runtime rejections before returning a terminal result.', '- Every public Skill returns its terminal result to the caller; a next route is recommendation-only and never an automatic public-entry handoff.', '- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.', '- `task-lifecycle` owns pause, interrupt, resume, and supersede transitions.', '- `capture-work-item` remains record-only.', '',
     '## Authoritative state', '', '- Runtime state is read from canonical `CURRENT_TASK.md`.', '- Contracts, Decisions, Status, and host guidance are changed through typed Runtime proposals.', '- Bootstrap completion requires Distribution prerequisite validation, scope admission, governance-only promotion, and read-back.', '',
   ].join('\n');
 }
@@ -1502,7 +1506,7 @@ export async function runBootstrapSupportCli(argv: string[] = process.argv.slice
     console.log(JSON.stringify(publicPlan(result), null, 2));
     return ['needs-confirmation', 'ready', 'installed', 'replayed'].includes(result.status) ? 0 : 1;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return 1;
   }
 }

@@ -1,3 +1,4 @@
+import { ordinaryAttemptAdmission } from '../runtime/vnext/src/kernel';
 import { prepareEvidencePlanAmendment, confirmEvidencePlanAmendment, discardEvidencePlanAmendment } from '../runtime/vnext/src/kernel';
 import { taskStorageMetrics } from '../runtime/vnext/src/task-storage-metrics';
 import { readProjectDocuments } from '../runtime/vnext/src/project-documents';
@@ -14751,4 +14752,171 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.readFileSync(testPath, 'utf8')).toContain('new regression');
     expect(readCanonicalCurrentTask(target).runtimeState.active_step_status).toBe('completed');
   });
+});
+
+
+// Reuse the established semantic-task/S4 fixtures; do not invent task state or
+// write a synthetic budget ledger to make the new driver pass.
+describe('shared entry driver with real Runtime task transactions', () => {
+  function exhaustedEntryFixture() {
+    const semantic = singleStepSemanticDraft();
+    const code = 'process.exit(process.env.ENTRY_READY === "yes" ? 0 : 9)';
+    const command = 'bun -e ' + JSON.stringify(code);
+    semantic.implementation_steps[0]!.commands = [{ command, expected_repo_writes: 'none' }];
+    semantic.implementation_steps[0]!.validation = [command];
+    const check = semantic.claim_evidence[0]!.slots[0]!.check!;
+    check.entry = command;
+    check.selection!.selector = code;
+    check.selection!.invocation = { argv: ['bun', '-e', code], selector_arg_index: 2 };
+    const root = confirmedSemanticRoot(semantic);
+    let failureIndex = 0;
+    function probe(ready: boolean) {
+      const result = spawnSync('bun', ['-e', code], { encoding: 'utf8', env: { ...process.env, ENTRY_READY: ready ? 'yes' : 'no' } });
+      expect(result.status).toBe(ready ? 0 : 9);
+      const evidenceRef = ready ? 'evidence-report.txt' : `entry-failure-${failureIndex++}.txt`;
+      fs.writeFileSync(path.join(root, evidenceRef), `ENTRY_READY=${ready}; exit=${result.status}`);
+      return evidenceRef;
+    }
+    function failAttempt() {
+      const preflight = preflightStep(root, { candidate_paths: [] });
+      const evidenceRef = probe(false);
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt, actual_changed_paths: [],
+        command_results: [{ command, status: 'blocked',
+          observed_repo_writes: [], evidence_refs: [evidenceRef] }],
+        validation_results: [{ validation: command, status: 'not-run', evidence_refs: [] }],
+        acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Isolated fixture prerequisite is unavailable',
+      }).status).toBe('success');
+    }
+    function resolution() {
+      probe(true);
+      const current = readCanonicalCurrentTask(root);
+      const last = current.runtimeState.step_attempts!['step-1']!.attempts.at(-1)!;
+      fs.writeFileSync(path.join(root, 'entry-resolution.json'), JSON.stringify({
+        kind: 'environment-restored/v1', task_id: current.runtimeState.task_id,
+        document_id: current.sourceTuple.document_id, step_id: 'step-1', blocked_attempt_id: last.attempt_id,
+        evidence_plan_revision: current.runtimeState.evidence_plan_revision, subject_revision: last.blocker!.subject_snapshot.revision,
+        status: 'passed', diagnosis: 'Fixture prerequisite unavailable', resolution: 'The same probe executed with ENTRY_READY=yes and exited zero',
+      }));
+      return { step_id: 'step-1', blocked_attempt_id: last.attempt_id,
+        blocker_resolution_refs: ['entry-resolution.json'], idempotency_key: 'entry-retry-' + current.runtimeState.step_attempts!['step-1']!.attempts.length };
+    }
+    for (let index = 0; index < 3; index += 1) {
+      failAttempt();
+      if (index < 2) expect(retryStep(root, resolution()).status).toBe('success');
+    }
+    const current = readCanonicalCurrentTask(root);
+    fs.writeFileSync(path.join(root, 'entry-analysis.txt'),
+      'Prior attempts failed on the fixture environment prerequisite. The implementation goal is unchanged. Verify restoration before another execution; do not repeat the missing-prerequisite run.');
+    return { root, request: resolution(), current, command, probe,
+      invocation: { id: 'entry-real-budget', entry: 'execute-step', intent: 'Execute the confirmed step',
+        decision_source: 'test:original-user-instruction', decision_text: 'Execute the current step within its authorized scope.' },
+      analysis: { document_id: current.sourceTuple.document_id, plan_revision: current.runtimeState.evidence_plan_revision,
+        attempt_id: ordinaryAttemptAdmission(current, root).authorized_attempt_id, evidence_refs: ['entry-analysis.txt'] } };
+  }
+  function drive(root: string, input: unknown) {
+    const result = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'run-entry', input);
+    if (!result.json?.detail_ref) throw new Error(`Missing driver receipt: ${result.stdout} ${result.stderr}`);
+    const directory = path.dirname(result.json.detail_ref.path);
+    const relative = path.relative(path.join(os.tmpdir(), 'vnext-entry-results'), directory);
+    if (!/^run-[^/\\]+$/u.test(relative)) throw new Error('Unexpected driver artifact root.');
+    temporaryRoots.push(directory);
+    const outcome = result.json.outcome_ref ? JSON.parse(fs.readFileSync(result.json.outcome_ref.path, 'utf8')) : null;
+    return { ...result, outcome };
+  }
+
+  test('automatically extends an exhausted ordinary budget and replays without a second grant', { timeout: LARGE_HISTORY_TEST_TIMEOUT }, () => {
+    const fixture = exhaustedEntryFixture();
+    const { root, invocation, analysis, request, current, command, probe } = fixture;
+    const oldAttempts = structuredClone(current.runtimeState.step_attempts!['step-1']!.attempts);
+    const input = { invocation, operation: { command: 'retry-step', input: request }, budget_analysis: analysis };
+    // Incorrect attempt analysis must not alter the task; the same invocation
+    // then supplies the corrected analysis instead of asking the user again.
+    const stale = drive(root, { ...input, budget_analysis: { ...analysis, attempt_id: 'another-attempt' } });
+    expect(stale.status).toBe(2);
+    expect(stale.json.phase).toBe('refresh-budget-analysis');
+    expect(readCanonicalCurrentTask(root).raw).toBe(current.raw);
+
+    // Record continuation, then stop the retry on invalid restoration evidence.
+    // Resuming after fixing that evidence must reuse the existing decision.
+    const resolutionPath = path.join(root, 'entry-resolution.json');
+    const validResolution = fs.readFileSync(resolutionPath, 'utf8');
+    fs.writeFileSync(resolutionPath, JSON.stringify({ ...JSON.parse(validResolution), status: 'blocked' }));
+    const interrupted = drive(root, input);
+    expect(interrupted.status).toBe(2);
+    expect(interrupted.outcome.result.code).toBe('RETRY_RESOLUTION_REQUIRED');
+    const retained = readCanonicalCurrentTask(root);
+    const priorDecision = retained.runtimeState.execution_log.filter(item => 'action' in item && item.action === 'record-user-decision');
+    expect(priorDecision).toHaveLength(1);
+    expect(retained.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(3);
+    fs.writeFileSync(resolutionPath, validResolution);
+    const continued = drive(root, input);
+    expect(continued.status).toBe(0);
+    expect(continued.json).toMatchObject({ status: 'operation-complete', skill_terminal: false });
+    const after = readCanonicalCurrentTask(root);
+    const ledger = after.runtimeState.step_attempts!['step-1']!;
+    expect(ledger.attempts).toHaveLength(4);
+    expect(ledger.max_attempts).toBe(4);
+    expect(ledger.attempts.slice(0, 3)).toEqual(oldAttempts);
+    expect(ledger.attempts[3]!.status).toBe('ready');
+    const decisionId = ledger.attempts[3]!.retry_budget_decision_id;
+    expect(decisionId).toBeTruthy();
+    const decisions = after.runtimeState.execution_log.filter(item => 'action' in item && item.action === 'record-user-decision');
+    expect(decisions).toEqual(priorDecision);
+    expect(decisions[0]).toMatchObject({ decision_text: invocation.decision_text, evidence_refs: ['entry-analysis.txt'] });
+    const replay = drive(root, input);
+    expect(replay.status).toBe(0);
+    expect(replay.outcome.result.status).toBe('no-op');
+    expect(readCanonicalCurrentTask(root).raw).toBe(after.raw);
+    const preflight = drive(root, { invocation, operation: { command: 'preflight-step', input: { candidate_paths: [] } } });
+    expect(preflight.status).toBe(0);
+    expect(preflight.outcome.result.receipt.attempt_id).toBe(ledger.attempts[3]!.attempt_id);
+    const admitted = readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!;
+    expect(admitted.max_attempts).toBe(4);
+    expect(admitted.attempts).toHaveLength(4);
+    expect(admitted.attempts[3]!.retry_budget_decision_id).toBe(decisionId);
+    const receipt = preflight.outcome.result.receipt;
+    probe(true);
+    const implemented = drive(root, { invocation, operation: { command: 'record-step-result', input: {
+      preflight_receipt: receipt, actual_changed_paths: [],
+      command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'] }],
+      validation_results: [{ validation: command, status: 'passed', evidence_refs: ['evidence-report.txt'] }],
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Fixture fresh execution after retained budget continuation',
+    } } });
+    expect(implemented.status).toBe(0);
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [],
+      unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Fixture execution and review completed after budget continuation' }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts.slice(0, 3)).toEqual(oldAttempts);
+  });
+
+  test('continues an exhausted scope-amendment inherited ledger through the same driver', { timeout: LARGE_HISTORY_TEST_TIMEOUT }, () => {
+    const { root, invocation } = exhaustedEntryFixture();
+    const old = structuredClone(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!);
+    const target = 'runtime/vnext/src/entry-continuation.ts';
+    expect(prepareScopeAmendment(root, {
+      added_paths: [target], authorization: { decision_source: 'test:additional-path',
+        decision_text: 'Authorize this exact continuation path.', authorized_paths: [target] },
+      amendment_step: { id: 'entry-scope-continuation', description: 'Continue the same task on the authorized path',
+        mutation_scope: [target], required_evidence: ['fresh continuation review'], commands: [] },
+    }).status).toBe('success');
+    const current = readCanonicalCurrentTask(root);
+    const admission = ordinaryAttemptAdmission(current, root);
+    expect(admission.requires_budget_continuation).toBe(true);
+    const result = drive(root, { invocation, operation: { command: 'preflight-step', input: { candidate_paths: [target] } },
+      budget_analysis: { document_id: current.sourceTuple.document_id, plan_revision: current.runtimeState.evidence_plan_revision,
+        attempt_id: admission.authorized_attempt_id, evidence_refs: ['entry-analysis.txt'] } });
+    expect(result.status).toBe(0);
+    expect(result.outcome.result.receipt.attempt_id).toBe(admission.authorized_attempt_id);
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.step_attempts!['step-1']!.attempts).toEqual(old.attempts);
+    expect(after.runtimeState.step_attempts!['step-1']!.max_attempts).toBe(old.max_attempts);
+    const inherited = after.runtimeState.step_attempts!['entry-scope-continuation']!;
+    expect(inherited.attempts.slice(0, 3)).toEqual(old.attempts);
+    expect(inherited.attempts).toHaveLength(4);
+    expect(inherited.max_attempts).toBe(4);
+  });
+
+
 });

@@ -626,6 +626,14 @@ reviewer identity. No trusted Provider is introduced.
 `task-state-transaction`, not a public Skill or recovery platform. Input is
 `{step_id,blocked_attempt_id,blocker_resolution_refs,idempotency_key}`; no scope,
 strategy, claim, finding, or completion overrides are accepted.
+Optional `policy_decision_id` identifies the existing user authorization. A
+pending blocked review of the exact latest ordinary failed attempt can be
+consumed only after all findings have dispositions and the decision covers
+`RETRY_REVIEW_REQUIRED` with exact step/review/blocker targets and review/change-set
+binding. Budget exhaustion additionally requires `RETRY_BUDGET_EXHAUSTED` in
+that decision. The new attempt retains `consumed_review_decision_id` and the complete
+`consumed_review`; both survive preflight, result recording and replay. The
+original failed attempt, finding queue and evidence are preserved.
 
 Ordinary preflight receipts and execution results bind `attempt_id`. A blocked
 result may declare `blocker_kind: environment | unknown` (omission means unknown).
@@ -900,3 +908,25 @@ Task Basis, old/new plan revisions, exact old/new check and command selection,
 workspace hashes, retained obligation digest and explicit review disposition.
 Its receipt is `evidence-plan-amendment-receipt/v1`; confirmation is a
 `task-state-transaction` with immutable `amend-evidence-plan` history.
+
+Exception advancement retains `challenge_continuation_snapshot` in its user-decision
+audit. It contains the exact unresolved challenge records authorized at advancement;
+a generic `gate:evidence-challenge` covers only this snapshot, never future challenges.
+Execution and later step review may proceed for unchanged authorized challenges,
+including their prerequisites and carried evidence, without marking evidence passed
+or challenges resolved. New or changed challenges require fresh authorization.
+Ordinary verified closure remains blocked. Exception closure requires a fresh
+`close-with-exceptions` decision naming each `challenge:<id>` and the same IDs in
+`remaining_risks`, bound by the current closure obligation snapshot.
+
+Retry budget decisions retain Runtime-derived `retry_budget_binding` with the
+step, evidence plan revision, failed attempt (when present), and the single
+`authorized_attempt_id`. Callers still supply the user's decision and canonical
+targets; they do not construct this binding. Admission records
+`retry_budget_decision_id` on the authorized attempt and preserves it through
+preflight and execution results. The same attempt may continue and an exact
+retry request may replay, but a later failure or changed plan cannot reuse the
+old decision to create another attempt. Legacy decisions without this binding
+remain readable audit history and require a freshly recorded decision before
+new budget admission; retained user instructions need not be requested again
+when they already authorize that operation.

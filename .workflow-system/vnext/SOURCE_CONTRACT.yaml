@@ -1,3 +1,6 @@
+# All public entries use the internal run-entry driver for typed operations.
+# entry-operation-result/v1 carries invocation, recovery history and original
+# outcome; recovery-required is an agent continuation, not a user-facing terminal.
 schema_version: 1
 kind: vnext-source-contract
 phase: Phase 2
@@ -437,7 +440,7 @@ capabilities:
       - updated bounded repair route
       - a clean verification receipt that can qualify the existing task-state advancement proposal
     stop_conditions:
-      - per-fingerprint, repair-round, or new-finding-wave budget is exhausted
+      - reassessment identifies a necessary choice or authority not determined by the current invocation
       - the next route requires unknown root cause or user-owned authority
       - required verification or checkpoint evidence is absent, mismatched, or not tied to the active step
 
@@ -484,7 +487,7 @@ capabilities:
       - authorized recovery route and remaining budget
     stop_conditions:
       - reproduction is unavailable after bounded attempts
-      - root cause remains unvalidated after the investigation budget
+      - required evidence remains unavailable after internal recovery and needs a concrete external prerequisite
       - proposed repair requires user, scope, or other-owner authority
 
   - id: owner-route-resolver
@@ -644,6 +647,32 @@ runtime_operations:
       - execute-step:repair:resolve
       - execute-step:repair:defer
       - execute-step:repair:reject
+
+  - id: user-decision-transaction
+    status: bound
+    binding: vnext-runtime
+    implementation_phase: Phase 2
+    source_targets:
+      - CURRENT_TASK.md
+      - task-basis/TASK_BASIS-<TASK_ID>.md
+    write_targets:
+      - CURRENT_TASK.md
+      - task-basis/TASK_BASIS-<TASK_ID>.md
+    allowed_callers:
+      - prepare-task
+      - review-change
+      - execute-step
+      - close-task
+    bound_callers:
+      - prepare-task
+      - review-change
+      - execute-step
+      - close-task
+    bound_actions:
+      - prepare-task:default:record-user-decision
+      - review-change:default:record-user-decision
+      - execute-step:default:record-user-decision
+      - close-task:default:record-user-decision
 
   - id: lifecycle-transaction
     status: bound

@@ -1,5 +1,16 @@
 # Workflow vNext Implementation Blueprint
 
+## 2026-09-22：入口负责恢复与预算语义修订
+
+所有用户可调用的 vNext Skill 都对本次明确指令负责。Runtime 拒绝的是一个候选操作，不能仅凭拒绝码、pending review 或额度耗尽就结束本次指令，并要求用户转去另一个 Skill。入口应读取事实、分析原因、修正请求，调用授权范围内的内部能力和类型化事务，再继续原指令。只有现有指令和事实不能确定的新选择才交给用户；无法内部恢复的外部依赖必须说明具体缺失项。
+
+预算用于提醒 AI 已经尝试了多少次，并要求重新分析是否必要、原因是否充分、下一次方法是否改变。预算不是用户明确指令的上限。已有指令覆盖继续执行时，入口记录分析及原始授权，通过现有续行或扩额事务取得下一次准入；保留累计次数、失败和审查事实，不清零、不伪造用户决定，也不盲目重复同一失败行动。批准一个尝试后，其后续 preflight、执行和结果记录共用该身份，不重复消费授权。
+
+只读和仅审查指令以事实或审查结论完成，不隐含修复授权。完整性错误仍须恢复事实或事务，不能伪装成成功。此规则覆盖旧文档中将预算耗尽直接作为入口终态的表述。公共入口之间的推荐不是自动调用；完成当前指令所需的内部能力不属于公共入口串联。
+
+本轮修改是实现与契约调整，未运行测试；不将所有分支已验证或真实项目闭环作为既成事实。
+
+
 ## 2026-09-19 E convergence note
 
 This blueprint predates several implemented A–D refinements. The current target architecture and source/runtime contracts control when this file conflicts with them. In particular: low-risk local/private same-envelope discovery no longer creates review merely because it was unplanned; supersede no longer feeds a general same-task replacement; explicit replacement uses a fresh successor identity; and `review-change` has no public `report-only` mode. The detailed reconciliation is recorded in `vnext-design-convergence.md`.

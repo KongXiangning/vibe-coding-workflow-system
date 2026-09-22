@@ -1,3 +1,4 @@
+import { formatEntryRecoveryError } from './entry-recovery';
 /**
  * Internal user-decision adapter.
  *
@@ -150,7 +151,7 @@ export async function runUserDecisionAdapterCli(argv: string[] = process.argv.sl
     console.log(JSON.stringify(result, null, 2));
     return result.status === 'blocked' || result.status === 'conflict' ? 2 : 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return 1;
   }
 }

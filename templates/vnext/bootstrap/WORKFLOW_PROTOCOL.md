@@ -154,13 +154,45 @@ not silently reinterpreted.
 
 ## Public entry invocation terminal boundary
 
+`entry-recovery/v1` applies to every public entry. A rejected Runtime operation
+is an internal recovery checkpoint, not a terminal invocation. The invoking Skill
+owns state inspection, diagnosis, request correction and supported recovery,
+then resumes the original intent. A `next_route` alone does not complete an
+unfinished request. Internal capability reuse does not require another user
+invocation. This rule also governs entries' `stop_conditions`: those interrupt
+the candidate operation while recovery proceeds within existing authority.
+
+Budget thresholds require the AI to review retained failures, necessity and the
+next approach. They are not a limit on an explicit user instruction. When that
+instruction covers continuation, record its original source/text and the separate
+analysis, use the typed continuation/extension operation, and continue without
+asking again solely because of the counter. Preserve cumulative counts. Never
+infer a risk waiver from a request to repair, or erase failed evidence. An admitted
+attempt retains its identity through preflight and execution without spending a
+second continuation. Read-only/report-only instructions still end at their facts
+or verdict; unrelated mutation needs its own authority.
+
+
 `public-entry-terminal/v1` is the canonical invocation boundary for every
 public daily, administrative, and expert entry in the vNext surface. One
 explicit public Skill invocation may complete only that entry's intent, its
 declared internal capabilities, and its bound Runtime operations.
 
-When the entry reaches its result—success, blocked, no-op, report, or another
-declared terminal result—it must return to the caller and stop. A result may
+Invoking a public Skill explicitly authorizes pursuing that entry's stated
+intent and its routine internal recovery operations within the caller's
+declared scope. A Runtime rejection is a diagnostic result, not automatically a
+terminal result: inspect current state, correct request or identity mistakes,
+resume/reconcile retained work, and use the entry's typed recovery operations
+before returning. A warning threshold may be satisfied by recording the
+caller's already expressed instruction when it unambiguously covers the exact
+operation and risk; never manufacture an unstated decision. Preserve failed
+checks, cumulative changes, review findings, and audit history. Ask the caller
+only when the next action requires a materially new choice or authority that
+cannot be inferred from the invocation, or when a fact cannot be established.
+
+When the entry reaches its result—success, an unrecoverable or undecidable
+blocker, no-op, report, or another declared terminal result—it must return to
+the caller and stop. A result may
 contain at most one `next_route` recommendation for a later public entry or
 mode, but that recommendation is informational only: the current invocation
 must not invoke the next public Skill.
@@ -171,10 +203,18 @@ are not public Skill chaining. Bootstrap's explicitly permitted `design` →
 transitions of the same `bootstrap-project` invocation; they do not authorize
 invoking another public Skill.
 
-This is an instruction-level and host-guidance boundary. The current Runtime
-cannot observe conversation-level public Skill invocations, so it must not be
-described as machine-enforced by Runtime. Runtime continues to enforce only
-the typed operations and write boundaries it can observe.
+The shared `run-entry` driver receives the caller-reported invocation identity,
+intent and original instruction and executes typed operations plus selected internal
+recovery actions before resuming the requested operation. Its recovery-required
+result is addressed to the agent, not a terminal Skill result for the user. All
+public entries bind their Runtime work to this driver. Ordinary retry budget
+continuation can be recorded and applied by the driver from retained AI reassessment
+and the existing instruction, without renewed user authorization.
+
+Runtime can observe this explicit envelope, not the conversation itself. The host
+remains responsible for truthful instruction provenance and semantic choices;
+Runtime enforces typed operations and write boundaries. Existing low-level APIs
+remain available and do not independently run an AI or guarantee a Skill outcome.
 
 ## Bootstrap modes
 
@@ -374,10 +414,21 @@ Clean completion consumes pending coverage; findings, blocked and stale results
 preserve it. Repair still requires verification. The internal retry-step action
 can restore a recorded environment blocker or a confirmed same-plan current-step
 failed check to ready only when its distinct evidence and scope gates pass. It
-retains failure evidence and permits at most three attempts in canonical
-step_attempts. Retry never completes the step: a fresh preflight and execution
+retains failure evidence and treats three attempts in canonical `step_attempts`
+as a warning threshold; an exact recorded user decision permits further attempts.
+Retry never completes the step: a fresh preflight and execution
 are required. Unknown causes, changed plans, and open findings do not use this
 retry; no server restart or database reset is an implicit recovery action.
+When the latest ordinary failure has a pending blocked review and every finding
+has been explicitly disposed or resolved, a `continue-after-warning` decision
+for `RETRY_REVIEW_REQUIRED` binds the step, review, change set and blocker.
+`retry-step` consumes that review atomically into the new attempt's
+`consumed_review`; the old failed attempt stays intact. If the budget is also
+exhausted, include `RETRY_BUDGET_EXHAUSTED` in the same decision. Existing user
+wording authorizing the retry is sufficient input to record that decision; do
+not ask the user to approve the same retry again. Fresh preflight and execution
+remain required. A user who instead chooses to skip the failure may use
+`advance-with-exceptions` from the blocked step, preserving failure facts.
 
 ## Current view, state, and complete history (0.20.8)
 
@@ -467,7 +518,11 @@ when the user also authorizes advancement does `advance-with-exceptions` produce
 a `disposition` receipt with
 `completion_disposition: user-directed-with-exceptions`; it does not invoke an
 empty repair wave or fabricate a clean receipt. `reopen-finding` is an explicit
-new decision that creates a bound repair handoff when needed, preserves previous
+decision that may restore a deferred/rejected/accepted-risk finding within its
+current findings or blocked review without consuming that review or advancing.
+It binds the exact review and unchanged execution target, retains repair counts,
+and requires any unfinished execution to be reconciled first. With no pending
+review, the decision creates a bound repair handoff when needed, preserves previous
 attempts and evidence, and never reuses an old clean review. Exact replay is a
 no-op; stale identity, cross-task/review/change-set targets, and mismatched
 source revisions remain integrity errors. A later `close-with-exceptions`

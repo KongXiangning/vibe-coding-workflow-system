@@ -1,3 +1,4 @@
+import { formatEntryRecoveryError } from './entry-recovery';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileContext } from './file-context';
@@ -13,7 +14,7 @@ export async function runFileContextCli(args: string[]): Promise<number> {
     console.log(JSON.stringify(result, null, 2));
     return result.status === 'partial' ? 2 : 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return 1;
   }
 }

@@ -1,3 +1,13 @@
+# All public entries use the internal run-entry driver for typed operations.
+# entry-operation-result/v1 carries invocation, recovery history and original
+# outcome; recovery-required is an agent continuation, not a user-facing terminal.
+# entry-recovery/v1: a rejected operation is owned by the invoking Skill's internal
+# recovery loop; the rejection alone is not a terminal Skill outcome. Coded errors
+# carry guidance without converting failure into success or claiming a commit.
+# Attempt budgets retain history. Existing invocation authority may support a
+# typed continuation after AI reassessment; admitted attempts are not charged twice.
+# Admitted validation replacement / confirmed evidence amendment also admits its
+# necessary revalidation capacity in that transaction, preserving prior attempts.
 schema_version: 1
 # Shared transaction responses expose the evidence ceiling, not proof of execution.
 # Transaction result field: evidence_assurance: caller-reported.
@@ -11,7 +21,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.16
+  package_version: 0.20.19
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -169,6 +179,7 @@ proposal:
       codes:
         - CONTROLLED_RECOVERY_LIMIT
         - RETRY_BUDGET_EXHAUSTED
+        - RETRY_REVIEW_REQUIRED
         - REPAIR_BUDGET_EXHAUSTED
         - NEW_FINDING_WAVE_BUDGET_EXHAUSTED
         - PENDING_REVIEW_REQUIRED
@@ -241,7 +252,7 @@ proposal:
         blocked_authority: MUTATION_AUTHORITY_EXPANSION_REQUIRED
       semantic_boundary: runtime-owns-structural-checks-agent-owns-blast-radius-judgment
     retry_step:
-      max_attempts: 3
+      max_attempts: 3 # ordinary warning threshold; exact user decisions may authorize continuation
       environment_report: environment-restored/v1
       same_plan_repair_diagnosis: same-plan-repair/v1
       repair_paths: failed-preflight-subset

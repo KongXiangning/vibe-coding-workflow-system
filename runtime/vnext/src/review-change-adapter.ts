@@ -1,3 +1,4 @@
+import { formatEntryRecoveryError } from './entry-recovery';
 /**
  * Human-semantic adapter for review-change.
  *
@@ -1013,7 +1014,7 @@ export async function runReviewChangeAdapterCli(argv: string[] = process.argv.sl
     console.log(JSON.stringify(result, null, 2));
     return 'status' in result && (result.status === 'blocked' || result.status === 'conflict') ? 2 : 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return 1;
   }
 }

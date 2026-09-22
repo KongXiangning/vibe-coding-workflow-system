@@ -152,8 +152,8 @@ durable disposition bound to that review. The effect names every exceptional
 Discovery disposition receipts keep `admitted_fingerprints: []`; disposition
 targets remain in `consumed_review`. The existing phase constraint is unchanged,
 and Runtime validates the constructed receipt before committing it.
-`reopen-finding` preserves previous attempts/evidence and creates a fresh bound
-repair handoff. Terminal archive exceptions use exact durable decision IDs and
+`reopen-finding` preserves previous attempts/evidence and, when no review is pending,
+creates a fresh bound repair handoff. Terminal archive exceptions use exact durable decision IDs and
 must name each remaining obligation (such as `step:<id>`, `task-complete`,
 `acceptance`, or `validation`); they retain false acceptance/validation facts.
 Close decisions retain `closure_obligation_snapshot: {state_digest,
@@ -168,6 +168,17 @@ targets. Its archive transaction preserves pending review, open findings, step
 progress and evidence facts; it does not require advancement or repair first.
 No state file, finding, pending review, or audit history may be edited directly
 to simulate a decision.
+
+A terminal user disposition may be reopened inside its current pending
+findings/blocked review with exact review and execution-target binding. This
+restores admission without consuming the review, advancing, or resetting any
+repair counts. An unfinished execution must be reconciled first.
+Ordinary retry may consume the blocked review of its exact failed attempt under
+a `RETRY_REVIEW_REQUIRED` user decision after all finding dispositions. The new
+attempt durably retains `consumed_review_decision_id` and complete `consumed_review`;
+fresh execution remains required. A simultaneous budget exception uses a
+`RETRY_BUDGET_EXHAUSTED` effect in the same decision. Blocked steps also admit
+explicit `advance-with-exceptions` without relabeling the failed execution.
 
 ### Ordinary draft / confirmation schema
 
@@ -1461,3 +1472,25 @@ review 与事件根变化。evidence plan / result / subject revision 保持原�
 在瘦身后不得静默指向新正文；不可解析或已丢失的原文保持明确缺失。迁移必须逐
 字段比较有效任务模型，不重新执行测试、不恢复任务、不改变业务结论。聚合导出
 必须包含其声明 retained 的对象闭包和完整性 manifest。
+
+Exception advancement retains `challenge_continuation_snapshot` in its user-decision
+audit. It contains the exact unresolved challenge records authorized at advancement;
+a generic `gate:evidence-challenge` covers only this snapshot, never future challenges.
+Execution and later step review may proceed for unchanged authorized challenges,
+including their prerequisites and carried evidence, without marking evidence passed
+or challenges resolved. New or changed challenges require fresh authorization.
+Ordinary verified closure remains blocked. Exception closure requires a fresh
+`close-with-exceptions` decision naming each `challenge:<id>` and the same IDs in
+`remaining_risks`, bound by the current closure obligation snapshot.
+
+Retry budget decisions retain Runtime-derived `retry_budget_binding` with the
+step, evidence plan revision, failed attempt (when present), and the single
+`authorized_attempt_id`. Callers still supply the user's decision and canonical
+targets; they do not construct this binding. Admission records
+`retry_budget_decision_id` on the authorized attempt and preserves it through
+preflight and execution results. The same attempt may continue and an exact
+retry request may replay, but a later failure or changed plan cannot reuse the
+old decision to create another attempt. Legacy decisions without this binding
+remain readable audit history and require a freshly recorded decision before
+new budget admission; retained user instructions need not be requested again
+when they already authorize that operation.

@@ -1,3 +1,4 @@
+import { formatEntryRecoveryError } from './entry-recovery';
 /**
  * Human-semantic adapter for prepare-task.
  *
@@ -1216,7 +1217,7 @@ export async function runPrepareTaskAdapterCli(argv: string[] = process.argv.sli
     console.log(JSON.stringify(result, null, 2));
     return result.status === 'blocked' || result.status === 'conflict' ? 2 : 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return 1;
   }
 }

@@ -1,3 +1,4 @@
+import { entryRecovery, formatEntryRecoveryError } from './entry-recovery';
 
 /**
  * Pure-vNext state-changing Runtime slice.
@@ -133,7 +134,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.16';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.19';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -649,6 +650,7 @@ export type ReviewBlockerRoute = (typeof REVIEW_BLOCKER_ROUTES)[number];
 export const POLICY_GATE_DESCRIPTORS = {
   CONTROLLED_RECOVERY_LIMIT: { effect: 'continue-after-warning', route: 'record-user-decision' },
   RETRY_BUDGET_EXHAUSTED: { effect: 'continue-after-warning', route: 'record-user-decision' },
+  RETRY_REVIEW_REQUIRED: { effect: 'continue-after-warning', route: 'record-user-decision' },
   REPAIR_BUDGET_EXHAUSTED: { effect: 'continue-after-warning', route: 'record-user-decision' },
   NEW_FINDING_WAVE_BUDGET_EXHAUSTED: { effect: 'continue-after-warning', route: 'record-user-decision' },
   PENDING_REVIEW_REQUIRED: { effect: 'advance-with-exceptions', route: 'record-user-decision' },
@@ -1650,6 +1652,8 @@ export type UserDecisionAuditLogEntry = {
   effects: UserDecisionEffect[];
   completion_disposition?: 'user-directed-with-exceptions';
   closure_obligation_snapshot?: ClosureObligationSnapshot;
+  challenge_continuation_snapshot?: EvidenceChallenge[];
+  retry_budget_binding?: { step_id: string; plan_revision: string; blocked_attempt_id: string | null; authorized_attempt_id: string };
   consumed_review?: PendingReviewResult;
   authority_evidence: AuthorityEvidence[];
   evidence_refs: string[];
@@ -1799,6 +1803,10 @@ export type StepAttempt = {
   status: 'ready' | 'preflighted' | 'blocked' | 'implemented';
   /** The exact user decision that authorized one policy continuation, if any. */
   policy_decision_id?: string;
+  /** The blocked review retained atomically when this retry was authorized. */
+  consumed_review?: PendingReviewResult;
+  consumed_review_decision_id?: string;
+  retry_budget_decision_id?: string;
   blocker: { kind: 'environment' | 'unknown'; execution_result: StepExecutionResult; subject_snapshot: ReviewTarget } | null;
   recovery?: StepRepairDiagnosis;
   evidence_refs: string[];
@@ -1967,6 +1975,7 @@ export type RuntimeResult = {
   };
   /** A rebind/recovery command for a hard integrity rejection. */
   recovery_route?: IntegrityRecoveryRoute;
+  entry_recovery?: ReturnType<typeof entryRecovery>;
   previous_revision?: string;
   resulting_revision?: string;
   archive_path?: string;
@@ -2204,7 +2213,7 @@ function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger>
     if (!Array.isArray(ledger.attempts) || !ledger.attempts.length || ledger.attempts.length > maxAttempts) fail('RETRY_LEDGER_INVALID','Attempt history cannot exceed the retained per-plan attempt allowance.');
     const attempts = ledger.attempts.map(raw => {
       const item = expectRecord(raw,'attempt');
-      expectExactKeys(item,['attempt_id','idempotency_key','request_digest','status','blocker',...(item.recovery === undefined ? [] : ['recovery']),...(item.policy_decision_id === undefined ? [] : ['policy_decision_id']),'evidence_refs'],'attempt');
+      expectExactKeys(item,['attempt_id','idempotency_key','request_digest','status','blocker',...(item.recovery === undefined ? [] : ['recovery']),...(item.policy_decision_id === undefined ? [] : ['policy_decision_id']),...(item.retry_budget_decision_id === undefined ? [] : ['retry_budget_decision_id']),...(item.consumed_review === undefined ? [] : ['consumed_review']),...(item.consumed_review_decision_id === undefined ? [] : ['consumed_review_decision_id']),'evidence_refs'],'attempt');
       let blocker: StepAttempt['blocker'] = null;
       if (item.blocker !== null) {
         const rawBlocker = expectRecord(item.blocker,'attempt blocker');
@@ -2214,7 +2223,15 @@ function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger>
       }
       const status = expectEnum(item.status,['ready','preflighted','blocked','implemented'],'attempt.status');
       if ((status === 'blocked') !== (blocker !== null)) fail('RETRY_LEDGER_INVALID','Blocked attempts retain their original failure.');
-      return {attempt_id:expectString(item.attempt_id,'attempt_id',SAFE_KEY_PATTERN),idempotency_key:expectString(item.idempotency_key,'attempt.idempotency_key',SAFE_KEY_PATTERN),request_digest:item.request_digest === null ? null : expectString(item.request_digest,'request_digest',/^[a-f0-9]{64}$/u),status,blocker,...(item.recovery === undefined ? {} : {recovery:validateStepRepairDiagnosis(item.recovery)}),...(item.policy_decision_id === undefined ? {} : {policy_decision_id:expectString(item.policy_decision_id,'attempt.policy_decision_id',SAFE_KEY_PATTERN)}),evidence_refs:validateEvidenceRefs(item.evidence_refs,'attempt.evidence_refs')};
+      const consumedReview = item.consumed_review === undefined ? undefined
+        : validatePendingReviewResult(item.consumed_review, 'attempt.consumed_review', true) as PendingReviewResult;
+      const reviewDecisionId = item.consumed_review_decision_id === undefined ? undefined
+        : expectString(item.consumed_review_decision_id, 'attempt.consumed_review_decision_id', SAFE_KEY_PATTERN);
+      if ((consumedReview === undefined) !== (reviewDecisionId === undefined)
+        || (consumedReview && consumedReview.verdict !== 'blocked')) {
+        fail('RETRY_LEDGER_INVALID', 'A consumed blocked review must retain its exact retry authorization.');
+      }
+      return {attempt_id:expectString(item.attempt_id,'attempt_id',SAFE_KEY_PATTERN),idempotency_key:expectString(item.idempotency_key,'attempt.idempotency_key',SAFE_KEY_PATTERN),request_digest:item.request_digest === null ? null : expectString(item.request_digest,'request_digest',/^[a-f0-9]{64}$/u),status,blocker,...(item.recovery === undefined ? {} : {recovery:validateStepRepairDiagnosis(item.recovery)}),...(item.policy_decision_id === undefined ? {} : {policy_decision_id:expectString(item.policy_decision_id,'attempt.policy_decision_id',SAFE_KEY_PATTERN)}),...(item.retry_budget_decision_id === undefined ? {} : {retry_budget_decision_id:expectString(item.retry_budget_decision_id,'attempt.retry_budget_decision_id',SAFE_KEY_PATTERN)}),...(consumedReview === undefined ? {} : { consumed_review: consumedReview, consumed_review_decision_id: reviewDecisionId! }),evidence_refs:validateEvidenceRefs(item.evidence_refs,'attempt.evidence_refs')};
     });
     if (new Set(attempts.map(a=>a.attempt_id)).size !== attempts.length || new Set(attempts.map(a=>a.idempotency_key)).size !== attempts.length) fail('RETRY_LEDGER_INVALID','Attempt identities must be unique.');
     result[step] = {evidence_plan_revision:expectString(ledger.evidence_plan_revision,'attempt plan',/^[a-f0-9]{64}$/u),max_attempts:maxAttempts,attempts};
@@ -5140,6 +5157,26 @@ function hasUserDirectedNotRunEvidence(
     && item.claim_evidence?.some(claim => claim.claim_id === claimId
       && claim.slots.some(slot => slot.slot_id === slotId && slot.report?.status === 'not-run')) === true,
   );
+}
+
+// A continuation permits execution; it never validates or resolves challenged evidence.
+function hasChallengeContinuation(root: string, current: CanonicalCurrentTask, challenge: EvidenceChallenge): boolean {
+  const audit = currentDefinitionExecutionLog(current).findLast((item): item is UserDecisionAuditLogEntry =>
+    'action' in item && item.action === 'record-user-decision'
+    && item.document_id === current.sourceTuple.document_id
+    && item.completion_disposition === 'user-directed-with-exceptions'
+    && item.challenge_continuation_snapshot?.some(snapshot => digest(snapshot) === digest(challenge)) === true
+    && item.effects.some(effect => effect.kind === 'advance-with-exceptions'
+      && (effect.target_ids.includes(`challenge:${challenge.challenge_id}`) || effect.target_ids.includes('gate:evidence-challenge'))));
+  if (!audit) return false;
+  assertExecutionAudit(root, current, audit);
+  return true;
+}
+
+function hasChallengedSlotContinuation(root: string, current: CanonicalCurrentTask, claimId: string, slotId: string): boolean {
+  const challenges = (current.runtimeState.evidence_challenges ?? []).filter(challenge =>
+    challenge.status !== 'resolved' && challenge.claim_id === claimId && challenge.slot_id === slotId);
+  return challenges.length > 0 && challenges.every(challenge => hasChallengeContinuation(root, current, challenge));
 }
 
 function claimEvidenceStateEnabled(runtimeState: Pick<RuntimeState, 'claim_evidence_required' | 'claim_evidence'>): boolean {
@@ -8220,7 +8257,7 @@ function validateUserDecisionAuditLogEntry(value: AnyRecord, location: string, t
     'from_workflow_status', 'from_lifecycle_state', 'to_workflow_status', 'to_lifecycle_state', 'source_revision',
     'decision_source', 'decision_text', 'decision_sha256', 'effects', 'authority_evidence', 'evidence_refs', 'recorded_at',
   ];
-  const optionalKeys = ['review_id', 'change_set_id', 'completion_disposition', 'closure_obligation_snapshot', 'consumed_review'];
+  const optionalKeys = ['review_id', 'change_set_id', 'completion_disposition', 'closure_obligation_snapshot', 'consumed_review', 'challenge_continuation_snapshot', 'retry_budget_binding'];
   const missing = requiredKeys.filter(key => !(key in value));
   const extra = Object.keys(value).filter(key => !requiredKeys.includes(key) && !optionalKeys.includes(key));
   if (missing.length > 0 || extra.length > 0) fail('RUNTIME_SCHEMA_INVALID', `${location} user-decision audit keys mismatch; missing=[${missing.join(', ')}], unexpected=[${extra.join(', ')}].`);
@@ -8251,6 +8288,33 @@ function validateUserDecisionAuditLogEntry(value: AnyRecord, location: string, t
   const completionDisposition = value.completion_disposition === undefined
     ? undefined
     : expectEnum(value.completion_disposition, ['user-directed-with-exceptions'], `${location}.completion_disposition`);
+  let retryBinding: UserDecisionAuditLogEntry['retry_budget_binding'];
+  if (value.retry_budget_binding !== undefined) {
+    const binding = expectRecord(value.retry_budget_binding, `${location}.retry_budget_binding`);
+    expectExactKeys(binding, ['step_id', 'plan_revision', 'blocked_attempt_id', 'authorized_attempt_id'], `${location}.retry_budget_binding`);
+    if (!effects.some(effect => effect.kind === 'continue-after-warning' && effect.gate_code === 'RETRY_BUDGET_EXHAUSTED')) {
+      fail('RUNTIME_SCHEMA_INVALID', 'Retry budget binding requires a retry budget decision.');
+    }
+    retryBinding = {
+      step_id: expectString(binding.step_id, 'retry binding step', STEP_ID_PATTERN),
+      plan_revision: expectString(binding.plan_revision, 'retry binding plan', SHA256_PATTERN),
+      blocked_attempt_id: binding.blocked_attempt_id === null ? null : expectString(binding.blocked_attempt_id, 'retry binding failure', SAFE_KEY_PATTERN),
+      authorized_attempt_id: expectString(binding.authorized_attempt_id, 'retry binding attempt', SAFE_KEY_PATTERN),
+    };
+  }
+  let challengeSnapshot: EvidenceChallenge[] | undefined;
+  if (value.challenge_continuation_snapshot !== undefined) {
+    if (!Array.isArray(value.challenge_continuation_snapshot) || value.challenge_continuation_snapshot.length > 128
+      || completionDisposition !== 'user-directed-with-exceptions'
+      || !effects.some(effect => effect.kind === 'advance-with-exceptions')) {
+      fail('RUNTIME_SCHEMA_INVALID', `${location}.challenge_continuation_snapshot requires an exception advancement.`);
+    }
+    challengeSnapshot = value.challenge_continuation_snapshot.map((item, index) =>
+      validateEvidenceChallenge(item, `${location}.challenge_continuation_snapshot[${index}]`));
+    if (new Set(challengeSnapshot.map(item => item.challenge_id)).size !== challengeSnapshot.length) {
+      fail('RUNTIME_SCHEMA_INVALID', `${location}.challenge_continuation_snapshot has duplicate challenge identities.`);
+    }
+  }
   const decisionSha256 = expectString(value.decision_sha256, `${location}.decision_sha256`, SHA256_PATTERN);
   if (decisionSha256 !== sha256(decisionText)) fail('RUNTIME_SCHEMA_INVALID', `${location}.decision_sha256 does not match the retained decision text.`);
   return {
@@ -8273,6 +8337,8 @@ function validateUserDecisionAuditLogEntry(value: AnyRecord, location: string, t
     decision_text: decisionText,
     decision_sha256: decisionSha256,
     effects,
+    ...(retryBinding === undefined ? {} : { retry_budget_binding: retryBinding }),
+    ...(challengeSnapshot === undefined ? {} : { challenge_continuation_snapshot: challengeSnapshot }),
     ...(value.closure_obligation_snapshot === undefined ? {} : {
       closure_obligation_snapshot: validateClosureObligationSnapshot(value.closure_obligation_snapshot, `${location}.closure_obligation_snapshot`),
     }),
@@ -9188,6 +9254,8 @@ function renderExecutionAuditRecord(audit: RuntimeAuditLogEntry, includeEmptyKno
     lines.push(`  decision_sha256: ${decisionAudit.decision_sha256}`);
     lines.push(`  effects: ${JSON.stringify(decisionAudit.effects)}`);
     if (decisionAudit.closure_obligation_snapshot !== undefined) lines.push(`  closure_obligation_snapshot: ${JSON.stringify(decisionAudit.closure_obligation_snapshot)}`);
+    if (decisionAudit.retry_budget_binding !== undefined) lines.push(`  retry_budget_binding: ${JSON.stringify(decisionAudit.retry_budget_binding)}`);
+    if (decisionAudit.challenge_continuation_snapshot !== undefined) lines.push(`  challenge_continuation_snapshot: ${JSON.stringify(decisionAudit.challenge_continuation_snapshot)}`);
     if (decisionAudit.consumed_review !== undefined) lines.push(`  consumed_review: ${JSON.stringify(decisionAudit.consumed_review)}`);
     if (decisionAudit.completion_disposition !== undefined) lines.push(`  completion_disposition: ${decisionAudit.completion_disposition}`);
   } else if (DRAFT_AUDIT_ACTIONS.includes(audit.action as DraftAuditAction)) {
@@ -10488,6 +10556,7 @@ function closureObligationSnapshot(root: string, current: CanonicalCurrentTask):
       ...pendingReviewFindingFingerprints(pending).map(fingerprint => `finding:${fingerprint}`),
       ...(pending.blocker ? [`blocker:${pending.blocker.code}`] : []),
     ] : []),
+    ...(state.evidence_challenges ?? []).filter(item => item.status !== 'resolved').map(item => `challenge:${item.challenge_id}`),
     ...claimSlots.filter(slot => !slot.satisfied).map(slot => `claim:${slot.claim_id}/${slot.slot_id}`),
     ...(state.active_step_status === 'completed' ? [] : [`step:${state.active_step_id}`]),
   ];
@@ -10589,7 +10658,11 @@ function closureEligibilityBlockers(root: string, current: CanonicalCurrentTask,
     && !exceptionCovers('active-step')) {
     blockers.push('the admitted current step is not completed.');
   }
-  if ((current.runtimeState.evidence_challenges ?? []).some(item => item.status !== 'resolved')) blockers.push('challenged evidence remains unresolved.');
+  for (const challenge of (current.runtimeState.evidence_challenges ?? []).filter(item => item.status !== 'resolved')) {
+    const target = `challenge:${challenge.challenge_id}`;
+    if (!exceptionMode || !exceptionTargets.has(target)) blockers.push(`unresolved evidence challenge ${target} requires an exact closure exception.`);
+    if (!delta.remaining_risks.includes(target)) blockers.push(`remaining_risks must include ${target}.`);
+  }
   try {
     const stepResolution = resolveCanonicalTaskStep(current);
     const checkpoint = effectiveCheckpointPolicy(stepResolution);
@@ -12653,7 +12726,9 @@ export function replaceValidation(root: string, rawInput: unknown, options: Runt
     const stepAttempts = structuredClone(state.step_attempts ?? {});
     for (const entry of Object.values(stepAttempts)) entry.evidence_plan_revision = newPlan;
     if (ledger?.attempts.at(-1)?.status === 'blocked') {
-      if (ledger.attempts.length >= ledger.max_attempts) fail('RETRY_BUDGET_EXHAUSTED', 'Engineering replacement does not reset the existing attempt budget.');
+      // The admitted replacement includes its necessary revalidation attempt.
+      // Retain failures and raise capacity instead of resetting the ledger.
+      stepAttempts[state.active_step_id]!.max_attempts = Math.max(ledger.max_attempts, ledger.attempts.length + 1);
       stepAttempts[state.active_step_id]!.attempts.push({ attempt_id: `attempt-${digest({ document: current.sourceTuple.document_id, plan: newPlan, step: state.active_step_id, n: ledger.attempts.length + 1 }).slice(0, 40)}`, idempotency_key: key,
         request_digest: digest(input), status: 'ready', blocker: null, evidence_refs: [...ledger.attempts.at(-1)!.evidence_refs] });
     }
@@ -13091,7 +13166,8 @@ export function confirmEvidencePlanAmendment(root: string, raw: unknown, options
     for (const item of Object.values(attempts)) item.evidence_plan_revision = saved.new_plan_revision;
     const revalidate = saved.revalidate_current_step && (!state.pending_review_result || saved.review_disposition === 'historical-revalidation-required');
     if (revalidate && ledger && ledger.attempts.at(-1)?.status !== 'ready') {
-      if (ledger.attempts.length >= ledger.max_attempts) fail('RETRY_BUDGET_EXHAUSTED', 'Evidence selection amendments retain the existing attempt budget.');
+      // Confirmation authorizes revalidation under the amended evidence plan.
+      attempts[state.active_step_id]!.max_attempts = Math.max(ledger.max_attempts, ledger.attempts.length + 1);
       attempts[state.active_step_id]!.attempts.push({ attempt_id: `attempt-${digest(key).slice(0, 40)}`, idempotency_key: key,
         request_digest: digest(saved.input), status: 'ready', blocker: null, evidence_refs: [location.relativePath] });
     }
@@ -16549,9 +16625,81 @@ export function isTerminalFindingStatus(status: FindingStatus): boolean {
   return ['resolved', 'deferred', 'rejected', 'accepted-risk'].includes(status);
 }
 
+/** One admission calculation shared by decisions, navigation and execution. */
+export function ordinaryAttemptAdmission(current: CanonicalCurrentTask, root: string) {
+  const state = current.runtimeState;
+  const ledger = state.step_attempts?.[state.active_step_id];
+  const inherited = ledger ? null : inheritedScopeAmendmentAttemptLedger(root, current, state.active_step_id);
+  const retainedLedger = ledger ?? inherited?.ledger;
+  const latest = retainedLedger?.attempts.at(-1);
+  const reusesAttempt = ledger ? latest?.status !== 'blocked' : latest?.status === 'ready';
+  const createsAttempt = !latest || !reusesAttempt;
+  let attemptId = nextStepAttemptId(current);
+  if (latest && reusesAttempt) attemptId = latest.attempt_id;
+  else if (ledger) {
+    attemptId = `attempt-${digest({document:current.sourceTuple.document_id,plan:state.evidence_plan_revision,step:state.active_step_id,n:ledger.attempts.length+1}).slice(0,40)}`;
+  }
+  const thresholdReached = (retainedLedger !== undefined && retainedLedger.attempts.length >= retainedLedger.max_attempts)
+    || (recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3;
+  return {
+    ledger, inherited, retained_ledger: retainedLedger,
+    authorized_attempt_id: attemptId,
+    blocked_attempt_id: latest?.status === 'blocked' ? latest.attempt_id : null,
+    creates_attempt: createsAttempt,
+    requires_budget_continuation: createsAttempt && thresholdReached,
+  };
+}
+
+export function retryBudgetBinding(current: CanonicalCurrentTask, root: string): NonNullable<UserDecisionAuditLogEntry['retry_budget_binding']> {
+  const state = current.runtimeState;
+  if (!state.evidence_plan_revision) fail('USER_DECISION_POLICY_CONFLICT', 'Retry authorization requires an evidence plan.');
+  const admission = ordinaryAttemptAdmission(current, root);
+  return {
+    step_id: state.active_step_id,
+    plan_revision: state.evidence_plan_revision,
+    blocked_attempt_id: admission.blocked_attempt_id,
+    authorized_attempt_id: admission.authorized_attempt_id,
+  };
+}
+
+export function ordinaryRetryBudgetExhausted(current: CanonicalCurrentTask, root: string): boolean {
+  return ordinaryAttemptAdmission(current, root).requires_budget_continuation;
+}
+
+export function pendingReviewForOrdinaryRetry(current: CanonicalCurrentTask): PendingReviewResult | null {
+  const state = current.runtimeState;
+  const pending = state.pending_review_result;
+  const failed = state.step_attempts?.[state.active_step_id]?.attempts.at(-1);
+  if (state.workflow_status !== 'active' || state.lifecycle_state !== 'active'
+    || state.resume_requires_review || state.active_step_status !== 'blocked'
+    || !pending || pending.verdict !== 'blocked' || pending.step_id !== state.active_step_id
+    || !failed?.blocker || failed.status !== 'blocked') return null;
+  if (state.findings.some(item => !isTerminalFindingStatus(item.status))
+    || pendingReviewFindingFingerprints(pending).some(fingerprint =>
+      !pending.resolved_fingerprints.includes(fingerprint)
+      && !state.findings.some(item => item.fingerprint === fingerprint && isTerminalFindingStatus(item.status)))) return null;
+  const execution = currentDefinitionExecutionLog(current).find(item =>
+    !('action' in item) && item.idempotency_key === pending.execution_id);
+  if (!execution || 'action' in execution || execution.mode === 'repair'
+    || execution.execution_result?.attempt_id !== failed.attempt_id
+    || execution.execution_result.outcome !== 'blocked'
+    || execution.change_set_id !== pending.change_set_id
+    || failed.blocker.execution_result.change_set_id !== pending.change_set_id) return null;
+  // Reviews cover the cumulative task diff; the failed attempt above covers only its own execution.
+  const reviewedExecution = cumulativeReviewExecution(current, execution);
+  if (reviewedExecution.execution_result?.review_target.revision !== pending.review_target_revision) return null;
+  return pending;
+}
+
 /** Return the canonical targets shown to a caller that must make a policy decision. */
 export function policyTargetIdsForCurrent(current: CanonicalCurrentTask, code: string): string[] {
   const pending = current.runtimeState.pending_review_result;
+  if (code === 'RETRY_BUDGET_EXHAUSTED' || code === 'RETRY_REVIEW_REQUIRED') {
+    return [
+      `step:${current.runtimeState.active_step_id}`,
+      ...(pending ? [`review:${pending.review_id}`, ...(pending.blocker ? [`blocker:${pending.blocker.code}`] : [])] : []),
+    ].sort();
+  }
   if (pending && (code === 'REPAIR_BUDGET_EXHAUSTED' || code === 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED')) {
     const terminal = new Set([
       ...pending.resolved_fingerprints,
@@ -16621,8 +16769,22 @@ export function policyDecisionForOperation(
   if (requiredTargetIds.some(target => !targets.has(target))) {
     fail('USER_DECISION_POLICY_CONFLICT', `User decision ${decisionId} does not cover the exact target ${requiredTargetIds.find(target => !targets.has(target))}.`);
   }
+  if (gateCode === 'RETRY_BUDGET_EXHAUSTED') {
+    const binding = audit.retry_budget_binding;
+    const expected = retryBudgetBinding(current, root);
+    if (!binding || binding.step_id !== expected.step_id || binding.plan_revision !== expected.plan_revision
+      || binding.authorized_attempt_id !== expected.authorized_attempt_id
+      || (expected.blocked_attempt_id !== null && binding.blocked_attempt_id !== expected.blocked_attempt_id)) {
+      fail('USER_DECISION_POLICY_CONFLICT', 'Retry budget authorization belongs to another attempt or plan; record a decision for the current failure.');
+    }
+    const consumers = Object.values(current.runtimeState.step_attempts ?? {}).flatMap(ledger => ledger.attempts)
+      .filter(attempt => attempt.retry_budget_decision_id === decisionId);
+    if (consumers.some(attempt => attempt.attempt_id !== binding.authorized_attempt_id)) {
+      fail('USER_DECISION_POLICY_CONFLICT', 'Retry budget authorization has already been consumed by another attempt.');
+    }
+  }
   const pending = current.runtimeState.pending_review_result;
-  if (pending && (gateCode === 'REPAIR_BUDGET_EXHAUSTED' || gateCode === 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED')) {
+  if (pending && ['REPAIR_BUDGET_EXHAUSTED', 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED', 'RETRY_REVIEW_REQUIRED'].includes(gateCode)) {
     if (audit.review_id !== pending.review_id || audit.change_set_id !== pending.change_set_id) {
       fail('USER_DECISION_POLICY_CONFLICT', 'The policy decision does not bind the current pending review and change set.');
     }
@@ -16660,11 +16822,15 @@ function makeUserDecisionAudit(
     decision_text: decision.decision_text,
     decision_sha256: sha256(decision.decision_text),
     effects: structuredClone(decision.effects),
+    ...(decision.effects.some(effect => effect.kind === 'continue-after-warning' && effect.gate_code === 'RETRY_BUDGET_EXHAUSTED')
+      ? { retry_budget_binding: retryBudgetBinding(current, root) } : {}),
     ...(decision.effects.some(effect => effect.kind === 'close-with-exceptions') ? {
       closure_obligation_snapshot: closureObligationSnapshot(root, { ...current, runtimeState: next }),
     } : {}),
     ...(completionDisposition && current.runtimeState.pending_review_result ? {
       consumed_review: structuredClone(current.runtimeState.pending_review_result),
+      challenge_continuation_snapshot: structuredClone((current.runtimeState.evidence_challenges ?? [])
+        .filter(challenge => challenge.status !== 'resolved')),
     } : {}),
     ...(completionDisposition === undefined ? {} : { completion_disposition: completionDisposition }),
     authority_evidence: proposal.authority_evidence.map(item => ({ ...item })),
@@ -16832,7 +16998,27 @@ function applyUserDecisionDelta(
     fail('USER_DECISION_REVIEW_REQUIRED', 'a finding disposition against a pending review must bind that exact review_id.');
   }
   if (pending && decision.effects.some(effect => effect.kind === 'reopen-finding')) {
-    fail('USER_DECISION_REOPEN_CONFLICT', 'consume the current pending review before reopening a terminal finding; reopen then creates a fresh repair handoff.');
+    const reopened = decision.effects.filter((effect): effect is Extract<UserDecisionEffect, { kind: 'reopen-finding' }> => effect.kind === 'reopen-finding');
+    if (!['findings', 'blocked'].includes(pending.verdict) || pending.step_id !== current.runtimeState.active_step_id
+      || reopened.some(effect => !pendingReviewFindingFingerprints(pending).includes(effect.fingerprint)
+        || pending.resolved_fingerprints.includes(effect.fingerprint))) {
+      fail('USER_DECISION_REOPEN_CONFLICT', 'Reopening during a pending review must target its unresolved findings on the current step.');
+    }
+    const preflight = current.runtimeState.execution_preflight;
+    if (preflight && !executionResultRecordedForPreflight(current, preflight,
+      preflight.mode === 'default' ? current.runtimeState.step_attempts?.[preflight.step_id]?.attempts.at(-1)?.attempt_id : undefined)) {
+      fail('USER_DECISION_REPAIR_CONFLICT', 'Reconcile the outstanding execution before changing its repair targets.');
+    }
+    const execution = currentDefinitionExecutionLog(current).map(item => 'action' in item ? item : cumulativeReviewExecution(current, item))
+      .find(item => !('action' in item) && item.idempotency_key === pending.execution_id);
+    if (!execution || 'action' in execution || !execution.execution_result
+      || execution.change_set_id !== pending.change_set_id
+      || execution.execution_result.review_target.revision !== pending.review_target_revision) {
+      fail('REVIEW_TARGET_CONFLICT', 'Reopening must bind the exact pending execution target.');
+    }
+    if (captureReviewTarget(root, execution.execution_result.review_target.entries.map(item => item.path)).revision !== pending.review_target_revision) {
+      fail('REVIEW_TARGET_STALE', 'The pending review target changed before the reopen decision.');
+    }
   }
   if (decision.review_id !== undefined) {
     if (!pending || pending.review_id !== decision.review_id) fail('USER_DECISION_REVIEW_CONFLICT', 'user decision review_id does not identify the current pending review.');
@@ -16846,6 +17032,12 @@ function applyUserDecisionDelta(
     const descriptor = policyGateDescriptor(warningEffect.gate_code);
     if (descriptor === null || descriptor.effect !== 'continue-after-warning') {
       fail('USER_DECISION_EFFECT_INVALID', 'continue-after-warning must name a declared process-policy gate.');
+    }
+    if (warningEffect.gate_code === 'RETRY_REVIEW_REQUIRED') {
+      if (!pendingReviewForOrdinaryRetry(current)) fail('RETRY_REVIEW_REQUIRED', 'A retry decision requires the blocked review of the latest ordinary failure with no undisposed findings.');
+      if (policyTargetIdsForCurrent(current, 'RETRY_REVIEW_REQUIRED').some(target => !warningEffect.target_ids.includes(target))) {
+        fail('USER_DECISION_TARGET_INVALID', 'Retry authorization must cover the exact step, review and blocker.');
+      }
     }
     const targets = warningEffect.target_ids;
     if (new Set(targets).size !== targets.length || targets.join('|') !== [...targets].sort().join('|')) {
@@ -16983,8 +17175,8 @@ function applyUserDecisionDelta(
   const openFindings = findings.filter(item => ['observed', 'admitted', 'in-progress'].includes(item.status));
   if (advanceEffect) {
     if (!pending || !['findings', 'blocked'].includes(pending.verdict)) fail('USER_DECISION_ADVANCEMENT_REQUIRED', 'advance-with-exceptions requires a pending findings or blocked review.');
-    if (pending.step_id !== current.runtimeState.active_step_id || !['in-progress', 'completed'].includes(current.runtimeState.active_step_status)) {
-      fail('USER_DECISION_STEP_CONFLICT', 'advance-with-exceptions requires the pending review for the current in-progress or completed active step.');
+    if (pending.step_id !== current.runtimeState.active_step_id || !['blocked', 'in-progress', 'completed'].includes(current.runtimeState.active_step_status)) {
+      fail('USER_DECISION_STEP_CONFLICT', 'advance-with-exceptions requires the pending review for the current blocked, in-progress or completed active step.');
     }
     const reviewedExecution = currentDefinitionExecutionLog(current).map(item => 'action' in item ? item : cumulativeReviewExecution(current, item)).find((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.idempotency_key === pending.execution_id,
@@ -17724,7 +17916,7 @@ function applyTaskStateDelta(
     const review = delta.review_result;
     if (review.resolved_fingerprints.length > 0) ensureAuthorityKinds(proposal, ['finding-admission']);
     const isCorrectionReview = (current.runtimeState.evidence_challenges ?? []).some(item => item.status === 'invalidated' && item.correction_step_id === review.step_id);
-    if (review.verdict === 'clean' && !isCorrectionReview && (current.runtimeState.evidence_challenges ?? []).some(item => item.status !== 'resolved' && item.correction_step_id !== review.step_id)) {
+    if (review.verdict === 'clean' && !isCorrectionReview && (current.runtimeState.evidence_challenges ?? []).some(item => item.status !== 'resolved' && item.correction_step_id !== review.step_id && !hasChallengeContinuation(root, current, item))) {
       fail('EVIDENCE_CHALLENGE_UNRESOLVED', 'A clean review cannot consume an unresolved challenge outside its admitted correction step.');
     }
     if (review.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'review result does not belong to the active step.');
@@ -18009,32 +18201,51 @@ function applyTaskStateDelta(
     };
   }
   if (delta.action === 'retry-step') {
-    const retryPolicy = policyDecisionForOperation(root, current, 'RETRY_BUDGET_EXHAUSTED', [`step:${delta.step_id}`], delta.policy_decision_id);
-    if ((recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3 && retryPolicy === null) fail('RETRY_BUDGET_EXHAUSTED', 'The same recovery problem has exhausted three retained failed attempts across plans; record-user-decision may authorize one continuation for the exact active step.');
     ensureAuthorityKinds(proposal,['active-task-owner','scope-admission','evidence-admission']);
     assertTestStrategySequenceReady(current);
     if (proposal.mode !== 'default' || current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active' || current.runtimeState.resume_requires_review || delta.step_id !== current.runtimeState.active_step_id || current.runtimeState.active_step_status !== 'blocked') fail('RETRY_STATE_INVALID','Retry requires the active blocked ordinary step.');
-    if (current.runtimeState.pending_review_result || current.runtimeState.findings.some(f=>['admitted','in-progress'].includes(f.status))) fail('RETRY_FINDINGS_BLOCKED','Retry cannot consume pending review or findings.');
+    if (current.runtimeState.findings.some(f => !isTerminalFindingStatus(f.status))) fail('RETRY_FINDINGS_BLOCKED','Retry requires explicit disposition or repair of every open finding.');
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
     const failed = ledger?.attempts.at(-1);
     if (!ledger || ledger.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || !failed || failed.attempt_id !== delta.blocked_attempt_id || failed.status !== 'blocked' || !failed.blocker) fail('RETRY_ATTEMPT_CONFLICT','Retry must bind the durable latest failure in the same plan.');
-    if (ledger.attempts.length >= ledger.max_attempts && retryPolicy === null) fail('RETRY_BUDGET_EXHAUSTED','The retained attempt threshold is exhausted; record-user-decision may authorize one continuation for the exact active step.');
+    const budgetExhausted = ordinaryRetryBudgetExhausted(current, root);
+    const retryPolicy = budgetExhausted
+      ? policyDecisionForOperation(root, current, 'RETRY_BUDGET_EXHAUSTED', [`step:${delta.step_id}`], delta.policy_decision_id)
+      : null;
+    if (budgetExhausted && !retryPolicy) fail('RETRY_BUDGET_EXHAUSTED','The retained attempt threshold is exhausted; record-user-decision may authorize one continuation for the exact active step.');
+    const pending = current.runtimeState.pending_review_result;
+    if (pending) {
+      if (!pendingReviewForOrdinaryRetry(current)) fail('RETRY_FINDINGS_BLOCKED', 'Retry can consume only the blocked review of its exact latest ordinary failure after all finding dispositions.');
+      const reviewPolicy = policyDecisionForOperation(root, current, 'RETRY_REVIEW_REQUIRED', policyTargetIdsForCurrent(current, 'RETRY_REVIEW_REQUIRED'), delta.policy_decision_id);
+      if (!reviewPolicy) fail('RETRY_REVIEW_REQUIRED', 'Record the user retry decision for the exact blocked review, then retry with policy_decision_id.');
+    }
     if (!delta.blocker_resolution_refs.every(ref=>delta.evidence_refs.includes(ref) && proposal.evidence_refs.includes(ref))) fail('RETRY_RESOLUTION_REQUIRED','Retry evidence must cover resolution artifacts.');
     validateRetryResolution(root,current,delta,failed.blocker);
-    const attempt: StepAttempt = {attempt_id:`attempt-${digest({document:current.sourceTuple.document_id,plan:ledger.evidence_plan_revision,step:delta.step_id,n:ledger.attempts.length+1}).slice(0,40)}`,idempotency_key:proposal.idempotency_key,request_digest:retryRequestDigest(current,delta),status:'ready',blocker:null,...(delta.policy_decision_id ? { policy_decision_id: delta.policy_decision_id } : {}),...(delta.repair_diagnosis ? {recovery:delta.repair_diagnosis} : {}),evidence_refs:[...delta.blocker_resolution_refs]};
+    const attempt: StepAttempt = {
+      attempt_id: `attempt-${digest({document:current.sourceTuple.document_id,plan:ledger.evidence_plan_revision,step:delta.step_id,n:ledger.attempts.length+1}).slice(0,40)}`,
+      idempotency_key: proposal.idempotency_key,
+      request_digest: retryRequestDigest(current, delta),
+      status: 'ready',
+      blocker: null,
+      ...(delta.policy_decision_id ? { policy_decision_id: delta.policy_decision_id } : {}),
+      ...(retryPolicy ? { retry_budget_decision_id: retryPolicy.idempotency_key } : {}),
+      ...(pending ? { consumed_review: structuredClone(pending), consumed_review_decision_id: delta.policy_decision_id! } : {}),
+      ...(delta.repair_diagnosis ? { recovery: delta.repair_diagnosis } : {}),
+      evidence_refs: [...new Set([...delta.blocker_resolution_refs, ...(pending?.evidence_refs ?? [])])],
+    };
     const { execution_preflight: _staleExecutionPreflight, ...stateWithoutExecutionPreflight } = current.runtimeState;
-    return {next:{...stateWithoutExecutionPreflight,active_step_status:'ready',step_attempts:{...current.runtimeState.step_attempts,[delta.step_id]:{...ledger,max_attempts: retryPolicy === null ? ledger.max_attempts : Math.max(ledger.max_attempts, ledger.attempts.length + 1),attempts:[...ledger.attempts,attempt]}},...(current.runtimeState.review_coverage ? {review_coverage:{...current.runtimeState.review_coverage,last_clean_revision:null}} : {}),applied_proposals:appendAppliedProposal(current.runtimeState,proposal,current.sourceTuple.revision)}};
+    return {next:{...stateWithoutExecutionPreflight,active_step_status:'ready',pending_review_result:null,step_attempts:{...current.runtimeState.step_attempts,[delta.step_id]:{...ledger,max_attempts: retryPolicy === null ? ledger.max_attempts : Math.max(ledger.max_attempts, ledger.attempts.length + 1),attempts:[...ledger.attempts,attempt]}},...(current.runtimeState.review_coverage ? {review_coverage:{...current.runtimeState.review_coverage,last_clean_revision:null}} : {}),applied_proposals:appendAppliedProposal(current.runtimeState,proposal,current.sourceTuple.revision)}};
   }
   if (delta.action === 'record-step-preflight') {
     const executionMode = delta.mode ?? proposal.mode;
     const latestPolicyDecisionId = current.runtimeState.step_attempts?.[delta.step_id]?.attempts.at(-1)?.policy_decision_id;
     const retryPolicyDecisionId = delta.policy_decision_id ?? latestPolicyDecisionId;
-    const retryBudgetExhausted = executionMode === 'default'
-      && (recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3;
+    const ordinaryAdmission = executionMode === 'default' ? ordinaryAttemptAdmission(current, root) : null;
+    const retryBudgetExhausted = ordinaryAdmission?.requires_budget_continuation === true;
     const retryPolicy = retryBudgetExhausted
       ? policyDecisionForOperation(root, current, 'RETRY_BUDGET_EXHAUSTED', [`step:${delta.step_id}`], retryPolicyDecisionId)
       : null;
-    if (retryBudgetExhausted && retryPolicy === null) fail('RETRY_BUDGET_EXHAUSTED', 'The same recovery problem has exhausted three retained failed attempts across plans; record-user-decision may authorize one continuation for the exact active step.');
+    if (retryBudgetExhausted && retryPolicy === null) fail('RETRY_BUDGET_EXHAUSTED', 'The retained attempt threshold requires reassessment; record-user-decision can record continuation covered by the existing invocation for the current attempt.');
     ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
     if (delta.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'preflight must bind the current active step.');
     if (executionMode === 'default') assertOrdinaryPreflight(current, root, retryPolicyDecisionId);
@@ -18114,10 +18325,10 @@ function applyTaskStateDelta(
       try {
         assertEvidenceSlotSatisfied(root, current, record, slot, false);
       } catch (error) {
-        if (!hasUserDirectedNotRunEvidence(current, record.claim_id, slot.slot_id)) throw error;
-        // A prior user-directed exception explicitly chose not to run this
-        // prerequisite. Preserve its not-run report and advance; later
-        // verified completion/closure still sees the unsatisfied obligation.
+        if (!hasUserDirectedNotRunEvidence(current, record.claim_id, slot.slot_id)
+          && !hasChallengedSlotContinuation(root, current, record.claim_id, slot.slot_id)) throw error;
+        // An exact exception permits proceeding without satisfying this prerequisite.
+        // Preserve the report and challenge; verified completion still sees the obligation.
         continue;
       }
       slot.prerequisite_receipt = { step_id: delta.step_id, preflight_id: proposal.idempotency_key, result_id: slot.report!.result_id, subject_snapshot: captureReviewTarget(root, slot.check!.subject_paths) };
@@ -18127,20 +18338,22 @@ function applyTaskStateDelta(
     const ledger = current.runtimeState.step_attempts?.[delta.step_id];
     let stepAttempts = current.runtimeState.step_attempts;
     if (executionMode === 'default') {
-      const inherited = ledger === undefined ? inheritedScopeAmendmentAttemptLedger(root, current, delta.step_id) : null;
+      const inherited = ordinaryAdmission!.inherited;
       const recovery = ledger?.attempts.at(-1)?.recovery;
-      if (recovery && delta.candidate_paths.some(p=>!recovery.repair_paths.includes(p))) fail('RETRY_SCOPE_BLOCKED','Recovered preflight candidates must stay within the admitted diagnosis paths.');
+      // The diagnosis names the files that need correction. It does not shrink
+      // the already admitted execution/review scope of the current step.
+      if (recovery && recovery.repair_paths.some(p=>!delta.candidate_paths.includes(p))) fail('RETRY_SCOPE_BLOCKED','Recovered preflight must cover every diagnosed repair path.');
       const initialLedger: StepAttemptLedger = { evidence_plan_revision: current.runtimeState.evidence_plan_revision!, max_attempts: retryPolicy === null ? 3 : Math.max(3, (ledger?.attempts.length ?? 0) + 1),
-        attempts: [{ attempt_id: nextStepAttemptId(current), idempotency_key: proposal.idempotency_key, request_digest: null,
-          status: 'preflighted', blocker: null, ...(retryPolicyDecisionId ? { policy_decision_id: retryPolicyDecisionId } : {}), evidence_refs: [...delta.evidence_refs] }] };
+        attempts: [{ attempt_id: ordinaryAdmission!.authorized_attempt_id, idempotency_key: proposal.idempotency_key, request_digest: null,
+          status: 'preflighted', blocker: null, ...(retryPolicy ? { retry_budget_decision_id: retryPolicy.idempotency_key } : {}), ...(retryPolicyDecisionId ? { policy_decision_id: retryPolicyDecisionId } : {}), evidence_refs: [...delta.evidence_refs] }] };
       if (!ledger && inherited) {
-        if (inherited.ledger.attempts.length >= inherited.ledger.max_attempts && retryPolicy === null) fail('RETRY_BUDGET_EXHAUSTED', 'The scope-amendment continuation has exhausted the retained attempt budget; record-user-decision may authorize one continuation for the exact active step.');
+        if (ordinaryAdmission!.requires_budget_continuation && retryPolicy === null) fail('RETRY_BUDGET_EXHAUSTED', 'The scope-amendment continuation has exhausted the retained attempt budget; record-user-decision may authorize one continuation for the exact active step.');
         const inheritedLatest = inherited.ledger.attempts.at(-1)!;
         // A retry admitted before the amendment is still the same execution
         // attempt. Carry it into the continuation and consume its existing
         // preflight admission instead of manufacturing a fresh budget slot.
         const continuationAttempts = inheritedLatest.status === 'ready'
-            ? [...inherited.ledger.attempts.slice(0, -1), { ...inheritedLatest, status: 'preflighted' as const, ...(retryPolicyDecisionId ? { policy_decision_id: retryPolicyDecisionId } : {}) }]
+            ? [...inherited.ledger.attempts.slice(0, -1), { ...inheritedLatest, status: 'preflighted' as const, ...(retryPolicy && !inheritedLatest.retry_budget_decision_id ? { retry_budget_decision_id: retryPolicy.idempotency_key } : {}), ...(retryPolicyDecisionId ? { policy_decision_id: retryPolicyDecisionId } : {}) }]
           : [...inherited.ledger.attempts, initialLedger.attempts[0]!];
         stepAttempts = {
           ...stepAttempts,
@@ -18160,7 +18373,7 @@ function applyTaskStateDelta(
             // preflight has its own durable idempotency key below. Replacing
             // this key would make a later exact retry replay look like a
             // different request after the hot audit window moved on.
-            ? { ...attempt, status: 'preflighted' as const, ...(retryPolicyDecisionId ? { policy_decision_id: retryPolicyDecisionId } : {}) }
+            ? { ...attempt, status: 'preflighted' as const, ...(retryPolicy && !attempt.retry_budget_decision_id ? { retry_budget_decision_id: retryPolicy.idempotency_key } : {}), ...(retryPolicyDecisionId ? { policy_decision_id: retryPolicyDecisionId } : {}) }
             : attempt) } };
       }
     }
@@ -18229,11 +18442,11 @@ function applyTaskStateDelta(
     if (executionMode !== 'default' && executionMode !== 'repair') fail('RUNTIME_MODE_INVALID', 'extend-preflight mode is invalid.');
     const activePreflight = current.runtimeState.execution_preflight;
     const extensionPolicyDecisionId = delta.policy_decision_id ?? activePreflight?.policy_decision_id;
-    const retryBudgetExhausted = executionMode === 'default' && (recoveryProblemBudget(current)?.failedAttempts ?? 0) >= 3;
+    const retryBudgetExhausted = executionMode === 'default' && ordinaryRetryBudgetExhausted(current, root);
     const extensionPolicy = retryBudgetExhausted
       ? policyDecisionForOperation(root, current, 'RETRY_BUDGET_EXHAUSTED', [`step:${delta.step_id}`], extensionPolicyDecisionId)
       : null;
-    if (retryBudgetExhausted && extensionPolicy === null) fail('RETRY_BUDGET_EXHAUSTED', 'The same recovery problem has exhausted three retained failed attempts across plans; record-user-decision may authorize one continuation for the exact active step.');
+    if (retryBudgetExhausted && extensionPolicy === null) fail('RETRY_BUDGET_EXHAUSTED', 'The retained attempt threshold requires reassessment; record-user-decision can record continuation covered by the existing invocation for the current attempt.');
     if (executionMode === 'default') assertOrdinaryPreflight(current, root, extensionPolicyDecisionId);
     assertTestStrategySequenceReady(current);
     ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
@@ -18354,7 +18567,7 @@ function applyTaskStateDelta(
     if (budget) {
       const ledger = current.runtimeState.step_attempts?.[delta.step_id], attempt = ledger?.attempts.at(-1);
       const progressPolicyDecisionId = delta.policy_decision_id ?? attempt?.policy_decision_id;
-      const progressPolicy = budget.failedAttempts >= 3
+      const progressPolicy = !attempt && budget.failedAttempts >= 3
         ? policyDecisionForOperation(root, current, 'RETRY_BUDGET_EXHAUSTED', [`step:${delta.step_id}`], progressPolicyDecisionId)
         : null;
       // Admission consumes the budget at preflight. Still record real outcomes
@@ -18505,7 +18718,8 @@ function applyTaskStateDelta(
     }
     if (slot.report && digest(old) !== digest(slot)) assertEvidenceReportApplicable(root, current, slot);
     if (old?.report && slot.report?.result_id === old.report.result_id && (digest(old.report) !== digest(slot.report) || digest(old.evidence_refs) !== digest(slot.evidence_refs))) fail('CLAIM_EVIDENCE_PLAN_CONFLICT', 'A changed report or artifact mapping requires a new result_id.');
-    if (slot.before_step_id === delta.step_id && !slot.prerequisite_receipt) fail('PREREQUISITE_REQUIRED', 'record-step-preflight must consume prerequisites before any execution result or progress.');
+    if (slot.before_step_id === delta.step_id && !slot.prerequisite_receipt
+      && !hasChallengedSlotContinuation(root, current, record.claim_id, slot.slot_id)) fail('PREREQUISITE_REQUIRED', 'record-step-preflight must consume prerequisites before any execution result or progress.');
   }
   const unresolvedChallenges = (current.runtimeState.evidence_challenges ?? []).filter(item => item.status !== 'resolved' && item.correction_step_id === delta.step_id);
   for (const challenge of unresolvedChallenges) {
@@ -18681,7 +18895,7 @@ function applyTaskStateDelta(
     }
     if (current.runtimeState.evidence_plan_revision && result.attempt_id) {
       const paths = [...new Set([...(current.runtimeState.review_coverage?.target.entries.map(e=>e.path) ?? []),...result.review_target.entries.map(e=>e.path),...(current.runtimeState.claim_evidence ?? []).flatMap(c=>c.slots.flatMap(s=>s.check?.subject_paths ?? []))])];
-      const attempt: StepAttempt = {attempt_id:result.attempt_id,idempotency_key:activeAttempt?.idempotency_key ?? proposal.idempotency_key,request_digest:activeAttempt?.request_digest ?? null,status:result.outcome==='blocked'?'blocked':'implemented',blocker:result.outcome==='blocked'?{kind:result.blocker_kind ?? 'unknown',execution_result:result,subject_snapshot:captureReviewTarget(root,paths)}:null,...(activeAttempt?.policy_decision_id ? { policy_decision_id: activeAttempt.policy_decision_id } : {}),...(activeAttempt?.recovery ? {recovery:activeAttempt.recovery} : {}),evidence_refs:[...new Set([...(activeAttempt?.evidence_refs ?? []),...delta.evidence_refs])]};
+      const attempt: StepAttempt = {attempt_id:result.attempt_id,idempotency_key:activeAttempt?.idempotency_key ?? proposal.idempotency_key,request_digest:activeAttempt?.request_digest ?? null,status:result.outcome==='blocked'?'blocked':'implemented',blocker:result.outcome==='blocked'?{kind:result.blocker_kind ?? 'unknown',execution_result:result,subject_snapshot:captureReviewTarget(root,paths)}:null,...(activeAttempt?.policy_decision_id ? { policy_decision_id: activeAttempt.policy_decision_id } : {}),...(activeAttempt?.recovery ? {recovery:activeAttempt.recovery} : {}),...(activeAttempt?.retry_budget_decision_id ? {retry_budget_decision_id:activeAttempt.retry_budget_decision_id} : {}),...(activeAttempt?.consumed_review ? {consumed_review:activeAttempt.consumed_review,consumed_review_decision_id:activeAttempt.consumed_review_decision_id} : {}),evidence_refs:[...new Set([...(activeAttempt?.evidence_refs ?? []),...delta.evidence_refs])]};
       stepAttempts = {...stepAttempts,[delta.step_id]:{evidence_plan_revision:current.runtimeState.evidence_plan_revision,max_attempts:ledger?.max_attempts ?? 3,attempts:ledger ? [...ledger.attempts.slice(0,-1),attempt] : [attempt]}};
     }
   }
@@ -19521,6 +19735,8 @@ function buildResult(
       },
     }),
     ...(recovery === null ? {} : { recovery_route: recovery }),
+    ...((status === 'blocked' || status === 'conflict') && extras.code
+      ? { entry_recovery: entryRecovery(extras.code, extras) } : {}),
     ...extras,
     evidence_assurance: 'caller-reported',
   };
@@ -20694,7 +20910,7 @@ export class GovernanceTransactionKernel {
       const ledger = current.runtimeState.step_attempts?.[delta.step_id];
       const priorRetry = ledger?.attempts.find(a=>a.idempotency_key===proposal.idempotency_key);
       if (priorRetry) {
-        if (proposal.source_tuple.document_id !== current.sourceTuple.document_id || ledger!.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || priorRetry.request_digest !== retryRequestDigest(current,delta)) return buildResult('conflict',proposal,current,options,'Retry key is already bound to different task/plan/request semantics.',{code:'RETRY_IDEMPOTENCY_CONFLICT'});
+        if (proposal.source_tuple.document_id !== current.sourceTuple.document_id || ledger!.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || priorRetry.request_digest !== retryRequestDigest(current,delta) || (priorRetry.retry_budget_decision_id !== undefined && priorRetry.retry_budget_decision_id !== delta.policy_decision_id) || (priorRetry.consumed_review_decision_id !== undefined && priorRetry.consumed_review_decision_id !== delta.policy_decision_id)) return buildResult('conflict',proposal,current,options,'Retry key is already bound to different task/plan/request semantics.',{code:'RETRY_IDEMPOTENCY_CONFLICT'});
         return buildResult('no-op',proposal,current,options,'This retry was already admitted; no budget or state changed.',{read_back_verified:true,resulting_revision:current.sourceTuple.revision});
       }
     }
@@ -21199,12 +21415,13 @@ export function createRetainedReviewConsumptionProposal(
 }
 
 export function assertOrdinaryPreflight(current: CanonicalCurrentTask, root: string, policyDecisionId?: string): void {
-  const unresolvedChallenges = (current.runtimeState.evidence_challenges ?? []).filter(item => item.status !== 'resolved');
+  const unresolvedChallenges = (current.runtimeState.evidence_challenges ?? []).filter(item => item.status !== 'resolved' && !hasChallengeContinuation(root, current, item));
   const correctionBatch = unresolvedChallenges.some(item => item.status === 'invalidated' && item.correction_step_id === current.runtimeState.active_step_id);
   if (!correctionBatch && unresolvedChallenges.some(item => item.correction_step_id !== current.runtimeState.active_step_id)) {
     fail('EVIDENCE_CHALLENGE_UNRESOLVED', 'A challenged result may affect the next step; only its admitted correction step can run.');
   }
   for (const carry of current.runtimeState.evidence_carry_forward ?? []) {
+    if (hasChallengedSlotContinuation(root, current, carry.claim_id, carry.slot_id)) continue;
     const slot = current.runtimeState.claim_evidence?.find(item => item.claim_id === carry.claim_id)?.slots.find(item => item.slot_id === carry.slot_id);
     if (slot?.user_decision) assertUserEvidenceApplicable(root, current, slot);
     else {
@@ -22603,10 +22820,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     return 0;
   } catch (error) {
     if (error instanceof MutationScopeError) {
-      console.error(`${error.code}: ${error.message}`);
+      console.error(formatEntryRecoveryError(error));
       return error.code === 'MUTATION_SCOPE_BLOCKED' ? 2 : 1;
     }
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return 1;
   }
 }

@@ -1,3 +1,4 @@
+import { formatEntryRecoveryError } from './entry-recovery';
 /**
  * The single bounded task projection used by daily Runtime callers.
  *
@@ -33,6 +34,10 @@ import {
   outstandingRepairPreflight,
   policyGateDescriptor,
   policyTargetIdsForCurrent,
+  pendingReviewForOrdinaryRetry,
+  ordinaryRetryBudgetExhausted,
+  ordinaryAttemptAdmission,
+  retryBudgetBinding,
   readCanonicalCurrentTask,
   recoverPendingTaskStoreCommit,
   type CanonicalCurrentTask,
@@ -547,10 +552,23 @@ function executableContextEntry(route: string | undefined): string | undefined {
   return route === 'user' ? 'record-user-decision' : route;
 }
 
-function policyGatesForCurrent(current: CanonicalCurrentTask): AnyRecord[] {
+function policyGatesForCurrent(current: CanonicalCurrentTask, root: string): AnyRecord[] {
   const state = current.runtimeState;
   const pendingReview = record(state.pending_review_result) ? state.pending_review_result : null;
   const policyGates: AnyRecord[] = [];
+  const retryReview = pendingReviewForOrdinaryRetry(current);
+  if (retryReview) {
+    policyGates.push({
+      code: 'RETRY_REVIEW_REQUIRED',
+      warning_only: true,
+      command: 'record-user-decision',
+      effect: 'continue-after-warning',
+      target_ids: policyTargetIdsForCurrent(current, 'RETRY_REVIEW_REQUIRED'),
+      review_id: retryReview.review_id,
+      change_set_id: retryReview.change_set_id,
+      consuming_command: 'retry-step',
+    });
+  }
   const pendingPolicy = policyGateDescriptor(pendingReview?.blocker?.code);
   if (pendingPolicy) {
     policyGates.push({
@@ -563,9 +581,7 @@ function policyGatesForCurrent(current: CanonicalCurrentTask): AnyRecord[] {
       ...(pendingReview?.change_set_id === undefined ? {} : { change_set_id: pendingReview.change_set_id }),
     });
   }
-  const activeLedger = state.step_attempts?.[state.active_step_id];
-  if (state.active_step_status === 'blocked'
-    && (activeLedger?.attempts.length ?? 0) >= (activeLedger?.max_attempts ?? 3)) {
+  if (state.workflow_status === 'active' && ordinaryRetryBudgetExhausted(current, root)) {
     const retryPolicy = policyGateDescriptor('RETRY_BUDGET_EXHAUSTED');
     if (retryPolicy && !policyGates.some(item => item.code === retryPolicy.gate_code)) {
       policyGates.push({
@@ -574,6 +590,7 @@ function policyGatesForCurrent(current: CanonicalCurrentTask): AnyRecord[] {
         command: retryPolicy.route,
         effect: retryPolicy.effect,
         target_ids: policyTargetIdsForCurrent(current, retryPolicy.gate_code),
+        ...(pendingReview ? { review_id: pendingReview.review_id, change_set_id: pendingReview.change_set_id } : {}),
       });
     }
   }
@@ -594,6 +611,20 @@ function policyGatesForCurrent(current: CanonicalCurrentTask): AnyRecord[] {
 
 function contextOverview(root: string, current: CanonicalCurrentTask, manifest: TaskStoreManifest | null): AnyRecord {
   const state = current.runtimeState;
+  const retryReview = pendingReviewForOrdinaryRetry(current);
+  const retryGates = ['RETRY_REVIEW_REQUIRED', ...(ordinaryRetryBudgetExhausted(current, root) ? ['RETRY_BUDGET_EXHAUSTED'] : [])];
+  const retryDecision = retryReview ? state.execution_log.findLast(item => 'action' in item
+    && item.action === 'record-user-decision'
+    && item.review_id === retryReview.review_id && item.change_set_id === retryReview.change_set_id
+    && (!retryGates.includes('RETRY_BUDGET_EXHAUSTED')
+      || (item.retry_budget_binding?.plan_revision === state.evidence_plan_revision
+        && item.retry_budget_binding?.step_id === state.active_step_id
+        && item.retry_budget_binding?.blocked_attempt_id === state.step_attempts?.[state.active_step_id]?.attempts.at(-1)?.attempt_id
+        && item.retry_budget_binding?.authorized_attempt_id === retryBudgetBinding(current, root).authorized_attempt_id))
+    && retryGates.every(code => item.effects.some(effect => effect.kind === 'continue-after-warning'
+      && effect.gate_code === code
+      && policyTargetIdsForCurrent(current, code).every(target => effect.target_ids.includes(target))))) : undefined;
+  const retryEntry = retryDecision ? 'retry-step' : 'record-user-decision';
   const ledger = record(state.step_attempts) && record(state.step_attempts[state.active_step_id]) ? state.step_attempts[state.active_step_id] as AnyRecord : null;
   const latest = latestExecution(current);
   const latestIndex = latest === null ? null : {
@@ -638,7 +669,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const budgetExtensionAvailable = budgetExtensionEligibility?.eligible === true;
   const controlledRecoveryEligibility = repairRecoveryBlocked ? controlledRepairRecoveryEligibility(current) : null;
   const controlledRecoveryAvailable = controlledRecoveryEligibility?.eligible === true;
-  const policyGates = policyGatesForCurrent(current);
+  const policyGates = policyGatesForCurrent(current, root);
   const pendingPolicy = policyGateDescriptor(pendingReview?.blocker?.code);
   const outstandingRepair = outstandingRepairPreflight(current);
   const reviewableUnreviewedExecution = latestReviewableUnreviewedExecution(current);
@@ -660,6 +691,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       ? 'prepare-task:clear-resume-review'
     : reviewableUnreviewedExecution !== null
       ? 'review-change'
+    : retryReview
+      ? retryEntry
     : pendingDispositionRequired
       ? 'record-user-decision'
     : unselectedExhaustedFingerprints.length > 0
@@ -683,7 +716,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
             : retainedFindingReview
               ? 'execute-step:repair'
               : state.active_step_status === 'blocked'
-                ? 'debug-task'
+                ? 'execute-step'
                 : dynamicReviewReady
                   ? 'review-change'
                   : 'preflight-step';
@@ -691,6 +724,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     ? ['record-user-decision', 'prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
     : reviewableUnreviewedExecution !== null
     ? ['review-change']
+    : retryReview
+    ? [retryEntry, 'debug-task']
     : pendingDispositionRequired
     ? ['record-user-decision']
     : unselectedExhaustedFingerprints.length > 0
@@ -712,7 +747,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         : formatScopeBlocked
           ? ['record-user-decision', 'prepare-task:prepare-evidence-plan-amendment', 'debug-task']
         : state.active_step_status === 'blocked'
-          ? ['debug-task', 'execute-step']
+          ? ['execute-step', 'debug-task']
           : [nextEntry];
   return {
     identity: {
@@ -781,6 +816,14 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       unknown_dependencies_block: { kind: 'task-context-block', reference: 'unknown-dependencies' },
     },
     gates: {
+      review_retry: retryReview ? {
+        command: 'retry-step',
+        review_id: retryReview.review_id,
+        change_set_id: retryReview.change_set_id,
+        blocked_attempt_id: state.step_attempts?.[state.active_step_id]?.attempts.at(-1)?.attempt_id,
+        required_policy_gates: retryGates,
+        policy_decision_id: retryDecision?.idempotency_key ?? null,
+      } : null,
       pending_review_verdict: record(state.pending_review_result) ? state.pending_review_result.verdict ?? null : null,
       pending_review_step_id: record(state.pending_review_result) ? state.pending_review_result.step_id ?? null : null,
       unresolved_findings_count: unresolvedFindingCount,
@@ -943,6 +986,7 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
     })),
     required_action: 'Read the complete current definition and perform the bounded dependency check before skipping a gate.',
   });
+  const admission = ordinaryAttemptAdmission(current, root);
   add('global-gates', true, {
     resume_requires_review: current.runtimeState.resume_requires_review,
     resume_review_reasons: current.runtimeState.resume_review_reasons,
@@ -955,7 +999,14 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
     unresolved_findings: unresolvedFindings(current),
     unresolved_evidence_challenges: Array.isArray(current.runtimeState.evidence_challenges) ? current.runtimeState.evidence_challenges.filter(record).filter(item => item.status !== 'resolved').map(item => ({ challenge_id: item.challenge_id ?? null, status: item.status ?? null, claim_id: item.claim_id ?? null, slot_id: item.slot_id ?? null, result_id: item.result_id ?? null })) : [],
     active_attempt: record(current.runtimeState.step_attempts) && record(current.runtimeState.step_attempts[current.runtimeState.active_step_id]) ? current.runtimeState.step_attempts[current.runtimeState.active_step_id] : null,
-    policy_gates: policyGatesForCurrent(current),
+    policy_gates: policyGatesForCurrent(current, root),
+    ordinary_attempt_admission: {
+      attempt_id: admission.authorized_attempt_id,
+      blocked_attempt_id: admission.blocked_attempt_id,
+      creates_attempt: admission.creates_attempt,
+      requires_budget_continuation: admission.requires_budget_continuation,
+      inherited_from_step: admission.inherited?.prior_step_id ?? null,
+    },
     dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
     dynamic_expansions: current.runtimeState.dynamic_expansions ?? [],
   });
@@ -1645,7 +1696,7 @@ export async function runTaskContextCli(command: 'task-context' | 'task-read' | 
     console.log(JSON.stringify(taskContextMigrationCommit(root, input.source_revision), null, 2));
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return error instanceof TaskStoreError && error.code === 'TASK_STORE_SOURCE_CONFLICT' ? 2 : 1;
   }
 }

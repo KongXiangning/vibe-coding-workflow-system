@@ -88,15 +88,16 @@ const EXPECTED_AUTHORITY_OWNERS: Record<Phase1Entry, string> = {
 };
 
 const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
-  'prepare-task': ['task-state-transaction'],
+  'prepare-task': ['task-state-transaction', 'user-decision-transaction'],
   'review-draft': [],
-  'review-change': ['task-state-transaction'],
-  'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
+  'review-change': ['task-state-transaction', 'user-decision-transaction'],
+  'execute-step': ['task-state-transaction', 'finding-queue-transaction', 'user-decision-transaction'],
   'debug-task': ['task-state-transaction'],
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
   'close-task': [
     'project-status-transaction',
+    'user-decision-transaction',
     'archive-transaction',
     'lesson-record-transaction',
     'contract-candidate-commit',
@@ -204,6 +205,7 @@ const REQUIRED_CAPABILITIES = [
 const REQUIRED_RUNTIME_OPERATIONS = [
   'task-state-transaction',
   'finding-queue-transaction',
+  'user-decision-transaction',
   'lifecycle-transaction',
   'inbox-record-transaction',
   'project-status-transaction',
@@ -217,6 +219,7 @@ const REQUIRED_RUNTIME_OPERATIONS = [
 const PHASE_2_BOUND_CALLERS: Record<string, readonly string[]> = {
   'task-state-transaction': ['execute-step', 'prepare-task', 'review-change'],
   'finding-queue-transaction': ['execute-step'],
+  'user-decision-transaction': ['prepare-task', 'review-change', 'execute-step', 'close-task'],
   'lifecycle-transaction': ['task-lifecycle'],
   'inbox-record-transaction': ['capture-work-item'],
   'project-status-transaction': ['close-task', 'bootstrap-project'],
@@ -252,6 +255,12 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'execute-step:repair:resolve',
     'execute-step:repair:defer',
     'execute-step:repair:reject',
+  ],
+  'user-decision-transaction': [
+    'prepare-task:default:record-user-decision',
+    'review-change:default:record-user-decision',
+    'execute-step:default:record-user-decision',
+    'close-task:default:record-user-decision',
   ],
   'lifecycle-transaction': [
     'task-lifecycle:pause',
@@ -692,6 +701,13 @@ function validateLegacyExecutableTargets(content: string, entry: string, legacyS
 }
 
 function validatePublicEntryTerminalBoundary(content: string, entry: string): void {
+  if (!content.includes('Runtime `run-entry --root <project>`')
+    || !content.includes('entry-operation-result/v1')) {
+    fail(`${entry} must bind its internal recovery to the shared run-entry driver`);
+  }
+  if (!content.includes('recovery_boundary: entry-recovery/v1')) {
+    fail(`${entry} must declare ownership of internal recovery via entry-recovery/v1`);
+  }
   if (!content.includes(PUBLIC_ENTRY_TERMINAL_MARKER)) {
     fail(`${entry} must declare ${PUBLIC_ENTRY_TERMINAL_MARKER}`);
   }

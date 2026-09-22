@@ -2446,14 +2446,14 @@ const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'git-commit': 'user',
 };
 const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
-  'prepare-task': ['task-state-transaction'],
+  'prepare-task': ['task-state-transaction', 'user-decision-transaction'],
   'review-draft': [],
-  'review-change': ['task-state-transaction'],
-  'execute-step': ['task-state-transaction', 'finding-queue-transaction'],
+  'review-change': ['task-state-transaction', 'user-decision-transaction'],
+  'execute-step': ['task-state-transaction', 'finding-queue-transaction', 'user-decision-transaction'],
   'debug-task': ['task-state-transaction'],
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
-  'close-task': ['project-status-transaction', 'archive-transaction', 'lesson-record-transaction', 'contract-candidate-commit', 'decision-record-transaction'],
+  'close-task': ['project-status-transaction', 'user-decision-transaction', 'archive-transaction', 'lesson-record-transaction', 'contract-candidate-commit', 'decision-record-transaction'],
   'bootstrap-project': ['contract-candidate-commit', 'decision-record-transaction', 'project-status-transaction', 'host-guidance-transaction'],
   'validate-change': [],
   'git-commit': [],

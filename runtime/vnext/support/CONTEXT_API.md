@@ -331,8 +331,11 @@ First commit the truthful blocked result. Send `retry-step` the retained
 `repair_diagnosis: {kind:"same-plan-repair/v1",status:"confirmed",owner:"current-step",failed_check,cause,repair_paths}`.
 `failed_check` must be the exact failed command or validation; every repair path
 must already be in that failed attempt's preflight candidates. The diagnosis is
-caller-reported and persists in the attempt ledger. Runtime preserves the failed
-attempt and allows at most two retries. A successful recovery returns `ready`
+caller-reported and persists in the attempt ledger. It identifies correction
+paths; the fresh preflight may also retain other paths already authorized for
+the current step and must include every diagnosed repair path. Runtime preserves
+the failed attempt and records an exact warning decision when continuation
+crosses the ordinary attempt threshold. A successful recovery returns `ready`
 only: obtain a fresh preflight before editing, rerun the failed check and due
 evidence, and keep any required review. If subjects drifted, scope changed, or
 the cause is unconfirmed, report the blocker; do not supersede a task solely
@@ -549,6 +552,27 @@ blocked result and record an applicable evidence report with
 `completion_disposition: user-directed-with-exceptions`. `next_entry` must
 always be one of the declared executable commands; a prose-only recommendation
 is a Runtime contract error.
+
+### Retry after a blocked ordinary review
+
+For an ordinary failed attempt with a pending blocked review, use
+`task-context.overview.gates.review_retry` to obtain the exact retry binding.
+After resolving the blocker and disposing any findings, record the user's
+existing retry instruction as `continue-after-warning` with
+`gate_code: RETRY_REVIEW_REQUIRED`, naming `step:<id>`, `review:<id>` and
+`blocker:<code>` when present. Bind `review_id` and `change_set_id`. If the retry
+budget is exhausted, include its `RETRY_BUDGET_EXHAUSTED` effect in the same
+decision. Pass the decision ID as `policy_decision_id` to `retry-step` alongside
+its normal resolution evidence. Runtime preserves the consumed review in the
+new attempt and returns the same step to ready without changing prior failures.
+If the user chooses to skip instead, `advance-with-exceptions` accepts a blocked
+step and retains the failure under an exception receipt.
+
+`reopen-finding` also accepts a terminal user disposition in the current pending
+findings/blocked review. It binds that review and unchanged execution target,
+restores admission, preserves attempts and leaves the review pending for repair.
+It does not require a preceding advance. A resolved finding outside that pending
+review still needs its own fresh review handoff.
 
 ### Exact repair-budget continuation
 
@@ -1170,3 +1194,136 @@ behavioral requirement. The Agent must justify that distinction and the user
 confirms the exact old/new text. Runtime verifies the structural ownership and
 keeps every frozen claim observation/boundary unchanged; semantic sufficiency is
 caller-reported, not inferred from label text or a green aggregate command.
+
+### Continuing with an unresolved evidence challenge
+
+An `advance-with-exceptions` decision covering `challenge:<id>` (or all current
+challenges via `gate:evidence-challenge`) preserves a Runtime-owned snapshot of
+those challenges. Subsequent ordinary preflight and step review recognize this
+continuation only while each challenge is unchanged in the current task definition.
+The challenge and any unsatisfied evidence remain visible; no passed report or
+prerequisite receipt is fabricated. New challenges are not covered by old decisions.
+To close with unresolved challenges, record a separate `close-with-exceptions`
+decision naming each exact `challenge:<id>` and include those IDs in `remaining_risks`.
+Other incomplete closure obligations still need their corresponding exceptions.
+
+Ordinary retry binds its failed attempt to the original execution while binding
+its pending review to the cumulative review target. A multi-step task does not
+need to make its latest execution path set equal the cumulative task path set.
+
+Retry budget decisions retain Runtime-derived `retry_budget_binding` with the
+step, evidence plan revision, failed attempt (when present), and the single
+`authorized_attempt_id`. Callers still supply the user's decision and canonical
+targets; they do not construct this binding. Admission records
+`retry_budget_decision_id` on the authorized attempt and preserves it through
+preflight and execution results. The same attempt may continue and an exact
+retry request may replay, but a later failure or changed plan cannot reuse the
+old decision to create another attempt. Legacy decisions without this binding
+remain readable audit history and require a freshly recorded decision before
+new budget admission; retained user instructions need not be requested again
+when they already authorize that operation.
+
+
+## Entry-owned recovery (`entry-recovery/v1`)
+
+Runtime blocked/conflict results with a code expose `entry_recovery`; coded CLI
+errors retain the original first line and append the same guidance as JSON.
+`skill_terminal: false` means the rejection itself does not finish the invocation,
+not that every external failure can be repaired automatically. The host must inspect
+state, use supported typed recovery and resume the original intent. Existing
+`policy_route` and `recovery_route` supply concrete operations where available.
+Ask only for an undetermined choice/authority or a concrete external prerequisite
+that internal recovery cannot restore. Never treat guidance as a committed mutation.
+
+`global-gates.ordinary_attempt_admission` exposes the effective attempt identity,
+its blocked predecessor, whether a new attempt is needed, whether budget
+continuation is due, and the inherited step. This same computation binds budget
+decisions and preflight admission, including scope-amendment inheritance. A ready
+attempt already admitted before an amendment is reused without another budget grant.
+Engineering invocation replacement and confirmed evidence-plan amendment extend
+capacity for their required revalidation within their existing atomic transaction;
+the old attempts and the amendment's reason/approval remain in history.
+
+
+## Shared driver: `run-entry`
+
+`node .workflow-system/vnext/runtime/cli.js run-entry --root .` accepts JSON:
+
+```json
+{
+  "invocation": {
+    "id": "caller-stable-invocation-id",
+    "entry": "execute-step",
+    "intent": "Implement the confirmed current step",
+    "decision_source": "current-user-message",
+    "decision_text": "Execute the current step."
+  },
+  "operation": {
+    "command": "preflight-step",
+    "input": {"candidate_paths": ["src/example.ts"]}
+  }
+}
+```
+
+The driver runs the existing local CLI with an argument array, no shell, using
+the same project root. `operation.args` carries existing command flags and cannot
+change the root. Nested `run-entry` is unavailable. Existing Runtime checks and
+atomic writers remain authoritative. This wrapper does not execute product commands
+or infer natural-language choices; the invoking agent supplies those judgments.
+
+The result is `entry-operation-result/v1`: `operation-complete` or
+`recovery-required`, the original operation, full underlying result, and an ordered
+`recovery_history`. Neither status alone marks the Skill complete. For recovery,
+supply `recovery: {reason, operations: [{command, args?, input?}]}` with the next
+operation. The driver executes the recovery actions in order and then that operation;
+a failed action returns to the agent within the same invocation. For dependencies
+on freshly returned candidate/receipt IDs, use successive driver calls, consuming
+the returned result before preparing the next call. Never resend already completed
+non-idempotent actions just because a later action failed. Use stable keys supported
+by the underlying operations. No parallel canonical task store is introduced.
+
+For ordinary `execute-step` preflight/retry budget exhaustion, the agent supplies
+`budget_analysis: {document_id, plan_revision, attempt_id, evidence_refs}`. Obtain
+the proposed attempt from `global-gates.ordinary_attempt_admission`; write the
+failure/necessity/changed-approach analysis to ordinary task evidence and reference
+it here. References must name nonempty local files. The driver checks the task,
+plan and attempt, records the existing instruction through the user-decision
+transaction, and retries with its decision ID. A pending eligible blocked review
+is included in the same decision. Existing recorded continuation is reused after
+interruption, rather than manufacturing a new grant. Analysis is caller-reported
+agent evidence, not new user speech. The driver does not ask the user to renew
+an instruction merely because a counter is exhausted. Repair-wave/finding quotas
+retain their existing extension commands, selected by the agent in recovery actions.
+
+Errors crossing the execute adapter retain the original Kernel code, routes and
+commit information. Recovery guidance does not assert that an error means no write
+occurred: inspect/reconcile retained transactions before replaying business work.
+
+
+### Bounded driver receipts
+
+`run-entry` sends child stdout/stderr directly to files, without an `execFile`
+output-buffer quota. Large output does not terminate the child at a fixed byte
+threshold. Internal JSON parsing still uses memory; this is not a claim of bounded
+internal hydration cost or immunity to disk/memory exhaustion.
+
+The default response is a compact summary, `outcome_ref` for the full outcome and
+`detail_ref` for invocation/recovery metadata. Recovery history contains references
+instead of repeating operation inputs and outcomes. Full receipts remain in private
+per-run directories under the host temporary directory's `vnext-entry-results`.
+These are transport artifacts, not canonical task state or permanent evidence.
+Do not rerun business operations merely because a temporary artifact was removed;
+recover the original result from canonical Runtime state using its original key.
+
+Use `entry-output-read` with stdin:
+
+```json
+{"reference": {"path": "<returned path>", "sha256": "<returned digest>", "bytes": 12345}, "offset": 0, "max_bytes": 8192}
+```
+
+Read `content` pages and continue with `next_offset` until null. Offsets preserve
+UTF-8 boundaries; the reference digest prevents mixing changed receipts. Page size
+is between 256 and 65536 bytes of content, with an 8192-byte default. This controls
+only the read response, never business execution, recovery attempts, or output
+retention. The full Kernel result and its routes are in `outcome_ref`; read them
+before constructing dependent requests instead of relying on shortened messages.

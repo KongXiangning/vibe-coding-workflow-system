@@ -1,3 +1,4 @@
+import { formatEntryRecoveryError, throwRuntimeResult } from './entry-recovery';
 /**
  * Human-semantic adapter for execute-step.
  *
@@ -1298,7 +1299,7 @@ export function beginRepair(
     });
     const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
     if (result.status !== 'success' && result.status !== 'no-op') {
-      fail('FINDING_ADMISSION_BLOCKED', result.message);
+      throwRuntimeResult(result, 'FINDING_ADMISSION_BLOCKED');
     }
     if (!options.dryRun) current = readCanonicalCurrentTask(root);
   }
@@ -1344,7 +1345,7 @@ export function beginRepair(
     ...(policyDecisionId === undefined ? {} : { policy_decision_id: policyDecisionId }),
   });
   const preflightResult = verifyReadBack(root, applyVNextRuntimeProposal(root, preflightProposal, options), options);
-  if (preflightResult.status !== 'success' && preflightResult.status !== 'no-op') fail('PREFLIGHT_BLOCKED', preflightResult.message);
+  if (preflightResult.status !== 'success' && preflightResult.status !== 'no-op') throwRuntimeResult(preflightResult, 'PREFLIGHT_BLOCKED');
   if (!options.dryRun) current = readCanonicalCurrentTask(root);
   const executionPreflight = current.runtimeState.execution_preflight;
   const receipt: ExecuteStepRepairPreflightReceipt = {
@@ -1522,7 +1523,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   );
     preflightId = proposal.idempotency_key;
     const registration = applyVNextRuntimeProposal(root, proposal);
-    if (!['success', 'no-op'].includes(registration.status)) fail('PREFLIGHT_BLOCKED', registration.message);
+    if (!['success', 'no-op'].includes(registration.status)) throwRuntimeResult(registration, 'PREFLIGHT_BLOCKED');
     committed = registration.committed;
     current = readCanonicalCurrentTask(root);
   }
@@ -1626,7 +1627,7 @@ export function extendPreflight(
     ...captureReviewTarget(root, additionalTargets).entries,
   ]);
   const result = applyVNextRuntimeProposal(root, proposal, options);
-  if (!['success', 'no-op'].includes(result.status)) fail('PREFLIGHT_BLOCKED', result.message);
+  if (!['success', 'no-op'].includes(result.status)) throwRuntimeResult(result, 'PREFLIGHT_BLOCKED');
   const next = options.dryRun ? current : readCanonicalCurrentTask(root);
   const coverage = next.runtimeState.review_coverage;
   const nextBase = coverage?.base ?? captureReviewTarget(root, candidatePaths);
@@ -2506,7 +2507,7 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
     console.log(JSON.stringify(result, null, 2));
     return result.status === 'blocked' || result.status === 'conflict' ? 2 : 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return 1;
   }
 }

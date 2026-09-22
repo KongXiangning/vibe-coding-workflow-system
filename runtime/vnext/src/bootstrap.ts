@@ -1,3 +1,4 @@
+import { formatEntryRecoveryError } from './entry-recovery';
 /**
  * Typed Runtime boundary for the vNext administrative bootstrap transaction.
  *
@@ -461,7 +462,7 @@ export async function runBootstrapCli(argv: string[] = process.argv.slice(1)): P
     console.log(JSON.stringify(result, null, 2));
     return result.status === 'ready' || result.status === 'success' || result.status === 'no-op' ? 0 : 1;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatEntryRecoveryError(error));
     return 1;
   }
 }
