@@ -4,7 +4,7 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import { spawn } from 'child_process';
 import { createEntryOutputDirectory, retainEntryOutput, type OutputReference } from './entry-output';
-import { entryRecovery, formatEntryRecoveryError } from './entry-recovery';
+import { entryRecovery } from './entry-recovery';
 import { safeRepositoryFile } from './evidence-lineage';
 import { ordinaryAttemptAdmission, pendingReviewForOrdinaryRetry, policyTargetIdsForCurrent, readCanonicalCurrentTask, retryBudgetBinding } from './kernel';
 import { recordUserDecision } from './user-decision-adapter';
@@ -55,6 +55,11 @@ export async function runEntryRunnerCli(argv: string[], allowedCommands: readonl
         code: short(value.outcome.result?.code), committed: value.outcome.result?.committed,
         message: short(value.outcome.result?.message) } : undefined,
       message: short(value.message), outcome_ref: outcomeRef, detail_ref: reference,
+      entry_recovery: value.entry_recovery ? {
+        code: short(value.entry_recovery.code), owner: short(value.entry_recovery.owner),
+        operation_state: short(value.entry_recovery.operation_state), skill_terminal: false,
+        next_action: short(value.entry_recovery.next_action),
+      } : undefined,
       read_command: 'entry-output-read',
       next_action: value.status === 'recovery-required'
         ? 'Read the retained outcome and recovery routes; continue this invocation.'
@@ -191,9 +196,22 @@ export async function runEntryRunnerCli(argv: string[], allowedCommands: readonl
     }
     return finish(outcome, 'original-operation');
   } catch (error) {
+    const cause = error !== null && typeof error === 'object' ? error as Json : {};
+    const runtimeResult = cause.runtime_result !== null && typeof cause.runtime_result === 'object'
+      && !Array.isArray(cause.runtime_result) ? cause.runtime_result as Json : {};
+    const code = typeof runtimeResult.code === 'string' ? runtimeResult.code
+      : typeof cause.code === 'string' ? cause.code : 'ENTRY_REQUEST_OR_RECOVERY_FAILED';
+    const message = error instanceof Error ? error.message : String(error);
+    const result = { status: 'blocked', ...runtimeResult, code,
+      message: runtimeResult.message ?? message,
+      entry_recovery: runtimeResult.entry_recovery ?? cause.entry_recovery ?? entryRecovery(code, runtimeResult),
+      ...(runtimeResult.policy_route === undefined && cause.policy_route !== undefined ? { policy_route: cause.policy_route } : {}),
+      ...(runtimeResult.recovery_route === undefined && cause.recovery_route !== undefined ? { recovery_route: cause.recovery_route } : {}),
+    };
     emit({ kind: 'entry-operation-result/v1', invocation: retainedInvocation,
       status: 'recovery-required', skill_terminal: false, recovery_history: journal,
-      message: formatEntryRecoveryError(error), entry_recovery: entryRecovery('ENTRY_REQUEST_OR_RECOVERY_FAILED') });
+      outcome: { exit_code: 2, result, stderr: message },
+      message, entry_recovery: result.entry_recovery });
     return 2;
   }
 }

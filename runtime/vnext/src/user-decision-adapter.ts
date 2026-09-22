@@ -63,12 +63,14 @@ function readInput(command: UserDecisionAdapterCommand): unknown {
 }
 
 function authority(current: ReturnType<typeof readCanonicalCurrentTask>, source: string, needsFindingAuthority: boolean): AuthorityEvidence[] {
+  const binding = { task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision };
   const required: AuthorityEvidence[] = [
-    { kind: 'active-task-owner', source, subject: 'current-task', task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id },
-    { kind: 'user-confirmation', source, subject: 'record-user-decision', task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id },
-    { kind: 'evidence-admission', source, subject: 'user-decision-audit', task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id },
+    { kind: 'active-task-owner', source, subject: 'current-task', ...binding },
+    { kind: 'user-confirmation', source, subject: 'record-user-decision', ...binding },
+    { kind: 'evidence-admission', source, subject: 'user-decision-audit', ...binding },
   ];
-  if (needsFindingAuthority) required.push({ kind: 'finding-admission', source, subject: 'finding-disposition', task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id });
+  if (needsFindingAuthority) required.push({ kind: 'finding-admission', source, subject: 'finding-disposition', ...binding });
   return required;
 }
 

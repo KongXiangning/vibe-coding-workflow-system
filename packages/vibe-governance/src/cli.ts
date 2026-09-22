@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from 'url';
-import * as path from 'path';
+import { existsSync, realpathSync } from 'fs';
 import { runDistributionCli } from '../../../scripts/vibe-governance-distribution';
 
 export { runDistributionCli } from '../../../scripts/vibe-governance-distribution';
 
-const invokedFile = process.argv[1] ? path.resolve(fileURLToPath(import.meta.url)) : '';
-if (invokedFile && process.argv[1] && invokedFile === path.resolve(process.argv[1])) {
+const invokedFile = process.argv[1];
+if (invokedFile && existsSync(invokedFile)
+  && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(invokedFile)) {
   process.exitCode = runDistributionCli();
 }

@@ -25412,13 +25412,18 @@ function readInput(command) {
   }
 }
 function authority(current, source, needsFindingAuthority) {
+  const binding = {
+    task_id: current.runtimeState.task_id,
+    document_id: current.sourceTuple.document_id,
+    source_revision: current.sourceTuple.revision
+  };
   const required = [
-    { kind: "active-task-owner", source, subject: "current-task", task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id },
-    { kind: "user-confirmation", source, subject: "record-user-decision", task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id },
-    { kind: "evidence-admission", source, subject: "user-decision-audit", task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id }
+    { kind: "active-task-owner", source, subject: "current-task", ...binding },
+    { kind: "user-confirmation", source, subject: "record-user-decision", ...binding },
+    { kind: "evidence-admission", source, subject: "user-decision-audit", ...binding }
   ];
   if (needsFindingAuthority)
-    required.push({ kind: "finding-admission", source, subject: "finding-disposition", task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id });
+    required.push({ kind: "finding-admission", source, subject: "finding-disposition", ...binding });
   return required;
 }
 function parseCli2(argv) {
@@ -25574,6 +25579,13 @@ async function runEntryRunnerCli(argv, allowedCommands) {
       message: short(value.message),
       outcome_ref: outcomeRef,
       detail_ref: reference,
+      entry_recovery: value.entry_recovery ? {
+        code: short(value.entry_recovery.code),
+        owner: short(value.entry_recovery.owner),
+        operation_state: short(value.entry_recovery.operation_state),
+        skill_terminal: false,
+        next_action: short(value.entry_recovery.next_action)
+      } : undefined,
       read_command: "entry-output-read",
       next_action: value.status === "recovery-required" ? "Read the retained outcome and recovery routes; continue this invocation." : "Read the retained receipt before any dependent operation."
     }, null, 2));
@@ -25729,14 +25741,28 @@ async function runEntryRunnerCli(argv, allowedCommands) {
     }
     return finish(outcome, "original-operation");
   } catch (error) {
+    const cause = error !== null && typeof error === "object" ? error : {};
+    const runtimeResult = cause.runtime_result !== null && typeof cause.runtime_result === "object" && !Array.isArray(cause.runtime_result) ? cause.runtime_result : {};
+    const code = typeof runtimeResult.code === "string" ? runtimeResult.code : typeof cause.code === "string" ? cause.code : "ENTRY_REQUEST_OR_RECOVERY_FAILED";
+    const message = error instanceof Error ? error.message : String(error);
+    const result = {
+      status: "blocked",
+      ...runtimeResult,
+      code,
+      message: runtimeResult.message ?? message,
+      entry_recovery: runtimeResult.entry_recovery ?? cause.entry_recovery ?? entryRecovery(code, runtimeResult),
+      ...runtimeResult.policy_route === undefined && cause.policy_route !== undefined ? { policy_route: cause.policy_route } : {},
+      ...runtimeResult.recovery_route === undefined && cause.recovery_route !== undefined ? { recovery_route: cause.recovery_route } : {}
+    };
     emit({
       kind: "entry-operation-result/v1",
       invocation: retainedInvocation,
       status: "recovery-required",
       skill_terminal: false,
       recovery_history: journal,
-      message: formatEntryRecoveryError(error),
-      entry_recovery: entryRecovery("ENTRY_REQUEST_OR_RECOVERY_FAILED")
+      outcome: { exit_code: 2, result, stderr: message },
+      message,
+      entry_recovery: result.entry_recovery
     });
     return 2;
   }

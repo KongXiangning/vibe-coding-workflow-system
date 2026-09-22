@@ -153,6 +153,22 @@ afterAll(() => {
 });
 
 describe('Vibe Governance Distribution / Installer', () => {
+  test('Node executes a linked CLI entry but importing it does not execute commands', () => {
+    const directory = tempRoot('vibe-governance-linked-cli-');
+    const linkedDirectory = path.join(directory, 'linked-dist');
+    fs.symlinkSync(path.join(packageRoot, 'dist'), linkedDirectory, process.platform === 'win32' ? 'junction' : 'dir');
+    const linkedCli = path.join(linkedDirectory, 'cli.js');
+    const result = spawnSync('node', [linkedCli, 'install', '--root'], { encoding: 'utf8' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--root requires a project path');
+    const importer = path.join(directory, 'importer.mjs');
+    fs.writeFileSync(importer, `import { pathToFileURL } from 'node:url'; await import(pathToFileURL(${JSON.stringify(linkedCli)})); console.log('import-only');`);
+    const imported = spawnSync('node', [importer], { encoding: 'utf8' });
+    expect(imported.status).toBe(0);
+    expect(imported.stdout.trim()).toBe('import-only');
+    expect(imported.stderr).toBe('');
+  });
+
   test('CLI rejects a missing --root value and never falls back to the current directory', () => {
     for (const argv of [['install', '--root'], ['install', '--root', '--json']]) {
       const target = tempRoot('vibe-governance-cli-root-');
