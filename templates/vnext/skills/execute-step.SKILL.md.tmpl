@@ -40,7 +40,7 @@ entry_contract:
     - a candidate path, planned command, persistent test, or repair cannot be admitted through the current authorization and available internal recovery operations
     - a failed command or validation cannot be diagnosed and recovered within the current authorized plan
     - a Red result comes from syntax, import, fixture, tool, or environment failure rather than unimplemented behavior
-    - Runtime rejects the submitted result or review receipt after the current-entry recovery and corrected submission are exhausted
+    - after read-back and supported internal recovery, a required external fact, genuinely new user choice, or unrecoverable integrity conflict still prevents a truthful result
   output_kind: change-result
 ---
 
@@ -95,9 +95,11 @@ is not an execution limit. Do not reconstruct receipts from shortened messages.
 An `entry-operation-result/v1` with `recovery-required` is addressed to the agent:
 inspect its original `outcome`, code, commit facts and concrete routes, perform
 analysis, then submit corrected input or a `recovery` plan with `reason` and
-`operations`. The driver runs those operations before retrying `operation` and
-stops the sequence at the first unresolved operation. Consume returned receipts
-between dependent calls; do not replay already completed recovery actions.
+`operations`. The driver stops at the first unresolved operation and returns
+`recovery-applied` after successful recovery operations. Read canonical state and
+the retained receipts, then resume only an original operation still needed for
+this invocation. Never replay an operation reported as committed merely because
+its reply was interrupted; reconcile that transaction first.
 `operation-complete` means that operation finished, not that this Skill's intent
 is complete. Continue until its actual requested result is available.
 
@@ -209,6 +211,7 @@ Apply **Project document conflicts** in that support file before preflight and
 when contradictions emerge during execution; preserve existing explicit decisions.
 
 1. If the confirmed current step is already blocked, inspect its retained failed attempt and apply **Same-plan blocked-step recovery** before ordinary preflight; do not ask the user to choose another Skill for a confirmed in-scope correction. If the latest attempt is already `preflighted` but the previous host call did not return its receipt, call Runtime `resume-preflight` with `{}` and continue with its exact receipt. If it returns `execute-step-preflight-decision`, inspect the retained receipt, recorded result, and current file state; apply the supported reconciliation when those facts determine the disposition. Ask the caller only if two materially different dispositions remain possible. Do not invent a receipt, silently rerun, or loop on resume. Otherwise send intended changed paths, including every exact planned command write, to Runtime `preflight-step` on stdin. Runtime uses the same exact-target admission evaluator for ordinary and repair execution, freezes each before-state, and returns the frozen test-strategy mode, execution phase, required outcome, and Persistent Tests in the receipt. Runtime derives a `test-first` `red` phase only from the current step's frozen unconsumed before-step expected-failure obligation; candidate filenames or mixed candidate composition cannot change it, and its required outcome remains `implemented`. For v1, the task and current-step scopes are hard. For v2, `planned_mutation_targets` are guidance: planned targets receive normal admission, while an in-envelope unplanned target needs the complete blast-radius assessment below. Use only the current step, planned commands, validation, and receipt it returns. When a preflight request is rejected, inspect its exact code and state, correct stale identity or candidate-set mistakes, use the current entry's recovery operation, and retry. Return a blocker only when the needed fact, authority, or user choice cannot be established within this invocation.
+   For a v1 path already declared in both the current step and `Conditional Files`, inspect the declared trigger against actual failure or integration evidence. When it is met, supply `conditional_authorizations` with the exact `pattern`, non-empty `evidence_refs`, and the task decision in `authority` to `retry-step` (when diagnosing a blocked attempt) and to the fresh `preflight-step` or `begin-repair`. The Runtime binds this admission to that execution and its receipt; reuse `resume-preflight` after an interrupted response. A conditionally declared path needs no scope amendment merely because its trigger was discovered during execution. Do not edit the path before its fresh preflight includes it.
 2. For a v2 target outside `planned_mutation_targets` but inside an authorized domain, inspect the exact symbol, exports, references, consumers, contract/DTO/schema role, persistence/concurrency/security boundary, and existing Contracts/Decisions before choosing `self-admit` or `escalate`. Prefer the smallest correct local change. A shared or high-impact change may be self-admitted only when evidence shows the local alternative would be incorrect, duplicative, or contract-breaking and consumer/regression validation is covered. Caller count alone is never a threshold. Do not ask for user authorization for ordinary same-domain discovery; do not continue silently when the assessment is uncertain or escalated.
    Dynamic expansion authority is execution-scoped: Runtime considers only the current active step, plan revision, change set, and stable execution identity. An assessment recorded for an earlier step, continuation, or repair wave is audit history, not a reusable write grant; reassess the same path when a new execution discovers it.
 3. If a new same-envelope target is discovered after another admitted path in the same attempt has changed, call Runtime `extend-preflight` with the current receipt, exact `additional_targets`, one assessment per unplanned target, and non-empty evidence references. Runtime captures only the new target's first-touch before-state and returns a replacement receipt. Keep the same stable `execution_id`, task, step, execution phase, attempt or repair wave, plan revision and retry budget; do not create a continuation or use `scope-amendment`. Ordinary and repair receipts use this same evaluator and action. Use the newest receipt for `record-step-result`. Runtime selects dynamic review from the existing assessment: private local changes with no cross-component consumers and no contract impact add no checkpoint; shared, public, cross-component or otherwise elevated changes still require cumulative review. The ordinary checkpoint and repair-verification gates remain unchanged. A clean review consumes only the expansions bound to that execution and result.
@@ -415,8 +418,11 @@ advancing; use `reopen-finding` and retain the review for the repair.
 For a failed command or validation with a confirmed current-step code, test, or
 fixture cause, send the same `retry-step` with `repair_diagnosis` containing
 `kind: same-plan-repair/v1`, `status: confirmed`, `owner: current-step`, the exact
-`failed_check`, a concise `cause`, and non-empty exact `repair_paths`. These paths
-must be a subset of the failed preflight's candidate paths. In the existing
+`failed_check`, a concise `cause`, and non-empty exact `repair_paths`. The AI
+must justify why each path is needed. Runtime admits them against current task
+and step authority, not the failed preflight's historical candidate list. For
+an unplanned v2 target, include `blast_radius_assessments` in `retry-step` and
+repeat them in the fresh preflight. In the existing
 `blocker_resolution_refs` field cite the retained failed-check evidence, not a
 fabricated resolution report. The diagnosis is caller-reported and Runtime
 retains it in the new attempt; it grants only a fresh preflight, not a pass.
@@ -424,7 +430,9 @@ No new project file is needed solely to carry the diagnosis.
 The diagnosis identifies correction paths; it does not narrow the current
 step's admitted execution or cumulative review scope. Include the diagnosed
 paths and any other still-intended, currently authorized paths in fresh
-preflight. If Runtime rejects a mismatched candidate set, correct that request
+preflight before editing any newly admitted path. A blocked attempt needs a
+new retry and fresh preflight; `extend-preflight` is for an active preflight.
+If Runtime rejects a mismatched candidate set, correct that request
 and continue this invocation; do not turn a request-shape error into a new user
 authorization question.
 

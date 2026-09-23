@@ -7859,10 +7859,13 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('a confirmed same-plan test error can recover, edit, rerun and retain its failed attempt', () => {
+  test('a blocked v1 step admits a necessary in-scope repair file absent from its failed preflight', () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const helper = 'runtime/vnext/src/other.ts';
     const command = `bun ${file}`;
     const semantic = singleStepSemanticDraft();
+    semantic.mutation_scope.allowed.push(helper);
+    semantic.implementation_steps[0]!.mutation_scope.push(helper);
     semantic.implementation_steps[0]!.commands = [{ command, expected_repo_writes: 'none' }];
     semantic.implementation_steps[0]!.validation = [command];
     semantic.claim_evidence[0]!.slots[0]!.check!.entry = command;
@@ -7871,7 +7874,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const root = confirmedSemanticRoot(semantic);
     fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
     const preflight = preflightStep(root, { candidate_paths: [file] });
-    fs.writeFileSync(path.join(root, file), 'throw new Error("test asset has a type error")\n');
+    fs.writeFileSync(path.join(root, file), 'import "./other.ts";\n');
     const failed = spawnSync('bun', [file], { cwd: root, encoding: 'utf8' });
     expect(failed.status).not.toBe(0);
     fs.writeFileSync(path.join(root, 'failed-check.txt'), failed.stderr);
@@ -7886,21 +7889,30 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(() => preflightStep(root, { candidate_paths: [file] })).toThrow('PREFLIGHT_BLOCKED');
     const diagnosis = {
       kind: 'same-plan-repair/v1' as const, status: 'confirmed' as const, owner: 'current-step' as const,
-      failed_check: command, cause: 'The current step test asset throws before validation.', repair_paths: [file],
+      failed_check: command, cause: 'The imported helper is absent from this step.', repair_paths: [helper],
     };
     const retry = { step_id: 'step-1', blocked_attempt_id: prior.attempt_id, blocker_resolution_refs: ['failed-check.txt'], repair_diagnosis: diagnosis, idempotency_key: 'same-plan-test-repair-1' };
     expect(retryStep(root, retry)).toMatchObject({ status: 'success', state: { active_step_status: 'ready' } });
     expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts[0]).toEqual(prior);
     expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts[1]!.recovery).toEqual(diagnosis);
     expect(retryStep(root, retry).status).toBe('no-op');
-    const fresh = preflightStep(root, { candidate_paths: [file] });
+    expect(() => recordStepResult(root, {
+      preflight_receipt: preflight.receipt, actual_changed_paths: [file, helper],
+      command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['failed-check.txt'] }],
+      validation_results: [{ validation: command, status: 'passed', evidence_refs: ['failed-check.txt'] }],
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'A prior receipt cannot authorize the newly diagnosed helper.',
+    })).toThrow('EXECUTE_PREFLIGHT_SCOPE_CONFLICT');
+    expect(() => preflightStep(root, { candidate_paths: [file] })).toThrow('RETRY_SCOPE_BLOCKED');
+    const fresh = preflightStep(root, { candidate_paths: [file, helper] });
     expect(fresh.receipt.attempt_id).not.toBe(preflight.receipt.attempt_id);
-    fs.writeFileSync(path.join(root, file), 'process.exit(0)\n');
+    expect(fresh.receipt.candidate_paths).toContain(helper);
+    expect(fresh.receipt.review_base.entries.find(entry => entry.path === helper)?.state).toBe('absent');
+    fs.writeFileSync(path.join(root, helper), 'export const complete = true;\n');
     const rerun = spawnSync('bun', [file], { cwd: root, encoding: 'utf8' });
     expect(rerun.status).toBe(0);
     fs.writeFileSync(path.join(root, 'rerun-check.txt'), `exit=${rerun.status}`);
     expect(recordStepResult(root, {
-      preflight_receipt: fresh.receipt, actual_changed_paths: [file],
+      preflight_receipt: fresh.receipt, actual_changed_paths: [helper],
       command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['rerun-check.txt'] }],
       validation_results: [{ validation: command, status: 'passed', evidence_refs: ['rerun-check.txt'] }],
       acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'same-plan repair reran the failed check',
@@ -7909,6 +7921,64 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(after.runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(2);
     expect(after.runtimeState.step_attempts!['step-1']!.attempts[0]).toEqual(prior);
     expect(after.runtimeState.step_attempts!['step-1']!.attempts[1]!.recovery).toEqual(diagnosis);
+    expect(after.runtimeState.review_coverage?.base.entries.some(entry => entry.path === helper)).toBe(true);
+  });
+
+  test('a blocked v1 step admits a triggered conditional repair path through a fresh bound preflight', () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const conditional = 'runtime/vnext/src/analysisBatchImporter.js';
+    const command = `bun ${file}`;
+    const semantic = singleStepSemanticDraft();
+    semantic.mutation_scope!.conditional = [{ path: conditional, condition: 'Only when the current step reproduces an importer defect' }];
+    semantic.implementation_steps[0]!.mutation_scope!.push(conditional);
+    semantic.implementation_steps[0]!.commands = [{ command, expected_repo_writes: 'none' }];
+    semantic.implementation_steps[0]!.validation = [command];
+    semantic.claim_evidence[0]!.slots[0]!.check!.entry = command;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.selector = file;
+    semantic.claim_evidence[0]!.slots[0]!.check!.selection!.invocation = { argv: ['bun', file], selector_arg_index: 1 };
+    const root = confirmedSemanticRoot(semantic);
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    const first = preflightStep(root, { candidate_paths: [file] });
+    fs.writeFileSync(path.join(root, file), 'import "./analysisBatchImporter.js";\n');
+    const failed = spawnSync('bun', [file], { cwd: root, encoding: 'utf8' });
+    expect(failed.status).not.toBe(0);
+    fs.writeFileSync(path.join(root, 'conditional-failure.txt'), failed.stderr);
+    expect(recordStepResult(root, {
+      preflight_receipt: first.receipt, actual_changed_paths: [file],
+      command_results: [{ command, status: 'failed', observed_repo_writes: [], evidence_refs: ['conditional-failure.txt'] }],
+      validation_results: [{ validation: command, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'unknown', note: 'reproduced the conditional importer defect',
+    }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const prior = blocked.runtimeState.step_attempts!['step-1']!.attempts[0]!;
+    const diagnosis = {
+      kind: 'same-plan-repair/v1' as const, status: 'confirmed' as const, owner: 'current-step' as const,
+      failed_check: command, cause: 'The current step needs the conditionally declared importer.', repair_paths: [conditional],
+    };
+    const authorization = [{ pattern: conditional, evidence_refs: ['conditional-failure.txt'], authority: 'CURRENT_TASK Conditional Files: reproduced importer defect' }];
+    const retry = { step_id: 'step-1', blocked_attempt_id: prior.attempt_id, blocker_resolution_refs: ['conditional-failure.txt'], repair_diagnosis: diagnosis, conditional_authorizations: authorization, idempotency_key: 'conditional-v1-retry' };
+    const { conditional_authorizations: _conditionalAuthorizations, ...retryWithoutAuthorization } = retry;
+    expect(retryStep(root, retryWithoutAuthorization)).toMatchObject({ status: 'blocked', code: 'EXECUTE_SCOPE_BLOCKED' });
+    expect(retryStep(root, retry)).toMatchObject({ status: 'success', state: { active_step_status: 'ready' } });
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts[0]).toEqual(prior);
+    expect(() => preflightStep(root, { candidate_paths: [file, conditional] })).toThrow('EXECUTE_SCOPE_BLOCKED');
+    const fresh = preflightStep(root, { candidate_paths: [file, conditional], conditional_authorizations: authorization });
+    expect(fresh.receipt.conditional_authorizations).toEqual(authorization);
+    expect(fresh.receipt.review_base.entries.find(entry => entry.path === conditional)?.state).toBe('absent');
+    expect(resumePreflight(root, {}).receipt.conditional_authorizations).toEqual(authorization);
+    fs.writeFileSync(path.join(root, conditional), 'export const importer = true;\n');
+    const rerun = spawnSync('bun', [file], { cwd: root, encoding: 'utf8' });
+    expect(rerun.status).toBe(0);
+    fs.writeFileSync(path.join(root, 'conditional-rerun.txt'), `exit=${rerun.status}`);
+    const result = {
+      preflight_receipt: fresh.receipt, actual_changed_paths: [conditional],
+      command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['conditional-rerun.txt'] }],
+      validation_results: [{ validation: command, status: 'passed', evidence_refs: ['conditional-rerun.txt'] }],
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'conditional importer correction verified',
+    };
+    expect(() => recordStepResult(root, { ...result, preflight_receipt: { ...fresh.receipt, conditional_authorizations: [] } })).toThrow('EXECUTE_PREFLIGHT_STALE');
+    expect(recordStepResult(root, result).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(2);
   });
 
   test('same-plan recovery rejects a fabricated failure, extra repair path and changed diagnosis replay', () => {
@@ -7935,7 +8005,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     };
     const input = { step_id: 'step-1', blocked_attempt_id: failed.attempt_id, blocker_resolution_refs: ['evidence-report.txt'], repair_diagnosis: diagnosis, idempotency_key: 'same-plan-error-1' };
     expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, failed_check: 'never ran' } })).toMatchObject({ status: 'blocked', code: 'RETRY_DIAGNOSIS_REQUIRED' });
-    expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, repair_paths: ['src/login.ts'] } })).toMatchObject({ status: 'blocked', code: 'RETRY_SCOPE_BLOCKED' });
+    expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, repair_paths: ['src/login.ts'] } })).toMatchObject({ status: 'blocked', code: 'EXECUTE_SCOPE_BLOCKED' });
     expect(retryStep(root, input).status).toBe('success');
     expect(applyVNextRuntimeProposal(root, createStepPreflightProposal(readCanonicalCurrentTask(root), [file, other]))).toMatchObject({ status: 'blocked', code: 'RETRY_SCOPE_BLOCKED' });
     expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, cause: 'changed after admission' } })).toMatchObject({ status: 'conflict', code: 'RETRY_IDEMPOTENCY_CONFLICT' });

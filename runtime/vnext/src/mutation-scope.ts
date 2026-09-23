@@ -500,7 +500,7 @@ function normalizeChangedPath(value: unknown, index: number): string | null {
   }
 }
 
-function validateConditionalAuthorizations(value: unknown): { authorizations: ConditionalScopeAuthorization[]; blockers: string[] } {
+export function validateConditionalAuthorizations(value: unknown): { authorizations: ConditionalScopeAuthorization[]; blockers: string[] } {
   if (value === undefined) return { authorizations: [], blockers: [] };
   if (!Array.isArray(value)) return { authorizations: [], blockers: ['conditional_authorizations must be an array.'] };
   const authorizations: ConditionalScopeAuthorization[] = [];

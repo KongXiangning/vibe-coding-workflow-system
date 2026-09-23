@@ -40,7 +40,7 @@ entry_contract:
     - the goal, acceptance, or mutation boundary is too unclear to form a bounded draft
     - confirmation is requested while a user-owned design choice remains unresolved
     - a known scope, command, or authority blocker prevents an executable plan
-    - Runtime rejects the corrected proposal after available current-entry recovery, or the requested mode needs a materially new caller choice
+    - after read-back and supported internal recovery, a required external fact, genuinely new caller choice, or unrecoverable integrity conflict still prevents the requested mode
   output_kind: prepared-task
 ---
 
@@ -95,9 +95,11 @@ is not an execution limit. Do not reconstruct receipts from shortened messages.
 An `entry-operation-result/v1` with `recovery-required` is addressed to the agent:
 inspect its original `outcome`, code, commit facts and concrete routes, perform
 analysis, then submit corrected input or a `recovery` plan with `reason` and
-`operations`. The driver runs those operations before retrying `operation` and
-stops the sequence at the first unresolved operation. Consume returned receipts
-between dependent calls; do not replay already completed recovery actions.
+`operations`. The driver stops at the first unresolved operation and returns
+`recovery-applied` after successful recovery operations. Read canonical state and
+the retained receipts, then resume only an original operation still needed for
+this invocation. Never replay an operation reported as committed merely because
+its reply was interrupted; reconcile that transaction first.
 `operation-complete` means that operation finished, not that this Skill's intent
 is complete. Continue until its actual requested result is available.
 

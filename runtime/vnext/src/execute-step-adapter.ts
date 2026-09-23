@@ -24,6 +24,7 @@ import {
   assertTestRedReproductionEvidence,
   assertOrdinaryPreflight,
   assertExecutionTargetAdmissions,
+  normalizeExecutionConditionalAuthorizations,
   assertBusinessEvidenceVersion,
   assertExecutionResultWaivers,
   replaceValidation,
@@ -85,6 +86,7 @@ import {
   mutationScopePatternMatchesPath,
   parseMutationScope,
   type MutationTransformationKind,
+  type ConditionalScopeAuthorization,
 } from './mutation-scope';
 import { TaskStore, type TaskStoreObjectReference } from './task-store';
 import {
@@ -145,6 +147,7 @@ export type ExecuteStepPreflightReceipt = {
   test_strategy_mode: TestStrategyExecutionContext['mode'];
   execution_phase: TestStrategyExecutionContext['phase'];
   candidate_paths: string[];
+  conditional_authorizations?: ConditionalScopeAuthorization[];
   repair_fingerprint: string | null;
   change_set_id: string;
   review_base: ReviewTarget;
@@ -165,6 +168,7 @@ export type ExecuteStepRepairPreflightReceipt = {
   test_strategy_mode: TestStrategyExecutionContext['mode'];
   execution_phase: TestStrategyExecutionContext['phase'];
   candidate_paths: string[];
+  conditional_authorizations?: ConditionalScopeAuthorization[];
   repair_fingerprints: string[];
   repair_wave_id: string;
   change_set_id: string;
@@ -493,6 +497,7 @@ function assertPathsAdmitted(
   mode: 'default' | 'repair' = 'default',
   phase?: TestStrategyExecutionContext['phase'],
   plannedTargets: readonly string[] = stepPlan.planned_mutation_targets,
+  conditionalAuthorizations: readonly ConditionalScopeAuthorization[] = current.runtimeState.execution_preflight?.conditional_authorizations ?? [],
 ): void {
   if (paths.length === 0) return;
   assertExecutionTargetAdmissions(root, current, {
@@ -500,6 +505,7 @@ function assertPathsAdmitted(
     planned_targets: plannedTargets,
     step_mutation_scope: stepPlan.mutation_scope,
     assessments,
+    conditional_authorizations: conditionalAuthorizations,
     mode,
     phase,
     location,
@@ -513,6 +519,7 @@ function assertCommandPlansAdmitted(
   assessments: readonly BlastRadiusAssessment[] = [],
   phase?: TestStrategyExecutionContext['phase'],
   mode: 'default' | 'repair' = 'default',
+  conditionalAuthorizations: readonly ConditionalScopeAuthorization[] = current.runtimeState.execution_preflight?.conditional_authorizations ?? [],
 ): void {
   if (current.mutationAuthority) {
     const project = (() => {
@@ -550,6 +557,7 @@ function assertCommandPlansAdmitted(
         evidence_refs: [`adapter:execute-preflight:${stepPlan.step.id}`],
       },
       transformation_kind: command.transformation_kind,
+      conditional_authorizations: [...conditionalAuthorizations],
     });
     if (result.status !== 'pass') {
       fail('COMMAND_FOOTPRINT_BLOCKED', `planned command "${command.command}" is not executable: ${result.blockers.join(' ')}`);
@@ -623,6 +631,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       'test_strategy_mode',
       'execution_phase',
       'candidate_paths',
+      ...(source.conditional_authorizations === undefined ? [] : ['conditional_authorizations']),
       'repair_fingerprints',
       'repair_wave_id',
       'change_set_id',
@@ -649,6 +658,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
       test_strategy_mode: testStrategyMode(source.test_strategy_mode, 'preflight_receipt.test_strategy_mode'),
       execution_phase: executionPhase(source.execution_phase, 'preflight_receipt.execution_phase'),
       candidate_paths: pathList(source.candidate_paths, 'preflight_receipt.candidate_paths', true),
+      ...(source.conditional_authorizations === undefined ? {} : { conditional_authorizations: normalizeExecutionConditionalAuthorizations(source.conditional_authorizations, 'preflight_receipt.conditional_authorizations') }),
       repair_fingerprints: textList(source.repair_fingerprints, 'preflight_receipt.repair_fingerprints', false),
       repair_wave_id: text(source.repair_wave_id, 'preflight_receipt.repair_wave_id', 128),
       change_set_id: text(source.change_set_id, 'preflight_receipt.change_set_id', 128),
@@ -672,6 +682,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     'test_strategy_mode',
     'execution_phase',
     'candidate_paths',
+    ...(source.conditional_authorizations === undefined ? [] : ['conditional_authorizations']),
     'repair_fingerprint',
     'change_set_id',
     'review_base',
@@ -705,6 +716,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
     test_strategy_mode: testStrategyMode(source.test_strategy_mode, 'preflight_receipt.test_strategy_mode'),
     execution_phase: executionPhase(source.execution_phase, 'preflight_receipt.execution_phase'),
     candidate_paths: pathList(source.candidate_paths, 'preflight_receipt.candidate_paths', true),
+    ...(source.conditional_authorizations === undefined ? {} : { conditional_authorizations: normalizeExecutionConditionalAuthorizations(source.conditional_authorizations, 'preflight_receipt.conditional_authorizations') }),
     repair_fingerprint: nullableText(source.repair_fingerprint, 'preflight_receipt.repair_fingerprint', 128),
     change_set_id: text(source.change_set_id, 'preflight_receipt.change_set_id', 128),
     review_base: validateRuntimeReviewTarget(source.review_base, 'preflight_receipt.review_base'),
@@ -729,6 +741,9 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
     }
   }
   const activePreflight = current.runtimeState.execution_preflight;
+  if (!activePreflight && (receipt.conditional_authorizations?.length ?? 0) > 0) {
+    fail('EXECUTE_PREFLIGHT_STALE', 'conditional authorization requires the matching durable execution preflight.');
+  }
   const expectedPlanRevision = activePreflight?.step_id === receipt.step_id
     ? activePreflight.plan_revision
     : receipt.execution_id === undefined
@@ -750,6 +765,7 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
       || ((current.mutationAuthority || receipt.mode === 'repair') && receipt.execution_id !== activePreflight.execution_id)
       || (receipt.execution_id !== undefined && activePreflight.execution_id !== receipt.execution_id)
       || (digest(activePreflight.candidate_paths) !== digest(receipt.candidate_paths))
+      || digest(activePreflight.conditional_authorizations ?? []) !== digest(receipt.conditional_authorizations ?? [])
       || activePreflight.policy_decision_id !== receipt.policy_decision_id
       || (receipt.preflight_id !== undefined && activePreflight.preflight_id !== receipt.preflight_id)) {
       fail('EXECUTE_PREFLIGHT_STALE', 'the preflight receipt does not bind the current Runtime execution identity.');
@@ -998,6 +1014,7 @@ export function resumePreflight(root: string, input: unknown): ExecuteStepPrefli
       test_strategy_mode: strategy.mode,
       execution_phase: active.execution_phase,
       candidate_paths: [...active.candidate_paths],
+      ...(active.conditional_authorizations?.length ? { conditional_authorizations: active.conditional_authorizations } : {}),
       repair_fingerprint: null,
       change_set_id: active.change_set_id,
       review_base: exactReviewBaseForCandidates(current, active.candidate_paths),
@@ -1124,6 +1141,7 @@ function recoverOutstandingRepairReceipt(
     test_strategy_mode: strategy.mode,
     execution_phase: active.execution_phase,
     candidate_paths: [...active.candidate_paths],
+    ...(active.conditional_authorizations?.length ? { conditional_authorizations: active.conditional_authorizations } : {}),
     repair_fingerprints: [...(active.repair_fingerprints ?? [])],
     repair_wave_id: active.repair_wave_id!,
     change_set_id: active.change_set_id,
@@ -1142,8 +1160,9 @@ export function beginRepair(
   options: RuntimeApplyOptions = {},
 ): ExecuteStepRepairPreflightResult {
   const source = record(input, 'begin-repair input');
-  exactKeys(source, ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments']), ...(source.repair_fingerprints === undefined ? [] : ['repair_fingerprints']), ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id'])], 'begin-repair input');
+  exactKeys(source, ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments']), ...(source.conditional_authorizations === undefined ? [] : ['conditional_authorizations']), ...(source.repair_fingerprints === undefined ? [] : ['repair_fingerprints']), ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id'])], 'begin-repair input');
   const candidatePaths = pathList(source.candidate_paths, 'candidate_paths', false);
+  const conditionalAuthorizations = normalizeExecutionConditionalAuthorizations(source.conditional_authorizations, 'begin-repair.conditional_authorizations');
   const requestedRepairFingerprints = source.repair_fingerprints === undefined
     ? undefined
     : [...new Set(textList(source.repair_fingerprints, 'repair_fingerprints', false))].sort();
@@ -1181,12 +1200,15 @@ export function beginRepair(
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   const phase = executionPhaseForCurrentStep(current, strategy);
-  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'repair', phase);
-  assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'repair');
+  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'repair', phase, stepPlan.planned_mutation_targets, conditionalAuthorizations);
+  assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'repair', conditionalAuthorizations);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
 
   const recoveredReceipt = recoverOutstandingRepairReceipt(current, stepPlan, strategy, candidatePaths);
   if (recoveredReceipt) {
+    if (digest(recoveredReceipt.conditional_authorizations ?? []) !== digest(conditionalAuthorizations)) {
+      fail('EXECUTE_PREFLIGHT_STALE', 'the outstanding repair preflight owns different conditional authorizations; reuse its exact receipt.');
+    }
     if (requestedRepairFingerprints !== undefined
       && digest(requestedRepairFingerprints) !== digest([...recoveredReceipt.repair_fingerprints].sort())) {
       fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', 'the outstanding repair preflight owns a different repair target set; reuse its exact finding fingerprints.');
@@ -1334,6 +1356,7 @@ export function beginRepair(
   ])];
   const preflightProposal = createStepPreflightProposal(current, candidatePaths, assessments, {
     mode: 'repair',
+    ...(conditionalAuthorizations.length ? { conditional_authorizations: conditionalAuthorizations } : {}),
     plan_revision: stepPlanRevision(stepPlan),
     execution_phase: phase,
     repair_fingerprints: fingerprints,
@@ -1361,6 +1384,8 @@ export function beginRepair(
     test_strategy_mode: strategy.mode,
     execution_phase: executionPreflight?.execution_phase ?? phase,
     candidate_paths: executionPreflight?.candidate_paths ?? candidatePaths,
+    ...((executionPreflight?.conditional_authorizations ?? conditionalAuthorizations).length
+      ? { conditional_authorizations: executionPreflight?.conditional_authorizations ?? conditionalAuthorizations } : {}),
     repair_fingerprints: executionPreflight?.repair_fingerprints ?? fingerprints,
     repair_wave_id: executionPreflight?.repair_wave_id ?? waveId,
     change_set_id: executionPreflight?.change_set_id ?? pending.change_set_id,
@@ -1383,13 +1408,20 @@ export function beginRepair(
 
 export function retryStep(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
   const source = record(input,'retry-step input');
-  exactKeys(source,['step_id','blocked_attempt_id','blocker_resolution_refs',...(source.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),...(source.policy_decision_id === undefined ? [] : ['policy_decision_id']),'idempotency_key'],'retry-step input');
+  exactKeys(source,['step_id','blocked_attempt_id','blocker_resolution_refs',...(source.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments']),...(source.conditional_authorizations === undefined ? [] : ['conditional_authorizations']),...(source.policy_decision_id === undefined ? [] : ['policy_decision_id']),'idempotency_key'],'retry-step input');
   const current = readCanonicalCurrentTask(root);
+  let assessments: BlastRadiusAssessment[] | undefined;
+  if (source.blast_radius_assessments !== undefined) {
+    try { assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments); }
+    catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error)); }
+  }
   const proposal = createStepRetryProposal(current,{
     step_id:text(source.step_id,'step_id',128),
     blocked_attempt_id:text(source.blocked_attempt_id,'blocked_attempt_id',128),
     blocker_resolution_refs:textList(source.blocker_resolution_refs,'blocker_resolution_refs',false),
     ...(source.repair_diagnosis === undefined ? {} : {repair_diagnosis:source.repair_diagnosis as StepRepairDiagnosis}),
+    ...(assessments === undefined ? {} : {blast_radius_assessments:assessments}),
+    ...(source.conditional_authorizations === undefined ? {} : {conditional_authorizations:normalizeExecutionConditionalAuthorizations(source.conditional_authorizations,'retry-step.conditional_authorizations')}),
     ...(source.policy_decision_id === undefined ? {} : { policy_decision_id: text(source.policy_decision_id, 'policy_decision_id', 128) }),
     idempotency_key:text(source.idempotency_key,'idempotency_key',128),
   });
@@ -1479,8 +1511,9 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   const currentForInput = readCanonicalCurrentTask(root);
   exactKeys(source, currentForInput.mutationAuthority
     ? ['candidate_paths', ...(source.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments']), ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id'])]
-    : ['candidate_paths', ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id'])], 'preflight-step input');
+    : ['candidate_paths', ...(source.conditional_authorizations === undefined ? [] : ['conditional_authorizations']), ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id'])], 'preflight-step input');
   const candidatePaths = pathList(source.candidate_paths, 'candidate_paths', true);
+  const conditionalAuthorizations = normalizeExecutionConditionalAuthorizations(source.conditional_authorizations, 'preflight-step.conditional_authorizations');
   const policyDecisionId = source.policy_decision_id === undefined ? undefined : text(source.policy_decision_id, 'policy_decision_id', 128);
   let assessments: BlastRadiusAssessment[] = [];
   if (currentForInput.mutationAuthority && source.blast_radius_assessments !== undefined) {
@@ -1495,8 +1528,8 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
   const strategy = resolveTestStrategyExecutionContext(current);
   assertTestStrategySequenceReady(current, strategy);
   const phase = executionPhaseForCurrentStep(current, strategy);
-  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'default', phase);
-  assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'default');
+  assertPathsAdmitted(current, stepPlan, candidatePaths, 'candidate_paths', root, assessments, 'default', phase, stepPlan.planned_mutation_targets, conditionalAuthorizations);
+  assertCommandPlansAdmitted(root, current, stepPlan, assessments, phase, 'default', conditionalAuthorizations);
   assertExactCommandWritesCovered(stepPlan, candidatePaths);
 
   let committed = false;
@@ -1509,6 +1542,10 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     && digest(current.runtimeState.execution_preflight!.candidate_paths) !== digest(candidatePaths)) {
     fail('EXECUTE_PREFLIGHT_STALE', 'the active preflight already owns a different target set; use extend-preflight for additional targets.');
   }
+  if (activePreflightMatchesStep
+    && digest(current.runtimeState.execution_preflight!.conditional_authorizations ?? []) !== digest(conditionalAuthorizations)) {
+    fail('EXECUTE_PREFLIGHT_STALE', 'the active preflight owns different conditional authorizations; reuse its exact receipt.');
+  }
   if (!current.runtimeState.step_attempts?.[stepPlan.step.id] || !coverage || candidatePaths.some(p => !coverage.base.entries.some(entry => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === 'ready' || (current.mutationAuthority && !activePreflightMatchesStep) || (policyDecisionId !== undefined && current.runtimeState.execution_preflight?.policy_decision_id !== policyDecisionId)) {
   const proposal = createStepPreflightProposal(
     current,
@@ -1519,6 +1556,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
       execution_phase: phase,
       change_set_id: changeSetId(current, stepPlan.step.id),
       ...(policyDecisionId === undefined ? {} : { policy_decision_id: policyDecisionId }),
+      ...(conditionalAuthorizations.length ? { conditional_authorizations: conditionalAuthorizations } : {}),
     },
   );
     preflightId = proposal.idempotency_key;
@@ -1553,6 +1591,7 @@ export function preflightStep(root: string, input: unknown): ExecuteStepPrefligh
     test_strategy_mode: strategy.mode,
     execution_phase: activeStrategy.phase,
     candidate_paths: executionPreflight?.candidate_paths ?? candidatePaths,
+    ...(executionPreflight?.conditional_authorizations?.length ? { conditional_authorizations: executionPreflight.conditional_authorizations } : {}),
     repair_fingerprint: null,
     change_set_id: executionPreflight?.change_set_id ?? changeSetId(current, stepPlan.step.id),
     review_base: executionPreflight?.step_id === stepPlan.step.id
@@ -1877,6 +1916,7 @@ function assertCommandResults(
       },
       transformation_kind: planned.transformation_kind,
       observed_write_paths: result.observed_repo_writes,
+      conditional_authorizations: current.runtimeState.execution_preflight?.conditional_authorizations ?? [],
     });
     if (audit.status !== 'pass') {
       fail('COMMAND_MUTATION_AUDIT_BLOCKED', `command "${result.command}" failed Runtime mutation audit: ${audit.blockers.join(' ')}`);

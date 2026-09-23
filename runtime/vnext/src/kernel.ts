@@ -61,6 +61,7 @@ import {
   parseMutationScope,
   type CommandMutationAuditInput,
   type ConditionalScopeAuthorization,
+  validateConditionalAuthorizations,
   type MutationScopeEvaluationInput,
   type MutationTransformationKind,
 } from './mutation-scope';
@@ -134,7 +135,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.20.19';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.2';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -816,6 +817,7 @@ export type ExecutionPreflightState = {
   plan_revision: string;
   execution_phase: TestStrategyExecutionPhase;
   candidate_paths: string[];
+  conditional_authorizations?: ConditionalScopeAuthorization[];
   change_set_id: string;
   repair_fingerprints: string[] | null;
   repair_wave_id: string | null;
@@ -1011,7 +1013,7 @@ export type TaskStateDelta =
       review_receipt: StepReviewReceipt;
       evidence_refs: string[];
     }
-  | { kind: 'task-state'; action: 'retry-step'; step_id: string; blocked_attempt_id: string; blocker_resolution_refs: string[]; repair_diagnosis?: StepRepairDiagnosis; policy_decision_id?: string; evidence_refs: string[] }
+  | { kind: 'task-state'; action: 'retry-step'; step_id: string; blocked_attempt_id: string; blocker_resolution_refs: string[]; repair_diagnosis?: StepRepairDiagnosis; blast_radius_assessments?: BlastRadiusAssessment[]; conditional_authorizations?: ConditionalScopeAuthorization[]; policy_decision_id?: string; evidence_refs: string[] }
   | {
       kind: 'task-state';
       action: 'reconcile-preflight';
@@ -1030,6 +1032,7 @@ export type TaskStateDelta =
       candidate_paths: string[];
       evidence_refs: string[];
       blast_radius_assessments?: BlastRadiusAssessment[];
+      conditional_authorizations?: ConditionalScopeAuthorization[];
       mode?: VNextExecuteStepMode;
       execution_id?: string;
       plan_revision?: string;
@@ -2240,7 +2243,7 @@ function validateStepAttempts(value: unknown): Record<string, StepAttemptLedger>
 }
 
 function retryRequestDigest(current: CanonicalCurrentTask, delta: Extract<TaskStateDelta,{action:'retry-step'}>): string {
-  return digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision,step:delta.step_id,blocked_attempt_id:delta.blocked_attempt_id,refs:delta.blocker_resolution_refs,...(delta.repair_diagnosis ? {repair_diagnosis:delta.repair_diagnosis} : {})});
+  return digest({document:current.sourceTuple.document_id,plan:current.runtimeState.evidence_plan_revision,step:delta.step_id,blocked_attempt_id:delta.blocked_attempt_id,refs:delta.blocker_resolution_refs,...(delta.repair_diagnosis ? {repair_diagnosis:delta.repair_diagnosis} : {}),...(delta.blast_radius_assessments ? {blast_radius_assessments:delta.blast_radius_assessments} : {}),...(delta.conditional_authorizations ? {conditional_authorizations:delta.conditional_authorizations} : {})});
 }
 
 export function reviewCycleForNextStep(previousCycleId: string, nextStepId: string, completionKey: string): ReviewCycleState {
@@ -2275,8 +2278,17 @@ function validateRetryResolution(root: string, current: CanonicalCurrentTask, de
     if (!checkNames.includes(delta.repair_diagnosis.failed_check)) fail('RETRY_DIAGNOSIS_REQUIRED','The diagnosis must identify a check that actually failed in the retained attempt.');
     const failedEvidence = new Set(failed.flatMap(item=>item.evidence_refs));
     if (!delta.blocker_resolution_refs.every(ref=>failedEvidence.has(ref))) fail('RETRY_DIAGNOSIS_REQUIRED','Recovery evidence must cite the retained failed check.');
-    const admittedPaths = new Set(failure.execution_result.review_base.entries.map(entry=>entry.path));
-    if (delta.repair_diagnosis.repair_paths.some(p=>!admittedPaths.has(p))) fail('RETRY_SCOPE_BLOCKED','Same-plan repair paths must be a subset of the failed preflight candidate paths.');
+    // The failed preflight is historical evidence, not a future write boundary.
+    // Retry records the diagnosis only; fresh preflight still captures every
+    // repair target before any product mutation or result can be admitted.
+    assertPreflightConditionalAuthorizations(current, delta.repair_diagnosis.repair_paths, delta.conditional_authorizations ?? []);
+    assertExecutionTargetAdmissions(root, current, {
+      target_paths: delta.repair_diagnosis.repair_paths,
+      assessments: delta.blast_radius_assessments,
+      conditional_authorizations: delta.conditional_authorizations ?? [],
+      mode: 'default',
+      location: 'same-plan repair targets',
+    });
     return;
   }
   if (failure.kind !== 'environment' || [...failure.execution_result.command_results,...failure.execution_result.validation_results].some(item=>item.status==='failed')) fail('RETRY_DIAGNOSIS_REQUIRED','Environment retry requires a recorded environment blocker without failed checks.');
@@ -2402,6 +2414,7 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
     'plan_revision',
     'execution_phase',
     'candidate_paths',
+    ...(source.conditional_authorizations === undefined ? [] : ['conditional_authorizations']),
     'change_set_id',
     'repair_fingerprints',
     'repair_wave_id',
@@ -2436,6 +2449,7 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
     // The durable continuation record still binds the execution identity and
     // review/change-set baseline; it does not need a synthetic path.
     candidate_paths: expectStringArray(source.candidate_paths, `${location}.candidate_paths`, true, 256).map(item => normalizeRepoPath(item, `${location}.candidate_paths`)),
+    ...(source.conditional_authorizations === undefined ? {} : { conditional_authorizations: normalizeExecutionConditionalAuthorizations(source.conditional_authorizations, `${location}.conditional_authorizations`) }),
     change_set_id: expectString(source.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN),
     repair_fingerprints: repairFingerprints === null ? null : [...new Set(repairFingerprints)],
     repair_wave_id: repairWaveId,
@@ -2531,6 +2545,7 @@ function v2StepPlannedTargets(current: CanonicalCurrentTask): string[] {
 
 export type CurrentExecutionAdmissionInput = {
   target_paths: readonly string[];
+  conditional_authorizations?: readonly ConditionalScopeAuthorization[];
   planned_targets?: readonly string[];
   step_mutation_scope?: readonly string[];
   assessments?: readonly BlastRadiusAssessment[];
@@ -2538,6 +2553,27 @@ export type CurrentExecutionAdmissionInput = {
   mode?: ExecutionAdmissionMode;
   location?: string;
 };
+
+export function normalizeExecutionConditionalAuthorizations(value: unknown, location: string): ConditionalScopeAuthorization[] {
+  const result = validateConditionalAuthorizations(value);
+  if (result.blockers.length > 0) fail('EXECUTE_CONDITIONAL_AUTHORIZATION_INVALID', `${location}: ${result.blockers.join(' ')}`);
+  if (new Set(result.authorizations.map(item => item.pattern)).size !== result.authorizations.length) {
+    fail('EXECUTE_CONDITIONAL_AUTHORIZATION_INVALID', `${location}: each exact conditional target may be authorized only once.`);
+  }
+  return result.authorizations;
+}
+
+function assertPreflightConditionalAuthorizations(current: CanonicalCurrentTask, candidates: readonly string[], authorizations: readonly ConditionalScopeAuthorization[]): void {
+  if (authorizations.length === 0) return;
+  if (current.mutationAuthority) fail('EXECUTE_CONDITIONAL_AUTHORIZATION_INVALID', 'v2 execution does not use v1 conditional authorizations.');
+  const scope = parseMutationScope(current.body, current.sourceTuple.revision);
+  for (const authorization of authorizations) {
+    if (!candidates.includes(authorization.pattern)
+      || !scope.conditional.some(entry => mutationScopePatternMatchesPath(authorization.pattern, entry.pattern))) {
+      fail('EXECUTE_CONDITIONAL_AUTHORIZATION_INVALID', `conditional authorization ${authorization.pattern} must identify a current preflight candidate declared in Conditional Files.`);
+    }
+  }
+}
 
 function executionAdmissionErrorCode(
   current: CanonicalCurrentTask,
@@ -2626,12 +2662,18 @@ export function evaluateCurrentExecutionTargetAdmissions(
     }
   }
   const legacyScope = current.mutationAuthority ? null : parseMutationScope(current.body, current.sourceTuple.revision);
+  const conditionalAuthorizations = input.conditional_authorizations
+    ?? (current.runtimeState.active_step_status === 'blocked' ? [] : activeExecution?.conditional_authorizations ?? []);
+  if (current.mutationAuthority && conditionalAuthorizations.length > 0) {
+    fail('EXECUTE_CONDITIONAL_AUTHORIZATION_INVALID', 'v1 conditional authorizations cannot be used by a v2 task.');
+  }
   const evaluation = evaluateExecutionTargetAdmissions({
     version: current.mutationAuthority ? 2 : 1,
     root,
     project_authority: project,
     task_authority: current.mutationAuthority,
     legacy_scope: legacyScope,
+    conditional_authorizations: conditionalAuthorizations,
     step_planned_targets: plannedTargets,
     step_mutation_scope: stepScope,
     targets: input.target_paths,
@@ -3121,7 +3163,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   }
   const retryContract = expectRecord(taskStateContract.retry_step, 'Runtime contract.proposal.task_state.retry_step');
   expectExactKeys(retryContract, ['max_attempts','environment_report','same_plan_repair_diagnosis','repair_paths','failure_preservation','result_required'], 'Runtime contract.proposal.task_state.retry_step');
-  if (retryContract.max_attempts !== 3 || retryContract.environment_report !== 'environment-restored/v1' || retryContract.same_plan_repair_diagnosis !== 'same-plan-repair/v1' || retryContract.repair_paths !== 'failed-preflight-subset' || retryContract.failure_preservation !== 'durable-step-attempts' || retryContract.result_required !== 'fresh-preflight-and-execution') fail('RUNTIME_CONTRACT_INVALID','Runtime retry contract must retain bounded same-plan recovery and fresh execution.');
+  if (retryContract.max_attempts !== 3 || retryContract.environment_report !== 'environment-restored/v1' || retryContract.same_plan_repair_diagnosis !== 'same-plan-repair/v1' || retryContract.repair_paths !== 'current-authority-admitted-and-fresh-preflight' || retryContract.failure_preservation !== 'durable-step-attempts' || retryContract.result_required !== 'fresh-preflight-and-execution') fail('RUNTIME_CONTRACT_INVALID','Runtime retry contract must retain current authority admission and fresh execution.');
   const stepProgressContract = expectRecord(taskStateContract.step_progress, 'Runtime contract.proposal.task_state.step_progress');
   expectExactKeys(stepProgressContract, ['required', 'optional'], 'Runtime contract.proposal.task_state.step_progress');
   expectSetEqual(
@@ -6333,8 +6375,13 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
     };
   }
   if (action === 'retry-step') {
-    expectExactKeys(record, ['kind','action','step_id','blocked_attempt_id','blocker_resolution_refs',...(record.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),...(record.policy_decision_id === undefined ? [] : ['policy_decision_id']),'evidence_refs'], 'retry-step');
-    return {kind,action,step_id:expectString(record.step_id,'step_id',STEP_ID_PATTERN),blocked_attempt_id:expectString(record.blocked_attempt_id,'blocked_attempt_id',SAFE_KEY_PATTERN),blocker_resolution_refs:validateEvidenceRefs(record.blocker_resolution_refs,'blocker_resolution_refs'),...(record.repair_diagnosis === undefined ? {} : {repair_diagnosis:validateStepRepairDiagnosis(record.repair_diagnosis)}),...(record.policy_decision_id === undefined ? {} : {policy_decision_id:expectString(record.policy_decision_id,'policy_decision_id',SAFE_KEY_PATTERN)}),evidence_refs:validateEvidenceRefs(record.evidence_refs,'evidence_refs')};
+    expectExactKeys(record, ['kind','action','step_id','blocked_attempt_id','blocker_resolution_refs',...(record.repair_diagnosis === undefined ? [] : ['repair_diagnosis']),...(record.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments']),...(record.conditional_authorizations === undefined ? [] : ['conditional_authorizations']),...(record.policy_decision_id === undefined ? [] : ['policy_decision_id']),'evidence_refs'], 'retry-step');
+    let assessments: BlastRadiusAssessment[] | undefined;
+    if (record.blast_radius_assessments !== undefined) {
+      try { assessments = normalizeBlastRadiusAssessments(record.blast_radius_assessments); }
+      catch (error) { fail(error instanceof MutationAuthorityError ? error.code : 'MUTATION_AUTHORITY_ASSESSMENT_INVALID', error instanceof Error ? error.message : String(error)); }
+    }
+    return {kind,action,step_id:expectString(record.step_id,'step_id',STEP_ID_PATTERN),blocked_attempt_id:expectString(record.blocked_attempt_id,'blocked_attempt_id',SAFE_KEY_PATTERN),blocker_resolution_refs:validateEvidenceRefs(record.blocker_resolution_refs,'blocker_resolution_refs'),...(record.repair_diagnosis === undefined ? {} : {repair_diagnosis:validateStepRepairDiagnosis(record.repair_diagnosis)}),...(assessments === undefined ? {} : {blast_radius_assessments:assessments}),...(record.conditional_authorizations === undefined ? {} : {conditional_authorizations:normalizeExecutionConditionalAuthorizations(record.conditional_authorizations,'retry-step.conditional_authorizations')}),...(record.policy_decision_id === undefined ? {} : {policy_decision_id:expectString(record.policy_decision_id,'policy_decision_id',SAFE_KEY_PATTERN)}),evidence_refs:validateEvidenceRefs(record.evidence_refs,'evidence_refs')};
   }
   if (action === 'reconcile-preflight') {
     expectExactKeys(record, ['kind', 'action', 'step_id', 'current_preflight_id', 'mode', 'execution_disposition', 'decision_source', 'decision_text', 'evidence_refs'], 'reconcile-preflight');
@@ -6354,6 +6401,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
     expectExactKeys(record, [
       'kind', 'action', 'step_id', 'candidate_paths', 'evidence_refs',
       ...(record.blast_radius_assessments === undefined ? [] : ['blast_radius_assessments']),
+      ...(record.conditional_authorizations === undefined ? [] : ['conditional_authorizations']),
       ...(record.mode === undefined ? [] : ['mode']),
       ...(record.execution_id === undefined ? [] : ['execution_id']),
       ...(record.plan_revision === undefined ? [] : ['plan_revision']),
@@ -6394,6 +6442,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       candidate_paths: expectStringArray(record.candidate_paths, 'candidate_paths', true, 256).map(p => normalizeRepoPath(p, 'candidate_paths')),
       evidence_refs: validateEvidenceRefs(record.evidence_refs, 'evidence_refs'),
       ...(assessments === undefined ? {} : { blast_radius_assessments: assessments }),
+      ...(record.conditional_authorizations === undefined ? {} : { conditional_authorizations: normalizeExecutionConditionalAuthorizations(record.conditional_authorizations, 'record-step-preflight.conditional_authorizations') }),
       ...(mode === undefined ? {} : { mode }),
       ...(executionId === undefined ? {} : { execution_id: executionId }),
       ...(planRevision === undefined ? {} : { plan_revision: planRevision }),
@@ -18254,8 +18303,10 @@ function applyTaskStateDelta(
     const step = resolveCanonicalTaskStep(current).steps.find(step => step.id === delta.step_id)!;
     const strategy = resolveTestStrategyExecutionContext(current);
     const executionPhase = resolveNewExecutionPhase(current, strategy, delta.execution_phase);
+    assertPreflightConditionalAuthorizations(current, delta.candidate_paths, delta.conditional_authorizations ?? []);
     const authorityEvaluation = evaluateCurrentExecutionTargetAdmissions(root, current, {
       target_paths: delta.candidate_paths,
+      conditional_authorizations: delta.conditional_authorizations ?? [],
       planned_targets: current.mutationAuthority ? v2StepPlannedTargets(current) : undefined,
       step_mutation_scope: (step.mutation_scope ?? '').split(',').map(value => value.trim().replace(/^`|`$/gu, '')).filter(Boolean),
       assessments: delta.blast_radius_assessments ?? [],
@@ -18415,6 +18466,7 @@ function applyTaskStateDelta(
       plan_revision: planRevision,
       execution_phase: executionPhase,
       candidate_paths: [...delta.candidate_paths],
+      ...(delta.conditional_authorizations?.length ? { conditional_authorizations: delta.conditional_authorizations } : {}),
       change_set_id: changeSetId,
       repair_fingerprints: executionMode === 'repair' ? [...(delta.repair_fingerprints ?? [])] : null,
       repair_wave_id: executionMode === 'repair' ? delta.repair_wave_id! : null,
@@ -21450,12 +21502,12 @@ export function assertOrdinaryPreflight(current: CanonicalCurrentTask, root: str
   }
 }
 
-export function createStepRetryProposal(current: CanonicalCurrentTask, input: {step_id:string;blocked_attempt_id:string;blocker_resolution_refs:string[];repair_diagnosis?:StepRepairDiagnosis;policy_decision_id?:string;idempotency_key:string}): RuntimeProposal {
+export function createStepRetryProposal(current: CanonicalCurrentTask, input: {step_id:string;blocked_attempt_id:string;blocker_resolution_refs:string[];repair_diagnosis?:StepRepairDiagnosis;blast_radius_assessments?:BlastRadiusAssessment[];conditional_authorizations?:ConditionalScopeAuthorization[];policy_decision_id?:string;idempotency_key:string}): RuntimeProposal {
   return validateRuntimeProposal({
     schema_version:1,kind:VNEXT_RUNTIME_PROPOSAL_KIND,operation_kind:'task-state-transaction',caller:'execute-step',mode:'default',source_tuple:current.sourceTuple,
     authority_evidence:['active-task-owner','scope-admission','evidence-admission'].map(kind=>({kind,source:current.relativePath,subject:current.runtimeState.active_step_id})),
-    semantic_delta:{kind:'task-state',action:'retry-step',step_id:input.step_id,blocked_attempt_id:input.blocked_attempt_id,blocker_resolution_refs:input.blocker_resolution_refs,...(input.repair_diagnosis ? {repair_diagnosis:input.repair_diagnosis} : {}),...(input.policy_decision_id ? { policy_decision_id: input.policy_decision_id } : {}),evidence_refs:input.blocker_resolution_refs},
-    preconditions:['current-task-is-active','active-step-matches','scope-admitted'],evidence_refs:input.blocker_resolution_refs,idempotency_key:input.idempotency_key,requested_write_targets:[current.relativePath],
+    semantic_delta:{kind:'task-state',action:'retry-step',step_id:input.step_id,blocked_attempt_id:input.blocked_attempt_id,blocker_resolution_refs:input.blocker_resolution_refs,...(input.repair_diagnosis ? {repair_diagnosis:input.repair_diagnosis} : {}),...(input.blast_radius_assessments ? {blast_radius_assessments:input.blast_radius_assessments} : {}),...(input.conditional_authorizations?.length ? {conditional_authorizations:input.conditional_authorizations} : {}),...(input.policy_decision_id ? { policy_decision_id: input.policy_decision_id } : {}),evidence_refs:input.blocker_resolution_refs},
+    preconditions:['current-task-is-active','active-step-matches','scope-admitted'],evidence_refs:[...new Set([...input.blocker_resolution_refs,...(input.conditional_authorizations ?? []).flatMap(item=>item.evidence_refs)])],idempotency_key:input.idempotency_key,requested_write_targets:[current.relativePath],
   });
 }
 
@@ -21526,6 +21578,7 @@ export function createStepPreflightProposal(
     change_set_id?: string;
     controlled_recovery_grant_id?: string;
     policy_decision_id?: string;
+    conditional_authorizations?: ConditionalScopeAuthorization[];
   } = {},
 ): RuntimeProposal {
   const mode = input.mode ?? 'default';
@@ -21589,6 +21642,7 @@ export function createStepPreflightProposal(
     execution_id: executionId,
     paths: candidatePaths,
     assessments: blastRadiusAssessments,
+    ...(input.conditional_authorizations?.length ? { conditional_authorizations: input.conditional_authorizations } : {}),
     repair_fingerprints: input.repair_fingerprints ?? null,
     repair_wave_id: input.repair_wave_id ?? null,
     review_id: input.review_id ?? null,
@@ -21598,8 +21652,8 @@ export function createStepPreflightProposal(
     schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND,
     operation_kind: 'task-state-transaction', caller: 'execute-step', mode, source_tuple: current.sourceTuple,
     authority_evidence: ['active-task-owner', 'scope-admission', 'evidence-admission'].map(kind => ({ kind, source: current.relativePath, subject: current.runtimeState.active_step_id })),
-    semantic_delta: { kind: 'task-state', action: 'record-step-preflight', step_id: current.runtimeState.active_step_id, candidate_paths: candidatePaths, evidence_refs: [current.relativePath], ...(blastRadiusAssessments.length > 0 ? { blast_radius_assessments: blastRadiusAssessments } : {}), ...identity },
-    preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted', 'execution-admission'], evidence_refs: [current.relativePath, ...blastRadiusAssessments.flatMap(item => item.evidence_refs)],
+    semantic_delta: { kind: 'task-state', action: 'record-step-preflight', step_id: current.runtimeState.active_step_id, candidate_paths: candidatePaths, evidence_refs: [current.relativePath], ...(blastRadiusAssessments.length > 0 ? { blast_radius_assessments: blastRadiusAssessments } : {}), ...(input.conditional_authorizations?.length ? { conditional_authorizations: input.conditional_authorizations } : {}), ...identity },
+    preconditions: ['current-task-is-active', 'active-step-matches', 'scope-admitted', 'execution-admission'], evidence_refs: [...new Set([current.relativePath, ...blastRadiusAssessments.flatMap(item => item.evidence_refs), ...(input.conditional_authorizations ?? []).flatMap(item => item.evidence_refs)])],
     idempotency_key: preflightId,
     requested_write_targets: [current.relativePath],
   });

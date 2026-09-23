@@ -20,6 +20,7 @@ import {
   isLikelyPersistentTestPath,
   mutationScopePatternMatchesPath,
   type MutationScope,
+  type ConditionalScopeAuthorization,
 } from './mutation-scope';
 
 export const EXECUTION_ADMISSION_CLASSIFICATIONS = [
@@ -70,6 +71,7 @@ export type ExecutionAdmissionInput = {
   project_authority?: ProjectMutationAuthority | null;
   task_authority?: TaskMutationAuthority | null;
   legacy_scope?: MutationScope | null;
+  conditional_authorizations?: readonly ConditionalScopeAuthorization[];
   step_planned_targets: readonly string[];
   step_mutation_scope: readonly string[];
   target: string;
@@ -166,7 +168,7 @@ function strategyAdmission(input: ExecutionAdmissionInput, target: string): Exec
 function evaluateV1(input: ExecutionAdmissionInput, target: string): ExecutionTargetAdmission {
   const scope = input.legacy_scope;
   if (!scope) return blocked(target, 'blocked-authority', 'v1 execution admission requires the canonical mutation scope.');
-  const result = evaluateMutationScope(scope, { changed_paths: [target] });
+  const result = evaluateMutationScope(scope, { changed_paths: [target], conditional_authorizations: [...(input.conditional_authorizations ?? [])] });
   const decision = result.decisions[0];
   if (result.status !== 'pass' || !decision?.mutation_admitted) {
     const classification = decision?.classification === 'persistent-test-unadmitted'

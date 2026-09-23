@@ -1,6 +1,11 @@
 # All public entries use the internal run-entry driver for typed operations.
 # entry-operation-result/v1 carries invocation, recovery history and original
 # outcome; recovery-required is an agent continuation, not a user-facing terminal.
+# A blocked ordinary retry admits diagnosed paths against current task/step
+# authority; the failed preflight is retained evidence, not a future path limit.
+# Its newly diagnosed paths require a fresh covering preflight before mutation.
+# recovery-applied requires read-back before resuming a still-needed original
+# operation; committed original operations are never blindly replayed.
 schema_version: 1
 kind: vnext-source-contract
 phase: Phase 2
@@ -194,6 +199,7 @@ capabilities:
     execution_admission_binding:
       evaluator: runtime-owned-exact-target-admission/v1
       applies_to:
+        - blocked-step-retry-diagnosis
         - ordinary-preflight
         - same-attempt-extension
         - repair-preflight
@@ -359,6 +365,7 @@ capabilities:
       - 'correction-replan-candidate/v2 supports conclusion-correction and execution-recovery with bounded targets, forward-fix/artifact-restore/mixed, complete obligation mapping, immutable executed definitions, new check identities, and revision-bound pending-step changes'
       - 'scope-amendment-candidate/v1 is an independent additive route: authority expansion consumes caller-reported explicit authorization for exact new paths, while an in-envelope absent persistent test uses the same infrastructure with a complete typed P-12 admission and authority_diff:none; both preserve pending review/findings/obligations/review baseline/budget and never change the legacy correction-replan/v2 permission_change:none semantics'
       - 'Mutation Authority v2: the task authority envelope is the only hard mutation boundary; planned step targets are guidance, same-envelope expansion requires a bounded blast-radius assessment and risk-selected review (private local/no-consumer/no-contract-impact discovery adds no checkpoint), and cross-domain authority changes require explicit amendment'
+      - 'a blocked ordinary step may diagnose a repair path absent from its failed preflight when current task/step authority admits it; retry retains the failed attempt and clears stale preflight, while a fresh covering preflight is mandatory before writing or recording the resumed execution; v2 unplanned paths still require blast-radius assessment'
       - 'Mutation Authority v2 distinguishes an existing in-envelope test file from an absent new persistent test; only the latter requires the existing P-12 admission record before creation'
       - 'compact-v3 CURRENT_TASK is a lossless active projection selecting immutable definition/state roots in the same task aggregate; exact body sections and claim definitions are reused, reports and current review material are referenced, and ordinary result writes do not recopy the full frozen definition into active state'
       - 'storage compaction never changes task identity, authority, evidence selection, user decisions, findings or budgets; old inline/compact-v2 tasks remain readable, exact legacy preimages are retained, and migration is explicit without a file-size quota or a new lifecycle gate'

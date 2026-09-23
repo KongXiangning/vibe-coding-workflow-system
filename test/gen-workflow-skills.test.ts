@@ -121,7 +121,7 @@ describe('gen-workflow-skills', () => {
   });
 
   test('vNext review skill keeps governance-only whitespace outside the business blocker scope', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'skills', 'review-change.SKILL.md.tmpl'), 'utf8');
+    const content = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'skills', 'review-change.SKILL.md.tmpl'), 'utf8').replace(/\r\n/gu, '\n');
     expect(content).toContain('### Format hygiene scope');
     expect(content).toContain('only when the\nreported offending path is inside the current step\'s authorized mutable');
     expect(content).toContain('preserve the exact bytes and hash');

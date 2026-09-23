@@ -59,11 +59,15 @@ export async function runEntryRunnerCli(argv: string[], allowedCommands: readonl
         code: short(value.entry_recovery.code), owner: short(value.entry_recovery.owner),
         operation_state: short(value.entry_recovery.operation_state), skill_terminal: false,
         next_action: short(value.entry_recovery.next_action),
+        recovery_route: value.entry_recovery.recovery_route ? {
+          command: short(value.entry_recovery.recovery_route.command),
+          action: short(value.entry_recovery.recovery_route.action),
+        } : undefined,
       } : undefined,
       read_command: 'entry-output-read',
-      next_action: value.status === 'recovery-required'
+      next_action: short(value.next_action) ?? (value.status === 'recovery-required'
         ? 'Read the retained outcome and recovery routes; continue this invocation.'
-        : 'Read the retained receipt before any dependent operation.' }, null, 2));
+        : 'Read the retained receipt before any dependent operation.') }, null, 2));
   };
   try {
     let root = process.cwd();
@@ -124,16 +128,20 @@ export async function runEntryRunnerCli(argv: string[], allowedCommands: readonl
     };
     const finish = (outcome: Outcome, phase: string): number => {
       const success = accepted(outcome);
+      const recovery = success ? undefined : outcome.result.entry_recovery
+        ?? entryRecovery(outcome.result.code ?? 'ENTRY_OPERATION_FAILED', outcome.result);
       emit({ kind: 'entry-operation-result/v1', invocation,
         status: success ? 'operation-complete' : 'recovery-required', skill_terminal: false,
         phase, original_operation: retainEntryOutput(outputDirectory(), 'original-operation', original),
         outcome, recovery_history: journal,
-        ...(!success ? { entry_recovery: outcome.result.entry_recovery ?? entryRecovery(outcome.result.code ?? 'ENTRY_OPERATION_FAILED'),
-          next_action: 'Inspect retained state; supply a corrected operation or evidence-backed internal recovery plan, then resume this invocation.' } : {}) });
+        ...(!success ? { entry_recovery: recovery,
+          next_action: `Read the retained transaction; run ${recovery?.recovery_route?.command ?? 'task-context'} when applicable, then resume this invocation from current state.` } : {}) });
       return success ? 0 : 2;
     };
     // A recovery plan is supplied after diagnosis. Its steps are existing typed
     // operations, never public Skill invocations or arbitrary shell commands.
+    // An earlier invocation may have committed the original operation before
+    // losing its reply. Never replay it merely because recovery actions passed.
     if (input.recovery !== undefined) {
       const recovery = object(input.recovery, 'recovery');
       text(recovery.reason, 'recovery.reason');
@@ -142,8 +150,18 @@ export async function runEntryRunnerCli(argv: string[], allowedCommands: readonl
         const outcome = await run(object(raw, 'recovery operation') as Operation);
         if (!accepted(outcome)) return finish(outcome, 'internal-recovery');
       }
+      emit({ kind: 'entry-operation-result/v1', invocation,
+        status: 'recovery-applied', skill_terminal: false,
+        phase: 'internal-recovery',
+        original_operation: retainEntryOutput(outputDirectory(), 'original-operation', original),
+        recovery_history: journal,
+        next_action: 'Read canonical state and the recovery receipts, then resume the original intent with an operation that is still needed.' });
+      return 0;
     }
     let outcome = await run(original);
+    if (!accepted(outcome) && outcome.result.committed === true) {
+      return finish(outcome, 'committed-operation-readback');
+    }
     // A child can commit a retry before its reply is delivered. Recover its
     // already-consumed grant when replaying the same retry key, not a new grant.
     if (original.command === 'retry-step' && outcome.result.code === 'RETRY_IDEMPOTENCY_CONFLICT') {

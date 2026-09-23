@@ -151,6 +151,12 @@ immutable candidate, history/findings/review/budget lineage and continuation
 semantics, and a committed candidate cannot be discarded. Tasks without the
 v2 marker, or with version 1, retain legacy exact step-scope semantics and are
 not silently reinterpreted.
+For a v1 task, a path already declared in the current step and Conditional Files
+may enter a fresh execution preflight when the caller records the exact trigger
+evidence and task authority. The authorization is bound to the current
+preflight, retained with its receipt, and rechecked at result registration.
+The failed preflight never grants a newly discovered path or replaces its
+before-state capture.
 
 ## Public entry invocation terminal boundary
 
@@ -161,6 +167,12 @@ then resumes the original intent. A `next_route` alone does not complete an
 unfinished request. Internal capability reuse does not require another user
 invocation. This rule also governs entries' `stop_conditions`: those interrupt
 the candidate operation while recovery proceeds within existing authority.
+
+After a typed recovery operation commits, read the retained transaction and
+current state before submitting the original operation again. `recovery-applied`
+is an internal checkpoint, never proof that the original operation completed.
+If the original result reports `committed: true`, reconcile its read-back instead
+of replaying it. Preserve the original operation key and failure history.
 
 Budget thresholds require the AI to review retained failures, necessity and the
 next approach. They are not a limit on an explicit user instruction. When that

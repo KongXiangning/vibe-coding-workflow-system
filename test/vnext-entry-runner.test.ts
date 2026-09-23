@@ -71,6 +71,46 @@ describe('entry output transport', () => {
   }, 60_000);
 });
 
+test('a committed recovery action cannot silently replay the original operation', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-entry-recovery-replay-'));
+  directories.add(root);
+  const script = path.join(root, 'operations.ts');
+  fs.writeFileSync(script, `
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { runEntryRunnerCli } from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'runtime/vnext/src/entry-runner.ts')).href)};
+if (process.argv[2] === 'run-entry') {
+  process.exitCode = await runEntryRunnerCli(process.argv.slice(2), ['repair', 'write', 'write-blocked']);
+} else {
+  fs.appendFileSync(path.join(process.cwd(), 'operations.log'), process.argv[2] + '\\n');
+  console.log(JSON.stringify(process.argv[2] === 'write-blocked'
+    ? { status: 'blocked', code: 'RETRY_BUDGET_EXHAUSTED', committed: true, message: 'Reply interrupted after commit' }
+    : { status: 'success', committed: true }));
+}
+`);
+  const invocation = { id: 'same-intent', entry: 'execute-step', intent: 'Finish the current step',
+    decision_source: 'test:user', decision_text: 'Continue the current step.' };
+  const operation = { command: 'write', input: { idempotency_key: 'original-write' } };
+  const call = (extra: Record<string, unknown>) => spawnSync(process.execPath,
+    [script, 'run-entry', '--root', root], { encoding: 'utf8', input: JSON.stringify({ invocation, operation, ...extra }) });
+  const recovery = call({ recovery: { reason: 'Restore the prerequisite', operations: [{ command: 'repair', input: {} }] } });
+  expect(recovery.status).toBe(0);
+  expect(JSON.parse(recovery.stdout).status).toBe('recovery-applied');
+  expect(fs.readFileSync(path.join(root, 'operations.log'), 'utf8')).toBe('repair\n');
+  const resumed = call({});
+  expect(resumed.status).toBe(0);
+  expect(JSON.parse(resumed.stdout).status).toBe('operation-complete');
+  expect(fs.readFileSync(path.join(root, 'operations.log'), 'utf8')).toBe('repair\nwrite\n');
+  const interrupted = spawnSync(process.execPath, [script, 'run-entry', '--root', root], {
+    encoding: 'utf8', input: JSON.stringify({ invocation,
+      operation: { command: 'write-blocked', input: { idempotency_key: 'committed-write' } },
+      budget_analysis: { attempt_id: 'must-not-be-consumed' } }),
+  });
+  expect(interrupted.status).toBe(2);
+  expect(JSON.parse(interrupted.stdout).entry_recovery.operation_state).toBe('committed-recovery-required');
+  expect(fs.readFileSync(path.join(root, 'operations.log'), 'utf8')).toBe('repair\nwrite\nwrite-blocked\n');
+});
+
 describe('entry output paging', () => {
   test('reassembles Unicode receipt pages without gaps, overlap, or replacement characters', () => {
     const directory = createEntryOutputDirectory();

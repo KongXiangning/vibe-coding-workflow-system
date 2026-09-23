@@ -21,7 +21,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.20.19
+  package_version: 0.21.2
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -255,7 +255,7 @@ proposal:
       max_attempts: 3 # ordinary warning threshold; exact user decisions may authorize continuation
       environment_report: environment-restored/v1
       same_plan_repair_diagnosis: same-plan-repair/v1
-      repair_paths: failed-preflight-subset
+      repair_paths: current-authority-admitted-and-fresh-preflight
       failure_preservation: durable-step-attempts
       result_required: fresh-preflight-and-execution
     step_progress:
