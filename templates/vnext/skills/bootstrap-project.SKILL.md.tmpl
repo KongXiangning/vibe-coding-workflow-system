@@ -196,6 +196,9 @@ repository, `WORKFLOW_SYSTEM_ROOT`, or source-side `gen`/`pack`/`sync` commands.
    domain, but do not silently grant it. Preserve an existing confirmed map and
    do not rebuild ownership for each task; `prepare-task` selects the canonical
    map and binds its revision when a v2 task is confirmed.
+   New task identities require v2, so finish this project-owned map before
+   the first `prepare-task` creation. Existing v1 tasks keep their recorded
+   authority model; Bootstrap must not rewrite them.
 5. Design mode produces design evidence and draft decisions only. Greenfield
    mode consumes a confirmed design baseline. Inventory mode records actual
    paths, consumers, evidence, migration risks, and unknowns without changing

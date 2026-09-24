@@ -148,9 +148,11 @@ authority amendment settlement gate blocks only a preflighted attempt without
 its matching recorded result; ready retries, settled blocked/repair results,
 and pending review/findings may be preserved. The route keeps the old
 immutable candidate, history/findings/review/budget lineage and continuation
-semantics, and a committed candidate cannot be discarded. Tasks without the
-v2 marker, or with version 1, retain legacy exact step-scope semantics and are
-not silently reinterpreted.
+semantics, and a committed candidate cannot be discarded. Existing tasks without
+the v2 marker, or with version 1, retain legacy exact step-scope semantics and
+are not silently reinterpreted. Every new vNext task identity must use v2 and
+the project authority-domain map; a missing map is a project setup issue, not
+permission to create another v1 task.
 For a v1 task, a path already declared in the current step and Conditional Files
 may enter a fresh execution preflight when the caller records the exact trigger
 evidence and task authority. The authorization is bound to the current

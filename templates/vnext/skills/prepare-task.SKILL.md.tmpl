@@ -159,7 +159,8 @@ executable `CURRENT_TASK` draft containing:
 - necessary resolved **Design decisions**, unresolved user-owned choices, and
   any conflict with existing design
 - **Mutation Authority**: v2 authority envelope (domains / exact exceptions /
-  forbidden) or the legacy Allowed / Conditional / Forbidden scope
+  forbidden) for every new task identity; retain the legacy Allowed /
+  Conditional / Forbidden scope only when refining an existing v1 draft
 - one explicit **Test Strategy** with mode, selection source, task
   classification, and rationale
 - ordered **Implementation steps** that say what to change, the
@@ -267,9 +268,11 @@ meaning. Never invent a user decision, policy, release gate, or authority source
 
 ## Mutation Authority v2
 
-When the project profile declares `mutation_authority.domains`, select v2
-explicitly by submitting `mutation_authority_version: 2` together with a
-positive `mutation_authority` object. Choose the smallest responsibility
+Every new task identity, including a successor, must select v2 explicitly by
+submitting `mutation_authority_version: 2` together with a positive
+`mutation_authority` object. If the project profile has no
+`mutation_authority.domains`, establish the project-owned domain map before
+creating the draft; never fall back to a new v1 task. Choose the smallest responsibility
 domains that own the requested change; do not grant a whole project merely
 because its callers or dependencies were read. `exact_exceptions` is for a
 specific user-authorized cross-domain path, and `forbidden` remains explicit
@@ -281,9 +284,9 @@ implementation step uses `planned_mutation_targets` for initial direction and
 planned-vs-actual review. A same-domain target discovered later may be
 self-admitted only after a bounded blast-radius assessment; it does not need a
 user scope amendment. A target outside the envelope is a hard authority
-decision and must use the explicit `amend-scope` route. If the project has no
-domain map, preserve legacy/v1 semantics; do not silently infer domains or
-upgrade an existing task.
+decision and must use the explicit `amend-scope` route. Existing v1 tasks keep
+their recorded semantics unless explicitly converted; do not silently infer
+domains or rewrite their history.
 
 Before accepting a v2 draft, prove the complete executable declaration set:
 every `planned_mutation_targets`, exact `expected_repo_writes`, bounded command

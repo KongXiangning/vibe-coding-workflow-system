@@ -239,6 +239,17 @@ export function readProjectMutationAuthority(root: string): ProjectMutationAutho
   }
 }
 
+/** Existing v1 tasks remain readable, but a new identity in a vNext project must use v2. */
+export function newTaskRequiresMutationAuthorityV2(root: string): boolean {
+  const profilePath = getWorkflowProfilePath(root);
+  if (!fs.existsSync(profilePath)) return false;
+  try {
+    return loadProfile(profilePath).kind === 'vnext-project-profile';
+  } catch (error) {
+    fail('MUTATION_AUTHORITY_PROJECT_INVALID', error instanceof Error ? error.message : String(error));
+  }
+}
+
 export function normalizeTaskMutationAuthority(value: unknown): TaskMutationAuthority {
   const authority = record(value, 'mutation_authority');
   exactKeys(authority, ['domains', 'exact_exceptions', 'forbidden'], 'mutation_authority');

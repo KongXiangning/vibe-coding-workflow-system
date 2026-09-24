@@ -28,10 +28,11 @@ execution evidence.
 Mutation Authority v2 is selected explicitly by the pair
 `mutation_authority_version: 2` and `mutation_authority` in the task
 definition/frontmatter. It is not inferred from a v1 task or from a read
-operation. A project that has no authority-domain map remains on v1 exact-path
-semantics until an explicit task upgrade/replan opts into v2.
+operation. Existing v1 tasks retain their exact-path semantics. Every newly
+created task identity in a vNext project requires v2 and a project domain map;
+absence of the map cannot silently create a new v1 task.
 
-The optional project profile map is:
+The project profile map required for new task identities is:
 
 ```yaml
 mutation_authority:

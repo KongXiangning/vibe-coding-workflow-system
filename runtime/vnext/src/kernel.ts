@@ -84,6 +84,7 @@ import {
   normalizeTaskMutationAuthority,
   evaluateTaskMutationAuthorityPlan,
   mutationAuthorityPlanBlockerCode,
+  newTaskRequiresMutationAuthorityV2,
   projectMutationAuthorityRevision,
   readProjectMutationAuthority,
   validateTaskMutationAuthority,
@@ -135,7 +136,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.2';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.3';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -3912,7 +3913,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const mutationAuthorityContract = expectRecord(contract.mutation_authority, 'Runtime contract.mutation_authority');
   expectExactKeys(
     mutationAuthorityContract,
-    ['version', 'status', 'project_profile', 'project_domain_fields', 'task_fields', 'root_grammar', 'path_resolution', 'ambiguous_domain_behavior', 'unclassified_behavior', 'read_discovery_behavior', 'planned_footprint_behavior', 'in_envelope_expansion', 'forbidden_precedence', 'assessment_fields', 'dynamic_review', 'cross_envelope_error', 'extension_action', 'extension_identity', 'repair_extension', 'test_strategy_dynamic_policy', 'non_executable_dynamic_policy', 'planning_time_authority_proof', 'command_glob_proof', 'domain_map_lifecycle', 'domain_map_revision', 'dynamic_expansion_identity', 'dynamic_review_consumption', 'authority_amendment', 'authority_amendment_execution_gate', 'persistent_test_admission', 'existing_test_behavior', 'new_persistent_test_behavior', 'legacy_behavior'],
+    ['version', 'status', 'project_profile', 'project_domain_fields', 'task_fields', 'root_grammar', 'path_resolution', 'ambiguous_domain_behavior', 'unclassified_behavior', 'read_discovery_behavior', 'planned_footprint_behavior', 'in_envelope_expansion', 'forbidden_precedence', 'assessment_fields', 'dynamic_review', 'cross_envelope_error', 'extension_action', 'extension_identity', 'repair_extension', 'test_strategy_dynamic_policy', 'non_executable_dynamic_policy', 'planning_time_authority_proof', 'command_glob_proof', 'domain_map_lifecycle', 'domain_map_revision', 'dynamic_expansion_identity', 'dynamic_review_consumption', 'authority_amendment', 'authority_amendment_execution_gate', 'persistent_test_admission', 'existing_test_behavior', 'new_persistent_test_behavior', 'new_identity_behavior', 'legacy_behavior'],
     'Runtime contract.mutation_authority',
   );
   if (
@@ -3937,6 +3938,7 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     || mutationAuthorityContract.authority_amendment !== 'prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission'
     || mutationAuthorityContract.existing_test_behavior !== 'existing-in-envelope-test-is-ordinary-expansion-with-review'
     || mutationAuthorityContract.new_persistent_test_behavior !== 'absent-test-requires-p-12-admission'
+    || mutationAuthorityContract.new_identity_behavior !== 'vnext-profile-create-draft-requires-v2'
     || mutationAuthorityContract.legacy_behavior !== 'missing-or-version-1-retains-v1-exact-step-scope-semantics'
   ) {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime Mutation Authority v2 contract semantics are invalid.');
@@ -17726,6 +17728,9 @@ function applyTaskStateDelta(
   if (delta.action === 'create-draft') {
     ensureAuthorityKinds(proposal, ['scope-admission', 'evidence-admission']);
     ensureAnyAuthorityKind(proposal, ['user-confirmation', 'authorized-caller']);
+    if (newTaskRequiresMutationAuthorityV2(root) && delta.draft_definition.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
+      fail('MUTATION_AUTHORITY_VERSION_REQUIRED', 'New task identities in a vNext project require mutation_authority_version: 2 and a project authority-domain map. Existing v1 tasks retain their recorded model.');
+    }
     if (delta.predecessor) assertSuccessorDecision(root, current, delta);
     else if (current.runtimeState.workflow_status !== 'closed' || current.runtimeState.lifecycle_state !== 'archived') {
       fail('DRAFT_CREATION_BLOCKED', 'Ordinary create-draft requires closed + archived; a superseded predecessor needs the explicit successor route.');

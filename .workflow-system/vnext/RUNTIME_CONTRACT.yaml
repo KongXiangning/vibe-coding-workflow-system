@@ -21,7 +21,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.21.2
+  package_version: 0.21.3
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -1126,6 +1126,7 @@ mutation_authority:
     runtime_role: validate-bind-persist-no-defaults
   existing_test_behavior: existing-in-envelope-test-is-ordinary-expansion-with-review
   new_persistent_test_behavior: absent-test-requires-p-12-admission
+  new_identity_behavior: vnext-profile-create-draft-requires-v2
   legacy_behavior: missing-or-version-1-retains-v1-exact-step-scope-semantics
 
 review_coverage_preimages:

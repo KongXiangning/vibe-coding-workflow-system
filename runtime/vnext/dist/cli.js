@@ -5492,6 +5492,16 @@ function readProjectMutationAuthority(root) {
     throw error;
   }
 }
+function newTaskRequiresMutationAuthorityV2(root) {
+  const profilePath = getWorkflowProfilePath(root);
+  if (!fs10.existsSync(profilePath))
+    return false;
+  try {
+    return loadProfile(profilePath).kind === "vnext-project-profile";
+  } catch (error) {
+    fail("MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
+  }
+}
 function normalizeTaskMutationAuthority(value) {
   const authority = record3(value, "mutation_authority");
   exactKeys(authority, ["domains", "exact_exceptions", "forbidden"], "mutation_authority");
@@ -6322,7 +6332,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.21.2";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.21.3";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -7997,8 +8007,8 @@ function validateVNextRuntimeContract(root, requireDependencies = false) {
   }
   expectSetEqual(expectStringArray2(commandWriteFootprint.observation_limitations, "Runtime contract.mutation_scope.command_write_footprint.observation_limitations"), ["no-os-level-transient-write-history-proof"], "Runtime command write observation limitations");
   const mutationAuthorityContract = expectRecord2(contract.mutation_authority, "Runtime contract.mutation_authority");
-  expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "planning_time_authority_proof", "command_glob_proof", "domain_map_lifecycle", "domain_map_revision", "dynamic_expansion_identity", "dynamic_review_consumption", "authority_amendment", "authority_amendment_execution_gate", "persistent_test_admission", "existing_test_behavior", "new_persistent_test_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
-  if (mutationAuthorityContract.version !== 2 || mutationAuthorityContract.status !== "bound" || mutationAuthorityContract.project_profile !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || mutationAuthorityContract.root_grammar !== "bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar" || mutationAuthorityContract.path_resolution !== "path-to-one-domain-or-unclassified" || mutationAuthorityContract.ambiguous_domain_behavior !== "fail-closed" || mutationAuthorityContract.unclassified_behavior !== "write-blocked-unless-exact-exception" || mutationAuthorityContract.read_discovery_behavior !== "allowed-outside-envelope-but-never-write-authority" || mutationAuthorityContract.planned_footprint_behavior !== "guidance-only-and-not-an-independent-authority-boundary" || mutationAuthorityContract.in_envelope_expansion !== "blast-radius-assessment-and-self-admit-or-escalate" || mutationAuthorityContract.forbidden_precedence !== "explicit-forbidden-before-envelope-admission" || mutationAuthorityContract.dynamic_review !== "risk-selected-cumulative-review-for-self-admitted-expansion" || mutationAuthorityContract.cross_envelope_error !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || mutationAuthorityContract.extension_action !== "execute-step:extend-preflight" || mutationAuthorityContract.extension_identity !== "stable-execution-id-with-current-receipt-token" || mutationAuthorityContract.repair_extension !== "same-execution-admission-evaluator-and-repair-wave" || mutationAuthorityContract.test_strategy_dynamic_policy !== "every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation" || mutationAuthorityContract.non_executable_dynamic_policy !== "not-applicable-remains-closed-under-all-target-discovery" || mutationAuthorityContract.authority_amendment !== "prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission" || mutationAuthorityContract.existing_test_behavior !== "existing-in-envelope-test-is-ordinary-expansion-with-review" || mutationAuthorityContract.new_persistent_test_behavior !== "absent-test-requires-p-12-admission" || mutationAuthorityContract.legacy_behavior !== "missing-or-version-1-retains-v1-exact-step-scope-semantics") {
+  expectExactKeys2(mutationAuthorityContract, ["version", "status", "project_profile", "project_domain_fields", "task_fields", "root_grammar", "path_resolution", "ambiguous_domain_behavior", "unclassified_behavior", "read_discovery_behavior", "planned_footprint_behavior", "in_envelope_expansion", "forbidden_precedence", "assessment_fields", "dynamic_review", "cross_envelope_error", "extension_action", "extension_identity", "repair_extension", "test_strategy_dynamic_policy", "non_executable_dynamic_policy", "planning_time_authority_proof", "command_glob_proof", "domain_map_lifecycle", "domain_map_revision", "dynamic_expansion_identity", "dynamic_review_consumption", "authority_amendment", "authority_amendment_execution_gate", "persistent_test_admission", "existing_test_behavior", "new_persistent_test_behavior", "new_identity_behavior", "legacy_behavior"], "Runtime contract.mutation_authority");
+  if (mutationAuthorityContract.version !== 2 || mutationAuthorityContract.status !== "bound" || mutationAuthorityContract.project_profile !== ".workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains" || mutationAuthorityContract.root_grammar !== "bounded-repository-relative-exact-path-or-literal-directory-prefix-globstar" || mutationAuthorityContract.path_resolution !== "path-to-one-domain-or-unclassified" || mutationAuthorityContract.ambiguous_domain_behavior !== "fail-closed" || mutationAuthorityContract.unclassified_behavior !== "write-blocked-unless-exact-exception" || mutationAuthorityContract.read_discovery_behavior !== "allowed-outside-envelope-but-never-write-authority" || mutationAuthorityContract.planned_footprint_behavior !== "guidance-only-and-not-an-independent-authority-boundary" || mutationAuthorityContract.in_envelope_expansion !== "blast-radius-assessment-and-self-admit-or-escalate" || mutationAuthorityContract.forbidden_precedence !== "explicit-forbidden-before-envelope-admission" || mutationAuthorityContract.dynamic_review !== "risk-selected-cumulative-review-for-self-admitted-expansion" || mutationAuthorityContract.cross_envelope_error !== "MUTATION_AUTHORITY_EXPANSION_REQUIRED" || mutationAuthorityContract.extension_action !== "execute-step:extend-preflight" || mutationAuthorityContract.extension_identity !== "stable-execution-id-with-current-receipt-token" || mutationAuthorityContract.repair_extension !== "same-execution-admission-evaluator-and-repair-wave" || mutationAuthorityContract.test_strategy_dynamic_policy !== "every-preflight-and-extension-uses-runtime-derived-current-step-evidence-phase-before-state-mutation" || mutationAuthorityContract.non_executable_dynamic_policy !== "not-applicable-remains-closed-under-all-target-discovery" || mutationAuthorityContract.authority_amendment !== "prepare-task:amend-scope-with-explicit-authority-authorization-or-typed-p-12-admission" || mutationAuthorityContract.existing_test_behavior !== "existing-in-envelope-test-is-ordinary-expansion-with-review" || mutationAuthorityContract.new_persistent_test_behavior !== "absent-test-requires-p-12-admission" || mutationAuthorityContract.new_identity_behavior !== "vnext-profile-create-draft-requires-v2" || mutationAuthorityContract.legacy_behavior !== "missing-or-version-1-retains-v1-exact-step-scope-semantics") {
     fail3("RUNTIME_CONTRACT_INVALID", "Runtime Mutation Authority v2 contract semantics are invalid.");
   }
   expectSetEqual(expectStringArray2(mutationAuthorityContract.project_domain_fields, "Runtime mutation authority project domain fields"), ["id", "roots"], "Runtime mutation authority project domain fields");
@@ -21264,6 +21274,9 @@ function applyTaskStateDelta(root, current, proposal, now) {
   if (delta.action === "create-draft") {
     ensureAuthorityKinds(proposal, ["scope-admission", "evidence-admission"]);
     ensureAnyAuthorityKind(proposal, ["user-confirmation", "authorized-caller"]);
+    if (newTaskRequiresMutationAuthorityV2(root) && delta.draft_definition.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
+      fail3("MUTATION_AUTHORITY_VERSION_REQUIRED", "New task identities in a vNext project require mutation_authority_version: 2 and a project authority-domain map. Existing v1 tasks retain their recorded model.");
+    }
     if (delta.predecessor)
       assertSuccessorDecision(root, current, delta);
     else if (current.runtimeState.workflow_status !== "closed" || current.runtimeState.lifecycle_state !== "archived") {
@@ -28556,6 +28569,9 @@ function prepareDraft(root, input, options = {}) {
   assertDocumentReferencesResubmitted(current, semantic);
   const creating = current.runtimeState.workflow_status === "closed" && current.runtimeState.lifecycle_state === "archived";
   const updating = current.runtimeState.workflow_status === "draft" && current.runtimeState.lifecycle_state === "active";
+  if (creating && newTaskRequiresMutationAuthorityV2(root) && semantic.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
+    fail7("MUTATION_AUTHORITY_VERSION_REQUIRED", "New task identities in a vNext project require mutation_authority_version: 2 and a project authority-domain map. Existing v1 drafts may still be refined.");
+  }
   if (!creating && !updating) {
     if (current.runtimeState.workflow_status === "superseded") {
       fail7("REPLACEMENT_OUTCOME_UNSUPPORTED", "A superseded task retains unfinished obligations. This Runtime has no authorized non-completion successor transition; do not close it as completed or overwrite it with a new draft.");
@@ -28603,6 +28619,9 @@ function prepareSuccessor(root, input, options = {}) {
   const predecessor = validateSuccessorDecision(request.predecessor);
   const semantic = normalizeSemanticDraft(root, request.draft);
   const current = readCanonicalCurrentTask(root);
+  if (newTaskRequiresMutationAuthorityV2(root) && semantic.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
+    fail7("MUTATION_AUTHORITY_VERSION_REQUIRED", "A new successor identity in a vNext project requires mutation_authority_version: 2 and a project authority-domain map.");
+  }
   const prior = current.runtimeState.execution_log.find((event) => ("action" in event) && event.action === "create-draft" && event.predecessor);
   if (prior && "predecessor" in prior && sameValue(prior.predecessor, predecessor) && currentMatchesSemanticDraft(root, current, semantic) && current.runtimeState.workflow_status === "draft") {
     return withConfirmationReceipt(root, semanticNoOp(current, prior.idempotency_key, "This exact successor draft is already prepared; the predecessor remains unfinished.", options), options);

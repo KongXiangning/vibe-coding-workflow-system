@@ -59,6 +59,7 @@ import {
 import {
   MUTATION_AUTHORITY_VERSION,
   MutationAuthorityError,
+  newTaskRequiresMutationAuthorityV2,
   normalizeTaskMutationAuthority,
   validateTaskMutationAuthority,
   type TaskMutationAuthority,
@@ -886,6 +887,9 @@ export function prepareDraft(root: string, input: unknown, options: RuntimeApply
   assertDocumentReferencesResubmitted(current, semantic);
   const creating = current.runtimeState.workflow_status === 'closed' && current.runtimeState.lifecycle_state === 'archived';
   const updating = current.runtimeState.workflow_status === 'draft' && current.runtimeState.lifecycle_state === 'active';
+  if (creating && newTaskRequiresMutationAuthorityV2(root) && semantic.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
+    fail('MUTATION_AUTHORITY_VERSION_REQUIRED', 'New task identities in a vNext project require mutation_authority_version: 2 and a project authority-domain map. Existing v1 drafts may still be refined.');
+  }
   if (!creating && !updating) {
     if (current.runtimeState.workflow_status === 'superseded') {
       fail('REPLACEMENT_OUTCOME_UNSUPPORTED', 'A superseded task retains unfinished obligations. This Runtime has no authorized non-completion successor transition; do not close it as completed or overwrite it with a new draft.');
@@ -939,6 +943,9 @@ export function prepareSuccessor(root: string, input: unknown, options: RuntimeA
   const predecessor = validateSuccessorDecision(request.predecessor);
   const semantic = normalizeSemanticDraft(root, request.draft);
   const current = readCanonicalCurrentTask(root);
+  if (newTaskRequiresMutationAuthorityV2(root) && semantic.mutation_authority_version !== MUTATION_AUTHORITY_VERSION) {
+    fail('MUTATION_AUTHORITY_VERSION_REQUIRED', 'A new successor identity in a vNext project requires mutation_authority_version: 2 and a project authority-domain map.');
+  }
   const prior = current.runtimeState.execution_log.find(event => 'action' in event && event.action === 'create-draft' && event.predecessor);
   if (prior && 'predecessor' in prior && sameValue(prior.predecessor, predecessor) && currentMatchesSemanticDraft(root, current, semantic)
     && current.runtimeState.workflow_status === 'draft') {

@@ -14164,6 +14164,33 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
+  test('new vNext task identities require v2 while existing v1 fixtures remain readable', () => {
+    const root = archivedBaselineRoot();
+    const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+    const profile = parse(fs.readFileSync(profilePath, 'utf8')) as Record<string, unknown>;
+    profile.kind = 'vnext-project-profile';
+    fs.writeFileSync(profilePath, stringify(profile), 'utf8');
+    const before = readCanonicalCurrentTask(root);
+
+    expect(() => prepareDraft(root, singleStepSemanticDraft())).toThrow('MUTATION_AUTHORITY_VERSION_REQUIRED');
+    const raw = createPrepareTaskDraftProposal(before, {
+      action: 'create-draft', task_id: '001', task_slug: 'legacy-new-task',
+      document_id: 'doc-eeeeeeeeeeeeeeeeeeeeeeee', task_title: 'Legacy new task',
+      draft_definition: draftDefinition(), active_step_id: 'step-1',
+      claim_evidence: completeClaimEvidence(), evidence_refs: ['test:evidence:new-task-model'],
+      idempotency_key: 'new-task-model-guard',
+      authority_evidence: evidence('user-confirmation', 'scope-admission', 'evidence-admission'),
+    });
+    expect(applyVNextRuntimeProposal(root, raw).code).toBe('MUTATION_AUTHORITY_VERSION_REQUIRED');
+    expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(before.sourceTuple.revision);
+
+    enableV2MutationAuthority(root);
+    const prepared = prepareDraft(root, v2MutationAuthoritySemanticDraft());
+    expect(prepared.confirmation_receipt).toBeDefined();
+    expect(confirmDraft(root, { confirmation_receipt: prepared.confirmation_receipt }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).mutationAuthority?.domains).toContain('node-rollout');
+  });
+
   test('E16 blocks v2 planned targets outside the selected authority domain during prepare', () => {
     const root = archivedBaselineRoot();
     enableV2MutationAuthority(root);
