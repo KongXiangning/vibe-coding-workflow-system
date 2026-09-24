@@ -30,6 +30,7 @@ import {
   MAX_CONTROLLED_REPAIR_GRANTS_PER_REVIEW,
   isRepairRecoveryReviewBlocked,
   repairFingerprintsForPendingReview,
+  blockedRepairContinuationForPendingReview,
   currentDefinitionExecutionLog,
   outstandingRepairPreflight,
   policyGateDescriptor,
@@ -673,11 +674,18 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const pendingPolicy = policyGateDescriptor(pendingReview?.blocker?.code);
   const outstandingRepair = outstandingRepairPreflight(current);
   const reviewableUnreviewedExecution = latestReviewableUnreviewedExecution(current);
+  const blockedRepairContinuation = blockedRepairContinuationForPendingReview(current);
   const pendingRepair = pendingReview?.verdict === 'findings';
   const repairExecutionRequired = outstandingRepair !== null || pendingRepair;
   const pendingDispositionRequired = pendingReview !== null
     && ['findings', 'blocked'].includes(String(pendingReview.verdict))
-    && repairFingerprintsForPendingReview(current).length === 0;
+    && repairFingerprintsForPendingReview(current).length === 0
+    && (pendingReview.verdict === 'findings' || pendingReview.blocker?.next_route === 'record-user-decision');
+  const blockedReviewRoute = pendingReview?.verdict === 'blocked' && !pendingDispositionRequired
+    ? pendingReview.blocker?.next_route === 'user'
+      ? 'review-change'
+      : pendingReview.blocker?.next_route
+    : null;
   const retainedCleanReview = pendingReview?.verdict === 'clean' && state.scope_amendment_pending_review_step_id !== undefined;
   const retainedFindingReview = pendingReview?.verdict === 'findings' && state.scope_amendment_pending_review_step_id !== undefined;
   const dynamicReviewReady = dynamicReviewRequiredForCurrentExecution(current)
@@ -693,6 +701,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       ? 'review-change'
     : retryReview
       ? retryEntry
+    : blockedRepairContinuation
+      ? 'execute-step:repair'
     : pendingDispositionRequired
       ? 'record-user-decision'
     : unselectedExhaustedFingerprints.length > 0
@@ -709,6 +719,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         ? 'record-user-decision'
         : pendingPolicyEntry
           ? pendingPolicyEntry
+        : blockedReviewRoute
+          ? blockedReviewRoute
         : formatScopeBlocked
           ? 'prepare-task:prepare-evidence-plan-amendment'
         : retainedCleanReview
@@ -726,6 +738,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     ? ['review-change']
     : retryReview
     ? [retryEntry, 'debug-task']
+    : blockedRepairContinuation
+    ? ['execute-step:repair']
     : pendingDispositionRequired
     ? ['record-user-decision']
     : unselectedExhaustedFingerprints.length > 0
@@ -744,6 +758,8 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         ? ['record-user-decision', 'debug-task']
         : pendingPolicyEntry
           ? [...new Set(['record-user-decision', pendingPolicyEntry])]
+        : blockedReviewRoute
+          ? [blockedReviewRoute]
         : formatScopeBlocked
           ? ['record-user-decision', 'prepare-task:prepare-evidence-plan-amendment', 'debug-task']
         : state.active_step_status === 'blocked'
@@ -824,6 +840,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         required_policy_gates: retryGates,
         policy_decision_id: retryDecision?.idempotency_key ?? null,
       } : null,
+      blocked_repair_continuation: blockedRepairContinuation,
       pending_review_verdict: record(state.pending_review_result) ? state.pending_review_result.verdict ?? null : null,
       pending_review_step_id: record(state.pending_review_result) ? state.pending_review_result.step_id ?? null : null,
       unresolved_findings_count: unresolvedFindingCount,

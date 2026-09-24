@@ -136,6 +136,7 @@ capabilities:
       - separate persistent-test admission for an absent new test, including a typed P-12 decision even when no authority domain changes
       - authority-amendment settlement gate that blocks only an admitted preflight without its matching recorded execution result
       - explicit project-owner domain candidates/confirmation lifecycle and a stable authority-domain revision for active v2 execution
+      - owner-confirmed project domain initialization or additive maintenance with a before/after receipt; separate active-task rebind without inherited widening or preflight bypass
     stop_conditions:
       - v1 required scope bucket is missing, malformed, duplicated, or ambiguous
       - v1 target is outside admitted scope

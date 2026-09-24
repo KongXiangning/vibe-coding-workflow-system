@@ -80,6 +80,18 @@ confirmation is promoted into the canonical `PROJECT_PROFILE.yaml` map.
 it for an individual task. A simple project may confirm one broad application
 domain, but it still follows the same admission route.
 
+For an already installed project, `authority-domain-update` is a narrow,
+project-owner-confirmed transaction. It accepts a missing map as initialization
+or adds domains/roots to an existing map, preserving an immutable before/after
+decision receipt. `prepare-task` and `execute-step` may use it internally while
+continuing the invoking instruction; `bootstrap-project` exposes independent
+project maintenance without ordinary realignment. A task instruction is not by
+itself a permanent project-wide grant. Rebind an affected active v2 task with
+`authority-domain-rebind`; unchanged selected domains are revalidated, while a
+newly selected domain or widened root needs an exact task decision. The old
+task, attempts, findings, and pending review remain; new mutation targets still
+require a fresh preflight.
+
 Every confirmed v2 task records the stable revision/digest of the canonical
 domain map in Runtime state. If the profile map changes, the active task fails
 closed before execution admission and requires explicit authority
@@ -151,8 +163,8 @@ immutable candidate, history/findings/review/budget lineage and continuation
 semantics, and a committed candidate cannot be discarded. Existing tasks without
 the v2 marker, or with version 1, retain legacy exact step-scope semantics and
 are not silently reinterpreted. Every new vNext task identity must use v2 and
-the project authority-domain map; a missing map is a project setup issue, not
-permission to create another v1 task.
+the project authority-domain map; a missing map starts owner-confirmed
+initialization within the invoking Skill, never another v1 task.
 For a v1 task, a path already declared in the current step and Conditional Files
 may enter a fresh execution preflight when the caller records the exact trigger
 evidence and task authority. The authorization is bound to the current
@@ -175,6 +187,17 @@ current state before submitting the original operation again. `recovery-applied`
 is an internal checkpoint, never proof that the original operation completed.
 If the original result reports `committed: true`, reconcile its read-back instead
 of replaying it. Preserve the original operation key and failure history.
+
+Execution and review failures are diagnosed from the retained output and project
+context by the invoking AI. A known project-owned cause is corrected within
+current authority and given fresh execution admission; a known unavailable
+external condition is recorded with its owner and exact resume condition. Either
+may remain blocked while that condition is absent, without a risk-acceptance
+decision or automatic `debug-task` route. An uncertain cause, or evidence that
+contradicts attempted corrections, calls for deeper diagnosis. Attempt counts
+prompt reassessment but do not classify the cause. Runtime checks identity,
+authority, evidence binding and replay; it does not decide the cause from an
+error string or turn an old failed execution into a clean result.
 
 Budget thresholds require the AI to review retained failures, necessity and the
 next approach. They are not a limit on an explicit user instruction. When that

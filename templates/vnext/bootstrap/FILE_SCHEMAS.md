@@ -31,6 +31,11 @@ definition/frontmatter. It is not inferred from a v1 task or from a read
 operation. Existing v1 tasks retain their exact-path semantics. Every newly
 created task identity in a vNext project requires v2 and a project domain map;
 absence of the map cannot silently create a new v1 task.
+An installed project may initialize a missing map or add domains/roots with
+`authority-domain-update`, bound to the exact profile hash, prior map revision,
+and project-owner decision. Its immutable receipt records before and after
+maps. Active v2 tasks rebind separately; this never automatically expands
+their selected domains, and every new target still needs preflight.
 
 The project profile map required for new task identities is:
 
@@ -642,6 +647,15 @@ Environment eligibility requires at least one blocked command or validation and
 no failed result. Prior admitted writes are retained in the cumulative review
 target and failure snapshot; subjects must not change after that failure. It does not relabel business assertion
 failures or unknown causes as transient environment failures.
+
+A completed step may retain a blocked repair review after the original finding
+has been verified resolved. `begin-repair` may then bind `blocked_result_id` to
+that review's exact latest failed repair result. Its fresh preflight preserves
+the prior finding set and repair wave for cumulative verification, admits every
+new candidate path before mutation, and does not spend another finding repair
+attempt. The new result records its own execution identity and points to the
+blocked result; a later clean review must assess the new result. This continuation
+does not accept risk or turn the old blocked result into PASS.
 
 `step_attempts[step_id]` stores `{evidence_plan_revision,max_attempts:3,attempts}`.
 Each attempt retains `{attempt_id,idempotency_key,request_digest,status,blocker,

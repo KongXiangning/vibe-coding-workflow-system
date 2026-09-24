@@ -1,8 +1,10 @@
 import { ordinaryAttemptAdmission } from '../runtime/vnext/src/kernel';
+import { authorityDomainContext, updateAuthorityDomains } from '../runtime/vnext/src/authority-domain-transaction';
+import { rebindTaskAuthorityDomains } from '../runtime/vnext/src/kernel';
 import { prepareEvidencePlanAmendment, confirmEvidencePlanAmendment, discardEvidencePlanAmendment } from '../runtime/vnext/src/kernel';
 import { taskStorageMetrics } from '../runtime/vnext/src/task-storage-metrics';
 import { readProjectDocuments } from '../runtime/vnext/src/project-documents';
-import { reviewRead } from '../runtime/vnext/src/review-change-adapter';
+import { reviewRead, routeTaskInput } from '../runtime/vnext/src/review-change-adapter';
 import { installDistribution, upgradeDistribution } from '../scripts/vibe-governance-distribution';
 import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 import { prepareSuccessor, semanticDraftDefinition } from '../runtime/vnext/src/prepare-task-adapter';
@@ -10123,6 +10125,87 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Verify the recovered repair execution.' }).status).toBe('success');
   });
 
+  test('continues a reviewed blocked repair after its finding is resolved without another finding attempt', { timeout: 90_000 }, () => {
+    const file = 'runtime/vnext/src/prepare-task-adapter.ts';
+    const correction = 'runtime/vnext/src/task-context.ts';
+    const command = 'bun test test/vnext-runtime.test.ts';
+    const validation = 'bun test test/vnext-runtime.test.ts passes';
+    const root = confirmedSemanticRoot(singleStepSemanticDraft({
+      mutation_scope: { allowed: [file, correction], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: [{ id: 'step-1', description: 'Recover an admitted repair validation',
+        mutation_scope: [file, correction],
+        commands: [{ command, expected_repo_writes: 'none' }], validation: [validation] }],
+    }));
+    const product = path.join(root, ...file.split('/'));
+    const corrected = path.join(root, ...correction.split('/'));
+    fs.mkdirSync(path.dirname(product), { recursive: true });
+    fs.writeFileSync(product, 'before\n');
+    fs.writeFileSync(corrected, 'before\n');
+    const sourceRevision = readCanonicalCurrentTask(root).sourceTuple.revision;
+    const routingInput = { source_revision: sourceRevision, input_ref: file,
+      input_sha256: crypto.createHash('sha256').update('before\n').digest('hex'),
+      relation: 'current-task', operation: 'recover-execution', reason: 'Inspect the observed failure before choosing its owner.' };
+    expect(routeTaskInput(root, routingInput).next_route).toBe('execute-step');
+    expect(routeTaskInput(root, { ...routingInput, diagnosis_status: 'uncertain' }).next_route).toBe('debug-task');
+
+    const initial = preflightStep(root, { candidate_paths: [file] });
+    fs.writeFileSync(product, 'initial\n');
+    expect(recordStepResult(root, { preflight_receipt: initial.receipt, actual_changed_paths: [file],
+      command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:initial-command'] }],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:initial-validation'] }],
+      acceptance_evidence: [reportFixture(root)], outcome: 'implemented', note: 'Initial execution.' }).status).toBe('success');
+    const unavailableReview = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: unavailableReview.receipt, verdict: 'blocked',
+      findings: [], unresolved_fingerprints: [], evidence_refs: ['test:review-evidence-unavailable'],
+      blocker: { code: 'REVIEW_EVIDENCE_UNAVAILABLE', summary: 'The review evidence source is temporarily unavailable.', next_route: 'review-change' } }).status).toBe('success');
+    expect(taskContext(root, {}).overview.next_entry).toBe('review-change');
+    const discovery = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: discovery.receipt, verdict: 'findings',
+      findings: [{ category: 'correctness', file, failure_condition: 'the behavior remains incorrect',
+        required_behavior: 'correct the behavior', root_cause_status: 'confirmed', evidence_refs: ['test:finding'] }],
+      unresolved_fingerprints: [], evidence_refs: ['test:discovery'], blocker: null }).status).toBe('success');
+    const fingerprint = readCanonicalCurrentTask(root).runtimeState.pending_review_result!.findings[0]!.fingerprint;
+    const repair = beginRepair(root, { candidate_paths: [file] });
+    fs.writeFileSync(product, 'repaired\n');
+    expect(recordStepResult(root, { preflight_receipt: repair.receipt, actual_changed_paths: [file],
+      command_results: [{ command, status: 'blocked', observed_repo_writes: [], evidence_refs: ['test:dependency-unavailable'] }],
+      validation_results: [{ validation, status: 'not-run', evidence_refs: [] }],
+      acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'environment', note: 'Dependency source is unavailable.' }).status).toBe('success');
+    const blockedExecution = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: blockedExecution.receipt, verdict: 'blocked',
+      findings: [], unresolved_fingerprints: [], resolved_fingerprints: [fingerprint],
+      evidence_refs: ['test:dependency-unavailable', 'test:repair-resolved'],
+      blocker: { code: 'DEPENDENCY_UNAVAILABLE', summary: 'Dependency source must recover before validation can complete.', next_route: 'user' } }).status).toBe('success');
+    const blocked = readCanonicalCurrentTask(root);
+    const blockedResultId = blocked.runtimeState.pending_review_result!.execution_id;
+    const attempts = blocked.runtimeState.findings.find(item => item.fingerprint === fingerprint)!.repair_attempts;
+    expect(blocked.runtimeState.findings.find(item => item.fingerprint === fingerprint)!.status).toBe('resolved');
+    expect(taskContext(root, {}).overview).toMatchObject({ next_entry: 'execute-step:repair',
+      gates: { blocked_repair_continuation: { blocked_result_id: blockedResultId } } });
+    expect(() => beginRepair(root, { candidate_paths: [file, correction], blocked_result_id: 'wrong-result' })).toThrow();
+    expect(() => beginRepair(root, { candidate_paths: [file, 'runtime/vnext/src/outside.ts'], blocked_result_id: blockedResultId })).toThrow();
+
+    const recovery = beginRepair(root, { candidate_paths: [file, correction], blocked_result_id: blockedResultId });
+    expect(recovery.receipt.blocked_result_id).toBe(blockedResultId);
+    expect(recovery.receipt.execution_id).not.toBe(repair.receipt.execution_id);
+    expect(recovery.receipt.repair_wave_id).toBe(repair.receipt.repair_wave_id);
+    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === fingerprint)!.repair_attempts).toBe(attempts);
+    fs.writeFileSync(corrected, 'project-owned correction\n');
+    const recoveredResult = { preflight_receipt: recovery.receipt, actual_changed_paths: [correction],
+      command_results: [{ command, status: 'passed', observed_repo_writes: [], evidence_refs: ['test:recovered-command'] }],
+      validation_results: [{ validation, status: 'passed', evidence_refs: ['test:recovered-validation'] }],
+      acceptance_evidence: [], outcome: 'implemented' as const, note: 'New admitted execution after the external condition recovered.' };
+    expect(recordStepResult(root, recoveredResult).status).toBe('success');
+    expect(recordStepResult(root, recoveredResult).status).toBe('no-op');
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.findings.find(item => item.fingerprint === fingerprint)!.repair_attempts).toBe(attempts);
+    expect(after.runtimeState.execution_log.findLast(item => !('action' in item))!.execution_result?.blocked_result_id).toBe(blockedResultId);
+    const verification = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: verification.receipt, verdict: 'clean', findings: [],
+      unresolved_fingerprints: [], evidence_refs: ['test:recovered-review'], blocker: null }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Verified by a new execution.' }).status).toBe('success');
+  });
+
   test('keeps governance authorization whitespace outside business format scope while retaining real business failures', { timeout: 30_000 }, () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-format-scope-'));
     const businessPath = 'src/product.ts';
@@ -14270,6 +14353,197 @@ describe('vNext Phase 2 Runtime contract', () => {
       const after = readCanonicalCurrentTask(root);
       expect(after.sourceTuple.revision).toBe(before.sourceTuple.revision);
       expect(after.runtimeState).toEqual(before.runtimeState);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('initializes a missing project domain map and then prepares a v2 task', () => {
+    const root = archivedBaselineRoot();
+    try {
+      const profilePath = path.join(root, '.workflow-system', 'PROJECT_PROFILE.yaml');
+      fs.appendFileSync(profilePath, '\n# Keep project-owned profile guidance intact.\n');
+      const before = authorityDomainContext(root);
+      expect(before.domain_revision).toBeNull();
+      const runtimeCli = path.join(ROOT, 'runtime/vnext/dist/cli.js');
+      const observed = runInstalledRuntimeCli(runtimeCli, root, 'authority-domain-context');
+      expect(observed.status).toBe(0);
+      expect(observed.json?.profile_sha256).toBe(before.profile_sha256);
+      const input = {
+        expected_profile_sha256: before.profile_sha256,
+        expected_domain_revision: null,
+        domains: [
+          { id: 'node-rollout', roots: ['packages/node-rollout/**'] },
+          { id: 'node-rollout-tests', roots: ['packages/node-rollout-tests/**'] },
+        ],
+        decision_source: 'user:project-domain-initialization',
+        decision_text: 'These two project directories are the confirmed Node and test ownership domains.',
+        evidence_refs: ['project inventory'],
+        idempotency_key: 'initialize-project-domains',
+      };
+      const cliUpdate = runInstalledRuntimeCli(runtimeCli, root, 'authority-domain-update', input);
+      expect(cliUpdate.status, cliUpdate.stderr + cliUpdate.stdout).toBe(0);
+      const updated = cliUpdate.json!;
+      expect(updated.status).toBe('success');
+      expect(authorityDomainContext(root).domain_revision).toBe(updated.domain_revision);
+      expect(fs.readFileSync(profilePath, 'utf8')).toContain('# Keep project-owned profile guidance intact.');
+      expect(updateAuthorityDomains(root, input).status).toBe('no-op');
+      expect(() => updateAuthorityDomains(root, {
+        ...input, domains: [...input.domains, { id: 'new-module', roots: ['new-module/**'] }],
+      })).toThrow('IDEMPOTENCY_CONFLICT');
+      expect(prepareDraft(root, v2MutationAuthoritySemanticDraft()).confirmation_receipt).toBeDefined();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('rebinds an additive project map without granting the active task a new domain', () => {
+    const root = v2ConfirmedRoot();
+    try {
+      const before = readCanonicalCurrentTask(root);
+      const context = authorityDomainContext(root);
+      const updated = updateAuthorityDomains(root, {
+        expected_profile_sha256: context.profile_sha256,
+        expected_domain_revision: context.domain_revision,
+        domains: [...context.domains!, { id: 'new-module', roots: ['new-module/**'] }],
+        decision_source: 'user:project-domain-expansion',
+        decision_text: 'Register new-module as a project ownership domain for future work.',
+        evidence_refs: ['new-module ownership review'],
+        idempotency_key: 'add-new-module-domain',
+      });
+      expect(() => preflightStep(root, { candidate_paths: ['packages/node-rollout/src/session.ts'] })).toThrow('MUTATION_AUTHORITY_DOMAIN_REVISION_STALE');
+      const rebound = rebindTaskAuthorityDomains(root, {
+        source_revision: before.sourceTuple.revision,
+        expected_bound_revision: before.runtimeState.authority_domain_revision,
+        project_revision: updated.domain_revision,
+        add_domains: [], approved_domain_ids: [], decision_source: null, decision_text: null,
+        evidence_refs: ['project domain update receipt'], idempotency_key: 'rebind-without-new-grant',
+      });
+      expect(rebound.status).toBe('success');
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.domains).toEqual(before.mutationAuthority?.domains);
+      expect(() => preflightStep(root, { candidate_paths: ['new-module/src/feature.ts'] })).toThrow('MUTATION_AUTHORITY_EXPANSION_REQUIRED');
+      expect(preflightStep(root, { candidate_paths: ['packages/node-rollout/src/session.ts'] }).status).toBe('pass');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a widened selected domain requires a task decision and a new target preflight', () => {
+    const root = v2ConfirmedRoot();
+    try {
+      const before = readCanonicalCurrentTask(root);
+      const context = authorityDomainContext(root);
+      const domains = context.domains!.map(domain => domain.id === 'node-rollout'
+        ? { ...domain, roots: [...domain.roots, 'new-node/**'] } : domain);
+      const updated = updateAuthorityDomains(root, {
+        expected_profile_sha256: context.profile_sha256,
+        expected_domain_revision: context.domain_revision,
+        domains,
+        decision_source: 'user:node-domain-growth',
+        decision_text: 'Add new-node to the Node ownership domain.',
+        evidence_refs: ['new-node ownership review'], idempotency_key: 'expand-node-domain',
+      });
+      const rebind = {
+        source_revision: before.sourceTuple.revision,
+        expected_bound_revision: before.runtimeState.authority_domain_revision,
+        project_revision: updated.domain_revision,
+        add_domains: [], approved_domain_ids: [], decision_source: null, decision_text: null,
+        evidence_refs: ['project domain update receipt'], idempotency_key: 'rebind-expanded-node',
+      };
+      expect(() => rebindTaskAuthorityDomains(root, rebind)).toThrow('AUTHORITY_DOMAIN_TASK_DECISION_REQUIRED');
+      expect(rebindTaskAuthorityDomains(root, {
+        ...rebind, approved_domain_ids: ['node-rollout'],
+        decision_source: 'user:task-node-growth',
+        decision_text: 'Authorize this task to use the added new-node root of node-rollout.',
+      }).status).toBe('success');
+      expect(() => preflightStep(root, { candidate_paths: ['new-node/feature.ts'] })).toThrow('MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('an owner-confirmed new domain enters an active task only after a separate task decision', () => {
+    const root = v2ConfirmedRoot();
+    try {
+      const before = readCanonicalCurrentTask(root);
+      const context = authorityDomainContext(root);
+      const updated = updateAuthorityDomains(root, {
+        expected_profile_sha256: context.profile_sha256,
+        expected_domain_revision: context.domain_revision,
+        domains: [...context.domains!, { id: 'new-module', roots: ['new-module/**'] }],
+        decision_source: 'user:project-new-module',
+        decision_text: 'Register new-module as a permanent project ownership domain.',
+        evidence_refs: ['new-module ownership review'], idempotency_key: 'new-module-owner-grant',
+      });
+      const rebind = {
+        source_revision: before.sourceTuple.revision,
+        expected_bound_revision: before.runtimeState.authority_domain_revision,
+        project_revision: updated.domain_revision,
+        add_domains: ['new-module'], approved_domain_ids: ['new-module'],
+        decision_source: 'user:task-new-module',
+        decision_text: 'This task may also change files in the new-module domain.',
+        evidence_refs: ['exact task domain decision'], idempotency_key: 'task-new-module-grant',
+      };
+      const cliRebind = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'authority-domain-rebind', rebind);
+      expect(cliRebind.status, cliRebind.stderr + cliRebind.stdout).toBe(0);
+      expect(cliRebind.json?.status).toBe('success');
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.domains).toContain('new-module');
+      expect(rebindTaskAuthorityDomains(root, rebind).status).toBe('no-op');
+      const validated = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'validate', undefined);
+      expect(validated.status, validated.stderr + validated.stdout).toBe(0);
+      expect(() => preflightStep(root, { candidate_paths: ['new-module/feature.ts'] })).toThrow('MUTATION_BLAST_RADIUS_ASSESSMENT_REQUIRED');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('task domain rebinding retains a pending finding and its repair path', () => {
+    const root = v2ConfirmedRoot();
+    try {
+      const product = 'packages/node-rollout/src/session.ts';
+      const productPath = path.join(root, ...product.split('/'));
+      fs.mkdirSync(path.dirname(productPath), { recursive: true });
+      fs.writeFileSync(productPath, 'export const session = "before";\n');
+      const preflight = preflightStep(root, { candidate_paths: [product] });
+      fs.writeFileSync(productPath, 'export const session = "implemented";\n');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [product],
+        command_results: preflight.current_step.commands.map(command => ({ command: command.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Implementation awaits review.',
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: review.receipt, verdict: 'findings',
+        findings: [{ category: 'correctness', file: product,
+          failure_condition: 'Node session behavior still violates the requested contract',
+          required_behavior: 'repair the Node session behavior', root_cause_status: 'confirmed',
+          evidence_refs: ['evidence-report.txt'] }],
+        unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null,
+      }).status).toBe('success');
+      const before = readCanonicalCurrentTask(root);
+      const map = authorityDomainContext(root);
+      const updated = updateAuthorityDomains(root, {
+        expected_profile_sha256: map.profile_sha256, expected_domain_revision: map.domain_revision,
+        domains: [...map.domains!, { id: 'new-module', roots: ['new-module/**'] }],
+        decision_source: 'user:new-module-owner', decision_text: 'Register the new module domain.',
+        evidence_refs: ['module ownership'], idempotency_key: 'pending-review-owner-map',
+      });
+      const rebound = rebindTaskAuthorityDomains(root, {
+        source_revision: before.sourceTuple.revision,
+        expected_bound_revision: before.runtimeState.authority_domain_revision,
+        project_revision: updated.domain_revision,
+        add_domains: ['new-module'], approved_domain_ids: ['new-module'],
+        decision_source: 'user:task-new-module', decision_text: 'Allow this task to use the new module.',
+        evidence_refs: ['task domain choice'], idempotency_key: 'pending-review-task-map',
+      });
+      expect(rebound.status, JSON.stringify(rebound)).toBe('success');
+      const after = readCanonicalCurrentTask(root);
+      expect(after.runtimeState.pending_review_result?.review_id).toBe(before.runtimeState.pending_review_result?.review_id);
+      expect(after.runtimeState.findings).toEqual(before.runtimeState.findings);
+      expect(beginRepair(root, { candidate_paths: [product] }).status).toBe('pass');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

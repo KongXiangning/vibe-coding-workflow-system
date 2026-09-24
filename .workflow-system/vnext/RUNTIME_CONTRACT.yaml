@@ -21,7 +21,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.21.3
+  package_version: 0.21.5
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -1076,10 +1076,12 @@ mutation_authority:
     confirmation: explicit-project-owner-decision
     canonical: .workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains
     task_selection: select-existing-map-without-rebuild
+    maintenance: owner-confirmed-initialize-or-additive-update-with-immutable-receipt
   domain_map_revision:
     binding: v2-confirmed-task-runtime-state-authority_domain_revision
     mismatch: fail-closed-require-explicit-task-authority-domain-revalidation
     grant: never-inherit-changed-project-map
+    rebind: explicit-task-revalidation-with-no-inherited-widening-and-fresh-preflight
   dynamic_expansion_identity:
     required:
       - step_id

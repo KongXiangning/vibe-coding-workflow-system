@@ -169,8 +169,11 @@ none` as permission to skip that review.
 Classify each new input using `route-input` with the exact current source revision,
 input reference/hash, relation, requested operation and reason. Return the binding
 and one of: unrelated -> capture/owner; conclusion counterevidence -> historical
-review; execution error -> debug-task; goal/acceptance/total authority change ->
-user decision or unsupported. Runtime checks binding and permissions; it does
+review; execution recovery -> execute-step, or debug-task only when the diagnosis
+is uncertain; goal/acceptance/total authority change -> user decision or
+unsupported. Supply `diagnosis_status: uncertain` only when logs and project
+context do not establish the cause or corrective attempts have contradicted the
+original diagnosis. Runtime checks binding and permissions; it does
 not prove natural-language relatedness. Counterevidence is not product-fix authority.
 For pasted or external text use `ingest-evidence` on stdin with source_revision,
 source_locator and body, then cite the returned immutable evidence_ref/SHA-256.
@@ -186,8 +189,8 @@ material contested until assessed; dismissal requires evidence, not convenience.
    normal Runtime admission.
 4. Return exactly one verdict:
    - `clean`: the recorded change is acceptable.
-   - `findings`: include specific file, failure condition, required behavior, root-cause confidence, and evidence for each repairable issue.
-   - `blocked`: include the blocker and recommended route when review or convergence cannot proceed safely.
+   - `findings`: include specific file, failure condition, required behavior, root-cause confidence, and evidence for each repairable project-owned issue; the existing repair handoff then belongs to `execute-step`.
+   - `blocked`: include the blocker and recommended route when review or convergence cannot proceed safely. Judge the cause from the actual evidence: a known unavailable external condition names the missing condition, responsible owner and resume condition, without treating it as risk acceptance or automatically demanding `debug-task`; for an uncertain or contradicted diagnosis, `debug-task` may be the recommended_route. A failure count or error string alone does not choose the route. A review blocked solely by temporarily unavailable evidence may be repeated against the same unchanged execution after that condition is restored. For that repeatable review, recommend `review-change`; for external help, recommend `user`. Neither means a risk-acceptance transaction.
    `record-review-result` records these facts only. If the user chooses what to
    do with a finding, use the internal `record-user-decision` transaction with
    the exact task/source revision and, when applicable, review/change-set and

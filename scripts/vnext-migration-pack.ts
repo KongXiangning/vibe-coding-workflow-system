@@ -2415,7 +2415,7 @@ const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
   'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
   'capture-work-item': [],
   'close-task': ['preview'],
-  'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign'],
+  'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign', 'maintain-domains'],
   'validate-change': [],
   'git-commit': [],
 };

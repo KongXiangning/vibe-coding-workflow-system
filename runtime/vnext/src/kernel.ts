@@ -1,4 +1,5 @@
 import { entryRecovery, formatEntryRecoveryError } from './entry-recovery';
+import { authorityDomainChangesSince, assertAuthorityDomainWritable } from './authority-domain-transaction';
 
 /**
  * Pure-vNext state-changing Runtime slice.
@@ -77,6 +78,7 @@ import {
   MUTATION_AUTHORITY_VERSION,
   MutationAuthorityError,
   authorityDomainForPath,
+  isMutationAuthorityGovernanceBoundary,
   evaluateMutationAuthority,
   requiresDynamicReview,
   normalizeBlastRadiusAssessments,
@@ -136,7 +138,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.3';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.5';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -592,7 +594,7 @@ export type EvidenceChallenge = {
 export type EvidenceCarryForward = {
   kind: 'evidence-carry-forward/v1' | 'evidence-carry-forward/v2';
   receiving_source_revision?: string;
-  history_operation?: 'confirm-replan' | 'replace-validation' | 'amend-evidence-plan';
+  history_operation?: 'confirm-replan' | 'replace-validation' | 'amend-evidence-plan' | 'commit-scope-amendment' | 'rebind-authority-domains';
   user_decision_sha256?: string;
   evidence_objects?: EvidenceObject[];
   context_revision?: string;
@@ -826,6 +828,8 @@ export type ExecutionPreflightState = {
   review_target_paths: string[] | null;
   controlled_recovery_grant_id?: string;
   policy_decision_id?: string;
+  /** Exact blocked repair result being continued without a new finding attempt. */
+  blocked_result_id?: string;
 };
 
 export type PreflightReconciliationDisposition = 'not-started' | 'started-unknown';
@@ -925,6 +929,7 @@ export type StepExecutionResult = {
   execution_id?: string;
   attempt_id?: string;
   blocker_kind?: 'environment' | 'unknown';
+  blocked_result_id?: string;
   outcome: 'implemented' | 'test-red' | 'blocked';
   change_set_id: string;
   review_base: ReviewTarget;
@@ -1045,6 +1050,7 @@ export type TaskStateDelta =
       change_set_id?: string;
       controlled_recovery_grant_id?: string;
       policy_decision_id?: string;
+      blocked_result_id?: string;
     }
   | {
       kind: 'task-state';
@@ -2423,6 +2429,7 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
     'review_target_paths',
     ...(source.controlled_recovery_grant_id === undefined ? [] : ['controlled_recovery_grant_id']),
     ...(source.policy_decision_id === undefined ? [] : ['policy_decision_id']),
+    ...(source.blocked_result_id === undefined ? [] : ['blocked_result_id']),
   ], location);
   const mode = expectEnum(source.mode, VNEXT_EXECUTE_STEP_MODES, `${location}.mode`);
   const repairFingerprints = source.repair_fingerprints === null
@@ -2433,7 +2440,7 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
   const reviewTargetPaths = source.review_target_paths === null
     ? null
     : expectStringArray(source.review_target_paths, `${location}.review_target_paths`, true, 256).map(item => normalizeRepoPath(item, `${location}.review_target_paths`));
-  if (mode === 'default' && (repairFingerprints !== null || repairWaveId !== null || reviewId !== null || reviewTargetPaths !== null || source.controlled_recovery_grant_id !== undefined)) {
+  if (mode === 'default' && (repairFingerprints !== null || repairWaveId !== null || reviewId !== null || reviewTargetPaths !== null || source.controlled_recovery_grant_id !== undefined || source.blocked_result_id !== undefined)) {
     fail('RUNTIME_STATE_CONFLICT', `${location} default execution must not carry repair identity.`);
   }
   if (mode === 'repair' && (repairFingerprints === null || repairFingerprints.length === 0 || repairWaveId === null || reviewId === null || reviewTargetPaths === null || reviewTargetPaths.length === 0)) {
@@ -2458,6 +2465,7 @@ function validateExecutionPreflight(value: unknown, location = 'runtime_state.ex
     review_target_paths: reviewTargetPaths,
     ...(source.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: expectString(source.controlled_recovery_grant_id, `${location}.controlled_recovery_grant_id`, SAFE_KEY_PATTERN) }),
     ...(source.policy_decision_id === undefined ? {} : { policy_decision_id: expectString(source.policy_decision_id, `${location}.policy_decision_id`, SAFE_KEY_PATTERN) }),
+    ...(source.blocked_result_id === undefined ? {} : { blocked_result_id: expectString(source.blocked_result_id, `${location}.blocked_result_id`, SAFE_KEY_PATTERN) }),
   };
 }
 
@@ -3982,18 +3990,20 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime review preimage baseline storage semantics are invalid.');
   }
   const domainMapLifecycle = expectRecord(mutationAuthorityContract.domain_map_lifecycle, 'Runtime mutation authority domain_map_lifecycle');
-  expectExactKeys(domainMapLifecycle, ['proposal', 'confirmation', 'canonical', 'task_selection'], 'Runtime mutation authority domain_map_lifecycle');
+  expectExactKeys(domainMapLifecycle, ['proposal', 'confirmation', 'canonical', 'task_selection', 'maintenance'], 'Runtime mutation authority domain_map_lifecycle');
   if (domainMapLifecycle.proposal !== 'bootstrap-inventory-domain-candidate'
     || domainMapLifecycle.confirmation !== 'explicit-project-owner-decision'
     || domainMapLifecycle.canonical !== '.workflow-system/PROJECT_PROFILE.yaml#mutation_authority.domains'
-    || domainMapLifecycle.task_selection !== 'select-existing-map-without-rebuild') {
+    || domainMapLifecycle.task_selection !== 'select-existing-map-without-rebuild'
+    || domainMapLifecycle.maintenance !== 'owner-confirmed-initialize-or-additive-update-with-immutable-receipt') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime project domain-map lifecycle semantics are invalid.');
   }
   const domainMapRevision = expectRecord(mutationAuthorityContract.domain_map_revision, 'Runtime mutation authority domain_map_revision');
-  expectExactKeys(domainMapRevision, ['binding', 'mismatch', 'grant'], 'Runtime mutation authority domain_map_revision');
+  expectExactKeys(domainMapRevision, ['binding', 'mismatch', 'grant', 'rebind'], 'Runtime mutation authority domain_map_revision');
   if (domainMapRevision.binding !== 'v2-confirmed-task-runtime-state-authority_domain_revision'
     || domainMapRevision.mismatch !== 'fail-closed-require-explicit-task-authority-domain-revalidation'
-    || domainMapRevision.grant !== 'never-inherit-changed-project-map') {
+    || domainMapRevision.grant !== 'never-inherit-changed-project-map'
+    || domainMapRevision.rebind !== 'explicit-task-revalidation-with-no-inherited-widening-and-fresh-preflight') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime project domain-map revision semantics are invalid.');
   }
   const dynamicExpansionIdentity = expectRecord(mutationAuthorityContract.dynamic_expansion_identity, 'Runtime mutation authority dynamic expansion identity');
@@ -4427,6 +4437,7 @@ function validateStepExecutionResult(value: unknown, location: string): StepExec
     ...(result.execution_id === undefined ? [] : ['execution_id']),
     ...(result.attempt_id === undefined ? [] : ['attempt_id']),
     ...(result.blocker_kind === undefined ? [] : ['blocker_kind']),
+    ...(result.blocked_result_id === undefined ? [] : ['blocked_result_id']),
   ], location);
   const outcome = expectEnum(result.outcome, ['implemented', 'test-red', 'blocked'], `${location}.outcome`);
   const changeSetId = expectString(result.change_set_id, `${location}.change_set_id`, SAFE_KEY_PATTERN);
@@ -4527,6 +4538,7 @@ function validateStepExecutionResult(value: unknown, location: string): StepExec
     ...(result.execution_id === undefined ? {} : {execution_id:expectString(result.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN)}),
     ...(result.attempt_id === undefined ? {} : {attempt_id:expectString(result.attempt_id, 'execution_result.attempt_id', SAFE_KEY_PATTERN)}),
     ...(result.blocker_kind === undefined ? {} : {blocker_kind:expectEnum(result.blocker_kind, ['environment','unknown'], 'execution_result.blocker_kind')}),
+    ...(result.blocked_result_id === undefined ? {} : {blocked_result_id:expectString(result.blocked_result_id, 'execution_result.blocked_result_id', SAFE_KEY_PATTERN)}),
     outcome,
     change_set_id: changeSetId,
     review_base: reviewBase,
@@ -4848,7 +4860,7 @@ function assertUserEvidenceApplicable(root: string, current: CanonicalCurrentTas
 }
 
 function carryUserEvidenceDecision(root: string, current: CanonicalCurrentTask, claimId: string,
-  slot: ClaimEvidenceSlot, newPlan: string, operation: 'confirm-replan' | 'replace-validation' | 'amend-evidence-plan'): EvidenceCarryForward {
+  slot: ClaimEvidenceSlot, newPlan: string, operation: 'confirm-replan' | 'replace-validation' | 'amend-evidence-plan' | 'commit-scope-amendment' | 'rebind-authority-domains'): EvidenceCarryForward {
   assertUserEvidenceApplicable(root, current, slot);
   const d = slot.user_decision!;
   const origin = current.runtimeState.evidence_carry_forward?.find(p => p.claim_id === claimId && p.slot_id === slot.slot_id
@@ -4944,6 +4956,58 @@ function assertEvidenceReportApplicable(root: string, current: CanonicalCurrentT
   const snapshot = slot.prerequisite_receipt?.subject_snapshot ?? captureReviewTarget(root, slot.check.subject_paths);
   if (snapshot.revision !== report.subject_revision || digest(snapshot.entries.map(entry => entry.path).sort()) !== digest([...slot.check.subject_paths].sort())) fail('CLAIM_EVIDENCE_STALE', 'evidence subject changed or does not match the frozen object set.');
   if (slot.prerequisite_receipt && (slot.prerequisite_receipt.result_id !== report.result_id || slot.prerequisite_receipt.step_id !== slot.before_step_id)) fail('CLAIM_EVIDENCE_PLAN_CONFLICT', 'prerequisite receipt does not bind its original report.');
+}
+
+function carryUnchangedScopeEvidence(root: string, before: CanonicalCurrentTask,
+  claims: ClaimEvidenceRecord[], newPlanRevision: string,
+  operation: 'commit-scope-amendment' | 'rebind-authority-domains' = 'commit-scope-amendment'): EvidenceCarryForward[] {
+  const carry: EvidenceCarryForward[] = [];
+  for (const claim of claims) for (const slot of claim.slots) {
+    const oldSlot = before.runtimeState.claim_evidence?.find(item => item.claim_id === claim.claim_id)?.slots.find(item => item.slot_id === slot.slot_id);
+    if (!oldSlot?.check || digest(oldSlot.check) !== digest(slot.check)
+      || digest(oldSlot.report ?? null) !== digest(slot.report ?? null)
+      || digest(oldSlot.user_decision ?? null) !== digest(slot.user_decision ?? null)
+      || digest(oldSlot.evidence_refs) !== digest(slot.evidence_refs)) continue;
+    if (slot.user_decision) {
+      try { carry.push(carryUserEvidenceDecision(root, before, claim.claim_id, oldSlot, newPlanRevision, operation)); } catch { /* An inapplicable decision is not carried. */ }
+    } else if (slot.report) {
+      try { assertEvidenceReportApplicable(root, before, oldSlot); } catch { continue; }
+      const origin = before.runtimeState.evidence_carry_forward?.find(item => item.claim_id === claim.claim_id
+        && item.slot_id === slot.slot_id && item.new_plan_revision === before.runtimeState.evidence_plan_revision
+        && item.result_id === slot.report!.result_id);
+      carry.push({ kind: 'evidence-carry-forward/v2', old_source_revision: origin?.old_source_revision ?? before.sourceTuple.revision,
+        history_operation: origin ? origin.history_operation ?? 'confirm-replan' : operation,
+        old_plan_revision: slot.report.evidence_plan_revision, new_plan_revision: newPlanRevision,
+        receiving_source_revision: before.sourceTuple.revision, context_revision: recoveryEvidenceContextRevision(root),
+        evidence_objects: describeEvidenceObjects(root, slot.evidence_refs), claim_id: claim.claim_id, slot_id: slot.slot_id,
+        check_id: slot.check.check_id, result_id: slot.report.result_id,
+        report_sha256: digest(slot.report), subject_revision: slot.report.subject_revision });
+    }
+  }
+  return carry;
+}
+
+function recoverCommittedScopeEvidence(root: string, current: CanonicalCurrentTask): EvidenceCarryForward[] {
+  const planMutations = current.runtimeState.execution_log.filter(item => 'action' in item
+    && ['commit-scope-amendment', 'commit-replan'].includes(item.action));
+  const last = planMutations.at(-1);
+  if (!last || !('action' in last) || last.action !== 'commit-scope-amendment' || !last.candidate_digest) return [];
+  assertScopeAmendmentHistoryForRevision(current, last.source_revision);
+  const historyPath = path.join(path.dirname(current.filePath), 'task-history', current.sourceTuple.document_id, `${last.source_revision}.json`);
+  const history = JSON.parse(fs.readFileSync(historyPath, 'utf8')) as { current_task_base64: string };
+  const before = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, 'base64').toString('utf8'), current.filePath, current.relativePath);
+  const candidatePath = scopeAmendmentCandidateLocation(current, last.candidate_digest).filePath;
+  if (!fs.existsSync(candidatePath)) return [];
+  const saved = JSON.parse(fs.readFileSync(candidatePath, 'utf8')) as ScopeAmendmentCandidate & { candidate_digest: string };
+  const { candidate_digest: marker, ...candidate } = saved;
+  if (marker !== last.candidate_digest || digest(candidate) !== marker
+    || candidate.source_revision !== last.source_revision
+    || candidate.old_plan_revision !== before.runtimeState.evidence_plan_revision
+    || candidate.new_plan_revision !== current.runtimeState.evidence_plan_revision) return [];
+  if (before.runtimeState.evidence_plan_revision === current.runtimeState.evidence_plan_revision) return [];
+  const carry = carryUnchangedScopeEvidence(root, before, current.runtimeState.claim_evidence ?? [], current.runtimeState.evidence_plan_revision!);
+  return carry.filter(item => !(current.runtimeState.evidence_carry_forward ?? []).some(existing => existing.claim_id === item.claim_id
+    && existing.slot_id === item.slot_id && existing.result_id === item.result_id && existing.new_plan_revision === item.new_plan_revision));
 }
 
 function assertEvidenceSlotSatisfied(root: string, current: CanonicalCurrentTask, record: ClaimEvidenceRecord, slot: ClaimEvidenceSlot, closing: boolean): void {
@@ -6415,6 +6479,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       ...(record.change_set_id === undefined ? [] : ['change_set_id']),
       ...(record.controlled_recovery_grant_id === undefined ? [] : ['controlled_recovery_grant_id']),
       ...(record.policy_decision_id === undefined ? [] : ['policy_decision_id']),
+      ...(record.blocked_result_id === undefined ? [] : ['blocked_result_id']),
     ], 'semantic_delta');
     let assessments: BlastRadiusAssessment[] | undefined;
     if (record.blast_radius_assessments !== undefined) {
@@ -6437,6 +6502,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
     const changeSetId = record.change_set_id === undefined ? undefined : expectString(record.change_set_id, 'change_set_id', SAFE_KEY_PATTERN);
     const controlledRecoveryGrantId = record.controlled_recovery_grant_id === undefined ? undefined : expectString(record.controlled_recovery_grant_id, 'controlled_recovery_grant_id', SAFE_KEY_PATTERN);
     const policyDecisionId = record.policy_decision_id === undefined ? undefined : expectString(record.policy_decision_id, 'policy_decision_id', SAFE_KEY_PATTERN);
+    const blockedResultId = record.blocked_result_id === undefined ? undefined : expectString(record.blocked_result_id, 'blocked_result_id', SAFE_KEY_PATTERN);
     return {
       kind,
       action,
@@ -6456,6 +6522,7 @@ function validateTaskStateDelta(value: unknown): TaskStateDelta {
       ...(changeSetId === undefined ? {} : { change_set_id: changeSetId }),
       ...(controlledRecoveryGrantId === undefined ? {} : { controlled_recovery_grant_id: controlledRecoveryGrantId }),
       ...(policyDecisionId === undefined ? {} : { policy_decision_id: policyDecisionId }),
+      ...(blockedResultId === undefined ? {} : { blocked_result_id: blockedResultId }),
     };
   }
   if (action === 'extend-preflight') {
@@ -8681,7 +8748,7 @@ function validateEvidenceCarryForward(value: unknown, location: string): Evidenc
   return {
     kind: v2 ? 'evidence-carry-forward/v2' : 'evidence-carry-forward/v1',
     ...(v2 ? { receiving_source_revision: hash('receiving_source_revision'), evidence_objects: objects, context_revision: hash('context_revision') } : {}),
-    ...(item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ['confirm-replan', 'replace-validation', 'amend-evidence-plan'], 'history_operation') }),
+    ...(item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ['confirm-replan', 'replace-validation', 'amend-evidence-plan', 'commit-scope-amendment', 'rebind-authority-domains'], 'history_operation') }),
     ...(item.user_decision_sha256 === undefined ? {} : { user_decision_sha256: hash('user_decision_sha256') }),
     old_source_revision: hash('old_source_revision'), old_plan_revision: hash('old_plan_revision'), new_plan_revision: hash('new_plan_revision'),
     claim_id: expectString(item.claim_id, `${location}.claim_id`, CLAIM_ID_PATTERN),
@@ -12686,6 +12753,186 @@ function appendExecutionLogEntry(current: RuntimeState, entry: ExecutionLogEntry
   return (current as unknown as AnyRecord).__vnext_compact_history === true ? next : next.slice(-MAX_EXECUTION_LOG);
 }
 
+/** Rebind an active v2 task after a project-owner domain-map transaction.
+ * The map update never expands a task by itself.  New selected domains or
+ * newly widened roots of already selected domains need a separate exact task
+ * decision, and every newly written path still needs execution preflight. */
+export function rebindTaskAuthorityDomains(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  return withGovernanceWriteLock(root, () => {
+    const input = expectRecord(rawInput, 'rebind-authority-domains');
+    expectExactKeys(input, [
+      'source_revision', 'expected_bound_revision', 'project_revision', 'add_domains',
+      'approved_domain_ids', 'decision_source', 'decision_text', 'evidence_refs', 'idempotency_key',
+    ], 'rebind-authority-domains');
+    const sourceRevision = expectString(input.source_revision, 'source_revision', SHA256_PATTERN);
+    const boundRevision = expectString(input.expected_bound_revision, 'expected_bound_revision', SHA256_PATTERN);
+    const projectRevision = expectString(input.project_revision, 'project_revision', SHA256_PATTERN);
+    const idempotencyKey = expectString(input.idempotency_key, 'idempotency_key', SAFE_KEY_PATTERN);
+    const addDomains = expectStringArray(input.add_domains, 'add_domains', true, 128);
+    const approvedDomains = expectStringArray(input.approved_domain_ids, 'approved_domain_ids', true, 128);
+    const evidenceRefs = validateEvidenceRefs(input.evidence_refs, 'evidence_refs');
+    if (new Set(addDomains).size !== addDomains.length || new Set(approvedDomains).size !== approvedDomains.length) {
+      fail('AUTHORITY_DOMAIN_REBIND_INVALID', 'Domain IDs must be unique.');
+    }
+    const decisionSource = input.decision_source === null ? null : expectText(input.decision_source, 'decision_source', 1024);
+    const decisionText = input.decision_text === null ? null : expectVerbatim(input.decision_text, 'decision_text', 32768);
+    if ((decisionSource === null) !== (decisionText === null)) fail('AUTHORITY_DOMAIN_TASK_DECISION_REQUIRED', 'Decision source and text must both be present or both be null.');
+    if (!options.dryRun) recoverPendingTaskStoreCommit(root);
+    const current = readCanonicalCurrentTask(root);
+    const receiptRelative = `.workflow-system/vnext/authority-domain-rebindings/${current.sourceTuple.document_id}/${sha256(idempotencyKey)}.json`;
+    const receiptFile = safeRepositoryFile(root, receiptRelative);
+    assertAuthorityDomainWritable(root, receiptRelative);
+    const inputDigest = digest(input);
+    const prior = current.runtimeState.applied_proposals.find(item => item.idempotency_key === idempotencyKey)
+      ?? TaskStore.forCurrent(root, current as unknown as import('./task-store').TaskStoreCurrent).lookupIdempotency(idempotencyKey);
+    if (prior) {
+      const receipt = fs.existsSync(receiptFile) ? JSON.parse(fs.readFileSync(receiptFile, 'utf8')) as AnyRecord : null;
+      if (!receipt || receipt.kind !== 'authority-domain-rebind/v1' || receipt.input_digest !== inputDigest) {
+        fail('IDEMPOTENCY_CONFLICT', 'The retained task rebind does not match this exact request.');
+      }
+      if (receipt.history_revision) assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id,
+        current.runtimeState.task_id, receipt.history_revision, 'rebind-authority-domains');
+      return { status: 'no-op', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+        target_path: current.relativePath, dry_run: options.dryRun === true, committed: false,
+        message: 'The exact task authority-domain rebind was already committed.', planned_writes: [],
+        governed_mutation_count: 0, read_back_verified: true, evidence_assurance: 'caller-reported', state: resultState(current.runtimeState) };
+    }
+    if (current.sourceTuple.revision !== sourceRevision) fail('AUTHORITY_DOMAIN_TASK_SOURCE_STALE', 'Refresh CURRENT_TASK before rebinding its domain map.');
+    if (!current.mutationAuthority || current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active') {
+      fail('AUTHORITY_DOMAIN_REBIND_STATE_INVALID', 'Only an active v2 task can rebind its project map. Drafts select the current map at confirmation.');
+    }
+    if (current.runtimeState.authority_domain_revision !== boundRevision) fail('AUTHORITY_DOMAIN_TASK_SOURCE_STALE', 'The task-bound project map revision changed.');
+    const project = readProjectMutationAuthority(root);
+    if (!project || projectMutationAuthorityRevision(project) !== projectRevision) fail('AUTHORITY_DOMAIN_PROJECT_SOURCE_STALE', 'The confirmed project domain map changed.');
+    const changed = authorityDomainChangesSince(root, boundRevision, projectRevision);
+    const nextDomains = [...current.mutationAuthority.domains, ...addDomains];
+    if (new Set(nextDomains).size !== nextDomains.length || nextDomains.some(id => !project.domains.some(domain => domain.id === id))) {
+      fail('AUTHORITY_DOMAIN_REBIND_INVALID', 'Added task domains must exist in the confirmed project map and must not already be selected.');
+    }
+    const needsApproval = [...new Set([
+      ...addDomains,
+      ...current.mutationAuthority.domains.filter(id => changed.has(id)),
+    ])].sort();
+    if (digest([...approvedDomains].sort()) !== digest(needsApproval)) {
+      fail('AUTHORITY_DOMAIN_TASK_DECISION_REQUIRED', `Explicit task authorization must cover exactly these new or widened grants: ${needsApproval.join(', ') || 'none'}.`);
+    }
+    if ((needsApproval.length > 0) !== (decisionSource !== null && decisionText !== null)) {
+      fail('AUTHORITY_DOMAIN_TASK_DECISION_REQUIRED', 'New or widened task grants require a decision bound to these exact domain IDs and project revision.');
+    }
+    const taskAuthority = normalizeTaskMutationAuthority({ ...current.mutationAuthority, domains: nextDomains });
+    const definition = readDraftDefinitionFromBody(current.body);
+    const nextDefinition: DraftTaskDefinition = { ...definition, mutation_authority_version: 2, mutation_authority: taskAuthority };
+    const admittedDefinition = addDomains.length > 0
+      ? { ...readDraftDefinitionFromBody(replaceReplanDefinitionSections(current.body, nextDefinition)),
+        mutation_authority_version: MUTATION_AUTHORITY_VERSION, mutation_authority: taskAuthority }
+      : nextDefinition;
+    assertV2DraftDefinitionAuthority(root, admittedDefinition);
+    const state = current.runtimeState;
+    const preflight = state.execution_preflight;
+    if (addDomains.length > 0 && preflight
+      && !executionResultRecordedForPreflight(current, preflight,
+        preflight.mode === 'default' ? state.step_attempts?.[state.active_step_id]?.attempts.at(-1)?.attempt_id : undefined)) {
+      fail('EXECUTE_ATTEMPT_OUTSTANDING', 'Record the in-flight result before changing task authority; the retained failure and review remain available.');
+    }
+    // A receipt issued under the old map never becomes admission for a newly
+    // selected target. Retain its exact candidate set and validate it anew.
+    for (const target of current.runtimeState.execution_preflight?.candidate_paths ?? []) {
+      const domain = authorityDomainForPath(project, target);
+      if (isMutationAuthorityGovernanceBoundary(target)
+        || taskAuthority.forbidden.some(pattern => mutationScopePatternMatchesPath(target, pattern))
+        || (!taskAuthority.exact_exceptions.includes(target) && (!domain || !taskAuthority.domains.includes(domain)))) {
+        fail('AUTHORITY_DOMAIN_PREFLIGHT_STALE', `The retained preflight target ${target} is outside the rebound task authority.`);
+      }
+    }
+    const proposal = { schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND, operation_kind: 'task-state-transaction',
+      caller: 'prepare-task', mode: 'default', source_tuple: current.sourceTuple,
+      semantic_delta: { kind: 'task-state', action: 'rebind-authority-domains', expected_bound_revision: boundRevision,
+        project_revision: projectRevision, add_domains: addDomains, approved_domain_ids: approvedDomains,
+        decision_source: decisionSource, decision_text: decisionText },
+      evidence_refs: evidenceRefs, idempotency_key: idempotencyKey,
+      requested_write_targets: [current.relativePath, receiptRelative] } as unknown as RuntimeProposal;
+    const claims = copyClaimEvidence(state.claim_evidence ?? []);
+    const basis = addDomains.length > 0 ? readCanonicalTaskBasis(root, current) : null;
+    const newPlanRevision = addDomains.length > 0
+      ? assertEvidencePlan(admittedDefinition, claims, false, { root, taskBasis: basis!.basis, previous: state.claim_evidence ?? [] })
+      : state.evidence_plan_revision;
+    const carry = addDomains.length > 0
+      ? carryUnchangedScopeEvidence(root, current, claims, newPlanRevision!, 'rebind-authority-domains')
+      : state.evidence_carry_forward;
+    const stepAttempts = addDomains.length > 0 ? structuredClone(state.step_attempts ?? {}) : state.step_attempts;
+    if (addDomains.length > 0) for (const ledger of Object.values(stepAttempts!)) ledger.evidence_plan_revision = newPlanRevision!;
+    const nextState: RuntimeState = { ...state, authority_domain_revision: projectRevision,
+      ...(addDomains.length > 0 ? {
+        evidence_plan_revision: newPlanRevision, claim_evidence: claims, evidence_carry_forward: carry,
+        step_attempts: stepAttempts, execution_preflight: undefined,
+      } : {}),
+      applied_proposals: appendAppliedProposal(state, proposal, current.sourceTuple.revision) };
+    const prepared = renderCanonicalCurrentTask(current.frontmatter, current.body, nextState,
+      addDomains.length > 0 ? { replacementDefinition: admittedDefinition } : {});
+    const nextContent = prepared.content;
+    const history = addDomains.length > 0 ? taskHistoryLocation({
+      currentPath: current.filePath, previousContent: current.raw, nextContent,
+      documentId: current.sourceTuple.document_id, taskId: state.task_id,
+      basisPath: basis!.filePath, basisContent: basis!.content,
+      operation: 'rebind-authority-domains', evidencePlanRevision: state.evidence_plan_revision,
+      referencedEvidence: [receiptRelative],
+    }) : null;
+    const historyRelative = history ? path.relative(path.resolve(root), history.path).replace(/\\/gu, '/') : null;
+    if (historyRelative) assertAuthorityDomainWritable(root, historyRelative);
+    if (history && fs.existsSync(history.path) && fs.readFileSync(history.path, 'utf8') !== history.content) {
+      fail('AUTHORITY_DOMAIN_HISTORY_CONFLICT', 'The task history slot for this source revision has different bytes.');
+    }
+    const receiptContent = `${JSON.stringify({ kind: 'authority-domain-rebind/v1', idempotency_key: idempotencyKey,
+      input_digest: inputDigest, task_id: current.runtimeState.task_id, document_id: current.sourceTuple.document_id,
+      source_revision: sourceRevision, before_revision: boundRevision, after_revision: projectRevision,
+      ...(history ? { history_revision: sourceRevision, old_plan_revision: state.evidence_plan_revision,
+        new_plan_revision: newPlanRevision } : {}),
+      selected_domains: nextDomains, approved_domain_ids: approvedDomains,
+      decision_source: decisionSource, decision_text: decisionText, evidence_refs: evidenceRefs }, null, 2)}\n`;
+    const plannedWrites = [current.relativePath, receiptRelative, ...(historyRelative ? [historyRelative] : [])];
+    if (options.dryRun) return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+      target_path: current.relativePath, dry_run: true, committed: false, message: 'Task authority-domain rebind is ready.',
+      planned_writes: plannedWrites, governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported',
+      previous_revision: sourceRevision, resulting_revision: sha256(nextContent) };
+    for (const proof of carry ?? []) if (addDomains.length > 0) preserveEvidenceObjects(root, current.filePath, proof.evidence_objects ?? []);
+    const writes = [
+      ...(history ? [{ path: history.path, content: history.content }] : []),
+      { path: current.filePath, content: nextContent }, { path: receiptFile, content: receiptContent },
+    ];
+    if (history) fs.mkdirSync(path.dirname(history.path), { recursive: true });
+    fs.mkdirSync(path.dirname(receiptFile), { recursive: true });
+    const staged = stageTaskEvolutionStoreCommit(root, current, nextContent, nextState, proposal, writes, prepared);
+    try { executeWrites(writes, false, 'vNext task authority-domain rebind'); }
+    catch (error) {
+      return { status: 'blocked', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+        target_path: current.relativePath, dry_run: false, committed: false,
+        message: error instanceof Error ? error.message : String(error), code: 'ATOMIC_COMMIT_FAILED',
+        planned_writes: plannedWrites, governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported' };
+    }
+    try {
+      completeTaskEvolutionStoreCommit(root, current, staged, proposal,
+        { status: 'success', committed: true, operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey });
+      const readBack = readCanonicalCurrentTask(root);
+      if (readBack.sourceTuple.revision !== sha256(nextContent) || fs.readFileSync(receiptFile, 'utf8') !== receiptContent
+        || (history && fs.readFileSync(history.path, 'utf8') !== history.content)
+        || readBack.runtimeState.evidence_plan_revision !== newPlanRevision) {
+        fail('AUTHORITY_DOMAIN_READ_BACK_FAILED', 'Task state or rebind receipt differs from the committed bytes.');
+      }
+      return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+        target_path: current.relativePath, dry_run: false, committed: true,
+        message: 'Task domain map was revalidated; new paths still require execution preflight.', planned_writes: plannedWrites,
+        governed_mutation_count: plannedWrites.length, read_back_verified: true, evidence_assurance: 'caller-reported',
+        previous_revision: sourceRevision, resulting_revision: readBack.sourceTuple.revision, state: resultState(readBack.runtimeState) };
+    } catch (error) {
+      return { status: 'blocked', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey,
+        target_path: current.relativePath, dry_run: false, committed: true,
+        message: `Rebind was written; verify the retained transaction before retrying: ${error instanceof Error ? error.message : String(error)}`,
+        code: error instanceof Error && 'code' in error ? String((error as { code?: unknown }).code) : 'TASK_STORE_COMMIT_FAILED',
+        planned_writes: plannedWrites, governed_mutation_count: plannedWrites.length, read_back_verified: false, evidence_assurance: 'caller-reported' };
+    }
+  });
+}
+
 /** Change one read-only verification invocation without changing its obligation.
  * The caller assesses runner equivalence; Runtime freezes all other semantics. */
 export function replaceValidation(root: string, rawInput: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
@@ -14715,6 +14962,7 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
   // current. Preserve that bound value; never rebind it from the Profile while
   // committing an amendment.
   const domainRevision = current.mutationAuthority ? current.runtimeState.authority_domain_revision : undefined;
+  const scopeCarry = carryUnchangedScopeEvidence(root, current, rebuilt.claim_evidence, rebuilt.new_plan_revision);
   const nextWithoutAudit: RuntimeState = {
     ...stateWithoutExecutionPreflight,
     workflow_status: 'active',
@@ -14724,6 +14972,7 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
     evidence_plan_revision: rebuilt.new_plan_revision,
     claim_evidence_required: true,
     claim_evidence: rebuilt.claim_evidence,
+    evidence_carry_forward: scopeCarry,
     ...(domainRevision ? { authority_domain_revision: domainRevision } : {}),
     ...(oldState.pending_review_result
       ? { scope_amendment_pending_review_step_id: oldState.pending_review_result.step_id }
@@ -14755,6 +15004,7 @@ function commitScopeAmendmentLocked(root: string, rawInput: unknown, options: Ru
   const history = taskHistoryLocation({ currentPath: current.filePath, previousContent: current.raw, nextContent, documentId: current.sourceTuple.document_id, taskId: current.runtimeState.task_id, basisPath: basis.filePath, basisContent: basis.content, nextBasisContent: nextBasisArtifact.content, operation: 'commit-scope-amendment', evidencePlanRevision: current.runtimeState.evidence_plan_revision, referencedEvidence: [location.relativePath] });
   const plannedWrites = [path.posix.join(path.posix.dirname(current.relativePath), history.relativePath), basis.path, current.relativePath];
   if (options.dryRun) return { status: 'success', operation_kind: 'task-state-transaction', idempotency_key: idempotencyKey, target_path: current.relativePath, dry_run: true, committed: false, message: 'Scope-amendment commit dry run passed; no live task was changed.', planned_writes: plannedWrites, governed_mutation_count: 0, read_back_verified: false, evidence_assurance: 'caller-reported' };
+  for (const proof of scopeCarry) preserveEvidenceObjects(root, current.filePath, proof.evidence_objects ?? []);
   try {
     persistReviewPreimageWrites(root, amendedReviewAdmission?.preimageWrites ?? []);
   } catch (error) {
@@ -15774,6 +16024,41 @@ export function repairFingerprintsForPendingReview(current: CanonicalCurrentTask
     ...pending.unresolved_fingerprints,
     ...pending.findings.map(item => item.fingerprint),
   ])].filter(fingerprint => !terminal.has(fingerprint)).sort();
+}
+
+/** A failed repair may need another admitted execution after its findings were
+ * already verified as resolved. This is an execution continuation, not another
+ * finding repair wave or a disposition of the blocked review. */
+export function blockedRepairContinuationForPendingReview(current: CanonicalCurrentTask): {
+  review_id: string;
+  blocked_result_id: string;
+  repair_fingerprints: string[];
+  repair_wave_id: string;
+  change_set_id: string;
+  review_target_paths: string[];
+} | null {
+  const pending = current.runtimeState.pending_review_result;
+  if (!pending || pending.verdict !== 'blocked' || pending.cycle_phase !== 'verification'
+    || pending.blocker?.next_route === 'record-user-decision'
+    || current.runtimeState.active_step_status !== 'completed'
+    || repairFingerprintsForPendingReview(current).length > 0) return null;
+  const latest = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
+    !('action' in item) && item.step_id === current.runtimeState.active_step_id
+    && item.idempotency_key.startsWith('execute-step-result-') && item.review_receipt === undefined).at(-1);
+  const fingerprints = latest?.repair_fingerprints ?? (latest?.repair_fingerprint ? [latest.repair_fingerprint] : []);
+  if (!latest || latest.mode !== 'repair' || latest.idempotency_key !== pending.execution_id
+    || latest.execution_result?.outcome !== 'blocked' || latest.status !== 'completed'
+    || !latest.repair_wave_id || !latest.change_set_id || latest.change_set_id !== pending.change_set_id
+    || fingerprints.length === 0
+    || fingerprints.some(fingerprint => current.runtimeState.findings.find(item => item.fingerprint === fingerprint)?.status !== 'resolved')) return null;
+  return {
+    review_id: pending.review_id,
+    blocked_result_id: latest.idempotency_key,
+    repair_fingerprints: [...new Set(fingerprints)].sort(),
+    repair_wave_id: latest.repair_wave_id,
+    change_set_id: latest.change_set_id,
+    review_target_paths: cumulativeReviewExecution(current, latest).execution_result!.review_target.entries.map(item => item.path),
+  };
 }
 
 export type RepairBudgetExtensionBlockerCode =
@@ -18302,6 +18587,7 @@ function applyTaskStateDelta(
     if (retryBudgetExhausted && retryPolicy === null) fail('RETRY_BUDGET_EXHAUSTED', 'The retained attempt threshold requires reassessment; record-user-decision can record continuation covered by the existing invocation for the current attempt.');
     ensureAuthorityKinds(proposal, ['active-task-owner', 'scope-admission', 'evidence-admission']);
     if (delta.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'preflight must bind the current active step.');
+    if (delta.blocked_result_id && executionMode !== 'repair') fail('RUNTIME_MODE_INVALID', 'blocked repair continuation requires repair mode.');
     if (executionMode === 'default') assertOrdinaryPreflight(current, root, retryPolicyDecisionId);
     else if (executionMode !== 'repair') fail('RUNTIME_MODE_INVALID', 'record-step-preflight mode is invalid.');
     assertTestStrategySequenceReady(current);
@@ -18325,10 +18611,20 @@ function applyTaskStateDelta(
       const repairFingerprints = delta.repair_fingerprints ?? [];
       const budgetContinuation = repairBudgetContinuationForPendingReview(current);
       const controlledContinuation = controlledRepairContinuationForPendingReview(current);
+      const blockedContinuation = delta.blocked_result_id
+        ? blockedRepairContinuationForPendingReview(current) : null;
       if (!pending || !['findings', 'blocked'].includes(pending.verdict) || !delta.review_id || delta.review_id !== pending.review_id) {
         fail('REVIEW_FINDINGS_REQUIRED', 'repair preflight requires the current findings review identity or its explicitly authorized budget continuation.');
       }
       const reviewFingerprints = repairFingerprintsForPendingReview(current);
+      if (delta.blocked_result_id && (!blockedContinuation
+        || blockedContinuation.blocked_result_id !== delta.blocked_result_id
+        || digest(repairFingerprints) !== digest(blockedContinuation.repair_fingerprints)
+        || delta.repair_wave_id !== blockedContinuation.repair_wave_id
+        || digest(delta.review_target_paths) !== digest(blockedContinuation.review_target_paths)
+        || delta.controlled_recovery_grant_id !== undefined)) {
+        fail('REPAIR_RESULT_RECOVERY_STATE_INVALID', 'repair continuation must bind the exact blocked result, resolved findings, review target and prior repair wave.');
+      }
       const blockedPolicyGate = pending.blocker?.code === 'REPAIR_BUDGET_EXHAUSTED'
         || pending.blocker?.code === 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED'
         ? pending.blocker.code
@@ -18337,17 +18633,17 @@ function applyTaskStateDelta(
         ? policyDecisionForOperation(root, current, blockedPolicyGate,
           repairFingerprints.map(fingerprint => `finding:${fingerprint}`), delta.policy_decision_id)
         : null;
-      if (pending.verdict === 'blocked' && budgetContinuation === null && controlledContinuation === null && blockedPolicy === null) {
+      if (pending.verdict === 'blocked' && !blockedContinuation && budgetContinuation === null && controlledContinuation === null && blockedPolicy === null) {
         fail('REVIEW_FINDINGS_REQUIRED', 'repair preflight requires a matching continuation grant or user warning decision for this blocked review.');
       }
       const repairSubsetAuthorized = controlledContinuation !== null || delta.policy_decision_id !== undefined;
-      if (repairFingerprints.some(fingerprint => !reviewFingerprints.includes(fingerprint))) {
+      if (!blockedContinuation && repairFingerprints.some(fingerprint => !reviewFingerprints.includes(fingerprint))) {
         fail('REPAIR_TARGET_SET_INVALID', 'repair preflight targets must be drawn from the current pending review repair set.');
       }
-      if (digest(repairFingerprints) !== digest(reviewFingerprints) && !repairSubsetAuthorized) {
+      if (!blockedContinuation && digest(repairFingerprints) !== digest(reviewFingerprints) && !repairSubsetAuthorized) {
         fail('REPAIR_TARGET_SET_INVALID', 'a partial repair target set requires an explicit recovery authorization or finding disposition.');
       }
-      if (digest(repairFingerprints) !== digest(reviewFingerprints) && controlledContinuation === null) {
+      if (!blockedContinuation && digest(repairFingerprints) !== digest(reviewFingerprints) && controlledContinuation === null) {
         const subsetPolicy = policyDecisionForOperation(
           root,
           current,
@@ -18357,7 +18653,7 @@ function applyTaskStateDelta(
         );
         if (subsetPolicy === null) fail('REPAIR_TARGET_SET_INVALID', 'a partial repair target set requires a matching user decision for the exact selected findings.');
       }
-      if (budgetContinuation && budgetContinuation.finding_fingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) {
+      if (!blockedContinuation && budgetContinuation && budgetContinuation.finding_fingerprints.some(fingerprint => !repairFingerprints.includes(fingerprint))) {
         fail('REPAIR_BUDGET_EXTENSION_TARGET_INVALID', 'repair preflight must include every finding authorized by the budget extension.');
       }
       if (controlledContinuation) {
@@ -18372,7 +18668,7 @@ function applyTaskStateDelta(
       }
       for (const fingerprint of repairFingerprints) {
         const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
-        if (!finding || !['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_ADMISSION_REQUIRED', `repair fingerprint ${fingerprint} is not an admitted current-task finding.`);
+        if (!finding || !(blockedContinuation ? finding.status === 'resolved' : ['admitted', 'in-progress'].includes(finding.status))) fail('FINDING_ADMISSION_REQUIRED', `repair fingerprint ${fingerprint} is not eligible for this execution.`);
       }
     }
     const claims = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
@@ -18479,6 +18775,7 @@ function applyTaskStateDelta(
       review_target_paths: executionMode === 'repair' ? [...delta.review_target_paths!] : null,
       ...(executionMode === 'repair' && delta.controlled_recovery_grant_id ? { controlled_recovery_grant_id: delta.controlled_recovery_grant_id } : {}),
       ...(delta.policy_decision_id ? { policy_decision_id: delta.policy_decision_id } : {}),
+      ...(delta.blocked_result_id ? { blocked_result_id: delta.blocked_result_id } : {}),
     } satisfies ExecutionPreflightState;
     return { next: {
       ...current.runtimeState,
@@ -18596,6 +18893,7 @@ function applyTaskStateDelta(
       review_target_paths: activePreflight?.review_target_paths ?? null,
       ...(activePreflight?.controlled_recovery_grant_id === undefined ? {} : { controlled_recovery_grant_id: activePreflight.controlled_recovery_grant_id }),
       ...(activePreflight?.policy_decision_id === undefined ? {} : { policy_decision_id: activePreflight.policy_decision_id }),
+      ...(activePreflight?.blocked_result_id === undefined ? {} : { blocked_result_id: activePreflight.blocked_result_id }),
     };
     return { next: {
       ...current.runtimeState,
@@ -18664,11 +18962,19 @@ function applyTaskStateDelta(
   );
   const openFindings = current.runtimeState.findings.filter(item => item.status === 'admitted' || item.status === 'in-progress');
   const deltaRepairFingerprints = delta.repair_fingerprints ?? (delta.repair_fingerprint ? [delta.repair_fingerprint] : []);
+  const blockedContinuation = delta.execution_result?.blocked_result_id
+    ? blockedRepairContinuationForPendingReview(current) : null;
+  if (delta.execution_result && (delta.execution_result.blocked_result_id !== current.runtimeState.execution_preflight?.blocked_result_id
+    || (delta.execution_result.blocked_result_id !== undefined
+      && (!blockedContinuation || blockedContinuation.blocked_result_id !== delta.execution_result.blocked_result_id
+        || digest(deltaRepairFingerprints) !== digest(blockedContinuation.repair_fingerprints))))) {
+    fail('REPAIR_RESULT_RECOVERY_STATE_INVALID', 'execution result must bind the exact active blocked repair continuation.');
+  }
   if (executionMode === 'repair') {
     if (deltaRepairFingerprints.length === 0) fail('FINDING_ADMISSION_REQUIRED', 'repair mode requires one or more admitted finding fingerprints.');
     for (const fingerprint of deltaRepairFingerprints) {
       const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
-      if (!finding || !['admitted', 'in-progress'].includes(finding.status)) fail('FINDING_ADMISSION_REQUIRED', `repair fingerprint ${fingerprint} is not an admitted current-task finding.`);
+      if (!finding || !(blockedContinuation ? finding.status === 'resolved' : ['admitted', 'in-progress'].includes(finding.status))) fail('FINDING_ADMISSION_REQUIRED', `repair fingerprint ${fingerprint} is not eligible for this execution.`);
       if (delta.repair_wave_id && finding.last_repair_wave_id !== delta.repair_wave_id) {
         fail('REPAIR_WAVE_CONFLICT', `repair fingerprint ${fingerprint} was not recorded in repair wave ${delta.repair_wave_id}.`);
       }
@@ -18754,6 +19060,12 @@ function applyTaskStateDelta(
   if (!legal) fail('TASK_STATE_TRANSITION_INVALID', `Cannot transition active step from ${oldStatus} to ${newStatus}.`);
   const claimEvidenceRequired = currentClaimEvidenceEnabled;
   const transitionClaimEvidence = delta.claim_evidence ?? current.runtimeState.claim_evidence ?? [];
+  const recoveredScopeCarry = newStatus === 'completed' && delta.review_receipt
+    ? recoverCommittedScopeEvidence(root, current) : [];
+  const evidenceCurrent: CanonicalCurrentTask = recoveredScopeCarry.length ? {
+    ...current, runtimeState: { ...current.runtimeState,
+      evidence_carry_forward: [...(current.runtimeState.evidence_carry_forward ?? []), ...recoveredScopeCarry] },
+  } : current;
   if (currentClaimEvidenceEnabled && delta.claim_evidence !== undefined) {
     assertClaimEvidencePlanPreserved(
       current.runtimeState.claim_evidence ?? [],
@@ -18773,7 +19085,7 @@ function applyTaskStateDelta(
         && digest(result.report) === digest(slot.report));
       if (!exactResult) fail('CLAIM_EVIDENCE_RESULT_UNBOUND', 'A new execution report requires its exact invocation result; raw progress cannot invent evidence.');
     }
-    if (slot.report && digest(old) !== digest(slot)) assertEvidenceReportApplicable(root, current, slot);
+    if (slot.report && digest(old) !== digest(slot)) assertEvidenceReportApplicable(root, evidenceCurrent, slot);
     if (old?.report && slot.report?.result_id === old.report.result_id && (digest(old.report) !== digest(slot.report) || digest(old.evidence_refs) !== digest(slot.evidence_refs))) fail('CLAIM_EVIDENCE_PLAN_CONFLICT', 'A changed report or artifact mapping requires a new result_id.');
     if (slot.before_step_id === delta.step_id && !slot.prerequisite_receipt
       && !hasChallengedSlotContinuation(root, current, record.claim_id, slot.slot_id)) fail('PREREQUISITE_REQUIRED', 'record-step-preflight must consume prerequisites before any execution result or progress.');
@@ -18793,7 +19105,7 @@ function applyTaskStateDelta(
         || slot.report.status !== slot.check.expected_result || !COMPLETE_CLAIM_EVIDENCE_DISPOSITIONS.includes(slot.disposition)) {
         fail('EVIDENCE_CHALLENGE_UNRESOLVED', 'Correction must provide a new successful report for the exact challenged slot.');
       }
-      assertEvidenceReportApplicable(root, current, slot);
+      assertEvidenceReportApplicable(root, evidenceCurrent, slot);
     }
   }
   for (const result of [...(delta.execution_result?.command_results ?? []), ...(delta.execution_result?.validation_results ?? [])]) {
@@ -18822,7 +19134,7 @@ function applyTaskStateDelta(
     }
   }
   if (newStatus === 'completed' && !repairBlockedResult
-    && !evaluateClaimEvidence(transitionClaimEvidence, { root, current, due_step_id: delta.step_id }).validation_complete) fail('CLAIM_EVIDENCE_INCOMPLETE', 'Every due slot must have applicable successful evidence before step completion.');
+    && !evaluateClaimEvidence(transitionClaimEvidence, { root, current: evidenceCurrent, due_step_id: delta.step_id }).validation_complete) fail('CLAIM_EVIDENCE_INCOMPLETE', 'Every due slot must have applicable successful evidence before step completion.');
   let advancement: StepAdvancementResult = {
     outcome: 'not-applicable',
     from_step_id: delta.step_id,
@@ -18925,7 +19237,7 @@ function applyTaskStateDelta(
       if (delta.claim_evidence === undefined) {
         fail('CLAIM_EVIDENCE_REQUIRED', 'the final task-complete step-progress must carry the durable claim_evidence snapshot.');
       }
-      const completion = evaluateClaimEvidence(transitionClaimEvidence, { root, current });
+      const completion = evaluateClaimEvidence(transitionClaimEvidence, { root, current: evidenceCurrent });
       if (!completion.validation_complete) {
         fail('CLAIM_EVIDENCE_INCOMPLETE', 'task-complete requires every planned claim evidence slot to be existing, reused, or newly-executed with evidence_refs.');
       }
@@ -19010,6 +19322,7 @@ function applyTaskStateDelta(
       : {}),
     claim_evidence_required: claimEvidenceRequired,
     claim_evidence: copyClaimEvidence(transitionClaimEvidence),
+    ...(recoveredScopeCarry.length ? { evidence_carry_forward: evidenceCurrent.runtimeState.evidence_carry_forward } : {}),
     ...(newStatus === 'completed' && unresolvedChallenges.length > 0
       ? { evidence_challenges: (current.runtimeState.evidence_challenges ?? []).map(item => unresolvedChallenges.some(challenge => challenge.challenge_id === item.challenge_id) ? { ...item, status: 'resolved' as const } : item) }
       : {}),
@@ -21584,6 +21897,7 @@ export function createStepPreflightProposal(
     controlled_recovery_grant_id?: string;
     policy_decision_id?: string;
     conditional_authorizations?: ConditionalScopeAuthorization[];
+    blocked_result_id?: string;
   } = {},
 ): RuntimeProposal {
   const mode = input.mode ?? 'default';
@@ -21619,6 +21933,7 @@ export function createStepPreflightProposal(
     repair_wave_id: input.repair_wave_id ?? null,
     review_id: input.review_id ?? null,
     controlled_recovery_grant_id: input.controlled_recovery_grant_id ?? null,
+    blocked_result_id: input.blocked_result_id ?? null,
     reconciliation_lineage: reconciliationLineage,
   })}`;
   // Ordinary v1 tasks need the same durable execution identity as v2 and
@@ -21635,6 +21950,7 @@ export function createStepPreflightProposal(
       review_id: input.review_id ?? '',
       review_target_paths: input.review_target_paths ?? [],
       ...(input.controlled_recovery_grant_id ? { controlled_recovery_grant_id: input.controlled_recovery_grant_id } : {}),
+      ...(input.blocked_result_id ? { blocked_result_id: input.blocked_result_id } : {}),
     } : {}),
     ...(input.policy_decision_id ? { policy_decision_id: input.policy_decision_id } : {}),
     change_set_id: changeSetId,
@@ -21652,6 +21968,7 @@ export function createStepPreflightProposal(
     repair_wave_id: input.repair_wave_id ?? null,
     review_id: input.review_id ?? null,
     policy_decision_id: input.policy_decision_id ?? null,
+    blocked_result_id: input.blocked_result_id ?? null,
   })}`;
   return validateRuntimeProposal({
     schema_version: 1, kind: VNEXT_RUNTIME_PROPOSAL_KIND,

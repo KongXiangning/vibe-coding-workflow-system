@@ -57,7 +57,7 @@ export const PHASE_1_MODES: Record<Phase1Entry, readonly string[]> = {
 };
 
 export const ADMIN_MODES: Record<AdminEntry, readonly string[]> = {
-  'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign'],
+  'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign', 'maintain-domains'],
 };
 
 export const EXPERT_MODES: Record<ExpertEntry, readonly string[]> = {

@@ -9,11 +9,12 @@ entry_contract:
     - inventory
     - adopt
     - realign
+    - maintain-domains
   intent: Establish or reconcile a vNext governed project surface after Distribution installation without creating feature implementation or an active task.
   input_contract:
     required:
       - target project root and project identity
-      - one bootstrap mode from the closed set
+      - one bootstrap mode or a project-domain maintenance request
       - explicit changed_paths for every promoted target
       - mutation scope and any exact conditional authorization
       - evidence references for the selected mode
@@ -199,6 +200,17 @@ repository, `WORKFLOW_SYSTEM_ROOT`, or source-side `gen`/`pack`/`sync` commands.
    New task identities require v2, so finish this project-owned map before
    the first `prepare-task` creation. Existing v1 tasks keep their recorded
    authority model; Bootstrap must not rewrite them.
+   `maintain-domains` is the narrow project-owned route for an installed project:
+   read `authority-domain-context`, inspect actual directories and ownership,
+   obtain the project owner's decision for the exact proposed IDs/roots, then
+   use `authority-domain-update` with the observed profile hash and domain-map
+   revision. This command initializes a missing map or adds domains/roots to an
+   existing map and saves an immutable decision receipt. It does not run
+   `realign`, regenerate other governance assets, or grant a task new paths.
+   If an active v2 task is affected, use the separate
+   `authority-domain-rebind` transaction after inspecting the changed domains;
+   newly widened selected domains require a task-specific decision. Continue
+   the original maintenance request after exact read-back.
 5. Design mode produces design evidence and draft decisions only. Greenfield
    mode consumes a confirmed design baseline. Inventory mode records actual
    paths, consumers, evidence, migration risks, and unknowns without changing

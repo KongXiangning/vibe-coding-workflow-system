@@ -21,6 +21,11 @@ function recoveryRoute(code: string, result?: RecoveryResult) {
   if (code === 'RETRY_DIAGNOSIS_REQUIRED') return { command: 'retry-step', action: 'correct-evidence-backed-diagnosis' };
   if (code === 'PREFLIGHT_BLOCKED') return { command: 'task-context', action: 'inspect-blocked-step-and-retry' };
   if (code === 'MUTATION_AUTHORITY_VERSION_REQUIRED') return { command: 'task-context', action: 'select-current-task-version-recovery' };
+  if (code === 'MUTATION_AUTHORITY_PROJECT_REQUIRED' || code === 'MUTATION_AUTHORITY_DOMAIN_REVISION_STALE'
+    || code === 'MUTATION_AUTHORITY_DOMAIN_REVISION_REQUIRED'
+    || code === 'MUTATION_AUTHORITY_EXPANSION_REQUIRED' || code.startsWith('AUTHORITY_DOMAIN_')) {
+    return { command: 'authority-domain-context', action: 'inspect-project-map-and-task-binding-before-owner-confirmed-recovery' };
+  }
   if (code === 'RETRY_REVIEW_REQUIRED') return { command: 'record-user-decision', action: 'bind-current-review-retry' };
   if (code === 'REPAIR_BUDGET_EXHAUSTED' || code === 'NEW_FINDING_WAVE_BUDGET_EXHAUSTED') {
     return { command: 'extend-repair-budget', action: 'reassess-failures-and-extend-current-review' };

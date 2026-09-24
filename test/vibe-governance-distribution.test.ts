@@ -280,7 +280,7 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, '.workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl'))).toBe(true);
     const installedProtocol = fs.readFileSync(targetPath(target, '.workflow-system/WORKFLOW_PROTOCOL.md'), 'utf8');
     expect(installedProtocol).toContain(PUBLIC_ENTRY_TERMINAL_MARKER);
-    expect(installedProtocol).toContain('cannot observe conversation-level public Skill invocations');
+    expect(installedProtocol).toMatch(/A rejected Runtime operation\r?\nis an internal recovery checkpoint/u);
     expect(installedProtocol).toContain('tracked, untracked, ignored');
     expect(installedProtocol).toContain('`.gitignore` is not an exemption');
     expect(installedProtocol).toContain('`expected_write_footprint`');

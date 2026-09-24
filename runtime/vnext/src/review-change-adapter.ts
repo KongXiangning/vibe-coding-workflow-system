@@ -290,15 +290,16 @@ export function ingestEvidence(root: string, input: unknown, options: RuntimeApp
 
 export function routeTaskInput(root: string, input: unknown) {
   const source = record(input, 'route-input');
-  exactKeys(source, ['source_revision', 'input_ref', 'input_sha256', 'relation', 'operation', 'reason'], 'route-input');
+  exactKeys(source, ['source_revision', 'input_ref', 'input_sha256', 'relation', 'operation', 'reason', ...(source.diagnosis_status === undefined ? [] : ['diagnosis_status'])], 'route-input');
   const current = readCanonicalCurrentTask(root);
   if (source.source_revision !== current.sourceTuple.revision) fail('INPUT_SOURCE_STALE', 'Input routing must bind the current task.');
   const ref = repoPath(source.input_ref, 'input_ref');
   if (describeEvidenceObjects(root, [ref])[0]?.sha256 !== source.input_sha256) fail('INPUT_EVIDENCE_STALE', 'Input material changed.');
   if (!['unrelated', 'current-task'].includes(String(source.relation)) || !['review-conclusion', 'recover-execution', 'change-goal', 'change-acceptance', 'expand-authority', 'other'].includes(String(source.operation))) fail('INPUT_ROUTE_INVALID', 'Unknown relation or requested operation.');
   const reason = text(source.reason, 'reason');
+  if (source.diagnosis_status !== undefined && !['known', 'uncertain'].includes(String(source.diagnosis_status))) fail('INPUT_ROUTE_INVALID', 'diagnosis_status must be known or uncertain.');
   const authorityChange = ['change-goal', 'change-acceptance', 'expand-authority'].includes(String(source.operation));
-  const route = source.relation === 'unrelated' ? 'capture-work-item' : authorityChange || source.operation === 'other' ? 'user' : source.operation === 'review-conclusion' ? 'review-change' : 'debug-task';
+  const route = source.relation === 'unrelated' ? 'capture-work-item' : authorityChange || source.operation === 'other' ? 'user' : source.operation === 'review-conclusion' ? 'review-change' : source.diagnosis_status === 'uncertain' ? 'debug-task' : 'execute-step';
   return { status: authorityChange ? 'user-decision-required' : 'routed', kind: 'task-input-routing/v1', source_tuple: current.sourceTuple,
     input_ref: ref, input_sha256: source.input_sha256, relation: source.relation, operation: source.operation, reason,
     next_route: route, evidence_assurance: 'caller-reported', permission_change: 'none',
@@ -496,6 +497,7 @@ function copyExecutionResult(value: StepExecutionResult | undefined): Record<str
     ...(value.execution_id === undefined ? {} : { execution_id: value.execution_id }),
     ...(value.attempt_id === undefined ? {} : { attempt_id: value.attempt_id }),
     ...(value.blocker_kind === undefined ? {} : { blocker_kind: value.blocker_kind }),
+    ...(value.blocked_result_id === undefined ? {} : { blocked_result_id: value.blocked_result_id }),
     outcome: value.outcome,
     change_set_id: value.change_set_id,
     review_base: reviewTargetSummary(value.review_base),
