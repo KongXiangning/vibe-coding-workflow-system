@@ -1050,8 +1050,9 @@ function governanceUpgradeBoundary(targetRoot: string): DistributionIssue[] {
     const workflowStatus = current.runtimeState.workflow_status;
     const lifecycleState = current.runtimeState.lifecycle_state;
     if ((workflowStatus === 'closed' && lifecycleState === 'archived')
-      || (workflowStatus === 'active' && lifecycleState === 'active')) return [];
-    return [distributionIssue('UPGRADE_NON_IDLE', 'vNext upgrade requires a valid closed + archived task or a confirmed active + active task; suspended, interrupted, draft, and ambiguous states remain blocked.')];
+      || (workflowStatus === 'active' && lifecycleState === 'active')
+      || (workflowStatus === 'blocked_by_replan' && lifecycleState === 'active' && current.runtimeState.active_step_status === 'completed')) return [];
+    return [distributionIssue('UPGRADE_NON_IDLE', 'vNext upgrade requires a valid closed + archived task, confirmed active + active task, or completed step blocked by replan; suspended, interrupted, draft, and ambiguous states remain blocked.')];
   } catch (error) {
     return [distributionIssue('UPGRADE_NON_IDLE', `Incoming Runtime did not prove a valid task-state boundary: ${error instanceof Error ? error.message : String(error)}`)];
   }

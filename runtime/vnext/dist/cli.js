@@ -6533,7 +6533,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.21.5";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.21.6";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -17920,13 +17920,53 @@ function executedStepIds(current) {
     ...Object.entries(current.runtimeState.step_attempts ?? {}).filter(([, ledger]) => ledger.attempts.length).map(([id]) => id)
   ]);
 }
-function revisePendingSteps(current, definition, revision, recoverySteps) {
+function revisePendingSteps(root, current, definition, revision, recoverySteps) {
   const executed = executedStepIds(current);
+  const completed = new Set(current.runtimeState.execution_log.flatMap((item) => ("step_id" in item) && item.status === "completed" ? [item.step_id] : []));
   const oldSteps = parseImplementationSteps(definition.implementation_steps);
-  const pendingIds = oldSteps.filter((step) => !executed.has(step.id)).map((step) => step.id);
+  const activeIndex = oldSteps.findIndex((step) => step.id === current.runtimeState.active_step_id);
+  if (activeIndex < 0)
+    fail3("REPLAN_CANDIDATE_STATE_INVALID", "The active step is missing from the retained plan.");
+  const earlier = oldSteps.slice(0, activeIndex);
+  const earlierIds = new Set(earlier.map((step) => step.id));
+  const earlierIndex = new Map(earlier.map((step, index) => [step.id, index]));
+  const continuations = new Map;
+  for (const audit of current.runtimeState.execution_log) {
+    if (!("action" in audit) || audit.action !== "commit-scope-amendment" || !audit.candidate_digest)
+      continue;
+    const location2 = scopeAmendmentCandidateLocation(current, audit.candidate_digest);
+    if (!fs13.existsSync(location2.filePath))
+      fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate is missing.");
+    let candidate;
+    try {
+      candidate = JSON.parse(fs13.readFileSync(location2.filePath, "utf8"));
+    } catch {
+      fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate cannot be read.");
+    }
+    const { candidate_digest: marker, ...content } = candidate;
+    if (marker !== audit.candidate_digest || digest3(content) !== marker || candidate.task_id !== current.runtimeState.task_id || candidate.document_id !== current.sourceTuple.document_id) {
+      fail3("SCOPE_AMENDMENT_HISTORY_CORRUPT", "Confirmed scope-amendment candidate changed or belongs to another task.");
+    }
+    continuations.set(candidate.continuation.prior_step_id, candidate.step_diff.inserted_step_id);
+  }
+  for (const step of earlier) {
+    if (completed.has(step.id))
+      continue;
+    let successor = step.id;
+    const visited = new Set;
+    while (!completed.has(successor) && continuations.has(successor) && !visited.has(successor)) {
+      visited.add(successor);
+      const next2 = continuations.get(successor);
+      if (!earlierIds.has(next2) || earlierIndex.get(next2) <= earlierIndex.get(successor))
+        break;
+      successor = next2;
+    }
+    if (!earlierIds.has(successor) || !completed.has(successor)) {
+      fail3("RECOVERY_HISTORY_REQUIRED", `Historical step ${step.id} has no completed continuation before the active step.`);
+    }
+  }
+  const pendingIds = oldSteps.slice(activeIndex).filter((step, index) => index === 0 ? current.runtimeState.active_step_status !== "completed" && (!executed.has(step.id) || current.runtimeState.workflow_status === "blocked_by_replan") : !executed.has(step.id)).map((step) => step.id);
   const obligations = [...pendingIds];
-  if (current.runtimeState.workflow_status === "blocked_by_replan" && current.runtimeState.active_step_status !== "completed" && !obligations.includes(current.runtimeState.active_step_id))
-    obligations.push(current.runtimeState.active_step_id);
   if (digest3(obligations.sort()) !== digest3(revision.step_map.map((item) => item.old_step_id).sort()))
     fail3("RECOVERY_OBLIGATION_INVALID", "Every never-executed step and suspended unfinished attempt requires exactly one replacement mapping.");
   const nextIds = new Set([...recoverySteps, ...revision.steps].map((step) => step.id));
@@ -19150,11 +19190,11 @@ function buildCorrectionCandidate(root, current, input) {
   const oldObligations = correctionObligations(current);
   const retainedStepIds = parseImplementationSteps(readDraftDefinitionFromBody(current.body).implementation_steps).map((item) => item.id);
   const append = current.runtimeState.active_step_status === "completed";
-  if (append && retainedStepIds.at(-1) !== current.runtimeState.active_step_id)
+  if (append && !input.pending_step_changes && retainedStepIds.at(-1) !== current.runtimeState.active_step_id)
     fail3("REPLAN_CANDIDATE_STATE_INVALID", "Only a completed final step supports append.");
   let definition = readDraftDefinitionFromBody(current.body);
   if (input.pending_step_changes)
-    definition = revisePendingSteps(current, definition, input.pending_step_changes, recoverySteps);
+    definition = revisePendingSteps(root, current, definition, input.pending_step_changes, recoverySteps);
   const pendingAnchor = input.pending_step_changes?.steps[0]?.id;
   const anchor = pendingAnchor ?? (input.pending_step_changes ? parseImplementationSteps(definition.implementation_steps).at(-1).id : current.runtimeState.active_step_id);
   const appendRecovery = input.pending_step_changes ? !pendingAnchor : append;
@@ -19343,7 +19383,7 @@ function prepareCorrectionReplanLocked(root, rawInput, options) {
   const existed = fs13.existsSync(location2.filePath);
   const candidateDirectory = path14.dirname(location2.filePath);
   if (fs13.existsSync(candidateDirectory)) {
-    const prior = fs13.readdirSync(candidateDirectory).filter((item) => item.endsWith(".json"));
+    const prior = fs13.readdirSync(candidateDirectory).filter((item) => /^[a-f0-9]{64}\.json$/u.test(item));
     if (prior.length > 128)
       fail3("REPLAN_CANDIDATE_BUDGET_EXHAUSTED", "Task candidate inventory exceeds the bounded limit.");
     let sameChallengeCount = 0;

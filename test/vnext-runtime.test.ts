@@ -14274,6 +14274,126 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).mutationAuthority?.domains).toContain('node-rollout');
   });
 
+  test('completed middle-step recovery keeps committed scope history and replaces only future steps', { timeout: 30000 }, () => {
+    const claims = evidencePlanFixture('The S3 observation is revalidated after recovery', 'S3');
+    claims[0]!.slots[0]!.minimum_type = 'static-inspection';
+    claims[0]!.slots[0]!.check!.method = 'static';
+    claims[0]!.slots[0]!.check!.subject_paths = ['README.md'];
+    claims[0]!.slots[0]!.check!.expected_result = 'accepted';
+    delete claims[0]!.slots[0]!.check!.selection;
+    for (const [claimId, slotId, checkId, dueStep] of [['I1', 'i1', 'K2', 'S4'], ['I2', 'i2', 'K3', 'S5']]) {
+      const future = structuredClone(claims[0]!);
+      future.claim_id = claimId;
+      future.claim_kind = 'invariant';
+      future.requirement = `${dueStep} validation remains due`;
+      future.slots[0]!.slot_id = slotId;
+      future.slots[0]!.due_step_id = dueStep;
+      future.slots[0]!.check!.check_id = checkId;
+      claims.push(future);
+    }
+    const draft = semanticDraft({
+      claim_evidence: claims, persistent_tests: 'none',
+      mutation_scope: { allowed: ['README.md'], conditional: [], forbidden: ['.git/**'] },
+      implementation_steps: ['S1', 'S2', 'S3', 'S4', 'S5'].map(id => ({
+        id, description: `Verify ${id}`, mutation_scope: ['README.md'], commands: [],
+        validation: [`Validate ${id}`], review_checkpoint: { policy: 'required', reason: `Review ${id}` },
+      })),
+    });
+    const root = confirmedSemanticRoot(draft);
+    fs.writeFileSync(path.join(root, 'README.md'), 'Stable observation.\n');
+    fs.writeFileSync(path.join(root, 'evidence-report.txt'), 'The bounded check passed.\n');
+    const addedPath = 'docs/historical-continuation.txt';
+    const scope = prepareScopeAmendment(root, {
+      added_paths: [addedPath],
+      authorization: { decision_source: 'test:scope-history', decision_text: 'Authorize the exact continuation path.', authorized_paths: [addedPath] },
+      amendment_step: { id: 'S1-cont', description: 'Continue S1 with the authorized path', mutation_scope: ['README.md', addedPath], commands: [], required_evidence: ['Validate S1-cont'] },
+    });
+    expect(scope.status).toBe('success');
+    expect(fs.existsSync(path.join(root, ...scope.candidate_path.split('/')))).toBe(true);
+    function executeAndAdvance(id: string, advance: boolean) {
+      const preflight = preflightStep(root, { candidate_paths: [] });
+      expect(preflight.receipt.step_id).toBe(id);
+      const result = recordStepResult(root, {
+        preflight_receipt: preflight.receipt, actual_changed_paths: [], command_results: [],
+        validation_results: preflight.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: ['evidence-report.txt'] })),
+        acceptance_evidence: id === 'S3' ? [reportFixture(root)] : [],
+        outcome: 'implemented', note: `Verify ${id}`,
+      });
+      expect(result.status).toBe('success');
+      if (!advance) return;
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: id, note: `Reviewed ${id}` }).status).toBe('success');
+    }
+    executeAndAdvance('S1-cont', true);
+    const secondAddedPath = 'docs/historical-s2.txt';
+    const secondScope = prepareScopeAmendment(root, {
+      added_paths: [secondAddedPath],
+      authorization: { decision_source: 'test:scope-history-s2', decision_text: 'Authorize the second exact continuation path.', authorized_paths: [secondAddedPath] },
+      amendment_step: { id: 'S2-cont', description: 'Continue S2 with the authorized path', mutation_scope: ['README.md', secondAddedPath], commands: [], required_evidence: ['Validate S2-cont'] },
+    });
+    expect(secondScope.status).toBe('success');
+    executeAndAdvance('S2-cont', true);
+    executeAndAdvance('S3', false);
+    const s3Review = reviewContext(root, {});
+    expect(recordReviewResult(root, { context_receipt: s3Review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
+    // The installed task can retain a completed middle step while a later plan still exists.
+    useLegacyInlineCurrent(root);
+    const legacy = readCanonicalCurrentTask(root);
+    const frontmatter = structuredClone(legacy.frontmatter);
+    (frontmatter.runtime_state as Record<string, unknown>).active_step_status = 'completed';
+    fs.writeFileSync(legacy.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${legacy.body}`, 'utf8');
+    const migrated = readCanonicalCurrentTask(root);
+    commitTaskStorageMigration(root, migrated, migrated.sourceTuple.revision);
+    expect(applyVNextRuntimeProposal(root, replanProposal(root, 'mark-replan-blocked', 'middle-step-recovery-block')).status).toBe('success');
+    const before = readCanonicalCurrentTask(root);
+    expect(before.runtimeState.active_step_status).toBe('completed');
+    const target = [...before.runtimeState.execution_log].reverse().find(item => !('action' in item) && item.step_id === 'S3');
+    if (!target || 'action' in target) throw new Error('S3 execution is missing');
+    const step = (id: string) => ({ id, description: `Verify ${id}`, mutation_scope: ['README.md'], commands: [], required_evidence: [`Validate ${id}`] });
+    const input = {
+      mode: 'execution-recovery', challenge_ids: [], execution_targets: [{ execution_id: target.idempotency_key, reason: 'S3 evidence must be refreshed', evidence_ref: 'evidence-report.txt', evidence_sha256: fileRevision(path.join(root, 'evidence-report.txt')) }],
+      correction_step: step('R1'),
+      pending_step_changes: { steps: [step('S4-new'), step('S5-new')], step_map: [
+        { old_step_id: 'S4', new_step_ids: ['S4-new'] }, { old_step_id: 'S5', new_step_ids: ['S5-new'] },
+      ] },
+      obligation_map: [
+        { claim_id: 'A1', slot_id: 'a1', due_step_id: 'R1' },
+        { claim_id: 'I1', slot_id: 'i1', due_step_id: 'S4-new' },
+        { claim_id: 'I2', slot_id: 'i2', due_step_id: 'S5-new' },
+      ],
+    };
+    const scopePath = path.join(root, ...scope.candidate_path.split('/'));
+    fs.renameSync(scopePath, `${scopePath}.held`);
+    try { expect(() => prepareCorrectionReplan(root, input)).toThrow('SCOPE_AMENDMENT_HISTORY_CORRUPT'); }
+    finally { fs.renameSync(`${scopePath}.held`, scopePath); }
+    const competingPath = path.join(path.dirname(scopePath), `${'a'.repeat(64)}.json`);
+    fs.writeFileSync(competingPath, '{}\n');
+    try { expect(() => prepareCorrectionReplan(root, input)).toThrow('REPLAN_CANDIDATE_CONFLICT'); }
+    finally { fs.unlinkSync(competingPath); }
+    const prepared = prepareCorrectionReplan(root, input);
+    expect(prepared.status).toBe('success');
+    expect(confirmCorrectionReplan(root, { candidate_receipt: prepared.candidate_receipt, authorization: {
+      approved_candidate_digest: prepared.candidate_receipt.candidate_digest, decision_source: 'test:middle-step-recovery',
+      decision_text: 'Revalidate S3 and retain the ordered future obligations.', invalidation_reason: 'S3 needs fresh evidence.',
+    } }).status).toBe('success');
+    const after = readCanonicalCurrentTask(root);
+    expect(after.runtimeState.active_step_id).toBe('R1');
+    expect(after.body).toContain('- S1: Verify S1');
+    expect(after.body).toContain('- S1-cont: Continue S1 with the authorized path');
+    expect(after.body).toContain('- S2: Verify S2');
+    expect(after.body).toContain('- S2-cont: Continue S2 with the authorized path');
+    expect(after.body).toContain('- S3: Verify S3');
+    expect(after.body).not.toContain('- S4: Verify S4');
+    expect(after.body).not.toContain('- S5: Verify S5');
+    expect(after.body.indexOf('- R1:')).toBeLessThan(after.body.indexOf('- S4-new:'));
+    expect(after.body.indexOf('- S4-new:')).toBeLessThan(after.body.indexOf('- S5-new:'));
+    expect(after.runtimeState.claim_evidence?.[0]?.slots[0]?.due_step_id).toBe('R1');
+    expect(after.runtimeState.claim_evidence?.[0]?.slots[0]?.report).toBeNull();
+    expect(after.runtimeState.claim_evidence?.[1]?.slots[0]?.due_step_id).toBe('S4-new');
+    expect(after.runtimeState.claim_evidence?.[2]?.slots[0]?.due_step_id).toBe('S5-new');
+  });
+
   test('E16 blocks v2 planned targets outside the selected authority domain during prepare', () => {
     const root = archivedBaselineRoot();
     enableV2MutationAuthority(root);

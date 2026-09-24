@@ -138,7 +138,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.5';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.6';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -13804,12 +13804,50 @@ function executedStepIds(current: CanonicalCurrentTask): Set<string> {
   ]);
 }
 
-function revisePendingSteps(current: CanonicalCurrentTask, definition: DraftTaskDefinition, revision: PendingStepRevision, recoverySteps: CorrectionStepInput[]): DraftTaskDefinition {
+function revisePendingSteps(root: string, current: CanonicalCurrentTask, definition: DraftTaskDefinition, revision: PendingStepRevision, recoverySteps: CorrectionStepInput[]): DraftTaskDefinition {
   const executed = executedStepIds(current);
+  const completed = new Set(current.runtimeState.execution_log.flatMap(item =>
+    'step_id' in item && item.status === 'completed' ? [item.step_id] : []));
   const oldSteps = parseImplementationSteps(definition.implementation_steps);
-  const pendingIds = oldSteps.filter(step => !executed.has(step.id)).map(step => step.id);
+  const activeIndex = oldSteps.findIndex(step => step.id === current.runtimeState.active_step_id);
+  if (activeIndex < 0) fail('REPLAN_CANDIDATE_STATE_INVALID', 'The active step is missing from the retained plan.');
+  const earlier = oldSteps.slice(0, activeIndex);
+  const earlierIds = new Set(earlier.map(step => step.id));
+  const earlierIndex = new Map(earlier.map((step, index) => [step.id, index]));
+  const continuations = new Map<string, string>();
+  for (const audit of current.runtimeState.execution_log) {
+    if (!('action' in audit) || audit.action !== 'commit-scope-amendment' || !audit.candidate_digest) continue;
+    const location = scopeAmendmentCandidateLocation(current, audit.candidate_digest);
+    if (!fs.existsSync(location.filePath)) fail('SCOPE_AMENDMENT_HISTORY_CORRUPT', 'Confirmed scope-amendment candidate is missing.');
+    let candidate: ScopeAmendmentCandidate & { candidate_digest: string };
+    try { candidate = JSON.parse(fs.readFileSync(location.filePath, 'utf8')) as ScopeAmendmentCandidate & { candidate_digest: string }; }
+    catch { fail('SCOPE_AMENDMENT_HISTORY_CORRUPT', 'Confirmed scope-amendment candidate cannot be read.'); }
+    const { candidate_digest: marker, ...content } = candidate;
+    if (marker !== audit.candidate_digest || digest(content) !== marker
+      || candidate.task_id !== current.runtimeState.task_id || candidate.document_id !== current.sourceTuple.document_id) {
+      fail('SCOPE_AMENDMENT_HISTORY_CORRUPT', 'Confirmed scope-amendment candidate changed or belongs to another task.');
+    }
+    continuations.set(candidate.continuation.prior_step_id, candidate.step_diff.inserted_step_id);
+  }
+  for (const step of earlier) {
+    if (completed.has(step.id)) continue;
+    let successor = step.id;
+    const visited = new Set<string>();
+    while (!completed.has(successor) && continuations.has(successor) && !visited.has(successor)) {
+      visited.add(successor);
+      const next = continuations.get(successor)!;
+      if (!earlierIds.has(next) || earlierIndex.get(next)! <= earlierIndex.get(successor)!) break;
+      successor = next;
+    }
+    if (!earlierIds.has(successor) || !completed.has(successor)) {
+      fail('RECOVERY_HISTORY_REQUIRED', `Historical step ${step.id} has no completed continuation before the active step.`);
+    }
+  }
+  const pendingIds = oldSteps.slice(activeIndex).filter((step, index) => index === 0
+    ? current.runtimeState.active_step_status !== 'completed'
+      && (!executed.has(step.id) || current.runtimeState.workflow_status === 'blocked_by_replan')
+    : !executed.has(step.id)).map(step => step.id);
   const obligations = [...pendingIds];
-  if (current.runtimeState.workflow_status === 'blocked_by_replan' && current.runtimeState.active_step_status !== 'completed' && !obligations.includes(current.runtimeState.active_step_id)) obligations.push(current.runtimeState.active_step_id);
   if (digest(obligations.sort()) !== digest(revision.step_map.map(item => item.old_step_id).sort())) fail('RECOVERY_OBLIGATION_INVALID', 'Every never-executed step and suspended unfinished attempt requires exactly one replacement mapping.');
   const nextIds = new Set([...recoverySteps, ...revision.steps].map(step => step.id));
   if (revision.step_map.some(item => item.new_step_ids.some(id => !nextIds.has(id)))) fail('RECOVERY_OBLIGATION_INVALID', 'Step obligation maps to a missing execution step.');
@@ -15113,9 +15151,9 @@ function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, i
   const oldObligations = correctionObligations(current);
   const retainedStepIds = parseImplementationSteps(readDraftDefinitionFromBody(current.body).implementation_steps).map(item => item.id);
   const append = current.runtimeState.active_step_status === 'completed';
-  if (append && retainedStepIds.at(-1) !== current.runtimeState.active_step_id) fail('REPLAN_CANDIDATE_STATE_INVALID', 'Only a completed final step supports append.');
+  if (append && !input.pending_step_changes && retainedStepIds.at(-1) !== current.runtimeState.active_step_id) fail('REPLAN_CANDIDATE_STATE_INVALID', 'Only a completed final step supports append.');
   let definition = readDraftDefinitionFromBody(current.body);
-  if (input.pending_step_changes) definition = revisePendingSteps(current, definition, input.pending_step_changes, recoverySteps);
+  if (input.pending_step_changes) definition = revisePendingSteps(root, current, definition, input.pending_step_changes, recoverySteps);
   const pendingAnchor = input.pending_step_changes?.steps[0]?.id;
   const anchor = pendingAnchor ?? (input.pending_step_changes ? parseImplementationSteps(definition.implementation_steps).at(-1)!.id : current.runtimeState.active_step_id);
   const appendRecovery = input.pending_step_changes ? !pendingAnchor : append;
@@ -15250,7 +15288,7 @@ function prepareCorrectionReplanLocked(root: string, rawInput: unknown, options:
   const existed = fs.existsSync(location.filePath);
   const candidateDirectory = path.dirname(location.filePath);
   if (fs.existsSync(candidateDirectory)) {
-    const prior = fs.readdirSync(candidateDirectory).filter(item => item.endsWith('.json'));
+    const prior = fs.readdirSync(candidateDirectory).filter(item => /^[a-f0-9]{64}\.json$/u.test(item));
     if (prior.length > 128) fail('REPLAN_CANDIDATE_BUDGET_EXHAUSTED', 'Task candidate inventory exceeds the bounded limit.');
     let sameChallengeCount = 0;
     let sameProblemCount = 0;

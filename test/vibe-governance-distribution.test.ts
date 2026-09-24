@@ -555,6 +555,24 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(JSON.parse(fs.readFileSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH), 'utf8')).distribution_version).toBe(validateDistributionVersionLockstep(ROOT));
   });
 
+  test('vNext upgrade preserves a completed task blocked by replan byte-for-byte', { timeout: 60000 }, () => {
+    const target = makeActiveVNextTarget();
+    const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+    const blocked = fs.readFileSync(currentTaskPath, 'utf8')
+      .replace('workflow_status: active', 'workflow_status: blocked_by_replan')
+      .replace('active_step_status: ready', 'active_step_status: completed')
+      .replace('当前状态：active', '当前状态：blocked_by_replan');
+    fs.writeFileSync(currentTaskPath, blocked, 'utf8');
+    const before = fs.readFileSync(currentTaskPath);
+    const profilePath = targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml');
+    const profileBefore = fs.readFileSync(profilePath);
+    const upgrade = upgradeDistribution({ targetRoot: target, packageRoot });
+    expect(upgrade.status, JSON.stringify(upgrade.blockers)).toBe('upgraded');
+    expect(upgrade.read_back_verified).toBe(true);
+    expect(fs.readFileSync(currentTaskPath)).toEqual(before);
+    expect(fs.readFileSync(profilePath)).toEqual(profileBefore);
+  });
+
   test('vNext upgrade uses the incoming parser when an older Runtime cannot read a compatible task store', { timeout: 60000 }, () => {
     const target = makeActiveVNextTarget();
     const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
