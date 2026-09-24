@@ -80,6 +80,17 @@ confirmation is promoted into the canonical `PROJECT_PROFILE.yaml` map.
 it for an individual task. A simple project may confirm one broad application
 domain, but it still follows the same admission route.
 
+For a new task, the Agent derives one proposed write scope from the user's
+request, authoritative design and relevant code. Selected domains cover durable
+responsibility; a necessary one-off path outside them may be proposed as an
+exact task exception. The Agent records why the path is required and presents
+the complete draft for normal task confirmation. It does not ask for a separate
+pre-draft approval of each ordinary file. An explicit exclusion, changed goal
+or unresolved authority choice still needs a concrete user decision. Several
+uncovered files in one stable module call for one bounded project-domain
+proposal and owner confirmation, not a permanent map assembled from the last
+task's file list. Drafting a task exception never updates the project map.
+
 For an already installed project, `authority-domain-update` is a narrow,
 project-owner-confirmed transaction. It accepts a missing map as initialization
 or adds domains/roots to an existing map, preserving an immutable before/after
@@ -152,7 +163,13 @@ admission record. This preserves `new persistent test != ordinary file`.
 
 Only a real authority change—such as Node to Rust/shared-protocol or a new
 cross-domain exact exception—uses `prepare-task:amend-scope` with explicit
-user authorization. An absent new persistent test inside an already
+user authorization. The existing task instruction may supply that authority
+when the Agent can show how it entails every exact newly required path and no
+explicit task limit excludes them; retain its verbatim source and the
+path-by-path derivation. If it does not decide the scope, ask for one bounded
+choice. A Runtime rejection of the old envelope is never a write receipt;
+commit the amendment and obtain a fresh preflight before touching the path.
+An absent new persistent test inside an already
 authorized domain uses the same infrastructure with a complete typed P-12
 record and `authority_diff: none`; it is a real admission, not a no-op.
 Same-envelope implementation discovery still uses `extend-preflight`. The

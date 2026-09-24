@@ -14274,6 +14274,113 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).mutationAuthority?.domains).toContain('node-rollout');
   });
 
+  test('pure v2 carried evidence survives a compatible Runtime package upgrade', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const root = v2TwoStepConfirmedRoot();
+    try {
+      const packagePath = path.join(root, '.workflow-system/runtime/package.json');
+      fs.mkdirSync(path.dirname(packagePath), { recursive: true });
+      fs.writeFileSync(packagePath, JSON.stringify({ name: 'vibe-coding-vnext-runtime', version: '0.21.6' }));
+      const target = 'packages/node-rollout/src/session.ts';
+      const admitted = preflightStep(root, { candidate_paths: [target] });
+      const targetPath = path.join(root, ...target.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, 'export const session = "verified";\n');
+      const evidence = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: admitted.receipt, actual_changed_paths: [target],
+        command_results: admitted.current_step.commands.map(item => ({ command: item.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: evidence.evidence_refs })),
+        validation_results: admitted.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: evidence.evidence_refs })),
+        acceptance_evidence: [evidence], outcome: 'implemented', note: 'Verify the first v2 step',
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: evidence.evidence_refs, blocker: null }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Verified pure v2 step' }).status).toBe('success');
+      const additional = 'native/codex-rollout-collector/src/additional.rs';
+      const amended = prepareScopeAmendment(root, {
+        added_paths: [additional],
+        authorization: { decision_source: 'test:v2-compatible-upgrade', decision_text: 'Admit the exact continuation path.', authorized_paths: [additional] },
+        amendment_step: { id: 'step-2-cont', description: 'Continue the v2 rollout', mutation_scope: [additional], required_evidence: ['Fresh continuation review'], commands: [] },
+      });
+      expect(amended.status).toBe('success');
+      const carried = readCanonicalCurrentTask(root);
+      expect(carried.runtimeState.evidence_carry_forward?.[0]?.kind).toBe('evidence-carry-forward/v3');
+      expect(evaluateClaimEvidence(carried.runtimeState.claim_evidence!, { root, current: carried }).validation_complete).toBe(true);
+      const manifest = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+      manifest.version = '99.0.0';
+      fs.writeFileSync(packagePath, JSON.stringify(manifest));
+      const afterUpgrade = readCanonicalCurrentTask(root);
+      expect(evaluateClaimEvidence(afterUpgrade.runtimeState.claim_evidence!, { root, current: afterUpgrade }).validation_complete).toBe(true);
+      const contractPath = path.join(root, '.workflow-system/vnext/RUNTIME_CONTRACT.yaml');
+      fs.mkdirSync(path.dirname(contractPath), { recursive: true });
+      fs.writeFileSync(contractPath, 'schema_version: 1\n# compatible distribution refresh\n');
+      const afterContractRefresh = readCanonicalCurrentTask(root);
+      expect(evaluateClaimEvidence(afterContractRefresh.runtimeState.claim_evidence!, { root, current: afterContractRefresh }).validation_complete).toBe(true);
+      fs.appendFileSync(path.join(root, '.workflow-system/PROJECT_PROFILE.yaml'), '\n# changed project evidence context\n');
+      const changedProfile = readCanonicalCurrentTask(root);
+      expect(evaluateClaimEvidence(changedProfile.runtimeState.claim_evidence!, { root, current: changedProfile }).validation_complete).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('pure v2 legacy carry can be explicitly rebound without replacing its original proof', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const root = v2TwoStepConfirmedRoot();
+    try {
+      useLegacyInlineCurrent(root);
+      const packagePath = path.join(root, '.workflow-system/runtime/package.json');
+      fs.mkdirSync(path.dirname(packagePath), { recursive: true });
+      fs.writeFileSync(packagePath, JSON.stringify({ name: 'vibe-coding-vnext-runtime', version: '0.21.6' }));
+      const target = 'packages/node-rollout/src/session.ts';
+      const admitted = preflightStep(root, { candidate_paths: [target] });
+      const targetPath = path.join(root, ...target.split('/'));
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, 'export const session = "verified";\n');
+      const report = reportFixture(root);
+      expect(recordStepResult(root, {
+        preflight_receipt: admitted.receipt, actual_changed_paths: [target],
+        command_results: admitted.current_step.commands.map(item => ({ command: item.command, status: 'passed' as const, observed_repo_writes: [], evidence_refs: report.evidence_refs })),
+        validation_results: admitted.current_step.validation.map(validation => ({ validation, status: 'passed' as const, evidence_refs: report.evidence_refs })),
+        acceptance_evidence: [report], outcome: 'implemented', note: 'Verify the first v2 step',
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: report.evidence_refs, blocker: null }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Verified pure v2 step' }).status).toBe('success');
+      const additional = 'native/codex-rollout-collector/src/additional.rs';
+      expect(prepareScopeAmendment(root, {
+        added_paths: [additional], authorization: { decision_source: 'test:legacy-carry', decision_text: 'Admit the exact continuation path.', authorized_paths: [additional] },
+        amendment_step: { id: 'step-2-cont', description: 'Continue the v2 rollout', mutation_scope: [additional], required_evidence: ['Fresh continuation review'], commands: [] },
+      }).status).toBe('success');
+      const carried = readCanonicalCurrentTask(root);
+      const frontmatter = structuredClone(carried.frontmatter);
+      const state = frontmatter.runtime_state as Record<string, any>;
+      const oldContext = ['.workflow-system/PROJECT_PROFILE.yaml', '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', '.workflow-system/runtime/package.json']
+        .map(relative => { const file = path.join(root, relative); return { path: relative, sha256: fs.existsSync(file) ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : null }; });
+      state.evidence_carry_forward[0].kind = 'evidence-carry-forward/v2';
+      state.evidence_carry_forward[0].context_revision = crypto.createHash('sha256').update(JSON.stringify(oldContext)).digest('hex');
+      fs.writeFileSync(carried.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${carried.body}`, 'utf8');
+      const legacy = readCanonicalCurrentTask(root);
+      expect(evaluateClaimEvidence(legacy.runtimeState.claim_evidence!, { root, current: legacy }).validation_complete).toBe(true);
+      fs.writeFileSync(packagePath, JSON.stringify({ name: 'vibe-coding-vnext-runtime', version: '0.21.7' }));
+      const stale = readCanonicalCurrentTask(root);
+      expect(evaluateClaimEvidence(stale.runtimeState.claim_evidence!, { root, current: stale }).validation_complete).toBe(false);
+      const owner = stale.runtimeState.claim_evidence!.find(claim => claim.slots.some(slot => slot.report?.evidence_plan_revision !== stale.runtimeState.evidence_plan_revision))!;
+      const slot = owner.slots.find(item => item.report?.evidence_plan_revision !== stale.runtimeState.evidence_plan_revision)!;
+      const decision = { decision_source: 'test:explicit-compatible-upgrade', decision_text: 'This Runtime upgrade preserves the evidence admission semantics; rebind the exact unchanged carried report.',
+        task_id: stale.runtimeState.task_id, source_revision: stale.sourceTuple.revision,
+        effects: [{ kind: 'rebind-carried-evidence' as const, target_ids: [`claim:${owner.claim_id}/${slot.slot_id}`] }],
+        idempotency_key: 'rebind-legacy-v2-evidence', evidence_refs: ['evidence-report.txt'] };
+      const result = applyVNextRuntimeProposal(root, createUserDecisionProposal(stale, { caller: 'execute-step', decision,
+        authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'), evidence_refs: decision.evidence_refs }));
+      expect(result.status).toBe('success');
+      const rebound = readCanonicalCurrentTask(root);
+      expect(rebound.runtimeState.evidence_carry_forward?.map(item => item.kind)).toEqual(['evidence-carry-forward/v2', 'evidence-carry-forward/v3']);
+      expect(evaluateClaimEvidence(rebound.runtimeState.claim_evidence!, { root, current: rebound }).validation_complete).toBe(true);
+      expect(readCanonicalTaskBasis(root, rebound).basis.user_decisions.at(-1)?.source).toBe(decision.decision_source);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('completed middle-step recovery keeps committed scope history and replaces only future steps', { timeout: 30000 }, () => {
     const claims = evidencePlanFixture('The S3 observation is revalidated after recovery', 'S3');
     claims[0]!.slots[0]!.minimum_type = 'static-inspection';

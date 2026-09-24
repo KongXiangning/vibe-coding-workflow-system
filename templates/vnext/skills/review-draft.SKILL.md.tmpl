@@ -175,9 +175,19 @@ the exact-exception/forbidden partition. Read/discovery dependencies may be
 listed as context without becoming mutation authority. Confirm that each step
 uses `planned_mutation_targets` as guidance rather than a second hard ACL, and
 that the draft leaves room for same-domain implementation discovery with a
-blast-radius assessment and mandatory cumulative review. A proposed
-cross-domain target belongs in explicit user authority/amendment, not in an
-implicit planned file list. Review the local-vs-shared decision: prefer the
+blast-radius assessment and risk-selected cumulative review. Independently
+trace the complete proposed write set to the request, authoritative design and
+code relationships. A necessary one-off cross-domain file may be a proposed
+task-level exact exception in a new draft without a separate pre-draft user
+message naming it; verify its reason and the draft's normal confirmation route.
+Do not accept an unrelated path merely because it is listed. Check whether
+several uncovered files represent a stable module that needs one bounded,
+owner-confirmed project-domain update, rather than many task exceptions or a
+domain built from the previous task's file list. Request a user scope decision
+only for an actual goal change, explicit exclusion, or unresolved authority
+choice; group related paths into one concrete question. Once a task is
+confirmed, an out-of-envelope target still needs a recorded amendment and a
+fresh preflight before mutation. Review the local-vs-shared decision: prefer the
 smallest correct local change, require evidence for a broader shared change,
 and surface uncertain consumer or contract impact as `needs-user`.
 

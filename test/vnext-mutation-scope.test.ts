@@ -580,6 +580,44 @@ describe('vNext Mutation-oriented Scope', () => {
     ]);
   });
 
+  test('one task scope admits planned module files and one exact worker exception without widening the project map', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-draft-authority-'));
+    const task: TaskMutationAuthority = {
+      domains: ['node-rollout'],
+      exact_exceptions: ['scripts/case-judgment-projection-worker.ts'],
+      forbidden: [],
+    };
+    const planned = [
+      'packages/node-rollout/src/profile.ts',
+      'packages/node-rollout/src/vector.ts',
+      'scripts/case-judgment-projection-worker.ts',
+    ];
+    try {
+      const proposed = evaluateMutationAuthority({
+        root,
+        project: AUTHORITY_PROJECT,
+        task,
+        candidate_paths: planned,
+        planned_targets: planned,
+      });
+      const unrelated = evaluateMutationAuthority({
+        root,
+        project: AUTHORITY_PROJECT,
+        task,
+        candidate_paths: ['scripts/unrelated-worker.ts'],
+        planned_targets: ['scripts/unrelated-worker.ts'],
+      });
+
+      expect(proposed.status).toBe('pass');
+      expect(proposed.decisions.map(item => item.path)).toEqual(planned);
+      expect(unrelated.status).toBe('blocked');
+      expect(unrelated.blockers[0]).toContain('MUTATION_AUTHORITY_EXPANSION_REQUIRED');
+      expect(AUTHORITY_PROJECT.domains).toHaveLength(3);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('Mutation Authority v2 distinguishes existing tests from new persistent tests', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-authority-tests-'));
     const existing = 'packages/node-rollout-tests/existing-regression.test.ts';

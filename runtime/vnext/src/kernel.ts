@@ -138,7 +138,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.6';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.7';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -592,7 +592,7 @@ export type EvidenceChallenge = {
 };
 
 export type EvidenceCarryForward = {
-  kind: 'evidence-carry-forward/v1' | 'evidence-carry-forward/v2';
+  kind: 'evidence-carry-forward/v1' | 'evidence-carry-forward/v2' | 'evidence-carry-forward/v3';
   receiving_source_revision?: string;
   history_operation?: 'confirm-replan' | 'replace-validation' | 'amend-evidence-plan' | 'commit-scope-amendment' | 'rebind-authority-domains';
   user_decision_sha256?: string;
@@ -756,6 +756,7 @@ export type UserDecisionEffect =
   | { kind: 'accept-finding-risk'; fingerprint: string }
   | { kind: 'reopen-finding'; fingerprint: string }
   | { kind: 'cancel-replan-block'; target_ids: ['gate:blocked-by-replan'] }
+  | { kind: 'rebind-carried-evidence'; target_ids: string[] }
   | { kind: 'continue-after-warning'; gate_code?: string; target_ids: string[]; authorized_repair_waves?: number }
   | { kind: 'advance-with-exceptions'; gate_code?: string; target_ids: string[] }
   | { kind: 'close-with-exceptions'; gate_code?: string; target_ids: string[] }
@@ -3066,9 +3067,16 @@ function validateBootstrapRuntimeContract(value: unknown): string[] {
 export function validateVNextRuntimeContract(root: string, requireDependencies = false): VNextRuntimeContractValidationResult {
   const filePath = path.join(path.resolve(root), ...VNEXT_RUNTIME_CONTRACT_RELATIVE_PATH.split('/'));
   const contract = parseYamlMappingFile(filePath);
-  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'runtime_distribution', 'task_context', 'task_store', 'proposal', 'mutation_scope', 'mutation_authority', 'review_coverage_preimages', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
+  expectExactKeys(contract, ['schema_version', 'kind', 'phase', 'evidence_compatibility', 'runtime_distribution', 'task_context', 'task_store', 'proposal', 'mutation_scope', 'mutation_authority', 'review_coverage_preimages', 'canonical_current_task', 'concurrency', 'operations', 'unbound_operations', 'bootstrap_project'], 'vNext Runtime contract');
   if (contract.schema_version !== 1 || contract.kind !== 'vnext-runtime-contract' || contract.phase !== 'Phase 2') {
     fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract must declare schema_version=1, kind=vnext-runtime-contract, phase=Phase 2.');
+  }
+  const evidenceCompatibility = expectRecord(contract.evidence_compatibility, 'Runtime contract.evidence_compatibility');
+  expectExactKeys(evidenceCompatibility, ['semantics_revision', 'compatible_upgrade', 'incompatible_upgrade'], 'Runtime contract.evidence_compatibility');
+  if (evidenceCompatibility.semantics_revision !== EVIDENCE_SEMANTICS_REVISION
+    || evidenceCompatibility.compatible_upgrade !== 'retain-carried-evidence'
+    || evidenceCompatibility.incompatible_upgrade !== 'bump-semantics-revision-and-revalidate') {
+    fail('RUNTIME_CONTRACT_INVALID', 'Runtime evidence compatibility declaration does not match the implemented admission policy.');
   }
   const runtimeDistribution = validateRuntimeDistributionContract(contract.runtime_distribution);
   const distributionIdentity = validateVNextRuntimeDistribution(root, runtimeDistribution, requireDependencies);
@@ -4807,7 +4815,18 @@ function assertPersistentTestAdmission(definition: DraftTaskDefinition, records:
   }
 }
 
+/** Bump only when the meaning or admission of an existing evidence report changes.
+ * Distribution version and unrelated Runtime contract edits are not evidence. */
+const EVIDENCE_SEMANTICS_REVISION = 'claim-evidence/1';
+
 function recoveryEvidenceContextRevision(root: string): string {
+  const relative = '.workflow-system/PROJECT_PROFILE.yaml';
+  const file = path.resolve(root, relative);
+  return digest({ kind: 'evidence-context/v3', semantics: EVIDENCE_SEMANTICS_REVISION,
+    project_profile: fs.existsSync(file) ? sha256(fs.readFileSync(file)) : null });
+}
+
+function legacyRecoveryEvidenceContextRevision(root: string): string {
   return digest(['.workflow-system/PROJECT_PROFILE.yaml', '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', '.workflow-system/runtime/package.json'].map(relative => {
     const file = path.resolve(root, relative);
     return { path: relative, sha256: fs.existsSync(file) ? sha256(fs.readFileSync(file)) : null };
@@ -4865,7 +4884,7 @@ function carryUserEvidenceDecision(root: string, current: CanonicalCurrentTask, 
   const d = slot.user_decision!;
   const origin = current.runtimeState.evidence_carry_forward?.find(p => p.claim_id === claimId && p.slot_id === slot.slot_id
     && p.new_plan_revision === current.runtimeState.evidence_plan_revision && p.user_decision_sha256 === digest(d));
-  return { kind: 'evidence-carry-forward/v2', old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
+  return { kind: 'evidence-carry-forward/v3', old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
     history_operation: origin ? origin.history_operation ?? 'confirm-replan' : operation,
     old_plan_revision: d.evidence_plan_revision, new_plan_revision: newPlan,
     receiving_source_revision: current.sourceTuple.revision, context_revision: recoveryEvidenceContextRevision(root),
@@ -4922,7 +4941,7 @@ function assertEvidenceReportApplicable(root: string, current: CanonicalCurrentT
   }
   if (report.evidence_plan_revision !== current.runtimeState.evidence_plan_revision) {
     const owner = (current.runtimeState.claim_evidence ?? []).find(record => record.slots.some(item => item.slot_id === slot.slot_id && item.report?.result_id === report.result_id));
-    const proof = (current.runtimeState.evidence_carry_forward ?? []).find(item =>
+    const proof = (current.runtimeState.evidence_carry_forward ?? []).findLast(item =>
       item.claim_id === owner?.claim_id && item.slot_id === slot.slot_id && item.check_id === slot.check!.check_id
       && item.result_id === report.result_id && item.old_plan_revision === report.evidence_plan_revision
       && item.new_plan_revision === current.runtimeState.evidence_plan_revision
@@ -4938,8 +4957,10 @@ function assertEvidenceReportApplicable(root: string, current: CanonicalCurrentT
     if (previous.runtimeState.evidence_plan_revision !== proof.old_plan_revision || digest(oldSlot?.report) !== proof.report_sha256 || digest(oldSlot?.check) !== digest(slot.check)) {
       fail('EVIDENCE_CARRY_FORWARD_STALE', 'immutable source does not contain the exact unchanged report and check.');
     }
-    if (proof.kind === 'evidence-carry-forward/v2') {
-      if (proof.context_revision !== recoveryEvidenceContextRevision(root)) fail('EVIDENCE_CARRY_FORWARD_STALE', 'Project configuration or installed Runtime context changed; reassess affected evidence.');
+    if (proof.kind !== 'evidence-carry-forward/v1') {
+      const expectedContext = proof.kind === 'evidence-carry-forward/v2'
+        ? legacyRecoveryEvidenceContextRevision(root) : recoveryEvidenceContextRevision(root);
+      if (proof.context_revision !== expectedContext) fail('EVIDENCE_CARRY_FORWARD_STALE', 'Project evidence context changed; reassess affected evidence.');
       if (!slot.user_decision && digest(describeEvidenceObjects(root, slot.evidence_refs)) !== digest(proof.evidence_objects)) fail('EVIDENCE_CARRY_FORWARD_STALE', 'Evidence body changed; affected evidence needs reassessment.');
       for (const object of proof.evidence_objects!) verifyEvidenceObject(root, current.filePath, object);
     }
@@ -4975,7 +4996,7 @@ function carryUnchangedScopeEvidence(root: string, before: CanonicalCurrentTask,
       const origin = before.runtimeState.evidence_carry_forward?.find(item => item.claim_id === claim.claim_id
         && item.slot_id === slot.slot_id && item.new_plan_revision === before.runtimeState.evidence_plan_revision
         && item.result_id === slot.report!.result_id);
-      carry.push({ kind: 'evidence-carry-forward/v2', old_source_revision: origin?.old_source_revision ?? before.sourceTuple.revision,
+      carry.push({ kind: 'evidence-carry-forward/v3', old_source_revision: origin?.old_source_revision ?? before.sourceTuple.revision,
         history_operation: origin ? origin.history_operation ?? 'confirm-replan' : operation,
         old_plan_revision: slot.report.evidence_plan_revision, new_plan_revision: newPlanRevision,
         receiving_source_revision: before.sourceTuple.revision, context_revision: recoveryEvidenceContextRevision(root),
@@ -7438,6 +7459,10 @@ function validateUserDecisionEffect(value: unknown, location: string): UserDecis
     }
     return { kind, target_ids: ['gate:blocked-by-replan'] };
   }
+  if (kind === 'rebind-carried-evidence') {
+    expectExactKeys(record, ['kind', 'target_ids'], location);
+    return { kind, target_ids: expectStringArray(record.target_ids, `${location}.target_ids`, false, MAX_FINDINGS) };
+  }
   if (kind === 'continue-after-warning') {
     expectExactKeys(record, ['kind', 'gate_code', 'target_ids', ...(record.authorized_repair_waves === undefined ? [] : ['authorized_repair_waves'])], location);
     return {
@@ -8733,12 +8758,12 @@ function validateEvidenceChallenge(value: unknown, location: string): EvidenceCh
 
 function validateEvidenceCarryForward(value: unknown, location: string): EvidenceCarryForward {
   const item = expectRecord(value, location);
-  const v2 = item.kind === 'evidence-carry-forward/v2';
-  expectExactKeys(item, ['kind', 'old_source_revision', 'old_plan_revision', 'new_plan_revision', 'claim_id', 'slot_id', 'check_id', 'result_id', 'report_sha256', 'subject_revision', ...(v2 ? ['receiving_source_revision', 'evidence_objects', 'context_revision'] : []), ...['history_operation', 'user_decision_sha256'].filter(key => key in item)], location);
-  if (!v2 && item.kind !== 'evidence-carry-forward/v1') fail('RUNTIME_SCHEMA_INVALID', `${location}.kind is invalid.`);
+  const carriesContext = item.kind === 'evidence-carry-forward/v2' || item.kind === 'evidence-carry-forward/v3';
+  expectExactKeys(item, ['kind', 'old_source_revision', 'old_plan_revision', 'new_plan_revision', 'claim_id', 'slot_id', 'check_id', 'result_id', 'report_sha256', 'subject_revision', ...(carriesContext ? ['receiving_source_revision', 'evidence_objects', 'context_revision'] : []), ...['history_operation', 'user_decision_sha256'].filter(key => key in item)], location);
+  if (!carriesContext && item.kind !== 'evidence-carry-forward/v1') fail('RUNTIME_SCHEMA_INVALID', `${location}.kind is invalid.`);
   const hash = (key: string) => expectString(item[key], `${location}.${key}`, /^[a-f0-9]{64}$/);
-  if (v2 && (!Array.isArray(item.evidence_objects) || item.evidence_objects.length > 128)) fail('RUNTIME_SCHEMA_INVALID', 'Evidence objects must be bounded.');
-  const objects = v2 ? (item.evidence_objects as unknown[]).map(raw => {
+  if (carriesContext && (!Array.isArray(item.evidence_objects) || item.evidence_objects.length > 128)) fail('RUNTIME_SCHEMA_INVALID', 'Evidence objects must be bounded.');
+  const objects = carriesContext ? (item.evidence_objects as unknown[]).map(raw => {
     const object = expectRecord(raw, 'evidence object');
     expectExactKeys(object, ['path', 'sha256', 'size'], 'evidence object');
     if (!Number.isInteger(object.size) || (object.size as number) < 0 || (object.size as number) > 1048576) fail('RUNTIME_SCHEMA_INVALID', 'Evidence object size is invalid.');
@@ -8746,8 +8771,8 @@ function validateEvidenceCarryForward(value: unknown, location: string): Evidenc
       sha256: expectString(object.sha256, 'evidence object.sha256', /^[a-f0-9]{64}$/), size: object.size as number };
   }) : undefined;
   return {
-    kind: v2 ? 'evidence-carry-forward/v2' : 'evidence-carry-forward/v1',
-    ...(v2 ? { receiving_source_revision: hash('receiving_source_revision'), evidence_objects: objects, context_revision: hash('context_revision') } : {}),
+    kind: carriesContext ? item.kind as 'evidence-carry-forward/v2' | 'evidence-carry-forward/v3' : 'evidence-carry-forward/v1',
+    ...(carriesContext ? { receiving_source_revision: hash('receiving_source_revision'), evidence_objects: objects, context_revision: hash('context_revision') } : {}),
     ...(item.history_operation === undefined ? {} : { history_operation: expectEnum(item.history_operation, ['confirm-replan', 'replace-validation', 'amend-evidence-plan', 'commit-scope-amendment', 'rebind-authority-domains'], 'history_operation') }),
     ...(item.user_decision_sha256 === undefined ? {} : { user_decision_sha256: hash('user_decision_sha256') }),
     old_source_revision: hash('old_source_revision'), old_plan_revision: hash('old_plan_revision'), new_plan_revision: hash('new_plan_revision'),
@@ -13008,7 +13033,7 @@ export function replaceValidation(root: string, rawInput: unknown, options: Runt
       catch { continue; } // Invalid old facts remain invalid and retained, never promoted.
       const resultId = slot.report!.result_id;
       const origin = state.evidence_carry_forward?.find(p => p.claim_id === c.claim_id && p.slot_id === slot.slot_id && p.new_plan_revision === state.evidence_plan_revision && p.result_id === resultId);
-      carry.push({ kind: 'evidence-carry-forward/v2', old_source_revision: origin?.old_source_revision ?? sourceRevision,
+      carry.push({ kind: 'evidence-carry-forward/v3', old_source_revision: origin?.old_source_revision ?? sourceRevision,
         history_operation: origin ? origin.history_operation ?? 'confirm-replan' : 'replace-validation',
         old_plan_revision: slot.report?.evidence_plan_revision ?? slot.user_decision!.evidence_plan_revision, new_plan_revision: newPlan,
         receiving_source_revision: sourceRevision, context_revision: recoveryEvidenceContextRevision(root),
@@ -13446,7 +13471,7 @@ export function confirmEvidencePlanAmendment(root: string, raw: unknown, options
       } else {
         try { assertEvidenceReportApplicable(root, current, before); } catch { continue; }
         const origin = state.evidence_carry_forward?.find(p => p.claim_id === claim.claim_id && p.slot_id === slot.slot_id && p.new_plan_revision === state.evidence_plan_revision && p.result_id === slot.report!.result_id);
-        carry.push({ kind: 'evidence-carry-forward/v2', old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
+        carry.push({ kind: 'evidence-carry-forward/v3', old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
           history_operation: origin ? origin.history_operation ?? 'confirm-replan' : 'amend-evidence-plan',
           old_plan_revision: slot.report!.evidence_plan_revision, new_plan_revision: saved.new_plan_revision,
           receiving_source_revision: current.sourceTuple.revision, context_revision: recoveryEvidenceContextRevision(root),
@@ -15227,7 +15252,7 @@ function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, i
     const origin = (current.runtimeState.evidence_carry_forward ?? []).find(item => item.claim_id === record.claim_id
       && item.slot_id === slot.slot_id && item.result_id === slot.report!.result_id && item.new_plan_revision === current.runtimeState.evidence_plan_revision);
     if (origin?.kind === 'evidence-carry-forward/v1') fail('EVIDENCE_CARRY_FORWARD_UPGRADE_REQUIRED', 'The v1 source lacks preserved evidence bodies; revalidate this affected slot before carrying it again.');
-    carry.push({ kind: 'evidence-carry-forward/v2', old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
+    carry.push({ kind: 'evidence-carry-forward/v3', old_source_revision: origin?.old_source_revision ?? current.sourceTuple.revision,
       ...(origin?.history_operation ? { history_operation: origin.history_operation } : {}),
       ...(slot.user_decision ? { user_decision_sha256: digest(slot.user_decision) } : {}),
       old_plan_revision: slot.report.evidence_plan_revision, new_plan_revision: newPlan,
@@ -17468,6 +17493,67 @@ function applyUserDecisionDelta(
   }
   if (pending && decision.review_id !== undefined && decision.effects.some(effect => effect.kind === 'advance-with-exceptions') && pending.verdict === 'clean') {
     fail('USER_DECISION_REVIEW_CONFLICT', 'a clean review must use the clean completion path, not a disposition receipt.');
+  }
+  const rebindEffect = decision.effects.find((effect): effect is Extract<UserDecisionEffect, { kind: 'rebind-carried-evidence' }> => effect.kind === 'rebind-carried-evidence');
+  if (rebindEffect) {
+    if (decision.effects.length !== 1 || (pending
+      ? decision.review_id !== pending.review_id || decision.change_set_id !== pending.change_set_id
+      : decision.review_id !== undefined || decision.change_set_id !== undefined)) {
+      fail('USER_DECISION_REVIEW_REQUIRED', 'Evidence rebind must be separate and bind the exact pending review when one exists.');
+    }
+    const targets = rebindEffect.target_ids;
+    if (new Set(targets).size !== targets.length || targets.join('|') !== [...targets].sort().join('|')) {
+      fail('USER_DECISION_TARGET_INVALID', 'Evidence rebind targets must be a unique, sorted, canonical nonempty set.');
+    }
+    const added: EvidenceCarryForward[] = [];
+    for (const target of targets) {
+      const owner = (current.runtimeState.claim_evidence ?? []).find(claim => claim.slots.some(slot => `claim:${claim.claim_id}/${slot.slot_id}` === target));
+      const slot = owner?.slots.find(item => `claim:${owner.claim_id}/${item.slot_id}` === target);
+      const report = slot?.report;
+      if (!owner || !slot?.check || !report || report.evidence_plan_revision === current.runtimeState.evidence_plan_revision
+        || slot.user_decision || (current.runtimeState.evidence_challenges ?? []).some(item => item.claim_id === owner.claim_id && item.slot_id === slot.slot_id && item.status !== 'resolved')) {
+        fail('USER_DECISION_TARGET_INVALID', `${target} is not an unchallenged legacy carried report in this plan.`);
+      }
+      const matching = (current.runtimeState.evidence_carry_forward ?? []).filter(item => item.claim_id === owner.claim_id
+        && item.slot_id === slot.slot_id && item.check_id === slot.check!.check_id && item.result_id === report.result_id
+        && item.old_plan_revision === report.evidence_plan_revision && item.new_plan_revision === current.runtimeState.evidence_plan_revision
+        && item.report_sha256 === digest(report) && item.subject_revision === report.subject_revision);
+      const legacy = matching.findLast(item => item.kind === 'evidence-carry-forward/v2');
+      if (!legacy || matching.some(item => item.kind === 'evidence-carry-forward/v3')) {
+        fail('USER_DECISION_TARGET_INVALID', `${target} must have exactly an unmigrated v2 carry proof.`);
+      }
+      assertTaskHistoryForRevision(current.filePath, current.sourceTuple.document_id, current.runtimeState.task_id,
+        legacy.old_source_revision, legacy.history_operation ?? 'confirm-replan');
+      const historyFile = path.join(path.dirname(current.filePath), 'task-history', current.sourceTuple.document_id, `${legacy.old_source_revision}.json`);
+      const history = JSON.parse(fs.readFileSync(historyFile, 'utf8')) as { current_task_base64: string };
+      const previous = parseCanonicalCurrentTaskContent(Buffer.from(history.current_task_base64, 'base64').toString('utf8'), current.filePath, current.relativePath);
+      const oldSlot = previous.runtimeState.claim_evidence?.find(item => item.claim_id === owner.claim_id)?.slots.find(item => item.slot_id === slot.slot_id);
+      if (previous.runtimeState.evidence_plan_revision !== legacy.old_plan_revision
+        || digest(oldSlot?.report) !== legacy.report_sha256 || digest(oldSlot?.check) !== digest(slot.check)) {
+        fail('EVIDENCE_CARRY_FORWARD_STALE', `${target} immutable source does not contain the exact unchanged report and check.`);
+      }
+      if (digest(describeEvidenceObjects(root, slot.evidence_refs)) !== digest(legacy.evidence_objects)) {
+        fail('EVIDENCE_CARRY_FORWARD_STALE', `${target} evidence body changed after the original carry.`);
+      }
+      for (const object of legacy.evidence_objects ?? []) verifyEvidenceObject(root, current.filePath, object);
+      added.push({ ...legacy, kind: 'evidence-carry-forward/v3', receiving_source_revision: current.sourceTuple.revision,
+        context_revision: recoveryEvidenceContextRevision(root) });
+    }
+    if ((current.runtimeState.evidence_carry_forward?.length ?? 0) + added.length > 256) {
+      fail('USER_DECISION_TARGET_INVALID', 'Evidence rebind would exceed the bounded proof history.');
+    }
+    const next: RuntimeState = { ...current.runtimeState,
+      evidence_carry_forward: [...(current.runtimeState.evidence_carry_forward ?? []), ...added],
+      applied_proposals: appendAppliedProposal(current.runtimeState, proposal, current.sourceTuple.revision) };
+    const after = { ...current, runtimeState: next };
+    for (const target of targets) {
+      const slot = next.claim_evidence!.flatMap(claim => claim.slots.map(item => ({ id: `claim:${claim.claim_id}/${item.slot_id}`, item })))
+        .find(item => item.id === target)!.item;
+      assertEvidenceReportApplicable(root, after, slot);
+    }
+    const audit = makeUserDecisionAudit(root, current, proposal, delta, next, now);
+    return { next: { ...next, execution_log: appendExecutionLogEntry(current.runtimeState, audit) },
+      taskBasis: appendUserDecisionToBasis(root, current, decision), audit };
   }
 
   const candidateByFingerprint = new Map((pending?.findings ?? []).map(candidate => [candidate.fingerprint, candidate]));

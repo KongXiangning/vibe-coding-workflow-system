@@ -14,6 +14,11 @@ schema_version: 1
 kind: vnext-runtime-contract
 phase: Phase 2
 
+evidence_compatibility:
+  semantics_revision: claim-evidence/1
+  compatible_upgrade: retain-carried-evidence
+  incompatible_upgrade: bump-semantics-revision-and-revalidate
+
 runtime_distribution:
   kind: project-local-node
   package_path: .workflow-system/runtime
@@ -21,7 +26,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.21.6
+  package_version: 0.21.7
   node_min_version: ">=20.0.0"
 
 task_context:
