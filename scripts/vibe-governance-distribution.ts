@@ -287,6 +287,7 @@ function manifestDigest(raw: Record<string, unknown>): string {
 }
 
 export function isDistributionOwnedTarget(targetPath: string): boolean {
+  if (targetPath === 'docs/workflow/.gitattributes') return true;
   if (targetPath === '.workflow-system/WORKFLOW_PROTOCOL.md' || targetPath === '.workflow-system/FILE_SCHEMAS.md') return true;
   if (targetPath === '.workflow-system/vnext/SOURCE_CONTRACT.yaml' || targetPath === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml') return true;
   if (targetPath.startsWith('.workflow-system/runtime/')) return true;

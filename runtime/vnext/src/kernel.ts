@@ -138,7 +138,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.7';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.21.12';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -240,6 +240,8 @@ export type InboxSuggestedNextAction = (typeof INBOX_SUGGESTED_NEXT_ACTIONS)[num
 
 export const REVIEW_CYCLE_PHASES = ['discovery', 'verification'] as const;
 export type ReviewCyclePhase = (typeof REVIEW_CYCLE_PHASES)[number];
+export const REVIEW_CHANGE_MODES = ['default', 'recheck-completed-step'] as const;
+export type ReviewChangeMode = (typeof REVIEW_CHANGE_MODES)[number];
 
 export const STEP_STATUSES = ['ready', 'in-progress', 'completed', 'blocked'] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
@@ -838,6 +840,8 @@ export type PreflightReconciliationDisposition = 'not-started' | 'started-unknow
 export type PendingReviewResult = {
   test_assessment?: TestAssessment;
   kind: 'review-result/v1';
+  review_entry_mode?: 'recheck-completed-step';
+  completion_record_id?: string;
   /**
    * A reopened finding is not a new reviewer conclusion.  It is a durable
    * user decision that re-enters the existing repair handoff using the last
@@ -1738,7 +1742,7 @@ export type RuntimeProposal = {
   kind: typeof VNEXT_RUNTIME_PROPOSAL_KIND;
   operation_kind: RuntimeOperationKind;
   caller: 'execute-step' | 'review-change' | 'prepare-task' | 'task-lifecycle' | 'capture-work-item' | 'close-task';
-  mode: VNextExecuteStepMode | PrepareTaskMode | LifecycleMode | CloseTaskMode;
+  mode: VNextExecuteStepMode | PrepareTaskMode | LifecycleMode | CloseTaskMode | ReviewChangeMode;
   source_tuple: RuntimeSourceTuple;
   authority_evidence: AuthorityEvidence[];
   semantic_delta: RuntimeSemanticDelta;
@@ -3363,12 +3367,14 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   expectExactKeys(reviewResultContract, ['stored_in', 'verdicts', 'binds', 'blocked_diagnostics', 'consumed_by', 'test_assessment'], 'Runtime contract.proposal.task_state.review_result');
   expectSetEqual(expectStringArray(reviewResultContract.test_assessment, 'review_result.test_assessment'), ['applicable','reason','evidence_refs','necessity','oracle','boundary','reuse','applicability'], 'test assessment fields');
   expectSetEqual(expectStringArray(reviewResultContract.blocked_diagnostics, 'review_result.blocked_diagnostics'), ['findings', 'unresolved_fingerprints', 'resolved_fingerprints', 'finding_dispositions', 'blocker'], 'blocked review diagnostics');
-  if (reviewResultContract.stored_in !== 'canonical CURRENT_TASK.runtime_state.pending_review_result') fail('RUNTIME_CONTRACT_INVALID', 'review result must use canonical pending review storage.');
+  if (reviewResultContract.stored_in !== 'canonical-pending-review-result-for-findings; completed-step-clean-or-blocked-recheck-retained-in-task-store-event') fail('RUNTIME_CONTRACT_INVALID', 'review result must preserve pending repair findings and retain completed-step clean or blocked reviews in the task-store event.');
   expectSetEqual(expectStringArray(reviewResultContract.verdicts, 'Runtime contract review-result verdicts'), [...REVIEW_RESULT_VERDICTS], 'Runtime contract review-result verdicts');
-  expectSetEqual(expectStringArray(reviewResultContract.binds, 'Runtime contract review-result bindings'), ['active_step_id', 'review_cycle_id', 'latest_execution_id', 'change_set_id', 'review_target_revision'], 'Runtime contract review-result bindings');
+  expectSetEqual(expectStringArray(reviewResultContract.binds, 'Runtime contract review-result bindings'), ['active_step_id', 'review_cycle_id', 'latest_execution_id', 'change_set_id', 'review_target_revision', 'entry_mode', 'completion_record_id'], 'Runtime contract review-result bindings');
   const reviewResultConsumers = expectRecord(reviewResultContract.consumed_by, 'Runtime contract review-result consumers');
   expectExactKeys(reviewResultConsumers, ['clean', 'findings', 'blocked'], 'Runtime contract review-result consumers');
-  if (reviewResultConsumers.clean !== 'execute-step:complete-reviewed-step' || reviewResultConsumers.findings !== 'execute-step:begin-repair' || reviewResultConsumers.blocked !== 'record-user-decision-or-caller-route') fail('RUNTIME_CONTRACT_INVALID', 'Runtime review-result consumers are invalid.');
+  if (reviewResultConsumers.clean !== 'default->execute-step:complete-reviewed-step; recheck-completed-step->no-step-transition'
+    || reviewResultConsumers.findings !== 'default-or-recheck-completed-step->execute-step:begin-repair'
+    || reviewResultConsumers.blocked !== 'record-user-decision-or-caller-route') fail('RUNTIME_CONTRACT_INVALID', 'Runtime review-result consumers are invalid.');
   const draftContract = expectRecord(taskStateContract.draft, 'Runtime contract.proposal.task_state.draft');
   expectExactKeys(draftContract, ['mode', 'actions', 'identity_required', 'definition_required', 'claim_evidence', 'task_basis', 'create_from', 'update_from', 'target', 'previous_close_reconciliation', 'step_admission', 'preserves'], 'Runtime contract.proposal.task_state.draft');
   if (draftContract.mode !== 'default') fail('RUNTIME_CONTRACT_INVALID', 'Runtime contract task-state draft mode must remain default.');
@@ -3499,14 +3505,15 @@ export function validateVNextRuntimeContract(root: string, requireDependencies =
   const reviewChangeContract = expectRecord(proposal.review_change, 'Runtime contract.proposal.review_change');
   expectExactKeys(reviewChangeContract, ['semantic_adapter', 'bound_actions'], 'Runtime contract.proposal.review_change');
   const reviewChangeAdapter = expectRecord(reviewChangeContract.semantic_adapter, 'Runtime contract.proposal.review_change.semantic_adapter');
-  expectExactKeys(reviewChangeAdapter, ['input', 'commands', 'context_source', 'reviewable_execution', 'change_set', 'review_target', 'result_storage', 'direct_product_writes', 'advancement_owner'], 'Runtime contract.proposal.review_change.semantic_adapter');
+  expectExactKeys(reviewChangeAdapter, ['input', 'modes', 'commands', 'context_source', 'reviewable_execution', 'change_set', 'review_target', 'result_storage', 'direct_product_writes', 'advancement_owner'], 'Runtime contract.proposal.review_change.semantic_adapter');
+  expectSetEqual(expectStringArray(reviewChangeAdapter.modes, 'Runtime contract review-change modes'), ['default', 'recheck-completed-step'], 'Runtime review-change modes');
   if (
     reviewChangeAdapter.input !== 'stdin-json'
-    || reviewChangeAdapter.context_source !== 'latest-recorded-execution'
-    || reviewChangeAdapter.reviewable_execution !== 'implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review'
+    || reviewChangeAdapter.context_source !== 'latest-recorded-execution; explicit-recheck-binds-immediately-previous-clean-completion'
+    || reviewChangeAdapter.reviewable_execution !== 'implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review; recheck-requires-active-ready-successor-or-open-final-completion-with-no-later-runtime-action'
     || reviewChangeAdapter.change_set !== 'runtime-owned-stable-id'
     || reviewChangeAdapter.review_target !== 'runtime-cumulative-before-after-file-delta'
-    || reviewChangeAdapter.result_storage !== 'canonical-pending-review-result'
+    || reviewChangeAdapter.result_storage !== 'canonical-pending-review-result-for-findings; completed-step-clean-or-blocked-recheck-retained-in-task-store-event'
     || reviewChangeAdapter.direct_product_writes !== 'deny'
     || reviewChangeAdapter.advancement_owner !== 'execute-step'
   ) fail('RUNTIME_CONTRACT_INVALID', 'Runtime review-change adapter semantic boundary is invalid.');
@@ -5465,6 +5472,8 @@ function validatePendingReviewResult(
     'kind',
     ...(record.origin === undefined ? [] : ['origin']),
     ...(record.user_decision_id === undefined ? [] : ['user_decision_id']),
+    ...(record.review_entry_mode === undefined ? [] : ['review_entry_mode']),
+    ...(record.completion_record_id === undefined ? [] : ['completion_record_id']),
     'review_id',
     'execution_id',
     'step_id',
@@ -5492,6 +5501,15 @@ function validatePendingReviewResult(
     : expectString(record.user_decision_id, `${location}.user_decision_id`, SAFE_KEY_PATTERN);
   if ((origin === undefined) !== (userDecisionId === undefined)) {
     fail('RUNTIME_SCHEMA_INVALID', `${location}.origin and user_decision_id must be provided together.`);
+  }
+  const reviewEntryMode = record.review_entry_mode === undefined
+    ? undefined
+    : expectEnum(record.review_entry_mode, ['recheck-completed-step'], `${location}.review_entry_mode`);
+  const completionRecordId = record.completion_record_id === undefined
+    ? undefined
+    : expectString(record.completion_record_id, `${location}.completion_record_id`, SAFE_KEY_PATTERN);
+  if ((reviewEntryMode === undefined) !== (completionRecordId === undefined)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location}.review_entry_mode and completion_record_id must be provided together.`);
   }
   if (!Array.isArray(record.findings) || record.findings.length > MAX_FINDINGS) {
     fail('RUNTIME_SCHEMA_INVALID', `${location}.findings must be a bounded array.`);
@@ -5547,11 +5565,16 @@ function validatePendingReviewResult(
       fail('RUNTIME_SCHEMA_INVALID', `${location} user-decision-reopen must be a verification findings handoff without a blocker or resolved set.`);
     }
   }
+  if (reviewEntryMode !== undefined && (verdict !== 'findings' || record.cycle_phase !== 'discovery' || unresolvedFingerprints.length > 0 || resolvedFingerprints.length > 0)) {
+    fail('RUNTIME_SCHEMA_INVALID', `${location} completed-step recheck may persist only fresh discovery findings without admitted finding fingerprints.`);
+  }
   const result = {
     ...(record.test_assessment === undefined ? {} : {test_assessment:validateTestAssessment(record.test_assessment)}),
     kind: 'review-result/v1' as const,
     ...(origin === undefined ? {} : { origin }),
     ...(userDecisionId === undefined ? {} : { user_decision_id: userDecisionId }),
+    ...(reviewEntryMode === undefined ? {} : { review_entry_mode: reviewEntryMode }),
+    ...(completionRecordId === undefined ? {} : { completion_record_id: completionRecordId }),
     review_id: expectString(record.review_id, `${location}.review_id`, SAFE_KEY_PATTERN),
     execution_id: expectString(record.execution_id, `${location}.execution_id`, SAFE_KEY_PATTERN),
     step_id: expectString(record.step_id, `${location}.step_id`, STEP_ID_PATTERN),
@@ -6289,6 +6312,78 @@ function resolveTaskStepForState(body: string, activeStepId: string): TaskStepRe
 
 function resolveCanonicalTaskStep(current: CanonicalCurrentTask): TaskStepResolution {
   return resolveTaskStepForState(current.body, current.runtimeState.active_step_id);
+}
+
+export function completedStepReviewTarget(
+  root: string,
+  current: CanonicalCurrentTask,
+  requestedStepId?: string,
+): {
+  step: TaskStepResolution['steps'][number];
+  completion: StepExecutionLogEntry;
+  execution: StepExecutionLogEntry & { execution_result: StepExecutionResult };
+  cycle: ReviewCycleState;
+} {
+  const state = current.runtimeState;
+  if (state.workflow_status !== 'active' || state.lifecycle_state !== 'active') {
+    fail('TASK_STATE_NOT_ACTIVE', 'completed-step recheck requires active + active.');
+  }
+  if (state.resume_requires_review) fail('RESUME_REVIEW_REQUIRED', 'completed-step recheck is blocked by the current resume-review gate.');
+  if (state.pending_review_result !== null || state.execution_preflight !== undefined || state.scope_amendment_pending_review_step_id !== undefined) {
+    fail('COMPLETED_STEP_RECHECK_WINDOW_CLOSED', 'completed-step recheck requires no pending review or preflight.');
+  }
+  const resolution = resolveCanonicalTaskStep(current);
+  const readySuccessor = state.active_step_status === 'ready' && resolution.index > 0;
+  const openFinalCompletion = state.active_step_status === 'completed' && resolution.next === null;
+  if (!readySuccessor && !openFinalCompletion) {
+    fail('COMPLETED_STEP_RECHECK_WINDOW_CLOSED', 'completed-step recheck requires a ready successor or an open, completed final step.');
+  }
+  const step = readySuccessor ? resolution.steps[resolution.index - 1]! : resolution.current;
+  const nextStepId = readySuccessor ? resolution.current.id : null;
+  if (requestedStepId !== undefined && requestedStepId !== step.id) {
+    fail('COMPLETED_STEP_RECHECK_TARGET_INVALID', `completed-step recheck must target the latest eligible completed step ${step.id}.`);
+  }
+  const attempts = state.step_attempts?.[resolution.current.id]?.attempts ?? [];
+  if (readySuccessor && (attempts.length > 0 || currentDefinitionExecutionLog(current).some(item => !('action' in item) && item.step_id === resolution.current.id))) {
+    fail('COMPLETED_STEP_RECHECK_WINDOW_CLOSED', 'the successor step has a recorded preflight, attempt, or execution.');
+  }
+  const log = currentDefinitionExecutionLog(current);
+  const completionIndex = log.findLastIndex((item): item is StepExecutionLogEntry =>
+    !('action' in item)
+    && item.step_id === step.id
+    && item.status === 'completed'
+    && item.advancement === (nextStepId === null ? 'task-complete' : 'advanced')
+    && item.next_step_id === nextStepId
+    && item.review_receipt?.verdict === 'clean',
+  );
+  if (completionIndex < 0) fail('COMPLETED_STEP_RECHECK_TARGET_REQUIRED', 'the latest eligible step has no clean Runtime-recorded completion.');
+  const completion = log[completionIndex]! as StepExecutionLogEntry;
+  if (log.slice(completionIndex + 1).length > 0) {
+    fail('COMPLETED_STEP_RECHECK_WINDOW_CLOSED', 'a later task execution or audited action exists after the completion being rechecked.');
+  }
+  const execution = log.slice(0, completionIndex).findLast((item): item is StepExecutionLogEntry =>
+    !('action' in item)
+    && item.step_id === step.id
+    && item.idempotency_key.startsWith('execute-step-result-')
+    && item.review_receipt === undefined
+    && item.execution_result !== undefined,
+  );
+  if (!execution?.execution_result || !execution.change_set_id
+    || execution.change_set_id !== completion.review_receipt!.change_set_id
+    || execution.execution_result.review_target.revision !== completion.review_receipt!.review_target_revision
+    || execution.execution_result.outcome === 'blocked') {
+    fail('COMPLETED_STEP_RECHECK_TARGET_INVALID', 'the clean completion does not bind a reviewable recorded execution and stable review target.');
+  }
+  const currentTarget = captureReviewTarget(root, execution.execution_result.review_target.entries.map(item => item.path));
+  if (currentTarget.revision !== completion.review_receipt!.review_target_revision) {
+    fail('REVIEW_TARGET_STALE', 'product files changed after the completed-step review target was recorded.');
+  }
+  return {
+    step,
+    completion,
+    execution,
+    cycle: reviewCycleForNextStep(state.review_cycle.id, step.id, completion.idempotency_key),
+  };
 }
 
 function effectiveCheckpointPolicy(resolution: TaskStepResolution): TaskStepCheckpointPolicy {
@@ -7578,7 +7673,7 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
   if (proposal.kind !== VNEXT_RUNTIME_PROPOSAL_KIND) fail('RUNTIME_SCHEMA_INVALID', `proposal.kind must be ${VNEXT_RUNTIME_PROPOSAL_KIND}.`);
   const operationKind = expectEnum(proposal.operation_kind, RUNTIME_OPERATION_KINDS, 'proposal.operation_kind');
   const caller = expectEnum(proposal.caller, ['execute-step', 'review-change', 'prepare-task', 'task-lifecycle', 'capture-work-item', 'close-task'], 'proposal.caller');
-  const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES, ...CLOSE_TASK_MODES], 'proposal.mode');
+  const mode = expectEnum(proposal.mode, [...VNEXT_EXECUTE_STEP_MODES, ...PREPARE_TASK_MODES, ...LIFECYCLE_MODES, ...CLOSE_TASK_MODES, ...REVIEW_CHANGE_MODES], 'proposal.mode');
   const sourceTuple = validateSourceTuple(proposal.source_tuple);
   const authorityEvidence = validateAuthorityEvidence(proposal.authority_evidence);
   const preconditions = expectStringArray(proposal.preconditions, 'proposal.preconditions', false, 32);
@@ -7643,9 +7738,18 @@ export function validateRuntimeProposal(value: unknown): RuntimeProposal {
         fail('RUNTIME_MODE_INVALID', 'prepare-task task-state proposals must use default, confirm, replan, or amend-scope mode.');
       }
     } else if (caller === 'review-change') {
-      if (mode !== 'default') fail('RUNTIME_MODE_INVALID', 'review-change task-state proposals must use default mode.');
+      if (!REVIEW_CHANGE_MODES.includes(mode as ReviewChangeMode)) fail('RUNTIME_MODE_INVALID', 'review-change task-state proposals must use default or recheck-completed-step mode.');
       if (semanticDelta.kind !== 'task-state' || !['record-review-result', 'record-evidence-challenge', 'dismiss-evidence-challenge'].includes(semanticDelta.action)) {
         fail('RUNTIME_CALLER_NOT_BOUND', 'review-change is bound only to review results and evidence challenge assessment.');
+      }
+      if (mode === 'recheck-completed-step'
+        && (semanticDelta.action !== 'record-review-result'
+          || semanticDelta.review_result.review_entry_mode !== 'recheck-completed-step')) {
+        fail('RUNTIME_MODE_INVALID', 'recheck-completed-step mode is bound only to its explicitly marked record-review-result.');
+      }
+      if (mode === 'default' && semanticDelta.kind === 'task-state' && semanticDelta.action === 'record-review-result'
+        && semanticDelta.review_result.review_entry_mode !== undefined) {
+        fail('RUNTIME_MODE_INVALID', 'default review-change cannot record a completed-step recheck result.');
       }
     } else if (caller === 'execute-step') {
       if (!VNEXT_EXECUTE_STEP_MODES.includes(mode as VNextExecuteStepMode)) fail('RUNTIME_MODE_INVALID', 'execute-step task-state proposals must use default or repair mode.');
@@ -16861,6 +16965,13 @@ function assertRetainedReviewReplay(current: CanonicalCurrentTask, proposal: Run
 
 function assertReviewResultReplay(current: CanonicalCurrentTask, proposal: RuntimeProposal): void {
   if (proposal.semantic_delta.kind !== 'task-state' || proposal.semantic_delta.action !== 'record-review-result') return;
+  if (proposal.semantic_delta.review_result.review_entry_mode === 'recheck-completed-step') {
+    const applied = current.runtimeState.applied_proposals.find(item => item.idempotency_key === proposal.idempotency_key);
+    if (!applied || applied.proposal_digest !== digest(proposal)) {
+      fail('RUNTIME_REPLAY_INCOMPLETE', 'completed-step recheck replay is missing its exact durable review transaction.');
+    }
+    return;
+  }
   const pending = current.runtimeState.pending_review_result;
   if (!pending || pending.review_id !== proposal.semantic_delta.review_result.review_id) {
     fail('RUNTIME_REPLAY_INCOMPLETE', 'review-result replay is no longer the pending result for the current execution generation.');
@@ -18377,13 +18488,26 @@ function applyTaskStateDelta(
       fail('RESUME_REVIEW_REQUIRED', 'review-change cannot record a step review while the resume review gate is active.');
     }
     const review = delta.review_result;
+    const isCompletedStepRecheck = review.review_entry_mode === 'recheck-completed-step';
+    if (isCompletedStepRecheck !== (proposal.mode === 'recheck-completed-step')
+      || (isCompletedStepRecheck !== (review.completion_record_id !== undefined))) {
+      fail('RUNTIME_MODE_INVALID', 'review entry mode and completed-step binding must match the Runtime proposal mode.');
+    }
+    const completedRecheck = isCompletedStepRecheck
+      ? completedStepReviewTarget(root, current, review.step_id)
+      : null;
+    if (completedRecheck && (completedRecheck.completion.idempotency_key !== review.completion_record_id
+      || completedRecheck.execution.idempotency_key !== review.execution_id
+      || completedRecheck.cycle.id !== review.cycle_id)) {
+      fail('COMPLETED_STEP_RECHECK_TARGET_INVALID', 'completed-step recheck result does not bind the latest eligible completion and execution.');
+    }
     if (review.resolved_fingerprints.length > 0) ensureAuthorityKinds(proposal, ['finding-admission']);
     const isCorrectionReview = (current.runtimeState.evidence_challenges ?? []).some(item => item.status === 'invalidated' && item.correction_step_id === review.step_id);
     if (review.verdict === 'clean' && !isCorrectionReview && (current.runtimeState.evidence_challenges ?? []).some(item => item.status !== 'resolved' && item.correction_step_id !== review.step_id && !hasChallengeContinuation(root, current, item))) {
       fail('EVIDENCE_CHALLENGE_UNRESOLVED', 'A clean review cannot consume an unresolved challenge outside its admitted correction step.');
     }
-    if (review.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'review result does not belong to the active step.');
-    if (review.cycle_id !== current.runtimeState.review_cycle.id) fail('REVIEW_CYCLE_CONFLICT', 'review result does not belong to the current review cycle.');
+    if (!isCompletedStepRecheck && review.step_id !== current.runtimeState.active_step_id) fail('ACTIVE_STEP_CONFLICT', 'review result does not belong to the active step.');
+    if (!completedRecheck && review.cycle_id !== current.runtimeState.review_cycle.id) fail('REVIEW_CYCLE_CONFLICT', 'review result does not belong to the current review cycle.');
     const stepExecutions = currentDefinitionExecutionLog(current).filter((item): item is StepExecutionLogEntry =>
       !('action' in item) && item.step_id === review.step_id && item.idempotency_key.startsWith('execute-step-result-') && item.review_receipt === undefined,
     );
@@ -18397,7 +18521,7 @@ function applyTaskStateDelta(
       && execution.execution_result?.execution_id !== activePreflight.execution_id) {
       fail('REVIEW_EXECUTION_STALE', 'review result does not bind the current stable execution identity.');
     }
-    assertReviewExecutionEligible(root, current, execution);
+    if (!completedRecheck) assertReviewExecutionEligible(root, current, execution);
     if (current.runtimeState.review_coverage && !review.test_assessment) fail('REVIEW_ASSESSMENT_REQUIRED', 'Cumulative reviews require test necessity, oracle, boundary, reuse and applicability assessment.');
     if (current.runtimeState.review_coverage && review.test_assessment && !review.test_assessment.applicable && (parseMutationScope(current.body).persistent_tests?.length || current.runtimeState.claim_evidence?.some(claim => claim.slots.some(slot => slot.check?.method === 'execution')))) fail('REVIEW_ASSESSMENT_REQUIRED', 'Declared execution checks or persistent tests require an applicable assessment even when test files are unchanged.');
     const executionResult = cumulativeReviewExecution(current, execution).execution_result;
@@ -18419,7 +18543,7 @@ function applyTaskStateDelta(
     if (currentTarget.revision !== review.review_target_revision) {
       fail('REVIEW_TARGET_STALE', 'product files changed after the reviewed execution target was recorded.');
     }
-    const expectedPhase: ReviewCyclePhase = execution.mode === 'repair' ? 'verification' : 'discovery';
+    const expectedPhase: ReviewCyclePhase = completedRecheck ? 'discovery' : execution.mode === 'repair' ? 'verification' : 'discovery';
     if (review.cycle_phase !== expectedPhase) fail('REVIEW_PHASE_INVALID', `review result must use ${expectedPhase} for the latest execution.`);
     if (review.cycle_phase === 'discovery' && review.unresolved_fingerprints.length > 0) {
       fail('REVIEW_PHASE_INVALID', 'discovery review cannot reference unresolved admitted findings.');
@@ -18475,6 +18599,17 @@ function applyTaskStateDelta(
       : current.runtimeState.findings.map(item => resolvedFingerprints.has(item.fingerprint)
         ? { ...item, status: 'resolved' as const, evidence_refs: [...new Set([...item.evidence_refs, ...resolvedEvidenceRefs])], updated_at: now }
         : item);
+    const reopenedReviewCoverage = completedRecheck && review.verdict === 'findings' && current.runtimeState.review_coverage
+      ? {
+        ...current.runtimeState.review_coverage,
+        target: captureReviewTarget(root, current.runtimeState.review_coverage.target.entries.map(item => item.path)),
+        pending_paths: [...new Set([
+          ...current.runtimeState.review_coverage.pending_paths,
+          ...current.runtimeState.review_coverage.target.entries.map(item => item.path),
+        ])].sort(),
+        last_clean_revision: null,
+      }
+      : undefined;
     return {
       next: {
         ...current.runtimeState,
@@ -18482,7 +18617,13 @@ function applyTaskStateDelta(
           finding_queue_revision: current.runtimeState.finding_queue_revision + 1,
           findings: nextFindings,
         }),
-        pending_review_result: { ...review, recorded_at: now },
+        ...(completedRecheck ? {
+          active_step_id: review.verdict === 'findings' ? review.step_id : current.runtimeState.active_step_id,
+          active_step_status: review.verdict === 'findings' ? 'in-progress' as const : current.runtimeState.active_step_status,
+          ...(review.verdict === 'findings' ? { review_cycle: completedRecheck.cycle } : {}),
+          pending_review_result: review.verdict === 'findings' ? { ...review, recorded_at: now } : null,
+        } : { pending_review_result: { ...review, recorded_at: now } }),
+        ...(reopenedReviewCoverage ? { review_coverage: reopenedReviewCoverage } : {}),
         // A clean review is the mandatory acknowledgement for any dynamic
         // in-envelope expansion. Keep the history and associate the review
         // only with the expansions belonging to this recorded execution.
@@ -22155,6 +22296,7 @@ export function createReviewResultProposal(
     evidence_refs: string[];
     idempotency_key: string;
     authority_evidence: AuthorityEvidence[];
+    mode?: ReviewChangeMode;
   },
 ): RuntimeProposal {
   const evidenceRefs = [...new Set([
@@ -22168,7 +22310,7 @@ export function createReviewResultProposal(
     kind: VNEXT_RUNTIME_PROPOSAL_KIND,
     operation_kind: 'task-state-transaction',
     caller: 'review-change',
-    mode: 'default',
+    mode: input.mode ?? 'default',
     source_tuple: current.sourceTuple,
     authority_evidence: input.authority_evidence,
     semantic_delta: {
@@ -22177,7 +22319,9 @@ export function createReviewResultProposal(
       review_result: input.review_result,
       evidence_refs: evidenceRefs,
     },
-    preconditions: ['current-task-is-active', 'latest-execution-matches', 'review-context-current'],
+    preconditions: input.mode === 'recheck-completed-step'
+      ? ['current-task-is-active', 'immediately-previous-clean-completion-matches', 'successor-has-no-preflight-attempt-or-execution', 'review-context-current']
+      : ['current-task-is-active', 'latest-execution-matches', 'review-context-current'],
     evidence_refs: evidenceRefs,
     idempotency_key: input.idempotency_key,
     requested_write_targets: [current.relativePath],

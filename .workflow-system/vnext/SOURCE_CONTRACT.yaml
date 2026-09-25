@@ -153,7 +153,7 @@ capabilities:
       - a broad glob is used without an inherently-broad transformation
       - the changed-path diff target is empty, duplicated, invalid, or not explicit
       - read/discovery context is treated as write authority
-      - true authority widening lacks a retained user instruction that demonstrably covers each exact new path, or the goal, acceptance, or task authority changed without the authority-amendment route and fresh preflight
+      - an already confirmed task's true authority widening lacks a retained user instruction that demonstrably covers each exact new path, or its goal, acceptance, or authority changed without the authority-amendment route and fresh preflight; a new task may propose an exact exception before draft confirmation
       - a confirmed v2 task observes a changed or missing project authority-domain revision without explicit task authority-domain revalidation
 
   - id: decision-authority-gate
@@ -626,6 +626,7 @@ runtime_operations:
       - execute-step:extend-preflight
       - execute-step:default:consume-retained-review
       - review-change:default:record-review-result
+      - review-change:recheck-completed-step:record-review-result
       - review-change:default:record-evidence-challenge
       - review-change:default:dismiss-evidence-challenge
       - prepare-task:default:clear-resume-review-gate

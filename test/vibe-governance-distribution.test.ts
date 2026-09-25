@@ -257,6 +257,7 @@ describe('Vibe Governance Distribution / Installer', () => {
 
   test('fresh Node install promotes complete software and leaves governance unbootstrapped', { timeout: 30000 }, () => {
     const target = freshTarget();
+    fs.writeFileSync(targetPath(target, '.gitattributes'), '* text=auto\n', 'utf8');
     const result = installDistribution({ targetRoot: target, packageRoot });
     expect(result.status).toBe('installed');
     expect(result.read_back_verified).toBe(true);
@@ -265,6 +266,15 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(false);
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(false);
+    expect(fs.readFileSync(targetPath(target, '.gitattributes'), 'utf8')).toBe('* text=auto\n');
+    expect(fs.readFileSync(targetPath(target, 'docs/workflow/.gitattributes'), 'utf8')).toContain('CURRENT_TASK.md -text');
+    execFileSync('git', ['init', '-q'], { cwd: target });
+    const taskAttribute = execFileSync('git', ['check-attr', 'text', '--', 'docs/workflow/CURRENT_TASK.md'], { cwd: target, encoding: 'utf8' });
+    const storeAttribute = execFileSync('git', ['check-attr', 'text', '--', 'docs/workflow/task-data/doc-1/objects/object.json'], { cwd: target, encoding: 'utf8' });
+    const sourceAttribute = execFileSync('git', ['check-attr', 'text', '--', 'src/example.ts'], { cwd: target, encoding: 'utf8' });
+    expect(taskAttribute).toContain('text: unset');
+    expect(storeAttribute).toContain('text: unset');
+    expect(sourceAttribute).toContain('text: auto');
     expect(fs.existsSync(targetPath(target, '.workflow-system/runtime/tools/rg/identity.json'))).toBe(true);
     fs.mkdirSync(targetPath(target, 'test'));
     fs.writeFileSync(targetPath(target, 'test/existing.test.ts'), 'const oracle = 10;\nassert(login()).equals(oracle);\n');
@@ -320,6 +330,13 @@ describe('Vibe Governance Distribution / Installer', () => {
     const runtimeCli = targetPath(target, '.workflow-system/runtime/dist/cli.js');
     expect(() => execFileSync('node', [runtimeCli, 'validate-contract', '--root', target], { encoding: 'utf8' })).not.toThrow();
     expect(() => execFileSync('node', [runtimeCli, 'validate', '--root', target], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })).toThrow(/BOOTSTRAP_REQUIRED/u);
+    const taskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+    const taskBytes = Buffer.from('task: checked-in\n', 'utf8');
+    fs.writeFileSync(taskPath, taskBytes);
+    execFileSync('git', ['-c', 'core.autocrlf=true', 'add', '.gitattributes', 'docs/workflow/.gitattributes', 'docs/workflow/CURRENT_TASK.md'], { cwd: target });
+    fs.unlinkSync(taskPath);
+    execFileSync('git', ['-c', 'core.autocrlf=true', 'checkout-index', '--', 'docs/workflow/CURRENT_TASK.md'], { cwd: target });
+    expect(fs.readFileSync(taskPath)).toEqual(taskBytes);
   });
 
   test('fresh install and vNext upgrade ignore unmanaged business symlink trees in rollback preimage', { timeout: 60000 }, () => {
@@ -532,6 +549,8 @@ describe('Vibe Governance Distribution / Installer', () => {
     const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
     const state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
     state.distribution_version = '0.14.4';
+    state.managed_files = (state.managed_files as Array<Record<string, unknown>>).filter(item => item.path !== 'docs/workflow/.gitattributes');
+    fs.unlinkSync(targetPath(target, 'docs/workflow/.gitattributes'));
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8');
     const install = installDistribution({ targetRoot: target, packageRoot });
     expect(install.status).toBe('upgrade-required');
@@ -569,6 +588,7 @@ describe('Vibe Governance Distribution / Installer', () => {
     const upgrade = upgradeDistribution({ targetRoot: target, packageRoot });
     expect(upgrade.status, JSON.stringify(upgrade.blockers)).toBe('upgraded');
     expect(upgrade.read_back_verified).toBe(true);
+    expect(fs.readFileSync(targetPath(target, 'docs/workflow/.gitattributes'), 'utf8')).toContain('CURRENT_TASK.md -text');
     expect(fs.readFileSync(currentTaskPath)).toEqual(before);
     expect(fs.readFileSync(profilePath)).toEqual(profileBefore);
   });

@@ -161,8 +161,9 @@ the assessment and review must cover oracle/reuse/boundary changes. A new
 persistent test whose first-touch state is absent still requires the full P-12
 admission record. This preserves `new persistent test != ordinary file`.
 
-Only a real authority change—such as Node to Rust/shared-protocol or a new
-cross-domain exact exception—uses `prepare-task:amend-scope` with explicit
+For an **already confirmed task**, only a real authority change—such as Node to
+Rust/shared-protocol or a new cross-domain exact exception—uses
+`prepare-task:amend-scope` with explicit
 user authorization. The existing task instruction may supply that authority
 when the Agent can show how it entails every exact newly required path and no
 explicit task limit excludes them; retain its verbatim source and the

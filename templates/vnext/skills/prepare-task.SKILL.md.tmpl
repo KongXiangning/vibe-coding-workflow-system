@@ -39,7 +39,7 @@ entry_contract:
   stop_conditions:
     - the goal, acceptance, or mutation boundary is too unclear to form a bounded draft
     - confirmation is requested while a user-owned design choice remains unresolved
-    - a known scope, command, or authority blocker prevents an executable plan
+    - after proposing the complete new-task scope, a genuine user-owned scope choice or permanent project-domain grant remains unresolved; an ordinary exact task exception is not by itself such a choice
     - after read-back and supported internal recovery, a required external fact, genuinely new caller choice, or unrecoverable integrity conflict still prevents the requested mode
   output_kind: prepared-task
 ---
@@ -268,6 +268,19 @@ meaning. Never invent a user decision, policy, release gate, or authority source
 
 ## Mutation Authority v2
 
+For `default` preparation of a **new task**, the authority envelope is a
+proposal, not an already confirmed limit. If the request selects a planned
+stage and its authoritative plan requires modifying an existing component,
+identify the necessary path from code and include it in the proposed draft.
+When that single path is outside the selected project domains, propose it as
+an exact task exception and continue to `prepare-draft`; do not request a
+second user instruction naming the file. The user confirms or rejects the
+complete draft afterward. This rule does not grant permission to edit the file
+during preparation. For a **confirmed active task**, additions outside the
+frozen envelope instead require the recorded authority-amendment transaction
+and a fresh execution preflight. Do not apply that active-task rule to a new
+draft that has not yet been submitted.
+
 Every new task identity, including a successor, must select v2 explicitly by
 submitting `mutation_authority_version: 2` together with a positive
 `mutation_authority` object. If the project profile has no
@@ -299,16 +312,18 @@ Do not use the v2 task authority envelope as a predicted file inventory. Each
 implementation step uses `planned_mutation_targets` for initial direction and
 planned-vs-actual review. A same-domain target discovered later may be
 self-admitted only after a bounded blast-radius assessment; it does not need a
-user scope amendment. A target outside the envelope is a hard authority
-decision and must use the explicit `amend-scope` route. Existing v1 tasks keep
+user scope amendment. A target outside an already confirmed envelope is a hard
+authority decision and must use the explicit `amend-scope` route; a new draft
+first selects its proposed envelope. Existing v1 tasks keep
 their recorded semantics unless explicitly converted; do not silently infer
 domains or rewrite their history.
 
 Before accepting a v2 draft, prove the complete executable declaration set:
 every `planned_mutation_targets`, exact `expected_repo_writes`, bounded command
 footprint, and persistent-test path must be inside one selected project domain
-or an exact exception, and must not overlap Forbidden, governance, or
-`unclassified` paths. Planned targets do not need a blast-radius assessment;
+or an exact exception, and must not overlap Forbidden or governance paths.
+An `unclassified` exact path is valid only when named in `exact_exceptions`;
+an unclassified directory glob remains blocked. Planned targets do not need a blast-radius assessment;
 they still need this structural proof. For a command `literal/path/**`, use the
 deterministic pattern-subset relation against the granted domain root. Never
 use a synthetic probe path, and never use an exact exception to authorize a
@@ -646,6 +661,14 @@ These operations do not redesign Goal, Acceptance, scope or steps and do not
 supersede the task. They do not relax the Trusted Authority Channel for realign.
 
 ## Required result
+
+In new-task preparation, a path outside the existing project map is not a
+terminal authorization blocker when it is a necessary, exact task exception
+grounded in the request and authoritative design. Submit that complete draft
+through Runtime and present its confirmation receipt. Do not end with “reply
+to authorize this ordinary file so I can start the draft.” Stop before draft
+submission only for a genuinely undetermined goal, exclusion, authority choice,
+or owner-confirmed permanent project-domain update.
 
 Submit the draft's semantic content, including `task_basis`, to Runtime through
 `prepare-draft` on stdin;

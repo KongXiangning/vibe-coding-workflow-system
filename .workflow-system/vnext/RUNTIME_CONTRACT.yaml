@@ -26,7 +26,7 @@ runtime_distribution:
   package_manifest: .workflow-system/runtime/package.json
   lockfile: .workflow-system/runtime/package-lock.json
   package_name: vibe-coding-vnext-runtime
-  package_version: 0.21.7
+  package_version: 0.21.12
   node_min_version: ">=20.0.0"
 
 task_context:
@@ -441,7 +441,7 @@ proposal:
       target_verification: runtime-file-manifest
     review_result:
       test_assessment: [applicable, reason, evidence_refs, necessity, oracle, boundary, reuse, applicability]
-      stored_in: canonical CURRENT_TASK.runtime_state.pending_review_result
+      stored_in: canonical-pending-review-result-for-findings; completed-step-clean-or-blocked-recheck-retained-in-task-store-event
       verdicts:
         - clean
         - findings
@@ -452,6 +452,8 @@ proposal:
         - latest_execution_id
         - change_set_id
         - review_target_revision
+        - entry_mode
+        - completion_record_id
       blocked_diagnostics:
         - findings
         - unresolved_fingerprints
@@ -459,8 +461,8 @@ proposal:
         - finding_dispositions
         - blocker
       consumed_by:
-        clean: execute-step:complete-reviewed-step
-        findings: execute-step:begin-repair
+        clean: default->execute-step:complete-reviewed-step; recheck-completed-step->no-step-transition
+        findings: default-or-recheck-completed-step->execute-step:begin-repair
         blocked: record-user-decision-or-caller-route
     draft:
       mode: default
@@ -594,17 +596,20 @@ proposal:
   review_change:
     semantic_adapter:
       input: stdin-json
+      modes:
+        - default
+        - recheck-completed-step
       commands:
         - review-context
         - review-read
         - record-review-result
         - record-evidence-challenge
         - dismiss-evidence-challenge
-      context_source: latest-recorded-execution
-      reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review
+      context_source: latest-recorded-execution; explicit-recheck-binds-immediately-previous-clean-completion
+      reviewable_execution: implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review; recheck-requires-active-ready-successor-or-open-final-completion-with-no-later-runtime-action
       change_set: runtime-owned-stable-id
       review_target: runtime-cumulative-before-after-file-delta
-      result_storage: canonical-pending-review-result
+      result_storage: canonical-pending-review-result-for-findings; completed-step-clean-or-blocked-recheck-retained-in-task-store-event
       direct_product_writes: deny
       advancement_owner: execute-step
     bound_actions:

@@ -14522,6 +14522,38 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
+  test('new v2 draft may propose one necessary worker exception and await whole-draft confirmation', () => {
+    const root = archivedBaselineRoot();
+    enableV2MutationAuthority(root);
+    const worker = 'scripts/case-judgment-projection-worker.ts';
+    try {
+      const draft = v2MutationAuthoritySemanticDraft({
+        task_basis: taskBasisFixture('Prepare profile-aware vector work, including the existing projection worker.'),
+        goal: 'Prepare profile-aware vector work, including the existing projection worker',
+        implementation_steps: [{
+          id: 'step-1',
+          description: 'Update vector identity and the existing projection worker for the requested profile behavior',
+          planned_mutation_targets: ['packages/node-rollout/src/vector.ts', worker],
+          commands: [],
+          validation: ['Inspect profile-bound vector identity and worker consumption'],
+          review_checkpoint: { policy: 'required', reason: 'Review the combined task scope' },
+        }],
+      });
+      draft.mutation_authority = {
+        domains: ['node-rollout'],
+        exact_exceptions: [worker],
+        forbidden: [],
+      };
+      const prepared = prepareDraft(root, draft);
+
+      expect(prepared.status).toBe('success');
+      expect(prepared.confirmation_receipt).toBeDefined();
+      expect(readCanonicalCurrentTask(root).mutationAuthority?.exact_exceptions).toEqual([worker]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('E17 blocks a planned command glob that is broader than the granted domain', () => {
     const root = archivedBaselineRoot();
     enableV2MutationAuthority(root);

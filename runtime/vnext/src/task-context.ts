@@ -73,6 +73,7 @@ export type TaskContextReference = {
   command: 'task-context';
   entry: string;
   mode: string;
+  step_id?: string;
   document_id: string;
   source_revision: string;
   definition_revision: string;
@@ -86,6 +87,7 @@ type AnyRecord = Record<string, unknown>;
 export type TaskContextInput = {
   entry?: string;
   mode?: string;
+  step_id?: string;
   operation?: string;
   definition_visible?: boolean;
   visible_definition_revision?: string;
@@ -99,6 +101,7 @@ export type TaskContextContinuation = {
   source_revision: string;
   definition_revision: string;
   state_revision: string;
+  step_id?: string;
   block_index: number;
   byte_offset: number;
 };
@@ -314,7 +317,7 @@ function currentStore(root: string, current: CanonicalCurrentTask): TaskStore {
   return TaskStore.forCurrent(root, asStoreCurrent(current));
 }
 
-export function taskContextReferenceForCurrent(root: string, current: CanonicalCurrentTask, entry = 'validate', mode = 'default'): TaskContextReference {
+export function taskContextReferenceForCurrent(root: string, current: CanonicalCurrentTask, entry = 'validate', mode = 'default', stepId?: string): TaskContextReference {
   const store = currentStore(root, current);
   const manifest = store.manifest;
   return {
@@ -322,6 +325,7 @@ export function taskContextReferenceForCurrent(root: string, current: CanonicalC
     command: TASK_CONTEXT_OPERATION,
     entry,
     mode,
+    ...(stepId === undefined ? {} : { step_id: stepId }),
     document_id: current.sourceTuple.document_id,
     source_revision: current.sourceTuple.revision,
     definition_revision: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest),
@@ -363,14 +367,14 @@ function taskTitle(body: string): string | null {
   return /^-\s*任务标题：(.+)$/mu.exec(body)?.[1]?.trim() ?? /^-\s*Task Title:\s*(.+)$/mu.exec(body)?.[1]?.trim() ?? null;
 }
 
-function currentStep(current: CanonicalCurrentTask): AnyRecord {
-  // Resolve by the active ID.  A projection that falls back to the first
-  // Markdown step can expose S1 while Runtime is executing S3, which is a
-  // dangerous context corruption rather than a harmless display issue.
-  const resolved = resolveTaskStep(current.body, current.runtimeState.active_step_id).current;
+function currentStep(current: CanonicalCurrentTask, stepId = current.runtimeState.active_step_id): AnyRecord {
+  const resolved = resolveTaskStep(current.body, stepId).current;
+  const status = stepId === current.runtimeState.active_step_id
+    ? current.runtimeState.active_step_status
+    : currentDefinitionExecutionLog(current).findLast(item => !('action' in item) && item.step_id === stepId)?.status ?? 'unknown';
   return {
     step_id: resolved.id,
-    status: current.runtimeState.active_step_status,
+    status,
     description: resolved.description,
     purpose: resolved.purpose,
     planned_mutation_targets: resolved.planned_mutation_targets,
@@ -473,9 +477,9 @@ function unresolvedFindings(current: CanonicalCurrentTask): AnyRecord[] {
     }));
 }
 
-function latestExecution(current: CanonicalCurrentTask): AnyRecord | null {
+function latestExecution(current: CanonicalCurrentTask, stepId = current.runtimeState.active_step_id): AnyRecord | null {
   const entries = Array.isArray(current.runtimeState.execution_log) ? current.runtimeState.execution_log.filter(record) : [];
-  const active = [...entries].reverse().find(entry => entry.step_id === current.runtimeState.active_step_id || entry.action === 'record-review-result');
+  const active = [...entries].reverse().find(entry => entry.step_id === stepId || (stepId === current.runtimeState.active_step_id && entry.action === 'record-review-result'));
   if (!active) return null;
   return {
     idempotency_key: active.idempotency_key ?? null,
@@ -975,13 +979,13 @@ function compactContextOverviewForSmallPage(overview: AnyRecord): AnyRecord {
   return compact;
 }
 
-function operationBlocks(root: string, current: CanonicalCurrentTask, entry: string, mode: string, definitionReused: boolean, manifest: TaskStoreManifest | null): { blocks: TaskContextBlock[]; required: string[]; optional: string[] } {
+function operationBlocks(root: string, current: CanonicalCurrentTask, entry: string, mode: string, definitionReused: boolean, manifest: TaskStoreManifest | null, stepId?: string): { blocks: TaskContextBlock[]; required: string[]; optional: string[] } {
   const definitionAlgorithm = manifest?.definition_revision_algorithm;
   const definition = taskStoreDefinitionPayload(asStoreCurrent(current), definitionAlgorithm);
   const blocks: TaskContextBlock[] = [];
   const add = (id: string, required: boolean, value: unknown) => blocks.push({ id, required, value });
   if (!definitionReused) add('current-definition', true, { revision: taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest), ...definition });
-  add('current-step', true, currentStep(current));
+  add('current-step', true, currentStep(current, stepId));
   add('mutation-authority', true, current.mutationAuthority === null
     ? { version: null, domains: [], exact_exceptions: [], forbidden: [], legacy_mode: true }
     : {
@@ -1027,7 +1031,7 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
     dynamic_review_required: dynamicReviewRequiredForCurrentExecution(current),
     dynamic_expansions: current.runtimeState.dynamic_expansions ?? [],
   });
-  add('latest-execution', true, latestExecution(current));
+  add('latest-execution', true, latestExecution(current, stepId));
   if (entry === 'review-change' || entry === 'review-context' || entry === 'review' || entry.includes('review') || mode === 'review') add('cumulative-review-target', true, reviewTarget(current));
   add('history-navigation', false, storeNavigation(root, current, manifest));
   return { blocks, required: blocks.filter(block => block.required).map(block => block.id), optional: blocks.filter(block => !block.required).map(block => block.id) };
@@ -1082,6 +1086,8 @@ function utf8Boundary(bytes: Buffer, requested: number): number {
 function contextPage(root: string, current: CanonicalCurrentTask, input: TaskContextInput): TaskContextResponse {
   const entry = typeof input.entry === 'string' && input.entry.trim() ? input.entry.trim() : typeof input.operation === 'string' && input.operation.trim() ? input.operation.trim() : 'validate';
   const mode = typeof input.mode === 'string' && input.mode.trim() ? input.mode.trim() : 'default';
+  const stepId = typeof input.step_id === 'string' && input.step_id.trim() ? input.step_id.trim() : undefined;
+  if (stepId && !(entry === 'review-context' && mode === 'review')) throw new Error('TASK_CONTEXT_INPUT_INVALID: step_id override is reserved for review-context mode.');
   const maxBytes = integer(input.max_bytes, 16 * 1024, 256, 64 * 1024);
   const manifest = manifestForContext(root, current);
   const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest);
@@ -1092,6 +1098,7 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
   if (continuation && (continuation.source_revision !== current.sourceTuple.revision || continuation.definition_revision !== definitionRevision || continuation.state_revision !== stateRevision)) {
     throw new Error('TASK_CONTEXT_STALE: current definition/state changed; start a fresh task-context read.');
   }
+  if (continuation && continuation.step_id !== stepId) throw new Error('TASK_CONTEXT_STALE: step_id changed while paging task context; start a fresh task-context read.');
   const aggregate = {
     document_id: current.sourceTuple.document_id,
     task_id: current.runtimeState.task_id,
@@ -1101,8 +1108,8 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
     state_revision: stateRevision,
     storage_manifest_path: `${taskStorePaths(root, current.sourceTuple.document_id).relativeRoot}/manifest.json`,
   };
-  const selection = { entry, mode, required: [] as string[], optional: [] as string[], definition_reused: definitionReused };
-  const built = operationBlocks(root, current, entry, mode, definitionReused, manifest);
+  const selection = { entry, mode, ...(stepId ? { step_id: stepId } : {}), required: [] as string[], optional: [] as string[], definition_reused: definitionReused };
+  const built = operationBlocks(root, current, entry, mode, definitionReused, manifest, stepId);
   selection.required = built.required;
   selection.optional = built.optional;
   const overview = maxBytes <= 4096
@@ -1158,7 +1165,7 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
         source_revision: current.sourceTuple.revision,
         definition_revision: definitionRevision,
         state_revision: stateRevision,
-        selection: { entry, mode },
+        selection: { entry, mode, ...(stepId ? { step_id: stepId } : {}) },
         returned_block_ids: pageBlocks.map(block => block.id),
         complete_for_operation: complete,
       },
@@ -1169,7 +1176,7 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
     const serialized = stableJson(original.value);
     const full: TaskContextBlock = { id: original.id, required: original.required, value: original.value };
     const fullCursor = blockIndex + 1 < built.blocks.length
-      ? { kind: 'task-context-page/v1' as const, source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, block_index: blockIndex + 1, byte_offset: 0 }
+      ? { kind: 'task-context-page/v1' as const, source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, ...(stepId ? { step_id: stepId } : {}), block_index: blockIndex + 1, byte_offset: 0 }
       : null;
     const candidate = makePage([...returned, full], fullCursor);
     if (fits(candidate, maxBytes)) {
@@ -1184,6 +1191,7 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
       source_revision: current.sourceTuple.revision,
       definition_revision: definitionRevision,
       state_revision: stateRevision,
+      ...(stepId ? { step_id: stepId } : {}),
       block_index: blockIndex,
       byte_offset: byteOffset,
     };
@@ -1213,17 +1221,17 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
       maxBytes,
       (candidateBlock, candidateOffset) => {
         const candidateNext = candidateOffset < serializedBytes
-          ? { kind: 'task-context-page/v1' as const, source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, block_index: blockIndex, byte_offset: candidateOffset }
+          ? { kind: 'task-context-page/v1' as const, source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, ...(stepId ? { step_id: stepId } : {}), block_index: blockIndex, byte_offset: candidateOffset }
           : blockIndex + 1 < built.blocks.length
-            ? { kind: 'task-context-page/v1' as const, source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, block_index: blockIndex + 1, byte_offset: 0 }
+            ? { kind: 'task-context-page/v1' as const, source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, ...(stepId ? { step_id: stepId } : {}), block_index: blockIndex + 1, byte_offset: 0 }
             : null;
         return fits(makePage([...returned, candidateBlock], candidateNext), maxBytes);
       },
     );
     returned.push(chunked.block);
     const after = chunked.nextOffset;
-    if (after < Buffer.byteLength(serialized, 'utf8')) next = { kind: 'task-context-page/v1', source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, block_index: blockIndex, byte_offset: after };
-    else if (blockIndex + 1 < built.blocks.length) next = { kind: 'task-context-page/v1', source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, block_index: blockIndex + 1, byte_offset: 0 };
+    if (after < Buffer.byteLength(serialized, 'utf8')) next = { kind: 'task-context-page/v1', source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, ...(stepId ? { step_id: stepId } : {}), block_index: blockIndex, byte_offset: after };
+    else if (blockIndex + 1 < built.blocks.length) next = { kind: 'task-context-page/v1', source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, ...(stepId ? { step_id: stepId } : {}), block_index: blockIndex + 1, byte_offset: 0 };
     blockIndex = built.blocks.length;
     break;
   }
@@ -1237,7 +1245,7 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
 }
 
 export function taskContext(root: string, input: unknown = {}): TaskContextResponse {
-  const value = contextInput(input, ['entry', 'mode', 'operation', 'definition_visible', 'visible_definition_revision', 'known_definition_revision', 'continuation', 'max_bytes']) as TaskContextInput;
+  const value = contextInput(input, ['entry', 'mode', 'step_id', 'operation', 'definition_visible', 'visible_definition_revision', 'known_definition_revision', 'continuation', 'max_bytes']) as TaskContextInput;
   if (value.definition_visible !== undefined && typeof value.definition_visible !== 'boolean') throw new Error('TASK_CONTEXT_INPUT_INVALID: definition_visible must be boolean.');
   if (value.visible_definition_revision !== undefined && (typeof value.visible_definition_revision !== 'string' || !/^[a-f0-9]{64}$/u.test(value.visible_definition_revision))) throw new Error('TASK_CONTEXT_INPUT_INVALID: visible_definition_revision must be SHA-256.');
   if (value.known_definition_revision !== undefined && (typeof value.known_definition_revision !== 'string' || !/^[a-f0-9]{64}$/u.test(value.known_definition_revision))) throw new Error('TASK_CONTEXT_INPUT_INVALID: known_definition_revision must be SHA-256.');

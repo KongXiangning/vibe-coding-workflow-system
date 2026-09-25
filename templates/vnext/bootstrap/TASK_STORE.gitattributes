@@ -1,0 +1,9 @@
+# vNext task facts are byte-addressed. Git must preserve their stored bytes.
+.gitattributes text eol=lf
+CURRENT_TASK.md -text
+task-basis/** -text
+task-data/** -text
+task-history/** -text
+task-candidates/** -text
+evidence-objects/** -text
+review-preimages/** -text

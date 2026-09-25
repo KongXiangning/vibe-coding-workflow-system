@@ -143,6 +143,7 @@ function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string
     { source_path: 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md', target_path: '.workflow-system/WORKFLOW_PROTOCOL.md', category: 'protocol' },
     { source_path: 'templates/vnext/bootstrap/FILE_SCHEMAS.md', target_path: '.workflow-system/FILE_SCHEMAS.md', category: 'schema' },
     { source_path: 'templates/vnext/bootstrap/CURRENT_TASK.md', target_path: 'docs/workflow/CURRENT_TASK.md', category: 'generated' },
+    { source_path: 'templates/vnext/bootstrap/TASK_STORE.gitattributes', target_path: 'docs/workflow/.gitattributes', category: 'config' },
     { source_path: '.workflow-system/vnext/SOURCE_CONTRACT.yaml', target_path: '.workflow-system/vnext/SOURCE_CONTRACT.yaml', category: 'config' },
     { source_path: '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', target_path: '.workflow-system/vnext/RUNTIME_CONTRACT.yaml', category: 'protocol' },
     { source_path: 'runtime/vnext/dist/cli.js', target_path: '.workflow-system/runtime/dist/cli.js', category: 'runtime' },
@@ -161,6 +162,7 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
     'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md',
     'templates/vnext/bootstrap/FILE_SCHEMAS.md',
     'templates/vnext/bootstrap/CURRENT_TASK.md',
+    'templates/vnext/bootstrap/TASK_STORE.gitattributes',
   ];
   for (const relativePath of paths) copyFile(sourceRoot, targetRoot, relativePath);
   copyDirectory(sourceRoot, targetRoot, 'templates/vnext/skills');

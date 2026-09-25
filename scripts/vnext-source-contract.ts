@@ -44,7 +44,7 @@ const PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN = new RegExp(PUBLIC_ENTRY_CONTINU
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan', 'amend-scope'],
   'review-draft': [],
-  'review-change': ['default'],
+  'review-change': ['default', 'recheck-completed-step'],
   'execute-step': ['default', 'repair'],
 };
 
@@ -236,6 +236,7 @@ const PHASE_2_BOUND_ACTIONS: Record<string, readonly string[]> = {
     'execute-step:extend-preflight',
     'execute-step:default:consume-retained-review',
     'review-change:default:record-review-result',
+    'review-change:recheck-completed-step:record-review-result',
     'review-change:default:record-evidence-challenge',
     'review-change:default:dismiss-evidence-challenge',
     'prepare-task:default:clear-resume-review-gate',
@@ -843,7 +844,7 @@ function validateReviewChangeSemanticBoundary(content: string): void {
   const requiredTerms = [
     'Runtime `review-context`',
     'Runtime-recorded cumulative change set, complete file index and bounded text diff',
-    'A blocked execution, a step without a review checkpoint, or an already completed step is not reviewable',
+    'In default mode, a blocked execution, a step without a review checkpoint, or an already completed step is not reviewable',
     'Do not modify code, tests, configuration, or governance sources',
     'unauthorized persistent-test changes',
     'Runtime `record-review-result`',
@@ -851,6 +852,10 @@ function validateReviewChangeSemanticBoundary(content: string): void {
     'Do not repair code or advance the step',
     'recommendation must not invoke another public Skill',
     'many PASS results, or one command PASS, do not increase assurance for an unrelated claim',
+    'review-change:recheck-completed-step',
+    'immediately preceding cleanly completed step',
+    'leaves the original clean review and completion intact',
+    'reopens that step for the existing',
   ];
   for (const term of requiredTerms) {
     if (!content.includes(term)) fail(`review-change must preserve the semantic boundary term "${term}"`);
