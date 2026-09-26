@@ -7983,7 +7983,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.step_attempts!['step-1']!.attempts).toHaveLength(2);
   });
 
-  test('same-plan recovery rejects a fabricated failure, extra repair path and changed diagnosis replay', () => {
+  test('same-plan recovery rejects fabricated failures and changed diagnosis replay while retaining authorized scope', () => {
     const file = 'runtime/vnext/src/prepare-task-adapter.ts';
     const other = 'runtime/vnext/src/other.ts';
     const semantic = singleStepSemanticDraft();
@@ -8009,7 +8009,11 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, failed_check: 'never ran' } })).toMatchObject({ status: 'blocked', code: 'RETRY_DIAGNOSIS_REQUIRED' });
     expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, repair_paths: ['src/login.ts'] } })).toMatchObject({ status: 'blocked', code: 'EXECUTE_SCOPE_BLOCKED' });
     expect(retryStep(root, input).status).toBe('success');
-    expect(applyVNextRuntimeProposal(root, createStepPreflightProposal(readCanonicalCurrentTask(root), [file, other]))).toMatchObject({ status: 'blocked', code: 'RETRY_SCOPE_BLOCKED' });
+    const beforePreflight = readCanonicalCurrentTask(root);
+    expect(applyVNextRuntimeProposal(root, createStepPreflightProposal(beforePreflight, [other]))).toMatchObject({ status: 'blocked', code: 'RETRY_SCOPE_BLOCKED', committed: false });
+    expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(beforePreflight.sourceTuple.revision);
+    expect(applyVNextRuntimeProposal(root, createStepPreflightProposal(beforePreflight, [file, other]))).toMatchObject({ status: 'success', committed: true });
+    expect(readCanonicalCurrentTask(root).runtimeState.execution_preflight?.candidate_paths).toEqual([file, other]);
     expect(retryStep(root, { ...input, repair_diagnosis: { ...diagnosis, cause: 'changed after admission' } })).toMatchObject({ status: 'conflict', code: 'RETRY_IDEMPOTENCY_CONFLICT' });
   });
 
@@ -8214,11 +8218,24 @@ describe('vNext Phase 2 Runtime contract', () => {
       validation_results: [{ validation: slot.check!.entry, status: 'expected-failure', evidence_refs: ['evidence-report.txt'], expected_failure: expectedFailure }],
       acceptance_evidence: [report], outcome: 'test-red', note: 'Bound Red reproduction; positive acceptance is still missing',
     };
-    expect(recordStepResult(root, { ...input, acceptance_evidence: [report, reportFixture(root)] })).toMatchObject({ status: 'blocked', code: 'TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN', committed: false });
+    const beforeRejectedResult = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
+    expect(() => recordStepResult(root, { ...input, acceptance_evidence: [report, reportFixture(root)] })).toThrow('TEST_STRATEGY_RED_ACCEPTANCE_FORBIDDEN');
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(beforeRejectedResult);
     expect(recordStepResult(root, input).status).toBe('success');
     const context = reviewContext(root, {});
     expect(context.recorded_execution.execution_result?.outcome).toBe('test-red');
-    expect(context.recorded_execution.execution_result?.acceptance_evidence).toEqual([report]);
+    expect(context.recorded_execution.execution_result?.acceptance_evidence).toEqual([
+      expect.objectContaining({
+        claim_id: report.claim_id,
+        slot_id: report.slot_id,
+        check_id: report.check_id,
+        report: expect.objectContaining({
+          result_id: report.report.result_id,
+          status: 'expected-failure',
+          subject_revision: report.report.subject_revision,
+        }),
+      }),
+    ]);
     expect(recordReviewResult(root, { context_receipt: context.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null }).status).toBe('success');
     expect(completeReviewedStep(root, { step_id: 'step-1', note: 'reproduction reviewed' }).status).toBe('success');
     const current = readCanonicalCurrentTask(root);
@@ -8412,7 +8429,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         command_results: [expectedFailure], validation_results: [], acceptance_evidence: [], blocker: null,
       },
     });
-    expect(applyVNextRuntimeProposal(root, raw)).toMatchObject({ status: 'blocked', code: 'TEST_STRATEGY_SEQUENCE_INVALID', committed: false });
+    expect(applyVNextRuntimeProposal(root, raw)).toMatchObject({ status: 'blocked', code: 'EXECUTE_EXPECTED_FAILURE_INVALID', committed: false });
     expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(beforeResult.sourceTuple.revision);
     recordStepResult(root, input);
     const context = reviewContext(root, {});
@@ -8421,6 +8438,51 @@ describe('vNext Phase 2 Runtime contract', () => {
     const current = readCanonicalCurrentTask(root);
     expect(current.runtimeState.business_evidence_version).toBe(1);
     expect(current.runtimeState.execution_log.some(entry => !('action' in entry) && entry.execution_result?.outcome === 'test-red')).toBe(false);
+  });
+
+  test('rejects a bound test-red reproduction outside Red without a user warning decision at the raw Runtime boundary', () => {
+    const semantic = semanticDraft();
+    const reproduction = structuredClone(semantic.claim_evidence[0]!);
+    reproduction.claim_id = 'reproduction';
+    reproduction.claim_kind = 'invariant';
+    reproduction.requirement = 'Observe the defect before editing the product';
+    const slot = reproduction.slots[0]!;
+    slot.slot_id = 'reproduce';
+    slot.due_step_id = 'step-1';
+    slot.applicability = 'before-step';
+    slot.before_step_id = 'step-2';
+    slot.prerequisite_receipt = null;
+    slot.check!.check_id = 'reproduce-check';
+    slot.check!.expected_result = 'expected-failure';
+    slot.check!.entry = semantic.implementation_steps[1]!.commands[0]!.command;
+    semantic.implementation_steps[0]!.commands = [{ command: slot.check!.entry, expected_repo_writes: 'none' }];
+    semantic.implementation_steps[0]!.validation = [slot.check!.entry];
+    semantic.claim_evidence.push(reproduction);
+
+    const root = confirmedSemanticRoot(semantic);
+    const preflight = preflightStep(root, { candidate_paths: ['test/vnext-runtime.test.ts'] });
+    expect(preflight.receipt.execution_phase).toBe('flexible');
+    const report = reportFixture(root, 'reproduction', 'reproduce', 'expected-failure');
+    const before = readCanonicalCurrentTask(root);
+    const target = captureReviewTarget(root, preflight.receipt.review_base.entries.map(item => item.path));
+    const expectedFailure = { kind: 'behavior-not-implemented' as const, expected_behavior: 'defect fixed', observed_failure_signature: 'defect reproduced' };
+    const raw = createTaskStateProposal(before, {
+      mode: 'default', status: 'in-progress', evidence_refs: ['evidence-report.txt'],
+      idempotency_key: 'raw-flexible-test-red-without-warning',
+      authority_evidence: evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+      execution_result: {
+        execution_id: preflight.receipt.execution_id, attempt_id: preflight.receipt.attempt_id,
+        outcome: 'test-red', change_set_id: preflight.receipt.change_set_id,
+        review_base: preflight.receipt.review_base, review_target: target,
+        change_delta: createReviewChangeDelta(preflight.receipt.review_base, target),
+        actual_changed_paths: [],
+        command_results: [{ command: slot.check!.entry, status: 'expected-failure', observed_repo_writes: [], evidence_refs: ['evidence-report.txt'], expected_failure: expectedFailure }],
+        validation_results: [{ validation: slot.check!.entry, status: 'expected-failure', evidence_refs: ['evidence-report.txt'], expected_failure: expectedFailure }],
+        acceptance_evidence: [report], blocker: null,
+      },
+    });
+    expect(applyVNextRuntimeProposal(root, raw)).toMatchObject({ status: 'blocked', code: 'TEST_STRATEGY_SEQUENCE_INVALID', committed: false });
+    expect(readCanonicalCurrentTask(root).sourceTuple.revision).toBe(before.sourceTuple.revision);
   });
 
   test('resumes a durable ordinary preflight across host calls without spending an attempt', () => {
@@ -8807,6 +8869,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(recordReviewResult(root, cleanReviewInput).status).toBe('success');
     const reviewedBytes = fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8');
     expect(recordReviewResult(root, cleanReviewInput).status).toBe('no-op');
+    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(reviewedBytes);
+    expect(() => recordReviewResult(root, {
+      ...cleanReviewInput,
+      evidence_refs: ['test:evidence:changed-review'],
+    })).toThrow('REVIEW_CONTEXT_STALE');
+    const reviewedProductPath = path.join(root, 'runtime/vnext/src/prepare-task-adapter.ts');
+    fs.writeFileSync(reviewedProductPath, 'changed after review\n', 'utf8');
+    expect(() => recordReviewResult(root, cleanReviewInput)).toThrow('REVIEW_TARGET_STALE');
+    fs.writeFileSync(reviewedProductPath, 'implemented adapter\n', 'utf8');
     expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath, 'utf8')).toBe(reviewedBytes);
     expect(readCanonicalCurrentTask(root).runtimeState.pending_review_result).toMatchObject({ verdict: 'clean' });
     expect(() => completeReviewedStep(root, {
@@ -10635,7 +10706,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         expect(repairBudgetExtensionTargets(current)).toBeNull();
         const context = taskContext(root, {});
         expect(context.overview.next_entry).toBe('prepare-task:authorize-controlled-repair-recovery');
-        expect(context.overview.next_options).toEqual(['prepare-task:authorize-controlled-repair-recovery', 'debug-task']);
+        expect(context.overview.next_options).toEqual(['record-user-decision', 'prepare-task:authorize-controlled-repair-recovery', 'debug-task']);
         expect(context.overview.budget_extension).toMatchObject({
           eligible: false,
           user_decision_route: 'prepare-task:authorize-controlled-repair-recovery',
@@ -12043,7 +12114,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       },
       non_red_outcome: 'implemented-with-passed-results-or-bound-reproduction',
     });
-    expect(contract.proposal.review_change.semantic_adapter.reviewable_execution).toBe('implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review');
+    expect(contract.proposal.review_change.semantic_adapter.reviewable_execution).toBe('implemented-or-test-red-awaiting-required-checkpoint-or-dynamic-review-or-repair-verification-or-blocked-repair-remediation-review; recheck-requires-active-ready-successor-or-open-final-completion-with-no-later-runtime-action');
     expect(contract.proposal.review_change.semantic_adapter.review_target).toBe('runtime-cumulative-before-after-file-delta');
     expect(contract.proposal.prepare_task.semantic_adapter.decision_partition).toEqual({
       decided: 'confirmed_decisions',

@@ -948,7 +948,6 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
   const verdict = source.verdict as ReviewResultVerdict;
   const current = readCanonicalCurrentTask(root);
   assertReviewableTask(current);
-  assertCurrentContext(root, current, receipt);
   const recordedExecution = assertRecordedTargetCurrent(root, current, receipt);
   if (recordedExecution.execution_result?.outcome === 'blocked' && verdict === 'clean' && !isGovernanceOnlyFormatScopeBlocked(current)) {
     fail('REVIEW_BLOCKED_REPAIR_REQUIRES_REMEDIATION', 'a blocked repair result must receive a remediation review before any clean acceptance review.');
@@ -1017,6 +1016,7 @@ export function recordReviewResult(root: string, input: unknown, options: Runtim
     if (digest(durable) !== digest(reviewResult)) fail('REVIEW_REPLAY_CONFLICT', 'the durable review id is bound to different review semantics.');
     return semanticNoOp(current, resultKey, 'This exact review result was already recorded.', options);
   }
+  assertCurrentContext(root, current, receipt);
   const proposal = createReviewResultProposal(current, {
     review_result: reviewResult,
     evidence_refs: evidenceRefs,
