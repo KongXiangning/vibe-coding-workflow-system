@@ -46,13 +46,18 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
   }
   const design = path.join(workspace, 'design.json');
   fs.writeFileSync(design, JSON.stringify({ architecture: 'Bounded document observations in an isolated fixture' }));
-  const bootstrap = ['bootstrap-support', 'prepare', '--mode', 'greenfield', '--design-baseline-file', design, '--confirm-design', '--project-name', 'Recovery Fixture', '--project-slug', 'recovery-fixture', '--json'];
+  const authorityDomainCandidates = path.join(workspace, 'authority-domain-candidates.json');
+  fs.writeFileSync(authorityDomainCandidates, JSON.stringify([{ id: 'notes', roots: ['notes/**'], basis: 'The recovery fixture stores its bounded document observations under notes/.', evidence_refs: ['fixture:notes-domain'] }]));
+  const authorityDomainConfirmation = path.join(workspace, 'authority-domain-confirmation.json');
+  fs.writeFileSync(authorityDomainConfirmation, JSON.stringify({ domains: [{ id: 'notes', roots: ['notes/**'] }], decision_source: 'fixture:project-owner', decision_text: 'Confirm notes/** as the sole mutation-authority domain for this recovery fixture.' }));
+  const bootstrap = ['bootstrap-support', 'prepare', '--mode', 'greenfield', '--design-baseline-file', design, '--confirm-design', '--project-name', 'Recovery Fixture', '--project-slug', 'recovery-fixture', '--authority-domain-candidates-file', authorityDomainCandidates, '--authority-domain-confirmation-file', authorityDomainConfirmation, '--json'];
   const preview = invoke(bootstrap);
   const pathsFile = path.join(workspace, 'bootstrap-paths.json');
   fs.writeFileSync(pathsFile, JSON.stringify(preview.planned_writes));
   expect(invoke([...bootstrap, '--changed-paths-file', pathsFile, '--write']).status).toBe('installed');
   const profilePath = path.join(target, '.workflow-system/PROJECT_PROFILE.yaml');
   const profile = parse(fs.readFileSync(profilePath, 'utf8'));
+  expect(profile.mutation_authority).toEqual({ domains: [{ id: 'notes', roots: ['notes/**'] }] });
   profile.boundaries = { ...profile.boundaries, non_executable_change_paths: ['notes/**'] };
   fs.writeFileSync(profilePath, stringify(profile));
   fs.mkdirSync(path.join(target, 'notes'));
@@ -62,10 +67,10 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
   const claim = (id: string, p: string) => ({ claim_id: id, claim_kind: 'acceptance', requirement: `Retain and verify observation ${id}`, source_ref: 'fixture:original-request',
     slots: [{ slot_id: id.toLowerCase(), minimum_type: 'static-check', disposition: 'missing', evidence_refs: [], due_step_id: 'S1', applicability: 'current', report: null,
       check: { check_id: `K-${id}`, method: 'static', entry: `Read ${p}`, expected_observation: `Observation ${id} exists`, required_boundaries: ['complete document'], allowed_substitutes: [], subject_paths: [p], expected_result: 'accepted' } }] });
-  const step = (id: string) => ({ id, description: `Verify ${id}`, mutation_scope: allPaths, commands: [], validation: [`Validate ${id}`], review_checkpoint: { policy: 'required', reason: 'Review complete observations' } });
+  const step = (id: string) => ({ id, description: `Verify ${id}`, planned_mutation_targets: allPaths, commands: [], validation: [`Validate ${id}`], review_checkpoint: { policy: 'required', reason: 'Review complete observations' } });
   const draft = invoke(['prepare-draft'], { task_basis: { original_request: { source: 'fixture:original-request', verbatim: 'Maintain two verified document observations and preserve their history.' }, user_decisions: [] },
     goal: 'Maintain two verified document observations and preserve their history.', claim_evidence: [claim('A', allPaths[0]), claim('B', allPaths[1])], out_of_scope: ['No external systems'],
-    design_decisions: { decided: ['Use local documents'], unresolved: [] }, mutation_scope: { allowed: allPaths, conditional: [], forbidden: ['.git/**'] },
+    design_decisions: { decided: ['Use local documents'], unresolved: [] }, mutation_authority_version: 2, mutation_authority: { domains: ['notes'], exact_exceptions: [], forbidden: [] },
     test_strategy: { mode: 'not-applicable', source: 'inferred-default', source_ref: 'prepare-task-default', task_classification: 'non-executable-change', rationale: 'Only explicitly classified document files are written.' },
     implementation_steps: [step('S1'), step('S2')], validation_plan: ['Read and compare both document observations'], persistent_tests: 'none' });
   invoke(['confirm-draft'], { confirmation_receipt: draft.confirmation_receipt });

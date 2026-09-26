@@ -15287,6 +15287,7 @@ function buildCorrectionCandidate(root: string, current: CanonicalCurrentTask, i
   const anchor = pendingAnchor ?? (input.pending_step_changes ? parseImplementationSteps(definition.implementation_steps).at(-1)!.id : current.runtimeState.active_step_id);
   const appendRecovery = input.pending_step_changes ? !pendingAnchor : append;
   for (const recoveryStep of recoverySteps) definition = insertCorrectionStep(definition, anchor, recoveryStep, appendRecovery);
+  assertRecoveryExecutedStepDefinitions(current, definition, input);
   assertPreparedTestStrategy(root, definition, basis.basis);
   assertV2DraftDefinitionAuthority(root, definition);
   const records = copyClaimEvidence(current.runtimeState.claim_evidence ?? []);
@@ -15815,6 +15816,25 @@ function implementationStepBlock(definition: DraftTaskDefinition, stepId: string
     .find(block => block.startsWith(`- ${stepId}:`) || block.startsWith(`- ${stepId}：`))?.trimEnd();
 }
 
+function assertRecoveryExecutedStepDefinitions(old: CanonicalCurrentTask, definition: DraftTaskDefinition, input: CorrectionCandidateInput): void {
+  const oldDefinition = readDraftDefinitionFromBody(old.body);
+  const activeStepId = old.runtimeState.active_step_id;
+  const replacesSuspendedAttempt = input.mode === 'execution-recovery'
+    && old.runtimeState.workflow_status === 'blocked_by_replan'
+    && old.runtimeState.active_step_status !== 'completed'
+    && (old.runtimeState.step_attempts?.[activeStepId]?.attempts.length ?? 0) > 0
+    && input.pending_step_changes?.step_map.some(item => item.old_step_id === activeStepId) === true;
+  for (const stepId of executedStepIds(old)) {
+    const previous = implementationStepBlock(oldDefinition, stepId);
+    const next = implementationStepBlock(definition, stepId);
+    if (previous === next) continue;
+    // A suspended attempt is retained by the exact task-history preimage and its
+    // confirmed replacement mapping, not as an executable step in the new plan.
+    if (replacesSuspendedAttempt && stepId === activeStepId && previous !== undefined && next === undefined) continue;
+    fail('RECOVERY_EXECUTED_DEFINITION_CHANGED', 'An executed/preflighted historical step definition was rewritten.');
+  }
+}
+
 function confirmedRecoveryCandidates(current: CanonicalCurrentTask): CorrectionCandidate[] {
   // Canonical reads have already verified these immutable, confirmed candidates.
   return current.runtimeState.execution_log.flatMap(entry => {
@@ -16006,9 +16026,7 @@ function assertRecoveryHistory(root: string, current: CanonicalCurrentTask): voi
       };
     }
     const oldDefinition = readDraftDefinitionFromBody(old.body);
-    for (const stepId of executedStepIds(old)) {
-      if (implementationStepBlock(oldDefinition, stepId) !== implementationStepBlock(definition, stepId)) fail('RECOVERY_EXECUTED_DEFINITION_CHANGED', 'An executed/preflighted historical step definition was rewritten.');
-    }
+    assertRecoveryExecutedStepDefinitions(old, definition, candidate.input);
     for (const reference of candidate.historical_completion_refs) {
       const completed = old.runtimeState.execution_log.find(item => !('action' in item) && item.idempotency_key === reference.execution_id && item.step_id === reference.step_id && item.status === 'completed');
       if (!completed || digest(parseImplementationSteps(oldDefinition.implementation_steps).find(item => item.id === reference.step_id)) !== reference.definition_revision) fail('RECOVERY_COMPLETION_REFERENCE_INVALID', 'Historical completion reference lacks its exact completed execution and definition.');
