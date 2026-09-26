@@ -308,8 +308,13 @@ export function routeTaskInput(root: string, input: unknown) {
   const reason = text(source.reason, 'reason');
   if (source.diagnosis_status !== undefined && !['known', 'uncertain'].includes(String(source.diagnosis_status))) fail('INPUT_ROUTE_INVALID', 'diagnosis_status must be known or uncertain.');
   const authorityChange = ['change-goal', 'change-acceptance', 'expand-authority'].includes(String(source.operation));
-  const route = source.relation === 'unrelated' ? 'capture-work-item' : authorityChange || source.operation === 'other' ? 'user' : source.operation === 'review-conclusion' ? 'review-change' : source.diagnosis_status === 'uncertain' ? 'debug-task' : 'execute-step';
-  return { status: authorityChange ? 'user-decision-required' : 'routed', kind: 'task-input-routing/v1', source_tuple: current.sourceTuple,
+  let route: 'capture-work-item' | 'review-change' | 'debug-task' | 'execute-step' | null;
+  if (source.relation === 'unrelated') route = 'capture-work-item';
+  else if (authorityChange || source.operation === 'other') route = null;
+  else if (source.operation === 'review-conclusion') route = 'review-change';
+  else if (source.diagnosis_status === 'uncertain') route = 'debug-task';
+  else route = 'execute-step';
+  return { status: route === null ? 'user-decision-required' : 'routed', kind: 'task-input-routing/v1', source_tuple: current.sourceTuple,
     input_ref: ref, input_sha256: source.input_sha256, relation: source.relation, operation: source.operation, reason,
     next_route: route, evidence_assurance: 'caller-reported', permission_change: 'none',
     receipt_digest: digest({ source_tuple: current.sourceTuple, input: source, route }) };

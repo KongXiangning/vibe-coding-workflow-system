@@ -1401,6 +1401,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       'execute-step',
     ]);
     expect(declaredRuntimeCommands.has(context.overview.next_entry)).toBe(true);
+    expect(context.overview.next_entry_kind).toBe('runtime-command');
     for (const option of context.overview.next_options) expect(declaredRuntimeCommands.has(option)).toBe(true);
   });
 
@@ -10056,6 +10057,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(taskContext(root, {}).overview.repair_execution_recovery).toMatchObject({
       required: true,
       exact_retry: true,
+      recovery_command: 'execute-step:repair',
       preflight_id: repair.receipt.preflight_id,
       execution_id: repair.receipt.execution_id,
     });
@@ -10218,6 +10220,9 @@ describe('vNext Phase 2 Runtime contract', () => {
       relation: 'current-task', operation: 'recover-execution', reason: 'Inspect the observed failure before choosing its owner.' };
     expect(routeTaskInput(root, routingInput).next_route).toBe('execute-step');
     expect(routeTaskInput(root, { ...routingInput, diagnosis_status: 'uncertain' }).next_route).toBe('debug-task');
+    expect(routeTaskInput(root, { ...routingInput, operation: 'expand-authority' })).toMatchObject({ status: 'user-decision-required', next_route: null });
+    expect(routeTaskInput(root, { ...routingInput, operation: 'other' })).toMatchObject({ status: 'user-decision-required', next_route: null });
+    expect(routeTaskInput(root, { ...routingInput, relation: 'unrelated', operation: 'change-goal' })).toMatchObject({ status: 'routed', next_route: 'capture-work-item' });
 
     const initial = preflightStep(root, { candidate_paths: [file] });
     fs.writeFileSync(product, 'initial\n');

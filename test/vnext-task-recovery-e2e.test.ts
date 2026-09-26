@@ -75,7 +75,7 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
   const routed = invoke(['route-input'], { source_revision: initial.source_tuple.revision, input_ref: unrelated.evidence_ref, input_sha256: unrelated.evidence_sha256, relation: 'unrelated', operation: 'other', reason: 'Separate goal' });
   expect(routed.next_route).toBe('capture-work-item');
   expect(state().source_tuple.revision).toBe(initial.source_tuple.revision);
-  expect(invoke(['route-input'], { source_revision: initial.source_tuple.revision, input_ref: unrelated.evidence_ref, input_sha256: unrelated.evidence_sha256, relation: 'current-task', operation: 'expand-authority', reason: 'New write authority requested' }).status).toBe('user-decision-required');
+  expect(invoke(['route-input'], { source_revision: initial.source_tuple.revision, input_ref: unrelated.evidence_ref, input_sha256: unrelated.evidence_sha256, relation: 'current-task', operation: 'expand-authority', reason: 'New write authority requested' })).toMatchObject({ status: 'user-decision-required', next_route: null });
   let serial = 0;
   function complete(id: string, reports: string[], changes: Record<string, string> = {}, restore = false) {
     const preflight = invoke(['preflight-step'], { candidate_paths: allPaths });

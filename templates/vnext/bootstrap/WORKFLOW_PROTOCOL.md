@@ -247,10 +247,17 @@ cannot be inferred from the invocation, or when a fact cannot be established.
 
 When the entry reaches its result—success, an unrecoverable or undecidable
 blocker, no-op, report, or another declared terminal result—it must return to
-the caller and stop. A result may
-contain at most one `next_route` recommendation for a later public entry or
-mode, but that recommendation is informational only: the current invocation
-must not invoke the next public Skill.
+the caller and stop. A result may contain at most one `next_route`
+recommendation for a later public Skill. Its value is `null` or the base name
+of a declared public Skill; when a declared public mode matters, report it in
+`next_mode` separately. Derive the recommendation from the verified terminal
+result, not from a candidate operation, a failed Runtime call, or a context
+hint. If the current intent still needs internal recovery, continue it within
+this invocation. If a new user decision is required, report that decision and
+set `next_route: null`. Do not copy `task-context.overview.next_entry` or
+`next_options`, a review `blocker.next_route`, or a `run-entry` recovery command
+into the public `next_route`: those fields can name internal Runtime operations.
+The recommendation is informational only: the current invocation must not invoke the next public Skill.
 
 Internal capabilities and the Runtime operations declared by the current entry
 are not public Skill chaining. Bootstrap's explicitly permitted `design` →
@@ -266,7 +273,8 @@ public entries bind their Runtime work to this driver. Ordinary retry budget
 continuation can be recorded and applied by the driver from retained AI reassessment
 and the existing instruction, without renewed user authorization.
 
-Runtime can observe this explicit envelope, not the conversation itself. The host
+Runtime cannot observe conversation-level public Skill invocations; it can
+observe only this explicit envelope, not the conversation itself. The host
 remains responsible for truthful instruction provenance and semantic choices;
 Runtime enforces typed operations and write boundaries. Existing low-level APIs
 remain available and do not independently run an AI or guarantee a Skill outcome.

@@ -50,6 +50,14 @@ entry_contract:
 
 recovery_boundary: entry-recovery/v1
 
+Public result routing: `next_route` (or `recommended_route.entry`) is `null` or a
+declared public Skill base name. Put a declared public mode in `next_mode`
+separately. Choose it only from the verified terminal result. Never copy
+`task-context.overview.next_entry` / `next_options`, review
+`blocker.next_route`, or a `run-entry` recovery command into the public route.
+Complete same-intent internal recovery here; report a new user choice separately
+with `next_route: null`.
+
 The caller's explicit invocation authorizes this entry's stated intent and its
 necessary internal recovery within the existing authority. This entry owns that
 recovery until its requested result is produced or a genuinely undecidable choice
@@ -77,6 +85,10 @@ facts/verdict; recovery does not authorize unrelated implementation. For actual
 unavailable dependencies or damaged state, attempt the supported recovery first,
 then report the precise external prerequisite if it cannot be restored internally.
 Never fabricate success or bypass an incomplete atomic commit.
+
+If a resume gate is active, inspect and consume its retained review through the
+supported internal recovery path before execution; if it remains unresolved,
+report that result and stop.
 
 ### Shared internal recovery driver
 

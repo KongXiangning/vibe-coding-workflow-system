@@ -74,6 +74,8 @@ describe('vNext Phase 2 source contract', () => {
     expect(protocol).toContain('## Public entry invocation terminal boundary');
     expect(protocol).toContain('public-entry-terminal/v1');
     expect(protocol).toContain('must not invoke the next public Skill');
+    expect(protocol).toContain('next_mode');
+    expect(protocol).toContain('Do not copy `task-context.overview.next_entry`');
     expect(protocol).toContain('cannot observe conversation-level public Skill invocations');
 
     for (const entry of publicEntries) {
@@ -87,6 +89,7 @@ describe('vNext Phase 2 source contract', () => {
       expect(requiredResult).toBeGreaterThanOrEqual(0);
       expect(terminalMarker).toBeGreaterThan(requiredResult);
       expect(content).toContain('next_route');
+      expect(content).toContain('Public result routing:');
       expect(content).toContain('must not invoke another public Skill');
     }
   });
@@ -122,6 +125,15 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(allowedRoot)).not.toThrow();
   });
 
+  test('rejects internal commands and user decisions as public next_route literals', () => {
+    for (const route of ['preflight-step', 'execute-step:repair', 'prepare-task:amend-scope', 'record-user-decision', 'user']) {
+      const root = copyFixture();
+      const file = fixtureFile(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
+      fs.appendFileSync(file, `\nnext_route: ${route}\n`);
+      expect(() => validateVNextSource(root)).toThrow(/non-public next_route/i);
+    }
+  });
+
   test('accepts exactly the eight daily entries and closed catalogs', () => {
     const result = validateVNextSource(ROOT);
 
@@ -150,6 +162,7 @@ describe('vNext Phase 2 source contract', () => {
       'lifecycle-transaction',
       'project-status-transaction',
       'task-state-transaction',
+      'user-decision-transaction',
     ]);
     expect(result.legacySkillNames).toHaveLength(37);
   });

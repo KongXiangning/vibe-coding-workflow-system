@@ -6533,7 +6533,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.21.13";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.21.14";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -27722,7 +27722,7 @@ function readBootstrapReceipt(root) {
   };
 }
 function isDistributionManagedPath(relative10) {
-  return relative10 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative10 === ".workflow-system/FILE_SCHEMAS.md" || relative10 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative10 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || relative10.startsWith(".workflow-system/runtime/") || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(relative10);
+  return relative10 === "docs/workflow/.gitattributes" || relative10 === ".workflow-system/WORKFLOW_PROTOCOL.md" || relative10 === ".workflow-system/FILE_SCHEMAS.md" || relative10 === ".workflow-system/vnext/SOURCE_CONTRACT.yaml" || relative10 === ".workflow-system/vnext/RUNTIME_CONTRACT.yaml" || relative10.startsWith(".workflow-system/runtime/") || /^\.agents\/skills\/[a-z][a-z0-9-]*\/SKILL\.md$/u.test(relative10);
 }
 function validateSkillFile(root, entry) {
   const relative10 = `.agents/skills/${entry}/SKILL.md`;
@@ -27854,6 +27854,8 @@ var PUBLIC_ENTRY_TERMINAL_GUIDANCE = [
   "- Complete only this entry intent, its internal capabilities, and its bound Runtime operations.",
   "- After a terminal result, return to the caller and stop.",
   "- Report at most one `next_route` / `recommended_route`; it is recommendation-only for a later caller invocation, and the current invocation must not invoke another public Skill.",
+  "- A public `next_route` is null or a declared public Skill base name; put a declared public mode in `next_mode` separately. Derive it from the verified terminal result. Report a required user decision separately with `next_route: null`.",
+  "- `task-context.overview.next_entry` / `next_options`, review `blocker.next_route`, and `run-entry` recovery routes can name internal Runtime operations. Never copy them into a public `next_route`; complete same-intent recovery inside this invocation.",
   "- This is instruction-level host guidance; the current Runtime cannot observe conversation-level public Skill chaining."
 ];
 function renderGuidance(project) {
@@ -30922,6 +30924,7 @@ function contextOverview(root, current, manifest2) {
       expansion_count: state.dynamic_expansions?.length ?? 0,
       expansions_truncated: (state.dynamic_expansions?.length ?? 0) > 64
     },
+    next_entry_kind: "runtime-command",
     next_entry: nextEntry,
     next_options: nextOptions,
     obligations: {
@@ -30967,7 +30970,7 @@ function contextOverview(root, current, manifest2) {
       change_set_id: outstandingRepair.change_set_id,
       candidate_paths: [...outstandingRepair.candidate_paths],
       repair_fingerprints: [...outstandingRepair.repair_fingerprints ?? []],
-      next_route: "execute-step:repair"
+      recovery_command: "execute-step:repair"
     },
     budget_extension: budgetExtensionEligibility === null ? null : {
       eligible: budgetExtensionEligibility.eligible,
@@ -33922,9 +33925,19 @@ function routeTaskInput(root, input) {
   if (source.diagnosis_status !== undefined && !["known", "uncertain"].includes(String(source.diagnosis_status)))
     fail9("INPUT_ROUTE_INVALID", "diagnosis_status must be known or uncertain.");
   const authorityChange = ["change-goal", "change-acceptance", "expand-authority"].includes(String(source.operation));
-  const route = source.relation === "unrelated" ? "capture-work-item" : authorityChange || source.operation === "other" ? "user" : source.operation === "review-conclusion" ? "review-change" : source.diagnosis_status === "uncertain" ? "debug-task" : "execute-step";
+  let route;
+  if (source.relation === "unrelated")
+    route = "capture-work-item";
+  else if (authorityChange || source.operation === "other")
+    route = null;
+  else if (source.operation === "review-conclusion")
+    route = "review-change";
+  else if (source.diagnosis_status === "uncertain")
+    route = "debug-task";
+  else
+    route = "execute-step";
   return {
-    status: authorityChange ? "user-decision-required" : "routed",
+    status: route === null ? "user-decision-required" : "routed",
     kind: "task-input-routing/v1",
     source_tuple: current.sourceTuple,
     input_ref: ref,

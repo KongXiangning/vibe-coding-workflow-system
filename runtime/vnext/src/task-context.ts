@@ -825,6 +825,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       expansion_count: state.dynamic_expansions?.length ?? 0,
       expansions_truncated: (state.dynamic_expansions?.length ?? 0) > 64,
     },
+    next_entry_kind: 'runtime-command',
     next_entry: nextEntry,
     next_options: nextOptions,
     obligations: {
@@ -870,7 +871,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       change_set_id: outstandingRepair.change_set_id,
       candidate_paths: [...outstandingRepair.candidate_paths],
       repair_fingerprints: [...(outstandingRepair.repair_fingerprints ?? [])],
-      next_route: 'execute-step:repair',
+      recovery_command: 'execute-step:repair',
     },
     budget_extension: budgetExtensionEligibility === null ? null : {
       eligible: budgetExtensionEligibility.eligible,

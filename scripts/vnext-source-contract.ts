@@ -715,8 +715,21 @@ function validatePublicEntryTerminalBoundary(content: string, entry: string): vo
   if (!content.includes('next_route') && !content.includes('recommended_route')) {
     fail(`${entry} must expose a next_route or recommended_route recommendation field`);
   }
+  if (!content.includes('Public result routing:') || !content.includes('Complete same-intent internal recovery here')) {
+    fail(`${entry} must distinguish public route recommendations from internal recovery`);
+  }
   if (!/must not invoke another public Skill/iu.test(content)) {
     fail(`${entry} must state that a recommendation must not invoke another public Skill`);
+  }
+
+  const routeValue = '(?:null|[a-z][a-z0-9-]*(?::[a-z0-9-]+)?)';
+  const routeLiterals = new RegExp(`\\bnext_route:\\s*(${routeValue}(?:\\s*\\|\\s*${routeValue})*)`, 'gu');
+  for (const literal of content.matchAll(routeLiterals)) {
+    for (const route of literal[1]!.split('|').map(value => value.trim())) {
+      if (route !== 'null' && !(PUBLIC_ENTRY_IDS as readonly string[]).includes(route)) {
+        fail(`${entry} declares non-public next_route ${route}`);
+      }
+    }
   }
 
   for (const [lineIndex, line] of content.split(/\r?\n/u).entries()) {
