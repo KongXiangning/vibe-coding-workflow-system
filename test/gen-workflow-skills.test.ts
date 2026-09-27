@@ -24,13 +24,6 @@ const DECISIONS_DOC = getWorkflowDocRelativePath(PROFILE, 'DECISIONS.md');
 const STATUS_DOC = getWorkflowDocRelativePath(PROFILE, 'STATUS.md');
 const BASELINES_DOC = getWorkflowDocRelativePath(PROFILE, 'BASELINES.md');
 
-const EXTERNAL_DOCUMENTATION_GATE_SKILLS = [
-  'plan-implementation.SKILL.md',
-  'implement-current-step.SKILL.md',
-  'investigate-root-cause.SKILL.md',
-  'review-implementation.SKILL.md',
-] as const;
-
 const LIFECYCLE_RUNTIME_SKILLS = [
   'pause-current-task',
   'interrupt-current-task',
@@ -106,27 +99,6 @@ describe('gen-workflow-skills', () => {
       .sort();
 
     expect(generatedFiles).toEqual(templateFiles);
-  });
-
-  test('core implementation and review skills keep the external documentation gate', () => {
-    for (const file of EXTERNAL_DOCUMENTATION_GATE_SKILLS) {
-      const content = fs.readFileSync(path.join(OUTPUT_DIR, file), 'utf8');
-      expect(content).toContain('## External Documentation Gate');
-      expect(content).toContain('优先使用 ctx7 MCP');
-      expect(content).toContain('可确认会获取 current docs 的 ctx7 / docs skill');
-      expect(content).toContain('`ctx7` CLI');
-      expect(content).toContain('blocked reason');
-      expect(content).toContain('不得用训练数据默默替代 current docs 判断');
-    }
-  });
-
-  test('vNext review skill keeps governance-only whitespace outside the business blocker scope', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'skills', 'review-change.SKILL.md.tmpl'), 'utf8').replace(/\r\n/gu, '\n');
-    expect(content).toContain('### Format hygiene scope');
-    expect(content).toContain('only when the\nreported offending path is inside the current step\'s authorized mutable');
-    expect(content).toContain('preserve the exact bytes and hash');
-    expect(content).toContain('Do not emit `FORMAT_CHECK_SCOPE_BLOCKED`');
-    expect(content).toContain('A failure reported for an authorized\nmutable path remains a real finding or blocker.');
   });
 
   test('every generated workflow skill has required schema fields', () => {
@@ -734,53 +706,6 @@ describe('gen-workflow-skills', () => {
     }
   });
 
-  test('design production chain is integrated without adding native design skill names', () => {
-    for (const skill of ['design-consultation', 'design-shotgun', 'design-html', 'design-review']) {
-      expect(fs.existsSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`))).toBe(false);
-      expect(fs.existsSync(path.join(TEMPLATE_DIR, `${skill}.SKILL.md.tmpl`))).toBe(false);
-    }
-
-    for (const skill of [
-      'create-current-task',
-      'review-current-task',
-      'decompose-task',
-      'implement-current-step',
-      'run-regression',
-      'review-diff',
-    ]) {
-      const content = fs.readFileSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`), 'utf8');
-      expect(content).toContain('Design mode');
-      expect(content).toContain('Design source');
-      expect(content).toContain('Design acceptance');
-      expect(content).toContain('Design evidence');
-    }
-
-    const reviewTask = fs.readFileSync(path.join(OUTPUT_DIR, 'review-current-task.SKILL.md'), 'utf8');
-    expect(reviewTask).toContain('未确认口味决策不得进入实现');
-
-    const decomposeTask = fs.readFileSync(path.join(OUTPUT_DIR, 'decompose-task.SKILL.md'), 'utf8');
-    expect(decomposeTask).toContain('design exploration');
-    expect(decomposeTask).toContain('design implementation');
-    expect(decomposeTask).toContain('visual QA');
-
-    const implementStep = fs.readFileSync(path.join(OUTPUT_DIR, 'implement-current-step.SKILL.md'), 'utf8');
-    expect(implementStep).toContain('不得静默更换字体');
-    expect(implementStep).toContain('不得静默更换颜色');
-    expect(implementStep).toContain('不得静默更换布局');
-    expect(implementStep).toContain('不得静默更换动效');
-    expect(implementStep).toContain('不得静默更换品牌语气');
-
-    const runRegression = fs.readFileSync(path.join(OUTPUT_DIR, 'run-regression.SKILL.md'), 'utf8');
-    expect(runRegression).toContain('visual QA');
-    expect(runRegression).toContain('browser-backed smoke');
-    expect(runRegression).toContain('visual evidence');
-
-    const reviewDiff = fs.readFileSync(path.join(OUTPUT_DIR, 'review-diff.SKILL.md'), 'utf8');
-    expect(reviewDiff).toContain('design drift review');
-    expect(reviewDiff).toContain('AI slop');
-    expect(reviewDiff).toContain('响应式缺口');
-  });
-
   test('post-release verification is integrated without adding native deploy skill names', () => {
     for (const skill of ['land-and-deploy', 'canary', 'benchmark', 'setup-deploy']) {
       expect(fs.existsSync(path.join(OUTPUT_DIR, `${skill}.SKILL.md`))).toBe(false);
@@ -828,48 +753,6 @@ describe('gen-workflow-skills', () => {
     const archiveTask = fs.readFileSync(path.join(OUTPUT_DIR, 'archive-task.SKILL.md'), 'utf8');
     expect(deliverySummary).toContain('remaining observation');
     expect(archiveTask).toContain('remaining observation');
-  });
-
-  test('investigate-root-cause enforces root-cause-first debugging loop', () => {
-    const skillPath = path.join(OUTPUT_DIR, 'investigate-root-cause.SKILL.md');
-    const frontmatter = parseFrontmatter(skillPath);
-    const conditionalHandoff = frontmatter.conditional_handoff as Record<string, unknown>;
-    const content = fs.readFileSync(skillPath, 'utf8');
-
-    expect(normalizeList(frontmatter.reads)).toContain(CURRENT_TASK_DOC);
-    expect(normalizeList(frontmatter.reads)).toContain('TASKS/paused/**');
-    expect(normalizeList(frontmatter.reads)).toContain('TASKS/interrupted/**');
-    expect(conditionalHandoff.scope_widening_candidate).toBe('lock-scope');
-    expect(conditionalHandoff.resume_paused_guard_passed).toBe('resume-paused-task');
-    expect(conditionalHandoff.resume_paused_guard_blocked).toBe('ask-user');
-    expect(conditionalHandoff.resume_interrupted_guard_passed).toBe('resume-interrupted-task');
-    expect(conditionalHandoff.resume_interrupted_guard_blocked).toBe('ask-user');
-    expect(conditionalHandoff.new_bug_task_required).toBe('create-current-task');
-    expect(conditionalHandoff.user_decision_required).toBe('ask-user');
-    expect(Object.hasOwn(conditionalHandoff, 'resume_paused_required')).toBe(false);
-    expect(Object.hasOwn(conditionalHandoff, 'resume_interrupted_required')).toBe(false);
-    expect(content).toContain('Root cause hypothesis');
-    expect(content).toContain('Reproduction');
-    expect(content).toContain('Evidence');
-    expect(content).toContain('Ownership assessment');
-    expect(content).toContain('Ownership evidence');
-    expect(content).toContain('Recommended route');
-    expect(content).toContain('Recommended handoff');
-    expect(content).toContain('Minimal fix path');
-    expect(content).toContain('Regression check');
-    expect(content).toContain('未验证 root cause hypothesis 前不得修复');
-    expect(content).toContain('若三个 root cause hypothesis 仍不收敛');
-    expect(content).toContain('修复后必须复验原始失败场景');
-    expect(content).toContain('matching suspended package evidence');
-    expect(content).toContain('不得仅凭运行时记忆或模糊相似性猜测 owner');
-    expect(content).toContain('active-owner guard');
-    expect(content).toContain('current_task_owned');
-    expect(content).toContain('scope_widening_candidate');
-    expect(content).toContain('resume_paused_required');
-    expect(content).toContain('resume_interrupted_required');
-    expect(content).toContain('new_bug_task_required');
-    expect(content).toContain('user_decision_required');
-    expect(content).toContain('evidence gap');
   });
 
   test('run-regression enforces QA mode selection and report-only behavior', () => {

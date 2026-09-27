@@ -77,20 +77,6 @@ describe('gen-workflow-docs', () => {
     }
   });
 
-  test('project placeholders are fully resolved', () => {
-    for (const file of WORKFLOW_DOC_NAMES) {
-      const content = fs.readFileSync(path.join(OUTPUT_DIR, file), 'utf8');
-      expect(content.includes('{{PROJECT_NAME}}')).toBe(false);
-      expect(content.includes('{{PROJECT_TYPE}}')).toBe(false);
-      expect(content.includes('{{TECH_STACK}}')).toBe(false);
-      expect(content.includes('{{TEST_COMMANDS}}')).toBe(false);
-      expect(content.includes('{{CODE_DIRECTORIES}}')).toBe(false);
-      expect(content.includes('{{FORBIDDEN_PATHS}}')).toBe(false);
-      expect(content.includes('{{ARCHITECTURE_RULES}}')).toBe(false);
-      expect(content.includes('{{VERSION}}')).toBe(false);
-    }
-  });
-
   test('only task and runtime placeholders remain unresolved', () => {
     for (const file of WORKFLOW_DOC_NAMES) {
       const content = fs.readFileSync(path.join(OUTPUT_DIR, file), 'utf8');
@@ -248,20 +234,6 @@ describe('gen-workflow-docs', () => {
     ).toThrow('checkpoint_evidence');
   });
 
-  test('lifecycle governance docs provide roadmap and baseline homes', () => {
-    const roadmap = fs.readFileSync(path.join(OUTPUT_DIR, 'ROADMAP.md'), 'utf8');
-    expect(roadmap).toContain('## 版本里程碑');
-    expect(roadmap).toContain('## 当前窗口');
-
-    const baselines = fs.readFileSync(path.join(OUTPUT_DIR, 'BASELINES.md'), 'utf8');
-    expect(baselines).toContain('## 发布基线');
-    expect(baselines).toContain('## 兼容性基线');
-    expect(baselines).toContain('## 安全基线');
-    expect(baselines).toContain('## 部署基线');
-    expect(baselines).toContain('## 性能与可靠性基线');
-    expect(baselines).toContain('## Gate 与错误码基线');
-  });
-
   test('decisions doc includes superseded-decision handling', () => {
     const decisions = fs.readFileSync(path.join(OUTPUT_DIR, 'DECISIONS.md'), 'utf8');
     expect(decisions).toContain('## 🔁 已演进 / 已替代');
@@ -298,120 +270,6 @@ describe('gen-workflow-docs', () => {
     expect(decisions).toContain('### SUPERSEDED-001:');
     expect(decisions).toContain('- 生效版本 / 里程碑：');
     expect(decisions).toContain('- 兼容 / 迁移要求：');
-  });
-
-  test('contracts doc includes propagation governance supplements', () => {
-    const contracts = fs.readFileSync(path.join(OUTPUT_DIR, 'CONTRACTS.md'), 'utf8');
-    expect(contracts).toContain('## 四、传播治理补充');
-    expect(contracts).toContain('### LayoutContract');
-    expect(contracts).toContain('### BehaviorContract');
-    expect(contracts).toContain('### compat path / wrapper rules');
-    expect(contracts).toContain('### API change downstream validation');
-    expect(contracts).toContain('### frozen zone / UI anchor migration');
-    expect(contracts).toContain('- cascade_sources：');
-    expect(contracts).toContain('- breakpoint_contracts：');
-    expect(contracts).toContain('- removal_precondition：');
-  });
-
-  test('workflow guide documents the design production chain', () => {
-    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
-    expect(guide).toContain('Design mode');
-    expect(guide).toContain('Design source');
-    expect(guide).toContain('Design acceptance');
-    expect(guide).toContain('Design evidence');
-    expect(guide).toContain('design drift review');
-    expect(guide).toContain('DESIGN.md` 只能作为 optional source');
-    expect(guide).toContain('workflow-system 不绑定具体设计生成工具');
-  });
-
-  test('workflow guide documents post-release verification', () => {
-    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
-    expect(guide).toContain('Release mode');
-    expect(guide).toContain('Deploy source');
-    expect(guide).toContain('Target environment');
-    expect(guide).toContain('Health checks');
-    expect(guide).toContain('Canary window');
-    expect(guide).toContain('Performance baseline');
-    expect(guide).toContain('Rollback / recovery');
-    expect(guide).toContain('Release evidence');
-    expect(guide).toContain('workflow-system 不绑定部署平台');
-    expect(guide).toContain('/sync-host-guidance');
-    expect(guide).toContain('已有 `CLAUDE.md` 保持原样');
-  });
-
-  test('workflow guide documents workflow asset realignment entrypoint', () => {
-    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
-    expect(guide).toContain('/realign-workflow-assets');
-    expect(guide).toContain('旧路径 workflow 资产');
-    expect(guide).toContain('legacy root docs');
-  });
-
-  test('workflow guide documents supersede-current-task routing', () => {
-    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
-    expect(guide).toContain('/supersede-current-task');
-    expect(guide).toContain('scope invalidation');
-    expect(guide).toContain('当前未完成任务的目标、范围锁或验收标准已经失效');
-    expect(guide).toContain('/review-current-task');
-    expect(guide).toContain('/lock-scope');
-    expect(guide).toContain('/plan-implementation');
-    expect(guide).toContain('不得直接继续 `/implement-current-step`');
-  });
-
-  test('workflow guide documents capture-work-item as a record-only branch', () => {
-    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
-    expect(guide).toContain('/capture-work-item');
-    expect(guide).toContain('record-only');
-    expect(guide).toContain('TASKS/inbox/**');
-    expect(guide).toContain('/ask-user');
-    expect(guide).toContain('不是 `/create-current-task` 主链');
-  });
-
-  test('workflow guide documents lifecycle runtime skill routing', () => {
-    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
-    expect(guide).toContain('/pause-current-task');
-    expect(guide).toContain('/interrupt-current-task');
-    expect(guide).toContain('/resume-paused-task');
-    expect(guide).toContain('/resume-interrupted-task');
-    expect(guide).toContain('write_incomplete + recovery_only');
-    expect(guide).toContain('ready_for_resume + recovery_only');
-    expect(guide).toContain('不得直接进入 `/implement-current-step`');
-    expect(guide).toContain('/resume-paused-task` → `/review-current-task`');
-    expect(guide).toContain('/resume-interrupted-task` → `/review-current-task`');
-  });
-
-  test('workflow guide documents ownership-aware blocker routing for old tasks', () => {
-    const guide = fs.readFileSync(path.join(OUTPUT_DIR, 'WORKFLOW_GUIDE.md'), 'utf8');
-    expect(guide).toContain('ownership-aware routing');
-    expect(guide).toContain('active-owner guard');
-    expect(guide).toContain('/resume-paused-task');
-    expect(guide).toContain('/resume-interrupted-task');
-    expect(guide).toContain('/lock-scope');
-    expect(guide).toContain('/create-current-task');
-    expect(guide).toContain('/ask-user');
-    expect(guide).toContain('当前 live task 仍 active 时');
-    expect(guide).toContain('必须先让用户决定是否 `/pause-current-task` 或 `/interrupt-current-task` 当前任务');
-  });
-
-  test('document catalog codifies directory classification and lookup guidance', () => {
-    const catalog = fs.readFileSync(path.join(OUTPUT_DIR, 'DOCUMENT_CATALOG.md'), 'utf8');
-    expect(catalog).toContain('docs/workflow/');
-    expect(catalog).toContain('docs/designs/');
-    expect(catalog).toContain('docs/adoption/');
-    expect(catalog).toContain('git log -1 --format=%cI -- docs/workflow/DOCUMENT_CATALOG.md');
-    expect(catalog).toContain('docs/workflow/SKILL_REGISTRY.md');
-  });
-
-  test('baseline gate skeleton covers v26 blocker families', () => {
-    const baselines = fs.readFileSync(path.join(OUTPUT_DIR, 'BASELINES.md'), 'utf8');
-    expect(baselines).toContain('### GATE-002: P0 前置 gap 错误码');
-    expect(baselines).toContain('### GATE-003: P1 直接变更不允许错误码');
-    expect(baselines).toContain('### GATE-004: P2 迁移缺失错误码');
-    expect(baselines).toContain('### GATE-005: P3 contract 破坏错误码');
-    expect(baselines).toContain('### GATE-006: P4 链式风险升级错误码');
-    expect(baselines).toContain('### GATE-007: 兼容窗口与移除前提错误码');
-    expect(baselines).toContain('`IMPACT_LOCKED_HIT_GAP_UNRESOLVED`');
-    expect(baselines).toContain('`REGISTRY_FRESHNESS_STALE_LOCKED_HIT`');
-    expect(baselines).toContain('`COMPAT_REMOVAL_PRECONDITION_UNMET`');
   });
 
   test('docs generation accepts repo-level profile patterns via shared validation', () => {

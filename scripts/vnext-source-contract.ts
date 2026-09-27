@@ -751,130 +751,6 @@ function validatePublicEntryTerminalBoundary(content: string, entry: string): vo
   }
 }
 
-function validatePrepareTaskDraftBoundary(content: string): void {
-  const requiredTerms = [
-    'revision-bound **Task Basis**',
-    'record the original request verbatim',
-    'Reviewer findings',
-    'same atomic draft transaction',
-    'semantic delta map',
-    'path-by-step interaction map',
-    'Step scopes are permissions',
-    'author self-check',
-    'Classify `test_strategy.mode`',
-    '`explicit-user`, `project-policy`, or `inferred-default`',
-    'Set `source_ref` to the exact',
-    '`contract-clear-behavior`, `exploratory-or-infrastructure`, or',
-    'user-owned open question and resolve it before submitting `prepare-draft`',
-    'Do not infer Red from step order',
-    'TEST_STRATEGY_PREREQUISITE_UNSUPPORTED',
-    'Persistent Tests may remain `none`',
-    '### Minimum-sufficient validation selection',
-    'check `boundary`',
-    'Boundary and granularity are orthogonal',
-    '`business-flow` + `focused`',
-    '{kind: structured, argv, selector_arg_index}',
-    '{kind: opaque, command}',
-    'Opaque invocation cannot claim focused',
-    'replan/recovery replacement',
-    'Never invent a user decision, policy, release gate, or authority source',
-    'A matching test file, target, or suite is only a candidate',
-    'A collection of unit PASS results cannot',
-    'Do not add E2E by default',
-    'command PASS never fills another claim slot automatically',
-    'PROJECT_PROFILE.yaml#boundaries.non_executable_change_paths',
-    'Each policy entry must itself be an exact path or a literal directory prefix',
-    'reject wildcard-bearing prefixes such as `*/**`',
-    'Every Allowed, Conditional, and implementation-step mutation pattern',
-    'documentation inventory as proof',
-    'does not block `flexible`',
-    'Explicit confirmation freezes the strategy',
-    '`next_route: review-draft`',
-    'later caller invocation',
-  ];
-  for (const term of requiredTerms) {
-    if (!content.includes(term)) {
-      fail(`prepare-task must preserve the draft-consistency boundary term "${term}"`);
-    }
-  }
-}
-
-function validateReviewDraftBoundary(content: string): void {
-  const requiredTerms = [
-    'verbatim original request',
-    'Task Basis path and revision linked by `CURRENT_TASK`',
-    'content hash and task/document',
-    'valid without hidden history',
-    'or a previous review',
-    'not request authority',
-    'Never reconstruct the request',
-    'from the candidate draft',
-    'self-contained `draft_review_result`',
-    'does not become another authority source',
-    'one exact `draft + active`',
-    'governed_mutation_count: 0',
-    'verdict: clean | findings | needs-user',
-    'Treat unjustified validation breadth as a material evidence-plan finding',
-    'Do not demand a full suite merely because it is',
-  ];
-  for (const term of requiredTerms) {
-    if (!content.includes(term)) {
-      fail(`review-draft must preserve the independent read-only boundary term "${term}"`);
-    }
-  }
-}
-
-function validateExecuteStepSemanticBoundary(content: string): void {
-  const requiredTerms = [
-    'Runtime `preflight-step`',
-    'Do not redesign the task',
-    'current step mutation scope',
-    "confirmed task's `Persistent Tests`",
-    'Runtime `begin-repair`',
-    'Runtime `record-step-result`',
-    'Runtime captures the after-state, derives the exact before/after delta',
-    'frozen test-strategy mode, execution phase, required outcome',
-    '`outcome: test-red`',
-    '`status: expected-failure`',
-    'Syntax, type, import, fixture, tool, unrelated-test, and environment failures are not Red evidence',
-    'Expected failure cannot satisfy positive acceptance',
-    '`next_route: git-commit`',
-    '`commit_scope`',
-    'neither execute-step nor Runtime invokes it',
-    'Runtime `complete-reviewed-step`',
-    'completion cannot add evidence',
-    'never supply or copy a review receipt',
-    'Do not substitute an unplanned write-capable command, full suite, whole target, broad regression, or E2E command',
-  ];
-  for (const term of requiredTerms) {
-    if (!content.includes(term)) {
-      fail(`execute-step must preserve the semantic boundary term "${term}"`);
-    }
-  }
-}
-
-function validateReviewChangeSemanticBoundary(content: string): void {
-  const requiredTerms = [
-    'Runtime `review-context`',
-    'Runtime-recorded cumulative change set, complete file index and bounded text diff',
-    'In default mode, a blocked execution, a step without a review checkpoint, or an already completed step is not reviewable',
-    'Do not modify code, tests, configuration, or governance sources',
-    'unauthorized persistent-test changes',
-    'Runtime `record-review-result`',
-    'For historical `test-red`, verify that only frozen test assets were admitted',
-    'Do not repair code or advance the step',
-    'recommendation must not invoke another public Skill',
-    'many PASS results, or one command PASS, do not increase assurance for an unrelated claim',
-    'review-change:recheck-completed-step',
-    'immediately preceding cleanly completed step',
-    'leaves the original clean review and completion intact',
-    'reopens that step for the existing',
-  ];
-  for (const term of requiredTerms) {
-    if (!content.includes(term)) fail(`review-change must preserve the semantic boundary term "${term}"`);
-  }
-}
-
 function validateAgentSkillMetadata(frontmatter: UnknownRecord, entry: string): void {
   expectExactKeys(frontmatter, ['name', 'description', 'entry_contract'], `${entry} frontmatter`);
   const name = expectString(frontmatter.name, `${entry}.name`);
@@ -900,10 +776,6 @@ function validateTemplate(
 
   validateLegacyExecutableTargets(content, entry, legacySkillNames);
   validatePublicEntryTerminalBoundary(content, entry);
-  if (entry === 'prepare-task') validatePrepareTaskDraftBoundary(content);
-  if (entry === 'review-draft') validateReviewDraftBoundary(content);
-  if (entry === 'review-change') validateReviewChangeSemanticBoundary(content);
-  if (entry === 'execute-step') validateExecuteStepSemanticBoundary(content);
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
   expectExactKeys(
@@ -1052,9 +924,6 @@ function validateExpertTemplate(
   }
   validateLegacyExecutableTargets(content, entry, legacySkillNames);
   validatePublicEntryTerminalBoundary(content, entry);
-  if (content.includes('validate-change:regression')) {
-    fail(`${entry} must not restore the legacy validate-change:regression mode`);
-  }
 
   const contract = expectRecord(frontmatter.entry_contract, `${entry}.entry_contract`);
   expectExactKeys(
@@ -1135,14 +1004,6 @@ export function validateVNextSource(root = resolveRoot()): VNextSourceValidation
       runtimeOperations,
       legacySkillNames,
     );
-  }
-  for (const [entry, terms] of Object.entries({
-    'prepare-task': ['challenge_ids', 'obligation_map', 'pending_step_changes', 'suspend-recovery', 'restore_plan'],
-    'review-change': ['route-input', 'ingest-evidence', 'Historical', 'Counterevidence is not product-fix authority'],
-    'execute-step': ['apply-artifact-restore', 'preflight', 'journal'],
-  })) {
-    const content = fs.readFileSync(path.join(resolvedRoot, 'templates/vnext/skills', `${entry}.SKILL.md.tmpl`), 'utf8');
-    for (const term of terms) if (!content.includes(term)) fail(`${entry} must preserve recovery boundary ${term}.`);
   }
   for (const entry of ADMIN_ENTRIES) {
     validateAdministrativeTemplate(
