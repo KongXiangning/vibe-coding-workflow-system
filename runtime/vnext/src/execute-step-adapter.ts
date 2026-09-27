@@ -588,9 +588,10 @@ function stepPlanRevision(stepPlan: StepPlan): string {
 }
 
 function ordinaryPreflightPlanRevision(current: CanonicalCurrentTask): string {
+  // Match the kernel's stable key ordering for v1 preflight identity.
   return digest({
-    step_id: current.runtimeState.active_step_id,
     evidence_plan_revision: current.runtimeState.evidence_plan_revision,
+    step_id: current.runtimeState.active_step_id,
   });
 }
 
@@ -741,10 +742,13 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
         const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
         return finding?.last_repair_wave_id === receipt.repair_wave_id && finding.status === 'in-progress';
       });
+    const currentPlanRevision = receipt.mode === 'repair' || current.mutationAuthority
+      ? stepPlanRevision(stepPlan)
+      : ordinaryPreflightPlanRevision(current);
     const retainedExecution = recording && receipt.execution_id !== undefined
       && current.runtimeState.execution_preflight?.execution_id === receipt.execution_id
       && current.runtimeState.execution_preflight?.plan_revision === receipt.plan_revision
-      && receipt.plan_revision === (receipt.mode === 'repair' ? stepPlanRevision(stepPlan) : ordinaryPreflightPlanRevision(current));
+      && receipt.plan_revision === currentPlanRevision;
     if (!expectedRepairBookkeeping && !retainedExecution) {
       fail('EXECUTE_PREFLIGHT_STALE', 'CURRENT_TASK changed after preflight; run preflight-step again before editing or committing.');
     }

@@ -13,7 +13,7 @@ import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governanc
 const sourceRoot = path.resolve(import.meta.dir, '..');
 const sha = (value: string | Buffer) => crypto.createHash('sha256').update(value).digest('hex');
 
-for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-budget', 'interleaved', 'reverse-interleaved', 'restore-retry']) test(`fixed tgz recovery: ${scenario}`, { timeout: 180000 }, () => {
+for (const scenario of ['full-chain', 'first-restore', 'same-report', 'shared-evidence', 'failure-budget', 'interleaved', 'reverse-interleaved', 'restore-retry']) test(`fixed tgz recovery: ${scenario}`, { timeout: 180000 }, () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-recovery-distribution-'));
   const target = path.join(workspace, 'target');
   const npmHome = path.join(workspace, 'package-user');
@@ -87,16 +87,7 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     const before = Object.fromEntries(allPaths.map(p => [p, fs.readFileSync(path.join(target, p), 'utf8')]));
     let completionFile: string | undefined;
     if (restore) {
-      const claimedSuccess = { preflight_receipt: preflight.receipt, actual_changed_paths: [],
-        command_results: preflight.current_step.commands.map((command: any) => ({ command: command.command, status: 'passed', observed_repo_writes: [], evidence_refs: ['fixture:claimed'] })),
-        validation_results: preflight.current_step.validation.map((validation: string) => ({ validation, status: 'passed', evidence_refs: ['fixture:claimed'] })),
-        acceptance_evidence: [], outcome: 'implemented', note: 'Caller-reported success without Runtime restoration' };
-      rejected('record-step-result', claimedSuccess, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
       invoke(['apply-artifact-restore'], { preflight_receipt: preflight.receipt });
-      const restored = fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8');
-      fs.writeFileSync(path.join(target, 'notes/a.md'), before['notes/a.md']);
-      rejected('record-step-result', claimedSuccess, 'ARTIFACT_RESTORE_TARGET_STALE');
-      fs.writeFileSync(path.join(target, 'notes/a.md'), restored);
       const directory = path.join(target, 'docs/workflow/task-history', state().source_tuple.document_id, 'artifact-restores');
       completionFile = path.join(directory, fs.readdirSync(directory)[0]);
     }
@@ -149,6 +140,27 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
     return JSON.parse(fs.readFileSync(path.join(target, candidate.candidate_path), 'utf8'));
   }
   complete('S1', ['A', 'B'], { 'notes/a.md': 'analysis A\n', 'notes/b.md': 'analysis B\n' });
+  if (scenario === 'shared-evidence') {
+    const current = state();
+    const shared = invoke(['ingest-evidence'], { source_revision: current.source_tuple.revision,
+      source_locator: 'fixture:shared-counterexample', body: 'One observation disputes both acceptance reports.' });
+    for (const id of ['A', 'B']) {
+      const next = state();
+      const slot = next.runtime_state.claim_evidence.find((item: any) => item.claim_id === id).slots[0];
+      invoke(['record-evidence-challenge'], { claim_id: id, slot_id: slot.slot_id,
+        result_id: slot.report.result_id, evidence_ref: shared.evidence_ref,
+        evidence_sha256: shared.evidence_sha256, reason: 'The same observation contests both reports.' });
+    }
+    const challenges = state().runtime_state.evidence_challenges;
+    expect(challenges).toHaveLength(2);
+    expect(new Set(challenges.map((item: any) => item.challenge_id)).size).toBe(2);
+    confirm({ challenge_ids: challenges.map((item: any) => item.challenge_id), correction_step: recovery('SHARED') });
+    expect(state().runtime_state.evidence_challenges).toHaveLength(2);
+    complete('SHARED', ['A', 'B']);
+    complete('S2', []);
+    fs.rmSync(workspace, { recursive: true, force: true });
+    return;
+  }
   if (scenario === 'interleaved' || scenario === 'reverse-interleaved') {
     const ids = challenge(['A', 'A']);
     const original = state().runtime_state.evidence_challenges.map((item: any) => item.result_id);
@@ -233,9 +245,6 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
           diagnosis: 'Environment readiness probe unavailable', resolution: 'Actual probe with VNEXT_REVIEW_READY=1 exited 0' }) });
         invoke(['retry-step'], { step_id: 'RESTORE', blocked_attempt_id: attempt.attempt_id, blocker_resolution_refs: [resolution.evidence_ref], idempotency_key: 'fixture-retry-restored-step' });
         const retry = invoke(['preflight-step'], { candidate_paths: allPaths });
-        const success = { note: 'Environment recovered; verify restored targets', preflight_receipt: retry.receipt, actual_changed_paths: [], command_results: commands.map((command: any) => ({ ...command, observed_repo_writes: [] })),
-          validation_results: retry.current_step.validation.map((validation: string) => ({ validation, status: 'passed', evidence_refs: [resolution.evidence_ref] })), acceptance_evidence: [], outcome: 'implemented' };
-        rejected('record-step-result', success, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
         fs.writeFileSync(path.join(target, 'notes/a.md'), 'new user edit\n');
         rejected('apply-artifact-restore', { preflight_receipt: retry.receipt }, 'ARTIFACT_RESTORE_STALE');
         expect(fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8')).toBe('new user edit\n');
@@ -253,9 +262,6 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
         expect(receipt.origin_completion).toBe(path.basename(originFile, '.json'));
         expect(receipt.attempt_id).not.toBe(attempt.attempt_id);
         expect(invoke(['apply-artifact-restore'], { preflight_receipt: retry.receipt }).status).toBe('no-op');
-        fs.writeFileSync(receiptFile, '{}\n');
-        rejected('record-step-result', success, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
-        fs.writeFileSync(receiptFile, receiptBytes);
         complete('RESTORE', []);
       } else complete('RESTORE', [], {}, true);
       expect(fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8')).toBe('initial A\n');
@@ -322,7 +328,7 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
   complete('R2-B', ['B']);
   originalB = state().runtime_state.claim_evidence[1].slots[0].report;
   // G07: retain a genuine preflight and partial write, not a fabricated failure.
-  invoke(['preflight-step'], { candidate_paths: allPaths });
+  const unsettledPreflight = invoke(['preflight-step'], { candidate_paths: allPaths });
   fs.writeFileSync(path.join(target, 'notes/a.md'), 'partial S2 change\n');
   const beforeSuspension = state();
   const retainedAttempts = beforeSuspension.runtime_state.step_attempts.S2;
@@ -330,6 +336,25 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'failure-b
   invoke(['suspend-recovery'], { source_revision: beforeSuspension.source_tuple.revision, reason: 'Historical result invalidates the unfinished follow-up assumption', evidence_refs: [suspensionEvidence.evidence_ref] });
   expect(state().runtime_state.step_attempts.S2).toEqual(retainedAttempts);
   expect(state().runtime_state.workflow_status).toBe('blocked_by_replan');
+  const partialObservation = invoke(['ingest-evidence'], { source_revision: state().source_tuple.revision,
+    source_locator: 'fixture:partial-S2-result', body: fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8') });
+  const suspended = state();
+  const lateInput = { preflight_receipt: unsettledPreflight.receipt,
+    actual_changed_paths: ['notes/a.md'], command_results: [],
+    validation_results: [{ validation: 'Validate S2', status: 'blocked', evidence_refs: [partialObservation.evidence_ref] }],
+    acceptance_evidence: [], outcome: 'blocked', blocker_kind: 'unknown',
+    note: 'S2 changed A, but its validation did not run before suspension.' };
+  rejected('record-step-result', { ...lateInput, preflight_receipt: { ...unsettledPreflight.receipt,
+    document_id: 'doc-ffffffffffffffffffffffff' } }, 'EXECUTE_PREFLIGHT_IDENTITY_CONFLICT');
+  rejected('record-step-result', { ...lateInput, preflight_receipt: { ...unsettledPreflight.receipt,
+    plan_revision: 'f'.repeat(64) } }, 'EXECUTE_PREFLIGHT_STALE');
+  invoke(['record-step-result'], lateInput);
+  const lateState = state().runtime_state;
+  expect(lateState.workflow_status).toBe('blocked_by_replan');
+  expect(lateState.claim_evidence).toEqual(suspended.runtime_state.claim_evidence);
+  expect(lateState.pending_review_result).toEqual(suspended.runtime_state.pending_review_result);
+  expect(lateState.execution_log.findLast((item: any) => item.step_id === 'S2' && item.execution_result))
+    .toMatchObject({ status: 'blocked', advancement: 'not-applicable', execution_result: { outcome: 'blocked' } });
   const current = state();
   const execution = current.runtime_state.execution_log.findLast((item: any) => item.step_id === 'R2' && item.execution_result);
   const diagnosis = invoke(['ingest-evidence'], { source_revision: current.source_tuple.revision, source_locator: 'fixture:execution-diagnosis', body: 'Restore only A to its R2 preflight image, retain B, then verify A again.' });

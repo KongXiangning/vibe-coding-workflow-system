@@ -159,7 +159,7 @@ function runtimeDraftDefinition(): DraftTaskDefinition {
     implementation_steps: [
       '- step-1: exercise Runtime durable state',
       '  - purpose: create a persisted record set before realign',
-      '  - mutation_scope: src/**',
+      '  - planned_mutation_targets: src/realign-persistence.ts',
       '  - required_evidence: realign:evidence:step',
       '  - review_checkpoint: not-required: final-exemption: isolated state-only fixture has no product diff',
     ].join('\n'),
@@ -184,6 +184,8 @@ function runtimeDraftDefinition(): DraftTaskDefinition {
     design_constraints: '- no direct Markdown record append',
     post_release_validation: '- no release validation is required',
     propagation_governance: '- preserve Runtime provenance markers',
+    mutation_authority_version: 2,
+    mutation_authority: { domains: ['src'], exact_exceptions: [], forbidden: [] },
   };
 }
 
@@ -905,6 +907,10 @@ describe('vNext bootstrap-project', () => {
       ...options(target),
       confirmedFacts: bootstrapFacts,
       designBaseline: { architecture: 'confirmed disposable baseline' },
+      authorityDomainCandidates: [{ id: 'src', roots: ['src/**'],
+        basis: 'The isolated fixture stores its product file under src/.', evidence_refs: ['test:realign-src-domain'] }],
+      authorityDomainConfirmation: { domains: [{ id: 'src', roots: ['src/**'] }],
+        decision_source: 'test:project-owner', decision_text: 'Confirm src/** as the only product mutation domain.' },
     };
     installDistributionFixture(target);
     const bootstrapPreview = buildBootstrapPlan(common);
@@ -942,7 +948,7 @@ describe('vNext bootstrap-project', () => {
       idempotency_key: 'realign-persistence-draft',
       authority_evidence: runtimeAuthority('user-confirmation', 'scope-admission', 'evidence-admission'),
     });
-    expect(applyVNextRuntimeProposal(target, draft).status).toBe('success');
+    expect(applyVNextRuntimeProposal(target, draft)).toMatchObject({ status: 'success' });
     const draftCurrent = readCanonicalCurrentTask(target);
     const confirm = createPrepareTaskConfirmProposal(draftCurrent, {
       task_id: '001',
@@ -1200,6 +1206,8 @@ describe('vNext bootstrap-project', () => {
     }];
     fs.mkdirSync(path.join(target, 'src'), { recursive: true });
     fs.writeFileSync(path.join(target, 'src', 'main.ts'), 'export const domainFixture = true;\n', 'utf8');
+    fs.mkdirSync(path.join(target, 'docs', 'product'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'docs', 'product', 'scope.md'), '# Product scope\n', 'utf8');
     installDistributionFixture(target);
     const inventoryOptions: BootstrapProjectOptions = {
       sourceRoot: ROOT,
@@ -1213,6 +1221,7 @@ describe('vNext bootstrap-project', () => {
     const inventory = buildBootstrapPlan(inventoryOptions);
     expect(inventory.status).toBe('ready');
     expect(inventory.authority_domain_candidates).toEqual([
+      expect.objectContaining({ id: 'docs-product', roots: ['docs/product/**'] }),
       expect.objectContaining({ id: 'src', roots: ['src/**'] }),
     ]);
     expect(fs.existsSync(path.join(target, '.workflow-system', 'PROJECT_PROFILE.yaml'))).toBe(false);
@@ -1235,7 +1244,7 @@ describe('vNext bootstrap-project', () => {
       authorityDomainConfirmation: {
         domains: candidates.map(candidate => ({ id: candidate.id, roots: candidate.roots })),
         decision_source: 'project-owner:E19',
-        decision_text: 'Confirm the inventory-derived src domain as the project mutation authority map.',
+        decision_text: 'Confirm the inventory-derived product documentation and src domains as the project mutation authority map.',
       },
     };
     const adoptDry = buildBootstrapPlan(adoptOptions);
@@ -1248,6 +1257,8 @@ describe('vNext bootstrap-project', () => {
     expect(adopted.status).toBe('installed');
     const profile = fs.readFileSync(path.join(target, '.workflow-system', 'PROJECT_PROFILE.yaml'), 'utf8');
     expect(profile).toContain('mutation_authority:');
+    expect(profile).toContain('id: docs-product');
+    expect(profile).toContain('docs/product/**');
     expect(profile).toContain('id: src');
     expect(profile).toContain('src/**');
   });

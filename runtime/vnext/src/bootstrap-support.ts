@@ -407,7 +407,13 @@ function proposeAuthorityDomainCandidates(root: string): BootstrapAuthorityDomai
   const entries = fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : [];
   const directories = entries
     .filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && !DOMAIN_CANDIDATE_IGNORES.has(entry.name))
-    .map(entry => entry.name)
+    .flatMap(entry => {
+      if (entry.name !== 'docs') return [entry.name];
+      // Distribution-owned docs/workflow is governance, not a product domain.
+      return fs.readdirSync(path.join(root, 'docs'), { withFileTypes: true })
+        .filter(child => child.isDirectory() && child.name !== 'workflow' && !child.name.startsWith('.'))
+        .map(child => `docs/${child.name}`);
+    })
     .sort((left, right) => left.localeCompare(right));
   if (directories.length > 0) {
     const used = new Set<string>();

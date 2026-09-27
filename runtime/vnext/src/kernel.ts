@@ -6466,9 +6466,9 @@ export function assertReviewExecutionEligible(
     return;
   }
 
-  if (execution.status !== 'completed'
+  if (!['in-progress', 'blocked'].includes(execution.status)
     || execution.advancement !== 'repair-awaiting-verification'
-    || current.runtimeState.active_step_status !== 'completed') {
+    || current.runtimeState.active_step_status !== execution.status) {
     fail('REVIEW_EXECUTION_NOT_REVIEWABLE', 'the repair execution is not awaiting verification review.');
   }
 }
@@ -19578,6 +19578,7 @@ function applyTaskStateDelta(
   const legal = recordingExecution || oldStatus === newStatus
     || (oldStatus === 'ready' && ['in-progress', 'completed', 'blocked'].includes(newStatus))
     || (oldStatus === 'in-progress' && ['completed', 'blocked'].includes(newStatus))
+    || (oldStatus === 'blocked' && newStatus === 'completed' && completingStep && delta.review_receipt?.verdict === 'clean')
     || (oldStatus === 'blocked' && executionMode === 'repair' && ['in-progress', 'completed'].includes(newStatus));
   if (!legal) fail('TASK_STATE_TRANSITION_INVALID', `Cannot transition active step from ${oldStatus} to ${newStatus}.`);
   const claimEvidenceRequired = currentClaimEvidenceEnabled;
@@ -19793,7 +19794,7 @@ function applyTaskStateDelta(
   }
   if (executionMode === 'default' && newStatus === 'completed' && !delta.execution_result && stepAttempts?.[delta.step_id]?.attempts.at(-1)?.status !== undefined && stepAttempts[delta.step_id].attempts.at(-1)!.status !== 'implemented') fail('RETRY_EXECUTION_REQUIRED','A recovered attempt must run and report before completion.');
   let coverage = current.runtimeState.review_coverage;
-  if (delta.execution_result && coverage) {
+  if (delta.execution_result && coverage && !detachedResult) {
     const result = delta.execution_result;
     if (result.change_set_id !== coverage.change_set_id) fail('REVIEW_TARGET_CONFLICT', 'Execution must retain the cumulative change set.');
     for (const entry of result.review_base.entries) {

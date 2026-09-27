@@ -61,6 +61,8 @@ import {
   recordEvidenceChallenge,
   dismissEvidenceChallenge,
   assertOrdinaryPreflight,
+  closureDecisionContext,
+  completeExecutedStep,
   completeReviewedStep,
   beginRepair,
   controlledRepairRecoveryEligibility,
@@ -739,7 +741,7 @@ function completeCurrentStepThroughExecution(root: string, candidatePaths: strin
     fs.appendFileSync(filePath, '\n// fixture execution change\n', 'utf8');
   }
   const claims = readCanonicalCurrentTask(root).runtimeState.claim_evidence ?? [];
-  return recordStepResult(root, {
+  const recorded = recordStepResult(root, {
     preflight_receipt: preflight.receipt,
     actual_changed_paths: [...candidatePaths],
     command_results: preflight.current_step.commands.map(item => ({
@@ -757,6 +759,8 @@ function completeCurrentStepThroughExecution(root: string, candidatePaths: strin
     outcome: 'implemented',
     note: 'Complete the fixture step through the admitted execution contract',
   });
+  if (candidatePaths.length > 0 || recorded.status !== 'success') return recorded;
+  return completeExecutedStep(root, { step_id: readCanonicalCurrentTask(root).runtimeState.active_step_id, note: 'Complete the recorded review-exempt fixture step' });
 }
 
 function semanticDraft(overrides: Partial<PrepareTaskSemanticDraft> = {}): PrepareTaskSemanticDraft {
@@ -1875,12 +1879,14 @@ describe('vNext Phase 2 Runtime contract', () => {
       note: 'The validation command failed; the user explicitly chose a stopped-by-user terminal state.',
     }).status).toBe('success');
     const current = readCanonicalCurrentTask(root);
+    const closure = closureDecisionContext(root, 'stopped-by-user');
+    expect(closure.consequences.validation_complete).toBe(false);
     const decision: UserDecision = {
       decision_source: 'user:s1-close-exception',
       decision_text: '停止继续验证，按明确记录的验证例外归档；不得把未完成验证改写为通过。',
       task_id: current.runtimeState.task_id,
       source_revision: current.sourceTuple.revision,
-      effects: [{ kind: 'close-with-exceptions', gate_code: 'user-directed-stop', target_ids: ['gate:stopped-by-user', 'step:step-1', 'review-coverage', 'acceptance', 'validation'] }],
+      effects: closure.effects,
       idempotency_key: 'user-decision-close-exception-1',
       evidence_refs: ['test:evidence:close-exception'],
     };
@@ -1895,6 +1901,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       completion_disposition: 'stopped-by-user',
       exception_decision_ids: [decision.idempotency_key],
       closure_evidence: closureEvidence({ acceptance_satisfied: false, validation_complete: false }),
+      remaining_risks: closure.consequences.unfinished_obligations,
       evidence_refs: ['test:evidence:closure'],
     });
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, delta, 'archive-close-exception-1'))).toMatchObject({
@@ -1938,6 +1945,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(['admitted', 'in-progress']).toContain(openFinding.status);
     expect(beforeStop.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
 
+    const closure = closureDecisionContext(root, 'stopped-by-user');
+    expect(closure.consequences.pending_review?.review_id).toBe(pending.review_id);
     const decision: UserDecision = {
       decision_source: 'user:s1-stop-pending-review',
       decision_text: '停止当前任务；保留待处理审查和 finding，不宣称已经修复。',
@@ -1945,11 +1954,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       source_revision: beforeStop.sourceTuple.revision,
       review_id: pending.review_id,
       change_set_id: pending.change_set_id,
-      effects: [{
-        kind: 'close-with-exceptions',
-        gate_code: 'user-directed-stop',
-        target_ids: ['gate:stopped-by-user', 'step:step-1', `review:${pending.review_id}`, `finding:${fingerprint}`],
-      }],
+      effects: closure.effects,
       idempotency_key: 'user-decision-stop-pending-review-1',
       evidence_refs: ['test:stop-pending-decision'],
     };
@@ -1961,7 +1966,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     const delta = archiveDelta({
       completion_disposition: 'stopped-by-user',
       exception_decision_ids: [decision.idempotency_key],
-      remaining_risks: [`finding:${fingerprint}`],
+      remaining_risks: closure.consequences.unfinished_obligations,
       closure_evidence: closureEvidence({ no_admitted_or_in_progress_findings: false }),
       delivery_summary: deliverySummary({
         verification: ['review remains pending; finding repair was not completed'],
@@ -2418,6 +2423,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       acceptance_evidence: currentClaims.flatMap(claim => claim.slots.map(slot => reportFixture(root, claim.claim_id, slot.slot_id))),
       outcome: 'implemented', note: 'Record the frozen invocation result',
     }).status).toBe('success');
+    expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('in-progress');
+    expect(completeExecutedStep(root, { step_id: 'step-1', note: 'Complete only after recording the execution' }).status).toBe('success');
     expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('completed');
 
     const closed = applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({ evidence_refs: ['test:evidence:draft-close'] }), 'archive-first-task'));
@@ -4092,6 +4099,169 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(findingResult.code).toBe('CLOSURE_NOT_ELIGIBLE');
   });
 
+  test('a confirmed user stop archives draft and active tasks without qualifying unfinished work', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const liveTuples: Array<Pick<RuntimeState, 'workflow_status' | 'lifecycle_state'>> = [
+      { workflow_status: 'draft', lifecycle_state: 'active' },
+      { workflow_status: 'active', lifecycle_state: 'active' },
+    ];
+    for (const [index, tuple] of liveTuples.entries()) {
+      const root = tuple.workflow_status === 'draft' ? archivedBaselineRoot() : confirmedSemanticRoot();
+      if (tuple.workflow_status === 'draft') prepareDraft(root, singleStepSemanticDraft());
+      const beforePreflight = readCanonicalCurrentTask(root);
+      const pendingExecution = tuple.workflow_status === 'active' ? preflightStep(root, { candidate_paths: [] }) : null;
+      const before = readCanonicalCurrentTask(root);
+      const context = closureDecisionContext(root, 'stopped-by-user');
+      expect(context.consequences).toMatchObject({
+        workflow_status: tuple.workflow_status, lifecycle_state: tuple.lifecycle_state,
+        acceptance_satisfied: false, validation_complete: false, code_action: 'leave-as-is',
+      });
+      expect(readCanonicalCurrentTask(root).raw).toBe(before.raw);
+      const decision: UserDecision = {
+        decision_source: `user:stop-live-tuple-${index}`,
+        decision_text: `Stop this ${tuple.workflow_status}/${tuple.lifecycle_state} fixture without claiming completion.`,
+        task_id: before.runtimeState.task_id, source_revision: before.sourceTuple.revision,
+        effects: context.effects, idempotency_key: `stop-live-tuple-${index}`,
+        evidence_refs: ['test:user-stop'],
+      };
+      expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(before, {
+        caller: 'close-task', decision,
+        authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+        evidence_refs: decision.evidence_refs!,
+      }))).toMatchObject({ status: 'success' });
+      const stopDelta = archiveDelta({
+        completion_disposition: 'stopped-by-user', exception_decision_ids: [decision.idempotency_key],
+        closure_evidence: closureEvidence({ acceptance_satisfied: false, validation_complete: false }),
+        remaining_risks: context.consequences.unfinished_obligations,
+        delivery_summary: deliverySummary({ verification: ['not completed'], next_action: 'stopped by user' }),
+      });
+      const result = applyVNextRuntimeProposal(root, archiveProposal(root, stopDelta, `archive-live-tuple-${index}`));
+      expect(result).toMatchObject({ status: 'success' });
+      const archived = readCanonicalCurrentTask(root);
+      expect(archived.runtimeState).toMatchObject({ workflow_status: 'closed', lifecycle_state: 'archived' });
+      if (pendingExecution) {
+        expect(beforePreflight.mutationAuthority).toBeNull();
+        expect(pendingExecution.receipt.step_id).toBe(beforePreflight.runtimeState.active_step_id);
+        expect(crypto.createHash('sha256').update(JSON.stringify({
+          evidence_plan_revision: beforePreflight.runtimeState.evidence_plan_revision,
+          step_id: beforePreflight.runtimeState.active_step_id,
+        })).digest('hex'))
+          .toBe(pendingExecution.receipt.plan_revision);
+        expect(readCanonicalCurrentTask(root).mutationAuthority).toBeNull();
+        expect(archived.runtimeState.active_step_id).toBe(before.runtimeState.active_step_id);
+        expect(archived.runtimeState.evidence_plan_revision).toBe(before.runtimeState.evidence_plan_revision);
+        expect(archived.runtimeState.execution_preflight).toMatchObject({
+          execution_id: pendingExecution.receipt.execution_id,
+          plan_revision: pendingExecution.receipt.plan_revision,
+        });
+        expect(crypto.createHash('sha256').update(JSON.stringify({
+          evidence_plan_revision: archived.runtimeState.evidence_plan_revision,
+          step_id: archived.runtimeState.active_step_id,
+        })).digest('hex'))
+          .toBe(pendingExecution.receipt.plan_revision);
+        const archivePath = path.join(root, 'TASKS', `TASK-${archived.runtimeState.task_id}-${archived.runtimeState.task_slug}.md`);
+        const archiveBytes = fs.readFileSync(archivePath, 'utf8');
+        const lateInput = {
+          preflight_receipt: pendingExecution.receipt,
+          actual_changed_paths: [],
+          command_results: [{ command: pendingExecution.current_step.commands[0]!.command,
+            status: 'failed', observed_repo_writes: [], evidence_refs: ['test:late-failure'] }],
+          validation_results: [{ validation: pendingExecution.current_step.validation[0]!, status: 'not-run', evidence_refs: [] }],
+          acceptance_evidence: [], outcome: 'blocked' as const, blocker_kind: 'unknown' as const,
+          note: 'The admitted command failed before the user stop.',
+        };
+        expect(() => recordStepResult(root, { ...lateInput, preflight_receipt: {
+          ...pendingExecution.receipt, document_id: 'doc-ffffffffffffffffffffffff',
+        } })).toThrow(/EXECUTE_PREFLIGHT_IDENTITY_CONFLICT/);
+        expect(() => recordStepResult(root, { ...lateInput, preflight_receipt: {
+          ...pendingExecution.receipt, plan_revision: 'f'.repeat(64),
+        } })).toThrow(/EXECUTE_PREFLIGHT_STALE/);
+        const late = recordStepResult(root, lateInput);
+        expect(late.status).toBe('success');
+        expect(recordStepResult(root, lateInput).status).toBe('no-op');
+        expect(readCanonicalCurrentTask(root).runtimeState).toMatchObject({ workflow_status: 'closed', lifecycle_state: 'archived' });
+        expect(fs.readFileSync(archivePath, 'utf8')).toBe(archiveBytes);
+        expect(previewCloseTask(root, stopDelta).status).toBe('reconciliation');
+      }
+    }
+  });
+
+  test('a confirmed user stop archives replan-blocked, superseded and suspended live tasks', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
+    const variants = [
+      { workflow_status: 'blocked_by_replan', lifecycle_state: 'active', transition: 'replan' },
+      { workflow_status: 'superseded', lifecycle_state: 'active', transition: 'supersede' },
+      { workflow_status: 'suspended', lifecycle_state: 'paused_pending_closure', transition: 'pause' },
+      { workflow_status: 'suspended', lifecycle_state: 'paused_blocked', transition: 'pause-blocked' },
+      { workflow_status: 'suspended', lifecycle_state: 'interrupted', transition: 'interrupt' },
+    ] as const;
+    for (const [index, variant] of variants.entries()) {
+      const root = confirmedSemanticRoot();
+      const current = readCanonicalCurrentTask(root);
+      let transition: RuntimeProposal;
+      if (variant.transition === 'replan') {
+        transition = replanProposal(root, 'mark-replan-blocked', `stop-tuple-replan-${index}`);
+      } else {
+        let mode: 'supersede' | 'interrupt' | 'pause';
+        let delta: LifecycleDelta;
+        let evidenceRefs: string[];
+        if (variant.transition === 'supersede') {
+          mode = 'supersede';
+          delta = supersedeDelta();
+          evidenceRefs = ['test:evidence:supersede'];
+        } else if (variant.transition === 'interrupt') {
+          mode = 'interrupt';
+          delta = interruptDelta();
+          evidenceRefs = ['test:evidence:interrupt'];
+        } else {
+          mode = 'pause';
+          delta = variant.transition === 'pause-blocked'
+            ? pauseDelta({ lifecycle_state: 'paused_blocked',
+              blocker_status: 'the current validation is blocked', blocking_evidence: 'test:blocked-validation',
+              remaining_acceptance: 'the current step is unfinished', failed_checks: ['test:blocked-validation'],
+              resume_review_reasons: ['blocker_recheck_required'] })
+            : pauseDelta();
+          evidenceRefs = ['test:evidence:pause'];
+        }
+        transition = createLifecycleProposal(current, {
+          mode, delta, idempotency_key: `stop-tuple-transition-${index}`,
+          authority_evidence: mode === 'supersede'
+            ? evidence('active-task-owner', 'evidence-admission')
+            : evidence('active-task-owner', 'scope-admission', 'evidence-admission'),
+          evidence_refs: evidenceRefs,
+        });
+      }
+      expect(applyVNextRuntimeProposal(root, transition).status).toBe('success');
+      const before = readCanonicalCurrentTask(root);
+      expect(before.runtimeState).toMatchObject({ workflow_status: variant.workflow_status, lifecycle_state: variant.lifecycle_state });
+      const context = closureDecisionContext(root, 'stopped-by-user');
+      expect(context.consequences).toMatchObject({ workflow_status: variant.workflow_status,
+        lifecycle_state: variant.lifecycle_state, acceptance_satisfied: false, validation_complete: false,
+        code_action: 'leave-as-is' });
+      const decision: UserDecision = {
+        decision_source: `user:stop-live-tuple-${index + 2}`,
+        decision_text: `Stop this ${variant.workflow_status}/${variant.lifecycle_state} fixture without claiming completion.`,
+        task_id: before.runtimeState.task_id, source_revision: before.sourceTuple.revision,
+        effects: context.effects, idempotency_key: `stop-live-tuple-${index + 2}`,
+        evidence_refs: ['test:user-stop'],
+      };
+      expect(applyVNextRuntimeProposal(root, createUserDecisionProposal(before, {
+        caller: 'close-task', decision,
+        authority_evidence: evidence('active-task-owner', 'user-confirmation', 'evidence-admission'),
+        evidence_refs: decision.evidence_refs!,
+      }))).toMatchObject({ status: 'success' });
+      expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
+        completion_disposition: 'stopped-by-user', exception_decision_ids: [decision.idempotency_key],
+        closure_evidence: closureEvidence({ acceptance_satisfied: false, validation_complete: false }),
+        remaining_risks: context.consequences.unfinished_obligations,
+        delivery_summary: deliverySummary({ verification: ['not completed'], next_action: 'stopped by user' }),
+      }), `archive-live-tuple-${index + 2}`))).toMatchObject({ status: 'success' });
+      const archived = readCanonicalCurrentTask(root);
+      expect(archived.runtimeState).toMatchObject({ workflow_status: 'closed', lifecycle_state: 'archived' });
+      expect(archived.runtimeState.execution_log.findLast(item => 'action' in item && item.action === 'archive'))
+        .toMatchObject({ from_workflow_status: variant.workflow_status, from_lifecycle_state: variant.lifecycle_state,
+          completion_disposition: 'stopped-by-user' });
+    }
+  });
+
   test('requires the execution audit section before close and before archive reconciliation', () => {
     const root = makeRoot(makeRuntimeState({ active_step_status: 'completed', claim_evidence_required: true, claim_evidence: completeClaimEvidence() }));
     const current = readCanonicalCurrentTask(root);
@@ -4392,7 +4562,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('blocks new draft creation when admitted Lesson reconciliation is incomplete', () => {
+  test('blocks new draft creation when admitted Lesson reconciliation is incomplete', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = makeRoot(makeRuntimeState({
       task_id: '000',
       task_slug: 'bootstrap-baseline',
@@ -6424,7 +6594,10 @@ describe('vNext Phase 2 Runtime contract', () => {
       const recorded = runInstalledRuntimeCli(path.join(ROOT, 'runtime/vnext/dist/cli.js'), root, 'record-step-result', result);
       expect(recorded.status, recorded.stderr + recorded.stdout).toBe(0);
       expect(recorded.json.status).toBe('success');
-      expect(() => recordStepResult(root, { ...result, note: 'Do not reuse the old source after a real result transaction' })).toThrow('EXECUTE_PREFLIGHT_STALE');
+      const recordedLog = readCanonicalCurrentTask(root).runtimeState.execution_log;
+      expect(recordStepResult(root, { ...result, note: 'Do not reuse the old source after a real result transaction' }))
+        .toMatchObject({ status: 'blocked', code: 'REVIEW_PREFLIGHT_REQUIRED' });
+      expect(readCanonicalCurrentTask(root).runtimeState.execution_log).toEqual(recordedLog);
       // Review context is another already-issued receipt, not a new checkpoint.
       useLegacyInlineCurrent(root);
       const context = reviewContext(root, {});
@@ -8077,13 +8250,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(applyVNextRuntimeProposal(root,taskProposal(root,{idempotency_key:'sparse-raw-skip'}))).toMatchObject({status:'blocked',code:'REVIEW_EXECUTION_REQUIRED'});
     const first = preflightStep(root,{candidate_paths:[a]});
     fs.writeFileSync(path.join(root,a),dirtyBase+'expect(limit()).toBe(PRODUCTION_LIMIT);\n');
-    expect(recordStepResult(root,{preflight_receipt:first.receipt,actual_changed_paths:[a],command_results:[],validation_results:[{validation:semantic.implementation_steps[0]!.validation[0]!,status:'passed',evidence_refs:['evidence-report.txt']}],acceptance_evidence:[],outcome:'implemented',note:'defer review to integration'})).toMatchObject({status:'success',advancement:{to_step_id:'step-2'}});
+    expect(recordStepResult(root,{preflight_receipt:first.receipt,actual_changed_paths:[a],command_results:[],validation_results:[{validation:semantic.implementation_steps[0]!.validation[0]!,status:'passed',evidence_refs:['evidence-report.txt']}],acceptance_evidence:[],outcome:'implemented',note:'defer review to integration'})).toMatchObject({status:'success',advancement:{outcome:'not-applicable',to_step_id:null}});
+    expect(readCanonicalCurrentTask(root).runtimeState.active_step_id).toBe('step-1');
     const aState = readCanonicalCurrentTask(root).runtimeState.review_coverage!;
     expect(aState.pending_paths).toEqual([a]);
     const preimage = aState.preimages.find(p => p.path === a)!;
     expect(Object.keys(preimage).sort()).toEqual(['path', 'sha256', 'state']);
     expect(preimage.sha256).toBe(crypto.createHash('sha256').update(dirtyBase).digest('hex'));
     expect(fs.readFileSync(reviewPreimageBlobPath(root, preimage.sha256!)).toString()).toBe(dirtyBase);
+    expect(completeExecutedStep(root,{step_id:'step-1',note:'The exempt result is recorded; cumulative review remains due at step-2'})).toMatchObject({status:'success',advancement:{to_step_id:'step-2'}});
     const second = preflightStep(root,{candidate_paths:[b]});
     fs.mkdirSync(path.dirname(path.join(root,b)),{recursive:true});
     fs.writeFileSync(path.join(root,b),'export const PRODUCTION_LIMIT = 99;\n');
@@ -8146,7 +8321,7 @@ describe('vNext Phase 2 Runtime contract', () => {
 
   // S3/V9/V10: add/delete/repeated writes retain first-touch state; an
   // exempt step still needs its due evidence and raw reports cannot replace base.
-  test('S3 preserves added deleted and repeatedly changed paths and rejects exempt-step missing evidence', () => {
+  test('S3 preserves added deleted and repeatedly changed paths and rejects exempt-step missing evidence', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const semantic = semanticDraft();
     const a = 'test/vnext-runtime.test.ts';
     const b = 'runtime/vnext/src/prepare-task-adapter.ts';
@@ -8161,6 +8336,14 @@ describe('vNext Phase 2 Runtime contract', () => {
     due.slots[0]!.slot_id='early-rule'; due.slots[0]!.check!.check_id='early-rule'; due.slots[0]!.due_step_id='step-1';
     due.slots[0]!.minimum_type='static-inspection'; due.slots[0]!.check!.method='static'; due.slots[0]!.check!.expected_result='accepted'; delete due.slots[0]!.check!.selection;
     semantic.claim_evidence.push(due);
+    const missingRoot=confirmedSemanticRoot(semantic);
+    const missingFirst=preflightStep(missingRoot,{candidate_paths:[a,c]});
+    fs.mkdirSync(path.dirname(path.join(missingRoot,a)),{recursive:true});
+    fs.writeFileSync(path.join(missingRoot,a),'new test file without its due report');
+    fs.unlinkSync(path.join(missingRoot,c));
+    expect(recordStepResult(missingRoot,{preflight_receipt:missingFirst.receipt,actual_changed_paths:[a,c],command_results:[],validation_results:[{validation:semantic.implementation_steps[0]!.validation[0]!,status:'passed',evidence_refs:['evidence-report.txt']}],acceptance_evidence:[],outcome:'implemented',note:'record actual work despite missing due evidence'}).status).toBe('success');
+    expect(readCanonicalCurrentTask(missingRoot).runtimeState.active_step_status).toBe('in-progress');
+    expect(completeExecutedStep(missingRoot,{step_id:'step-1',note:'Cannot qualify missing due evidence'})).toMatchObject({status:'blocked',code:'CLAIM_EVIDENCE_INCOMPLETE'});
     const root=confirmedSemanticRoot(semantic);
     // Fixture paths are within this isolated root; preserve the declared original.
     const cOriginal=fs.readFileSync(path.join(root,c),'utf8');
@@ -8170,10 +8353,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     fs.writeFileSync(path.join(root,a),'new test file v1');
     fs.unlinkSync(path.join(root,c));
     const input={preflight_receipt:first.receipt,actual_changed_paths:[a,c],command_results:[],validation_results:[{validation:semantic.implementation_steps[0]!.validation[0]!,status:'passed',evidence_refs:['evidence-report.txt']}],outcome:'implemented',note:'early exempt step'};
-    const before=fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8');
-    expect(recordStepResult(root,{...input,acceptance_evidence:[]})).toMatchObject({status:'blocked',code:'CLAIM_EVIDENCE_INCOMPLETE'});
-    expect(fs.readFileSync(readCanonicalCurrentTask(root).filePath,'utf8')).toBe(before);
     expect(recordStepResult(root,{...input,acceptance_evidence:[reportFixture(root,'early-rule','early-rule')]}).status).toBe('success');
+    expect(completeExecutedStep(root,{step_id:'step-1',note:'Complete only after its due report was recorded'}).status).toBe('success');
     const second=preflightStep(root,{candidate_paths:[a,b]});
     const repeated=preflightStep(root,{candidate_paths:[a,b]});
     expect(repeated.receipt.review_base).toEqual(second.receipt.review_base);
@@ -8938,8 +9119,9 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     expect(applyVNextRuntimeProposal(root, execution)).toMatchObject({
       status: 'success',
-      advancement: { outcome: 'task-complete', checkpoint: 'not-required' },
+      advancement: { outcome: 'not-applicable', checkpoint: 'not-required' },
     });
+    expect(readCanonicalCurrentTask(root).runtimeState.active_step_status).toBe('in-progress');
     expect(() => reviewContext(root, {})).toThrow('REVIEW_CHECKPOINT_NOT_REQUIRED');
 
     const current = readCanonicalCurrentTask(root);
@@ -9406,12 +9588,14 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(ordinaryClose).toMatchObject({ status: 'blocked', code: 'CLOSURE_NOT_ELIGIBLE', committed: false });
     expect(ordinaryClose.message).toContain(`finding:${findingC}`);
 
+    const closure = closureDecisionContext(root, 'completed-with-exceptions');
+    expect(closure.consequences.unfinished_obligations).toContain(`finding:${findingC}`);
     const closeDecision: UserDecision = {
       decision_source: 'user:s1-close-rejected-finding',
       decision_text: '按例外完成任务；C 未修复，须在归档中列为剩余风险。',
       task_id: rejected.runtimeState.task_id,
       source_revision: rejected.sourceTuple.revision,
-      effects: [{ kind: 'close-with-exceptions', target_ids: [`finding:${findingC}`] }],
+      effects: closure.effects,
       idempotency_key: 'user-decision-close-rejected-finding-1',
       evidence_refs: ['test:close-rejected-finding'],
     };
@@ -9423,7 +9607,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(applyVNextRuntimeProposal(root, archiveProposal(root, archiveDelta({
       completion_disposition: 'completed-with-exceptions',
       exception_decision_ids: [closeDecision.idempotency_key],
-      remaining_risks: [`finding:${findingC}`],
+      remaining_risks: closure.consequences.unfinished_obligations,
     }), 'archive-rejected-with-exception-1'))).toMatchObject({ status: 'success', operation_kind: 'archive-transaction' });
     const archived = readCanonicalCurrentTask(root);
     expect(archived.runtimeState.findings.find(item => item.fingerprint === findingC)?.status).toBe('rejected');
@@ -10033,18 +10217,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     const repair = beginRepair(root, { candidate_paths: [file] });
     fs.writeFileSync(product, 'repair already applied\n', 'utf8');
 
-    // Simulate the old two-phase failure boundary: the finding-attempt
-    // transaction committed, while the later step-progress transaction had
-    // not yet recorded the execution result.
+    // Admission now commits the finding attempt before returning the repair
+    // receipt; the execution result remains outstanding after the file edit.
     const partial = readCanonicalCurrentTask(root);
-    expect(applyVNextRuntimeProposal(root, createFindingQueueProposal(partial, {
-      mode: 'repair',
-      delta: repairAttempt(fingerprint, partial.runtimeState.review_cycle.id, repair.receipt.repair_wave_id),
-      idempotency_key: 'repair-result-partial-attempt',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
-      evidence_refs: ['test:evidence:repair', 'test:repair-blocker-partial-attempt'],
-    })).status).toBe('success');
-    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({ repair_attempts: 1 });
+    expect(partial.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({ repair_attempts: 1 });
 
     const recoveredPreflight = beginRepair(root, { candidate_paths: [file] });
     expect(recoveredPreflight.committed).toBe(false);
@@ -10079,7 +10255,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       advancement: { outcome: 'repair-awaiting-verification' },
     });
     const blocked = readCanonicalCurrentTask(root);
-    expect(blocked.runtimeState.active_step_status).toBe('completed');
+    expect(blocked.runtimeState.active_step_status).toBe('blocked');
     expect(blocked.runtimeState.pending_review_result).toMatchObject({ verdict: 'findings', review_id: repair.receipt.review_id });
     expect(blocked.runtimeState.execution_preflight).toMatchObject({ execution_id: repair.receipt.execution_id, preflight_id: repair.receipt.preflight_id });
     expect(blocked.runtimeState.findings.find(item => item.fingerprint === fingerprint)).toMatchObject({ repair_attempts: 1 });
@@ -10386,8 +10562,12 @@ describe('vNext Phase 2 Runtime contract', () => {
       context_receipt: fresh.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [],
       evidence_refs: ['test:format-only-scoped-review'], blocker: null,
     }).status).toBe('success');
-    expect(readCanonicalCurrentTask(root).runtimeState.pending_review_result).toMatchObject({ verdict: 'clean', blocker: null });
-    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Scoped business review passed; governance whitespace remains historical evidence.' }).status).toBe('success');
+    const scoped = readCanonicalCurrentTask(root);
+    expect(scoped.runtimeState.pending_review_result).toMatchObject({ verdict: 'clean', blocker: null });
+    expect(scoped.runtimeState.execution_log.findLast(item => !('action' in item) && item.mode === 'repair')!.execution_result).toMatchObject({
+      outcome: 'blocked', command_results: [expect.any(Object), expect.objectContaining({ command: formatCommand, status: 'failed' })],
+    });
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Scoped business review passed; governance whitespace remains historical evidence.' })).toMatchObject({status:'success'});
   });
 
   test('reconciles review-verified resolutions before selecting the next repair set', { timeout: 60_000 }, () => {
@@ -10884,28 +11064,15 @@ describe('vNext Phase 2 Runtime contract', () => {
     const continuation = beginRepair(root, { candidate_paths: [file] });
     expect(continuation.receipt.repair_fingerprints).toEqual([a, b, d].sort());
     expect(continuation.receipt.controlled_recovery_grant_id).toBe(authorized.runtimeState.controlled_repair_grants![0]!.grant_id);
-    const partialRecovery = readCanonicalCurrentTask(root);
-    expect(applyVNextRuntimeProposal(root, createFindingQueueProposal(partialRecovery, {
-      mode: 'repair',
-      delta: repairAttempt(b, partialRecovery.runtimeState.review_cycle.id, continuation.receipt.repair_wave_id),
-      idempotency_key: 'controlled-recovery-ordinary-attempt',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
-      evidence_refs: ['test:evidence:repair', 'test:controlled-recovery-ordinary-attempt'],
-    })).status).toBe('success');
-    const afterOrdinaryAttempt = readCanonicalCurrentTask(root);
-    expect(afterOrdinaryAttempt.runtimeState.findings.find(item => item.fingerprint === b)?.repair_attempts).toBe(1);
-    expect(afterOrdinaryAttempt.runtimeState.findings.find(item => item.fingerprint === b)?.controlled_repair_attempts ?? 0).toBe(0);
-    expect(afterOrdinaryAttempt.runtimeState.controlled_repair_grants![0]).toMatchObject({
-      status: 'consumed', consumed_fingerprints: [], consumed_repair_wave_ids: [continuation.receipt.repair_wave_id],
+    const admitted = readCanonicalCurrentTask(root);
+    expect(admitted.runtimeState.findings.find(item => item.fingerprint === b)).toMatchObject({
+      repair_attempts: 1,
     });
-    expect(applyVNextRuntimeProposal(root, createFindingQueueProposal(afterOrdinaryAttempt, {
-      mode: 'repair',
-      delta: repairAttempt(a, afterOrdinaryAttempt.runtimeState.review_cycle.id, continuation.receipt.repair_wave_id),
-      idempotency_key: 'controlled-recovery-partial-attempt',
-      authority_evidence: evidence('active-task-owner', 'scope-admission', 'finding-admission', 'evidence-admission'),
-      evidence_refs: ['test:evidence:repair', 'test:controlled-recovery-partial-attempt'],
-    })).status).toBe('success');
-    expect(readCanonicalCurrentTask(root).runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({
+    expect(admitted.runtimeState.findings.find(item => item.fingerprint === b)?.controlled_repair_attempts ?? 0).toBe(0);
+    expect(admitted.runtimeState.controlled_repair_grants![0]).toMatchObject({
+      status: 'consumed', consumed_repair_wave_ids: [continuation.receipt.repair_wave_id],
+    });
+    expect(admitted.runtimeState.findings.find(item => item.fingerprint === a)).toMatchObject({
       repair_attempts: 8, controlled_repair_attempts: 1,
     });
     const recoveredContinuation = beginRepair(root, { candidate_paths: [file] });
@@ -11320,7 +11487,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       const secondRepair = beginRepair(root, { candidate_paths: [file] });
       expect(secondRepair.status).toBe('pass');
       expect(readCanonicalCurrentTask(root).runtimeState.review_cycle).toMatchObject({
-        id: advanced.runtimeState.review_cycle.id, repair_round: 0, cycle_phase: 'discovery',
+        id: advanced.runtimeState.review_cycle.id, repair_round: 1, cycle_phase: 'discovery',
+        counted_repair_wave_ids: [secondRepair.receipt.repair_wave_id], active_repair_wave_id: secondRepair.receipt.repair_wave_id,
       });
       expect(execute('step-2', 'second-step-marker\n', secondRepair.receipt).status).toBe('success');
       review('clean', 'second-step-marker');
@@ -12090,6 +12258,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         'replace-validation',
         'begin-repair',
         'record-step-result',
+        'complete-executed-step',
         'complete-reviewed-step',
       ]);
     expect(contract.proposal.execute_step.semantic_adapter.scope_enforcement).toBe('task-authority-envelope-with-v1-step-compatibility');
@@ -12496,13 +12665,13 @@ describe('vNext Phase 2 Runtime contract', () => {
     const findingPath = 'runtime/vnext/src/prepare-task-adapter.ts';
     expect(beginRepair(root, { candidate_paths: [findingPath] }).receipt.kind).toBe('execute-step-repair-preflight/v1');
     current = readCanonicalCurrentTask(root);
-    expect(current.runtimeState.findings[0]?.status).toBe('admitted');
+    expect(current.runtimeState.findings[0]?.status).toBe('in-progress');
 
     const oldReplanInput = {
       challenge_id: 'challenge-not-present',
       correction_step: { id: 'legacy-correction', description: 'Legacy route must remain closed', mutation_scope: ['runtime/vnext/src/prepare-task-adapter.ts'], required_evidence: ['fresh review'], commands: [] },
     };
-    expect(() => prepareCorrectionReplan(root, oldReplanInput)).toThrow('REPLAN_CANDIDATE_STATE_INVALID');
+    expect(() => prepareCorrectionReplan(root, oldReplanInput)).toThrow('REPLAN_CHALLENGE_REQUIRED');
 
     expect(applyVNextRuntimeProposal(root, replanProposal(root, 'mark-replan-blocked', 'scope-amendment-mark-blocked')).status).toBe('success');
     current = readCanonicalCurrentTask(root);
@@ -12539,7 +12708,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(after.runtimeState.pending_review_result?.review_id).toBe(pendingReviewId);
     expect(after.runtimeState.review_cycle).toEqual(reviewCycle);
     expect(after.runtimeState.review_coverage?.last_clean_revision).toBe(beforeAmendment.runtimeState.review_coverage?.last_clean_revision ?? null);
-    expect(after.runtimeState.findings[0]?.status).toBe('admitted');
+    expect(after.runtimeState.findings[0]?.status).toBe('in-progress');
     expect(after.body).toContain('src/authorized-continuation.ts');
     expect(after.body).toContain('test/scope-amendment-regression.test.ts');
     expect(after.body).toContain('- step-1: Implement the bounded Runtime fixture');
@@ -12597,7 +12766,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(fs.existsSync(path.join(root, 'docs', 'workflow', 'task-candidates'))).toBe(false);
   });
 
-  test('scope amendment retains and then consumes a clean pending review before the continuation runs', () => {
+  test('scope amendment retains and then consumes a clean pending review before the continuation runs', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = confirmedSemanticRoot(singleStepSemanticDraft());
     const oldPath = 'runtime/vnext/src/prepare-task-adapter.ts';
     const preflight = preflightStep(root, { candidate_paths: [oldPath] });
@@ -12686,7 +12855,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(readCanonicalCurrentTask(root).runtimeState.active_step_id).toBe('scope-amend-step-only');
   });
 
-  test('scope amendment carries attempt accounting through direct and unpreflighted continuations', () => {
+  test('scope amendment carries attempt accounting through direct and unpreflighted continuations', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = confirmedSemanticRoot(singleStepSemanticDraft());
     const firstPreflight = preflightStep(root, { candidate_paths: [] });
     const firstStep = firstPreflight.current_step;
@@ -12731,7 +12900,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(finalLedger.attempts[1]).toMatchObject({ attempt_id: usedBeforeAmendment[1]!.attempt_id, status: 'preflighted' });
   });
 
-  test('scope amendment walks three continuation layers without resetting the inherited budget', () => {
+  test('scope amendment walks three continuation layers without resetting the inherited budget', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = confirmedSemanticRoot(singleStepSemanticDraft());
     const preflight = preflightStep(root, { candidate_paths: [] });
     const step = preflight.current_step;
@@ -12881,10 +13050,11 @@ describe('vNext Phase 2 Runtime contract', () => {
       const after = readCanonicalCurrentTask(root);
       expect(after.runtimeState.dynamic_expansions!.at(-1)!.review_required).toBe(elevated);
       if (!elevated) {
-        expect(after.runtimeState.active_step_status).toBe('completed');
+        expect(after.runtimeState.active_step_status).toBe('in-progress');
+        expect(completeExecutedStep(root,{step_id:after.runtimeState.active_step_id,note:'Finish the recorded exempt expansion'}).status).toBe('success');
         expect(after.runtimeState.task_id).toBe(initial.receipt.task_id);
         // The already-confirmed final cumulative exemption is preserved.
-        expect(after.runtimeState.review_coverage!.pending_paths).toEqual([]);
+        expect(readCanonicalCurrentTask(root).runtimeState.review_coverage!.pending_paths).toEqual([]);
         continue;
       }
       expect(after.runtimeState.active_step_status).toBe('in-progress');
@@ -13334,7 +13504,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('E5 admits an existing same-envelope regression test as ordinary dynamic expansion', () => {
+  test('E5 admits an existing same-envelope regression test as ordinary dynamic expansion', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const product = 'packages/node-rollout/src/session.ts';
     const existingTest = 'packages/node-rollout-tests/existing-regression.test.ts';
     const root = v2ConfirmedRoot({
@@ -13565,6 +13735,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         outcome: 'implemented',
         note: 'Complete the exempt first step and retain its cumulative review target.',
       }).status).toBe('success');
+      expect(completeExecutedStep(root,{step_id:'step-1',note:'Complete the recorded exempt first step'}).status).toBe('success');
       const afterFirst = readCanonicalCurrentTask(root);
       expect(afterFirst.runtimeState.active_step_id).toBe('step-2');
       expect(afterFirst.runtimeState.review_coverage?.target.entries.map(entry => entry.path)).toContain(plannedA);
@@ -14832,7 +15003,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('task domain rebinding retains a pending finding and its repair path', () => {
+  test('task domain rebinding retains a pending finding and its repair path', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = v2ConfirmedRoot();
     try {
       const product = 'packages/node-rollout/src/session.ts';
@@ -14884,7 +15055,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     }
   });
 
-  test('stale domain-map revision blocks correction-replan without rebinding the task', () => {
+  test('stale domain-map revision blocks correction-replan without rebinding the task', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {
     const root = v2TwoStepConfirmedRoot();
     const planned = 'packages/node-rollout/src/session.ts';
     try {
@@ -15306,6 +15477,8 @@ describe('vNext Phase 2 Runtime contract', () => {
       note: 'Complete the exempt first step and retain its cumulative review target.',
     });
     if (firstResult.status !== 0) throw new Error(`cumulative S1 result failed: ${firstResult.stderr}\n${firstResult.stdout}`);
+    const firstCompletion = runInstalledRuntimeCli(runtimeCli, target, 'complete-executed-step', { step_id: 'step-1', note: 'Complete the recorded exempt first step' });
+    if (firstCompletion.status !== 0) throw new Error(`cumulative S1 completion failed: ${firstCompletion.stderr}\n${firstCompletion.stdout}`);
     expect(readCanonicalCurrentTask(target).runtimeState.active_step_id).toBe('step-2');
     expect(readCanonicalCurrentTask(target).runtimeState.review_coverage.target.entries.map((entry: { path: string }) => entry.path)).toContain(plannedA);
 
