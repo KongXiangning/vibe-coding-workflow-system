@@ -142,6 +142,7 @@ function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string
     { source_path: 'runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md', target_path: '.workflow-system/runtime/support/CONTEXT_THIRD_PARTY_NOTICES.md', category: 'runtime' },
     { source_path: 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md', target_path: '.workflow-system/WORKFLOW_PROTOCOL.md', category: 'protocol' },
     { source_path: 'templates/vnext/bootstrap/FILE_SCHEMAS.md', target_path: '.workflow-system/FILE_SCHEMAS.md', category: 'schema' },
+    { source_path: 'templates/vnext/bootstrap/test-admission-policy.md', target_path: 'docs/workflow/test-admission-policy.md', category: 'config' },
     { source_path: 'templates/vnext/bootstrap/CURRENT_TASK.md', target_path: 'docs/workflow/CURRENT_TASK.md', category: 'generated' },
     { source_path: 'templates/vnext/bootstrap/TASK_STORE.gitattributes', target_path: 'docs/workflow/.gitattributes', category: 'config' },
     { source_path: '.workflow-system/vnext/SOURCE_CONTRACT.yaml', target_path: '.workflow-system/vnext/SOURCE_CONTRACT.yaml', category: 'config' },
@@ -161,6 +162,7 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
     '.workflow-system/vnext/RUNTIME_CONTRACT.yaml',
     'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md',
     'templates/vnext/bootstrap/FILE_SCHEMAS.md',
+    'templates/vnext/bootstrap/test-admission-policy.md',
     'templates/vnext/bootstrap/CURRENT_TASK.md',
     'templates/vnext/bootstrap/TASK_STORE.gitattributes',
   ];

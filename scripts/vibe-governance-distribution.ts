@@ -288,6 +288,7 @@ function manifestDigest(raw: Record<string, unknown>): string {
 
 export function isDistributionOwnedTarget(targetPath: string): boolean {
   if (targetPath === 'docs/workflow/.gitattributes') return true;
+  if (targetPath === 'docs/workflow/test-admission-policy.md') return true;
   if (targetPath === '.workflow-system/WORKFLOW_PROTOCOL.md' || targetPath === '.workflow-system/FILE_SCHEMAS.md') return true;
   if (targetPath === '.workflow-system/vnext/SOURCE_CONTRACT.yaml' || targetPath === '.workflow-system/vnext/RUNTIME_CONTRACT.yaml') return true;
   if (targetPath.startsWith('.workflow-system/runtime/')) return true;
@@ -389,7 +390,7 @@ function loadDistributionPayload(packageRoot: string): LoadedPayload {
       throw new Error(`Distribution Manifest does not match vNext bundle artifact ${artifact.target_path}.`);
     }
   }
-  if (!manifestTargets.has('.workflow-system/WORKFLOW_PROTOCOL.md') || !manifestTargets.has('.workflow-system/FILE_SCHEMAS.md') || !manifestTargets.has(VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH) || !manifestTargets.has(VIBE_GOVERNANCE_BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH)) {
+  if (!manifestTargets.has('.workflow-system/WORKFLOW_PROTOCOL.md') || !manifestTargets.has('.workflow-system/FILE_SCHEMAS.md') || !manifestTargets.has('docs/workflow/test-admission-policy.md') || !manifestTargets.has(VNEXT_RUNTIME_ENTRYPOINT_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH) || !manifestTargets.has(VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH) || !manifestTargets.has(VIBE_GOVERNANCE_BOOTSTRAP_SUPPORT_TEMPLATE_RELATIVE_PATH)) {
     throw new Error('Distribution Manifest is missing required Runtime/protocol/schema/Bootstrap support artifacts.');
   }
   const payload: LoadedPayload = { packageRoot, payloadRoot, sourceRoot, bundleDir, manifest, bundle };

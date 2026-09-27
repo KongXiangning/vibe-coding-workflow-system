@@ -244,6 +244,61 @@ a user-owned behavior, widen scope, admit a new persistent test, or convert a
 recommendation into task state. Do not execute the draft's planned commands or
 create a probe inside the project.
 
+## Test value review
+
+### Required policy
+
+在本次调用中，审查测试与验证方案前，必须读取目标项目根目录下的：
+
+`docs/workflow/test-admission-policy.md`
+
+该文件是本阶段的必读 workflow policy，不是可选参考资料。
+路径相对于目标项目根目录解析，不相对于当前工作目录或 skill 目录。
+
+不能以仅引用文件路径或记得此前内容代替读取。
+文件缺失或无法读取时，应明确报告，不得声称已完成依据该 policy 的检查。
+
+### Review responsibilities
+
+Test value review 是固定审查职责，不依赖用户额外提醒。
+即使 draft 未提出新增测试，也必须检查受影响行为是否缺少关键验证。
+
+按业务行为或契约分组审查，必要时下钻到具体用例：
+
+1. 必要性与检出力
+   检查拟新增或显著扩展的测试保护什么，以及能发现什么具体错误。
+   不接受仅以新增代码、函数、分支、覆盖率或想象中的 edge case
+   为依据的测试；识别重复断言、实现细节镜像和 mock 自证。
+
+2. 已有证据与执行范围
+   检查能否复用已有测试，是否存在重复建设，以及是否把不必要的
+   整套测试绑定为本次 acceptance evidence。
+   不把“转为 regression”当作保留低价值新增测试的理由。
+
+3. 关键覆盖缺口
+   检查业务行为、关键公共函数、共享能力、稳定契约、已知回归
+   和重要不变量是否缺少必要保护。
+   不得为了精简测试而一概删除单元测试，也不得泛化要求“再补测试”。
+
+发现问题时，提出具体的复用、取消拟新增、合并、缩小范围、
+调整证据选择或补足关键覆盖建议。
+要求新增测试时，应指出缺少保护的行为或故障模式，
+以及已有验证为什么不足。
+
+沿用现有 draft 审查和 findings 处理方式；
+本章节不授予删除现有测试、修改验收要求或变更 Runtime 状态的权限。
+
+### Review output
+
+在现有审查结论的简短文字说明中固定包含一项 `Test value review`，
+不为 `draft_review_result` 增加字段：
+
+- 无问题时：用一句话说明，未发现不必要的拟新增测试或重要验证缺口。
+- 有问题时：只列具体问题、受影响的测试或测试组，以及建议动作和理由。
+- 材料不足时：明确未能确认的部分，不以“未发现问题”代替未完成检查。
+
+不逐项复述所有测试，不生成额外评分表、准入表或长篇检查记录。
+
 ## Required result
 
 Return one self-contained `draft_review_result` that another agent can consume

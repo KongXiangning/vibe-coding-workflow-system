@@ -266,6 +266,15 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(false);
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(false);
+    const policyPath = 'docs/workflow/test-admission-policy.md';
+    expect(fs.readFileSync(targetPath(target, policyPath), 'utf8')).toBe(
+      fs.readFileSync(path.join(ROOT, 'templates/vnext/bootstrap/test-admission-policy.md'), 'utf8'),
+    );
+    const managedFiles = JSON.parse(fs.readFileSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH), 'utf8')).managed_files;
+    expect(managedFiles.some((file: { path: string }) => file.path === policyPath)).toBe(true);
+    for (const skill of ['prepare-task', 'review-draft']) {
+      expect(fs.readFileSync(targetPath(target, `.agents/skills/${skill}/SKILL.md`), 'utf8')).toContain(policyPath);
+    }
     expect(fs.readFileSync(targetPath(target, '.gitattributes'), 'utf8')).toBe('* text=auto\n');
     expect(fs.readFileSync(targetPath(target, 'docs/workflow/.gitattributes'), 'utf8')).toContain('CURRENT_TASK.md -text');
     execFileSync('git', ['init', '-q'], { cwd: target });
