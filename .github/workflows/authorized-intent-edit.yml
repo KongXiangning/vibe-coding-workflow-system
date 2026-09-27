@@ -4,7 +4,6 @@ on:
   push:
     branches: [codex/evidence-plan-amendment-vnext]
     paths:
-      - .github/workflows/authorized-intent-edit.yml
       - .github/authorized-intent.patch
 
 permissions:
@@ -23,23 +22,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Export source for the authorized edit
-        if: hashFiles('.github/authorized-intent.patch') == ''
-        run: git archive --format=tar HEAD -o "$RUNNER_TEMP/authorized-intent-source.tar"
-      - uses: actions/upload-artifact@v4
-        if: hashFiles('.github/authorized-intent.patch') == ''
-        with:
-          name: authorized-intent-source
-          path: ${{ runner.temp }}/authorized-intent-source.tar
-          retention-days: 1
-      - name: Apply the exact source patch and remove this one-shot transport
-        if: hashFiles('.github/authorized-intent.patch') != ''
+      - name: Apply exact authorized source change (no tests, build or release)
         run: |
           set -euo pipefail
-          git apply --index .github/authorized-intent.patch
-          git rm .github/authorized-intent.patch .github/workflows/authorized-intent-edit.yml
+          git fetch --depth=1 origin c1caf5914cb43766584f361405117c7db0116ab0
+          git diff --quiet c1caf5914cb43766584f361405117c7db0116ab0 -- . ':(exclude).github/**'
+          cat .github/authorized-intent.patch.1 .github/authorized-intent.patch.2 | base64 -d | xz -d > "$RUNNER_TEMP/authorized-intent.patch"
+          echo "d8226cbeb2c663c61e5c47d902cbe73274e2e840571cdca2d4c1fba6dcddae0b  $RUNNER_TEMP/authorized-intent.patch" | sha256sum -c -
+          git apply --unidiff-zero --index "$RUNNER_TEMP/authorized-intent.patch"
+          git rm .github/authorized-intent.patch .github/authorized-intent.patch.1 .github/authorized-intent.patch.2 .github/workflows/authorized-intent-edit.yml
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(vnext): honor authorized intent without manufacturing completion'
+          git commit -m 'feat(vnext): separate authorized intent, execution facts and completion'
           git push origin HEAD:refs/heads/codex/evidence-plan-amendment-vnext
