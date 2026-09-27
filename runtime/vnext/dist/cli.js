@@ -10458,7 +10458,7 @@ function assertReviewExecutionEligible(root, current, execution) {
     }
     return;
   }
-  if (!["in-progress", "blocked"].includes(execution.status) || execution.advancement !== "repair-awaiting-verification" || current.runtimeState.active_step_status !== execution.status) {
+  if (!["in-progress", "blocked", "completed"].includes(execution.status) || execution.advancement !== "repair-awaiting-verification" || current.runtimeState.active_step_status !== execution.status) {
     fail3("REVIEW_EXECUTION_NOT_REVIEWABLE", "the repair execution is not awaiting verification review.");
   }
 }

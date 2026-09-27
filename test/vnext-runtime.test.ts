@@ -1,4 +1,4 @@
-import { ordinaryAttemptAdmission } from '../runtime/vnext/src/kernel';
+import { ordinaryAttemptAdmission, assertReviewExecutionEligible } from '../runtime/vnext/src/kernel';
 import { authorityDomainContext, updateAuthorityDomains } from '../runtime/vnext/src/authority-domain-transaction';
 import { rebindTaskAuthorityDomains } from '../runtime/vnext/src/kernel';
 import { prepareEvidencePlanAmendment, confirmEvidencePlanAmendment, discardEvidencePlanAmendment } from '../runtime/vnext/src/kernel';
@@ -9414,6 +9414,23 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(repaired.runtimeState.review_cycle.repair_round).toBe(1);
     expect(repaired.runtimeState.findings.every(item => item.last_repair_wave_id === repair.receipt.repair_wave_id)).toBe(true);
 
+    const legacy = { ...repaired, runtimeState: structuredClone(repaired.runtimeState) };
+    const legacyExecution = legacy.runtimeState.execution_log.findLast(item =>
+      !('action' in item) && item.mode === 'repair' && item.execution_result !== undefined);
+    if (!legacyExecution || 'action' in legacyExecution) throw new Error('Missing repair fixture');
+    expect(legacyExecution.status).toBe('in-progress');
+    legacyExecution.status = 'completed';
+    legacy.runtimeState.active_step_status = 'completed';
+    const legacyBefore = JSON.stringify(legacy.runtimeState);
+    const fileBefore = fs.readFileSync(repaired.filePath);
+    expect(() => assertReviewExecutionEligible(root, legacy, legacyExecution)).not.toThrow();
+    expect(JSON.stringify(legacy.runtimeState)).toBe(legacyBefore);
+    expect(fs.readFileSync(repaired.filePath)).toEqual(fileBefore);
+    expect(() => assertReviewExecutionEligible(root, legacy, { ...legacyExecution, step_id: 'wrong-step' }))
+      .toThrow('REVIEW_EXECUTION_STALE');
+    expect(() => assertReviewExecutionEligible(root, legacy, { ...legacyExecution, advancement: 'task-complete' }))
+      .toThrow('REVIEW_EXECUTION_NOT_REVIEWABLE');
+
     const verification = reviewContext(root, {});
     expect(verification.receipt).toMatchObject({ cycle_phase: 'verification' });
     expect(verification.recorded_execution).toMatchObject({
@@ -9439,6 +9456,8 @@ describe('vNext Phase 2 Runtime contract', () => {
     const complete = readCanonicalCurrentTask(root);
     expect(complete.runtimeState.findings.every(item => item.status === 'resolved')).toBe(true);
     expect(complete.runtimeState.pending_review_result).toBeNull();
+    expect(() => assertReviewExecutionEligible(root, complete, legacyExecution))
+      .toThrow('REVIEW_EXECUTION_ALREADY_COMPLETED');
   });
 
   test('records a partial user disposition atomically, preserves the pending review, and replays idempotently', { timeout: RUNTIME_IO_TEST_TIMEOUT }, () => {

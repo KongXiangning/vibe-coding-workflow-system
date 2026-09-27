@@ -6466,7 +6466,9 @@ export function assertReviewExecutionEligible(
     return;
   }
 
-  if (!['in-progress', 'blocked'].includes(execution.status)
+  // Historical repairs may be completed while still awaiting verification.
+  // Keep their recorded state intact; a later reviewed completion is rejected above.
+  if (!['in-progress', 'blocked', 'completed'].includes(execution.status)
     || execution.advancement !== 'repair-awaiting-verification'
     || current.runtimeState.active_step_status !== execution.status) {
     fail('REVIEW_EXECUTION_NOT_REVIEWABLE', 'the repair execution is not awaiting verification review.');

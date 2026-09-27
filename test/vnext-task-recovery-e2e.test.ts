@@ -89,7 +89,14 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'shared-ev
     if (restore) {
       invoke(['apply-artifact-restore'], { preflight_receipt: preflight.receipt });
       const directory = path.join(target, 'docs/workflow/task-history', state().source_tuple.document_id, 'artifact-restores');
-      completionFile = path.join(directory, fs.readdirSync(directory)[0]);
+      const attemptId = state().runtime_state.step_attempts[id].attempts.at(-1).attempt_id;
+      const matching = fs.readdirSync(directory).filter(name => name.endsWith('.json'))
+        .filter(name => {
+          const receipt = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
+          return receipt.step_id === id && receipt.attempt_id === attemptId;
+        });
+      expect(matching).toHaveLength(1);
+      completionFile = path.join(directory, matching[0]);
     }
     for (const [p, value] of Object.entries(changes)) fs.writeFileSync(path.join(target, p), value);
     const context = invoke(['evidence-context'], {});
@@ -112,10 +119,38 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'shared-ev
     invoke(['record-review-result'], { context_receipt: review.receipt, verdict: 'clean', findings: [], unresolved_fingerprints: [], evidence_refs: evidenceRefs.length ? evidenceRefs : ['fixture:reviewed'], blocker: null,
       test_assessment: { applicable: false, reason: 'Only declared non-executable documents changed', evidence_refs: evidenceRefs.length ? evidenceRefs : ['fixture:reviewed'], necessity: 'Bounded document read is sufficient', oracle: 'Observed complete UTF-8 document bodies', boundary: 'Local fixture only', reuse: 'Retain unaffected document observations', applicability: 'Current review manifest and reports inspected' } });
     if (completionFile) {
+      const input = { step_id: id, note: `Reviewed ${id}` };
       const bytes = fs.readFileSync(completionFile);
+      if (scenario === 'restore-retry') {
+        const receipt = JSON.parse(bytes.toString());
+        expect(receipt.kind).toBe('artifact-restore-completion/v2');
+        const oldReceipt = path.join(path.dirname(completionFile), `${receipt.origin_completion}.json`);
+        expect(fs.existsSync(oldReceipt)).toBe(true);
+        expect(JSON.parse(fs.readFileSync(oldReceipt, 'utf8')).attempt_id).not.toBe(receipt.attempt_id);
+        fs.renameSync(completionFile, `${completionFile}.unavailable`);
+        try {
+          rejected('complete-reviewed-step', input, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
+        } finally {
+          fs.renameSync(`${completionFile}.unavailable`, completionFile);
+        }
+      }
       fs.writeFileSync(completionFile, '{}\n');
-      rejected('complete-reviewed-step', { step_id: id, note: `Reviewed ${id}` }, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
-      fs.writeFileSync(completionFile, bytes);
+      try {
+        rejected('complete-reviewed-step', input, 'ARTIFACT_RESTORE_COMPLETION_REQUIRED');
+      } finally {
+        fs.writeFileSync(completionFile, bytes);
+      }
+      if (scenario === 'restore-retry') {
+        const restoredPath = path.join(target, 'notes/a.md');
+        const restoredBytes = fs.readFileSync(restoredPath);
+        fs.writeFileSync(restoredPath, 'user edit after reviewed restore\n');
+        try {
+          rejected('complete-reviewed-step', input, 'REVIEW_TARGET_STALE');
+          expect(fs.readFileSync(restoredPath, 'utf8')).toBe('user edit after reviewed restore\n');
+        } finally {
+          fs.writeFileSync(restoredPath, restoredBytes);
+        }
+      }
     }
     invoke(['complete-reviewed-step'], { step_id: id, note: `Reviewed ${id}` });
   }
@@ -262,7 +297,7 @@ for (const scenario of ['full-chain', 'first-restore', 'same-report', 'shared-ev
         expect(receipt.origin_completion).toBe(path.basename(originFile, '.json'));
         expect(receipt.attempt_id).not.toBe(attempt.attempt_id);
         expect(invoke(['apply-artifact-restore'], { preflight_receipt: retry.receipt }).status).toBe('no-op');
-        complete('RESTORE', []);
+        complete('RESTORE', [], {}, true);
       } else complete('RESTORE', [], {}, true);
       expect(fs.readFileSync(path.join(target, 'notes/a.md'), 'utf8')).toBe('initial A\n');
       complete('VERIFY', ['A', 'B']);
