@@ -18,6 +18,11 @@ bun run test:workflow-all
 bun run workflow:health --root .
 ```
 
+## vNext Authorization Design
+
+- Runtime admission and lifecycle changes must preserve `docs/product/vnext-authorized-intent.md`.
+- Agent-side validation and unverified delivery boundaries are recorded in `docs/ops/vnext-authorized-intent-validation.md`; source submission is not behavioral acceptance.
+
 ## Key Conventions
 
 - Workflow skills are generated from `templates/skills/*.SKILL.md.tmpl`.

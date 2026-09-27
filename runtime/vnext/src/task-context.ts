@@ -45,6 +45,7 @@ import {
 } from './kernel';
 import { withGovernanceWriteLock } from './runtime-io';
 import { resolveTaskStep } from './task-steps';
+import { isUserTerminableState } from './operation-semantics';
 import {
   TaskStore,
   TaskStoreError,
@@ -493,7 +494,7 @@ function latestExecution(current: CanonicalCurrentTask, stepId = current.runtime
   };
 }
 
-function latestReviewableUnreviewedExecution(current: CanonicalCurrentTask): AnyRecord | null {
+function latestReviewableUnreviewedExecution(current: CanonicalCurrentTask, includeExempt = false): AnyRecord | null {
   const pendingReview = current.runtimeState.pending_review_result;
   const entry = currentDefinitionExecutionLog(current).findLast(item =>
     !('action' in item)
@@ -504,6 +505,8 @@ function latestReviewableUnreviewedExecution(current: CanonicalCurrentTask): Any
   );
   if (!entry || pendingReview?.execution_id === entry.idempotency_key
     || (entry.execution_result?.outcome === 'blocked' && entry.mode !== 'repair')) return null;
+  if (!includeExempt && entry.mode === 'default' && !dynamicReviewRequiredForCurrentExecution(current)
+    && resolveTaskStep(current.body, current.runtimeState.active_step_id).current.review_checkpoint === 'not-required') return null;
   return entry;
 }
 
@@ -697,10 +700,14 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     && latest?.execution_result_status !== null
     && latest?.execution_result_status !== undefined;
   const pendingPolicyEntry = executableContextEntry(pendingPolicy?.route);
+  const exemptCompletionReady = !pendingReview && !reviewableUnreviewedExecution
+    && state.active_step_status === 'in-progress' && latestReviewableUnreviewedExecution(current, true) !== null;
   const nextEntry = state.workflow_status === 'blocked_by_replan'
     ? 'record-user-decision'
     : state.resume_requires_review
       ? 'prepare-task:clear-resume-review'
+    : exemptCompletionReady
+      ? 'complete-executed-step'
     : reviewableUnreviewedExecution !== null
       ? 'review-change'
     : retryReview
@@ -828,6 +835,10 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
     next_entry_kind: 'runtime-command',
     next_entry: nextEntry,
     next_options: nextOptions,
+    user_decision_options: [
+      ...(isUserTerminableState(state.workflow_status, state.lifecycle_state) ? ['closure-decision-context'] : []),
+      ...(state.workflow_status === 'active' && state.lifecycle_state === 'active' ? ['step-decision-context'] : []),
+    ],
     obligations: {
       unfinished_count: unfinishedCount,
       unfinished_block: { kind: 'task-context-block', reference: 'unfinished-obligations' },

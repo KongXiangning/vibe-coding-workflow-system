@@ -12,6 +12,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   applyVNextRuntimeProposal,
+  closureDecisionContext,
+  advanceDecisionContext,
   createUserDecisionProposal,
   readCanonicalCurrentTask,
   validateRuntimeEnvironment,
@@ -26,7 +28,7 @@ import {
   type UserDecisionAuditLogEntry,
 } from './kernel';
 
-export const USER_DECISION_ADAPTER_COMMANDS = ['record-user-decision'] as const;
+export const USER_DECISION_ADAPTER_COMMANDS = ['record-user-decision', 'closure-decision-context', 'step-decision-context'] as const;
 export type UserDecisionAdapterCommand = (typeof USER_DECISION_ADAPTER_COMMANDS)[number];
 
 type JsonRecord = Record<string, unknown>;
@@ -114,8 +116,14 @@ function normalizeDecision(current: ReturnType<typeof readCanonicalCurrentTask>,
     decision_text: decisionText,
     task_id: source.task_id === undefined ? current.runtimeState.task_id : requiredText(source.task_id, 'task_id', 128),
     source_revision: source.source_revision === undefined ? current.sourceTuple.revision : requiredText(source.source_revision, 'source_revision', 64),
-    ...(source.review_id === undefined ? {} : { review_id: requiredText(source.review_id, 'review_id', 128) }),
-    ...(source.change_set_id === undefined ? {} : { change_set_id: requiredText(source.change_set_id, 'change_set_id', 128) }),
+    ...(source.review_id === undefined
+      ? effects.some(effect => effect.kind === 'close-with-exceptions' || (effect.kind === 'advance-with-exceptions' && effect.confirmation_digest !== undefined)) && current.runtimeState.pending_review_result
+        ? { review_id: current.runtimeState.pending_review_result.review_id } : {}
+      : { review_id: requiredText(source.review_id, 'review_id', 128) }),
+    ...(source.change_set_id === undefined
+      ? effects.some(effect => effect.kind === 'close-with-exceptions' || (effect.kind === 'advance-with-exceptions' && effect.confirmation_digest !== undefined)) && current.runtimeState.pending_review_result
+        ? { change_set_id: current.runtimeState.pending_review_result.change_set_id } : {}
+      : { change_set_id: requiredText(source.change_set_id, 'change_set_id', 128) }),
     effects,
     idempotency_key: idempotencyKey,
     evidence_refs: evidenceRefs,
@@ -149,6 +157,21 @@ export async function runUserDecisionAdapterCli(argv: string[] = process.argv.sl
     validateRuntimeEnvironment();
     const args = parseCli(argv);
     validateInstalledRuntime(args.root);
+    if (argv[0] === 'step-decision-context') {
+      const input = record(readInput('step-decision-context'), 'step-decision-context input');
+      if (Object.keys(input).length > 0) fail('USER_DECISION_ADAPTER_INPUT_INVALID', 'step-decision-context takes an empty object.');
+      console.log(JSON.stringify(advanceDecisionContext(args.root), null, 2));
+      return 0;
+    }
+    if (argv[0] === 'closure-decision-context') {
+      const input = record(readInput('closure-decision-context'), 'closure-decision-context input');
+      if (Object.keys(input).some(key => key !== 'completion_disposition')
+        || !['stopped-by-user', 'completed-with-exceptions'].includes(String(input.completion_disposition))) {
+        fail('USER_DECISION_ADAPTER_INPUT_INVALID', 'Supply only completion_disposition: stopped-by-user or completed-with-exceptions.');
+      }
+      console.log(JSON.stringify(closureDecisionContext(args.root, input.completion_disposition as 'stopped-by-user' | 'completed-with-exceptions'), null, 2));
+      return 0;
+    }
     const result = recordUserDecision(args.root, readInput('record-user-decision'), { dryRun: args.dryRun }, args.caller);
     console.log(JSON.stringify(result, null, 2));
     return result.status === 'blocked' || result.status === 'conflict' ? 2 : 0;

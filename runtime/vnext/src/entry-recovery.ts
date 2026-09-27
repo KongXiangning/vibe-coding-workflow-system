@@ -17,6 +17,8 @@ function recoveryRoute(code: string, result?: RecoveryResult) {
   if (result?.committed === true) return { command: 'task-context', action: 'read-back-committed-operation' };
   if (result?.recovery_route) return executableRoute(result.recovery_route);
   if (result?.policy_route) return executableRoute({ command: result.policy_route.command, action: result.policy_route.effect ?? 'bind-existing-decision' });
+  if (code === 'CLOSURE_CONFIRMATION_REQUIRED' || code === 'CLOSURE_EXCEPTION_STALE') return { command: 'closure-decision-context', action: 'refresh-consequences-and-confirm-only-material-change' };
+  if (code === 'STEP_DISPOSITION_CONFIRMATION_REQUIRED') return { command: 'step-decision-context', action: 'show-consequences-before-explicit-advancement' };
   if (code === 'RETRY_SCOPE_BLOCKED') return { command: 'preflight-step', action: 'cover-diagnosed-repair-paths' };
   if (code === 'RETRY_DIAGNOSIS_REQUIRED') return { command: 'retry-step', action: 'correct-evidence-backed-diagnosis' };
   if (code === 'PREFLIGHT_BLOCKED') return { command: 'task-context', action: 'inspect-blocked-step-and-retry' };
@@ -38,6 +40,7 @@ function recoveryRoute(code: string, result?: RecoveryResult) {
 /** Shared host guidance: rejection of an operation does not terminate its Skill. */
 export function entryRecovery(code: string, result?: RecoveryResult) {
   const route = recoveryRoute(code, result);
+  const diagnosisOnly = route.action === 'classify-current-state-and-supported-recovery';
   return {
     kind: 'entry-recovery/v1' as const,
     code,
@@ -46,6 +49,10 @@ export function entryRecovery(code: string, result?: RecoveryResult) {
     skill_terminal: false as const,
     recovery_route: { kind: 'entry-recovery-operation/v1' as const, ...route },
     next_action: route.action,
+    route_assurance: diagnosisOnly ? 'diagnosis-only-not-an-executable-remedy' : 'first-operation-requires-postcondition-readback',
+    unchanged_retry_allowed: false,
+    unresolved_route: diagnosisOnly ? 'identify-an-actual-typed-transition-or-report-a-runtime-capability-gap-with-retained-evidence' : null,
+    policy_boundary: 'user-choice-can-change-disposition-not-truth-identity-or-mutation-authority',
     resume: 'original-invocation-intent',
     ask_user_when: 'a-required-choice-or-authority-is-not-determined-by-existing-instructions',
     preserve: ['failed-evidence', 'findings', 'attempt-history', 'atomic-commit-state'],

@@ -1,5 +1,0 @@
-Apply the exact source edit authorized in this conversation.
-Baseline: c1caf5914cb43766584f361405117c7db0116ab0
-Patch SHA-256: d8226cbeb2c663c61e5c47d902cbe73274e2e840571cdca2d4c1fba6dcddae0b
-No tests, build, release, target-project changes or force push.
-Remove the one-shot transport after applying the patch.

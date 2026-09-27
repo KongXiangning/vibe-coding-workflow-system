@@ -61,6 +61,15 @@ entry_contract:
 
 # vNext Skill: close-task
 
+## Authorized intent and truthful outcomes
+
+Apply the shared Authorized Intent section in `.workflow-system/WORKFLOW_PROTOCOL.md`.
+Separate execution facts from completion qualification and user disposition.
+Same-intent internal recovery needs no repeated permission. Explain material
+consequences before a new user-owned decision; never invent permission or PASS.
+Read-only intent stays read-only. A suggested next route is not the user's only
+choice. An unknown Runtime rejection is diagnosis, not a proven recovery path.
+
 ## Invocation authority and internal recovery
 
 recovery_boundary: entry-recovery/v1
@@ -148,7 +157,7 @@ cumulative changes block closure. Historical reports require verified original
 anchors and current applicability; a plan revision is not new execution evidence.
 Isolated distribution tests never prove a real target project's business acceptance.
 
-An unresolved evidence challenge blocks successful close, even when an old
+An unresolved evidence challenge blocks ordinary verified close, even when an old
 report was marked passed and the last ordinary review was clean. Do not mark
 the challenged report clean or silently defer its obligation to obtain closure.
 
@@ -170,8 +179,8 @@ fallback.
 
 ## Operating rules
 
-1. Verify immutable task identity, acceptance claims, claim-bound validation evidence, open findings, remaining risks, and the exact closure/archive target before preparing any proposal. A new/refined task must have a non-empty frozen `CURRENT_TASK.runtime_state.claim_evidence` plan with at least one acceptance claim; legacy CURRENT_TASK remains readable but requires prepare-task refinement/migration before terminal completion. Runtime derives `acceptance_satisfied` and `validation_complete` from that durable per-claim/per-slot state; every planned slot must be `existing`, `reused`, or `newly-executed` with `evidence_refs`. Missing, deferred, blocked, or aggregate command success cannot be summarized as complete, and the submitted closure booleans must match the durable derivation. Validation, reuse of an existing check, and creation of a persistent automated test remain separate decisions; the closure-side persistent-test disposition defaults to `persistent_test: false`, and closure does not infer a new test from missing evidence.
-2. Evaluate release health, rollback, canary, and observation evidence when the task risk triggers them. A missing or unresolved requirement yields a blocked or observing result; it cannot be summarized as complete.
+1. Verify immutable task identity, acceptance claims, claim-bound validation evidence, open findings, remaining risks, and the exact closure/archive target before preparing any proposal. A new/refined task must have a non-empty frozen `CURRENT_TASK.runtime_state.claim_evidence` plan with at least one acceptance claim; legacy CURRENT_TASK remains readable but requires prepare-task refinement/migration before verified completion, not before truthful user termination. Runtime derives `acceptance_satisfied` and `validation_complete` from that durable per-claim/per-slot state; every planned slot must be `existing`, `reused`, or `newly-executed` with `evidence_refs`. Missing, deferred, blocked, or aggregate command success cannot be summarized as complete, and the submitted closure booleans must match the durable derivation. Validation, reuse of an existing check, and creation of a persistent automated test remain separate decisions; the closure-side persistent-test disposition defaults to `persistent_test: false`, and closure does not infer a new test from missing evidence.
+2. Evaluate release health, rollback, canary, and observation evidence when the task risk triggers them. A missing or unresolved requirement prevents verified completion; report it as a consequence of user-directed termination, never as complete.
 3. In `preview`, return the complete closure summary and eligibility verdict with zero Runtime proposals. In ordinary closure, prepare only typed proposals justified by the eligibility result: archive first, then admitted Contract/Decision candidates, then the existing Lesson and STATUS reconciliation operations.
 4. Keep task status descriptive and preserve acceptance, verification, release/rollback, observation, and remaining-risk facts. Do not rewrite history or infer a stable archive path from an ambiguous identity.
 5. Lesson admission may return `admit`, `defer`, or `no-op`; it only controls whether a `lesson-record-transaction` proposal exists and never blocks an otherwise eligible closure. When an admitted candidate matches an existing lesson digest (in historical lessons or earlier in the same proposal), lesson reconciliation writes a durable reuse proof referencing the exact target candidate coordinates rather than duplicating visible lesson text.
@@ -181,31 +190,33 @@ fallback.
 9. After archive success the task is non-owner. Contract, Decision, STATUS, and Lesson operations use the matching archive receipt plus evidence admission for reconciliation; they must not require or recreate active-task ownership.
 10. Implementation anchors are optional observed navigation hints (normally 0–5), not completeness claims or mutation authority. Record only paths/symbols confirmed by existing task evidence; future consumers validate anchors against current code and expand live impact analysis according to risk.
 11. Ordinary verified closure is allowed only after the final canonical implementation step is durably marked `task-complete` by the Runtime. A required checkpoint must have its clean receipt, and every repair record must have same-diff verification and a terminal finding state; without an explicit exception decision, close-task cannot bypass an unfinished step, checkpoint, or repair route.
-   When the user explicitly chooses to stop or proceed with known exceptions,
-   submit a `close-with-exceptions` user decision bound to the exact remaining
-   obligations and durable decision IDs (for example `step:<id>`, `validation`,
-   `acceptance`, `task-complete`, or `remaining-risks`). Runtime may then archive with
-   `completion_disposition: completed-with-exceptions` or
-   `stopped-by-user`, but it preserves the real `acceptance_satisfied` and
-   `validation_complete` values, failed/not-run checks, findings, risks, and
-   evidence. This route is not `clean`, `verified`, or an automatic waiver for
-   an unlisted obligation; ordinary closure remains required when the user has
-   not made that explicit decision.
-   Deferred, rejected and accepted-risk findings prohibit ordinary `verified` closure.
-   `rejected` means declining repair; it does not prove a false positive or resolution.
-   Include each exact `finding:<fingerprint>` in both the close decision's
-   targets and `remaining_risks`. Runtime binds a current obligation snapshot to
-   the decision; any subsequent change requires a fresh close authorization.
-   For `stopped-by-user`, explicitly target `gate:stopped-by-user`, the pending
-   `review:<review_id>` and `blocker:<code>` when present, and every remaining
-   finding. Stopping preserves pending review, open findings, unfinished step
-   progress and actual closure evidence; do not advance or clear findings as a
-   prerequisite. A disposition-only decision does not authorize closing.
-   If the task is `blocked_by_replan + active`, first record a separate
-   `cancel-replan-block` decision targeting only `gate:blocked-by-replan`.
-   This restores active workflow status while retaining pending review,
-   findings and evidence. Bind the subsequent stop decision to the new current
-   revision, then archive as `stopped-by-user`.
+   For user-directed termination, first read `closure-decision-context` with
+   `{"completion_disposition":"stopped-by-user"}` (or `completed-with-exceptions`).
+   Show the unfinished work, failed/missing evidence, open findings, current
+   lifecycle and leave-code-as-is consequence. Obtain a separate confirmation
+   of those consequences; a bare initial request to close is not that confirmation.
+   Submit the returned `effects` unchanged to `record-user-decision --caller close-task`,
+   with the real confirmation source/text and a stable idempotency key. Runtime
+   binds current review identity and all internal obligation IDs automatically.
+   Use its durable decision ID for archive `exception_decision_ids`; copy every
+   returned unfinished obligation into `remaining_risks` and retain human-readable
+   risk details. Set closure booleans from actual evidence, never all-true defaults.
+   The code remains unchanged, even if an execution preflight was outstanding.
+
+   This path may terminate any valid live task, including draft, paused,
+   interrupted, superseded or blocked-by-replan. Do not first resume, cancel a
+   replan block, finish steps, manufacture review, migrate missing acceptance
+   evidence, or clear findings merely to close. Verified closure retains its
+   normal strict qualifications. Both exception dispositions preserve pending
+   review, open findings, old failed reports, step progress and archive provenance.
+   No disposition grants later execution, rollback, publication or Git permission.
+
+   After a concurrent write, re-read the context. The same confirmation digest
+   permits a fresh transaction binding without asking again. Changed consequences,
+   target code or evidence require a new consequence summary and confirmation.
+   Already committed close decisions are reused by their durable IDs; do not
+   blindly replay an operation after a lost response. A closed task re-entry only
+   reconciles its existing archive and downstream knowledge/status records.
 
 ## Required result
 
@@ -239,5 +250,5 @@ or per-test semantic enforcement is implied.
 Separate verified/manual observations from obligations discharged by explicit
 user waiver. Keep missing/failed test facts and name accepted risks in the delivery
 summary; do not describe waived checks as all-green. Runtime rechecks the exact
-source and subjects and retains the decision in the archive. Existing required
-review, findings, prerequisites and release/rollback gates remain authoritative.
+source and subjects and retains the decision in the archive. Those obligations govern verified qualification. A confirmed user termination
+preserves their unmet state instead of forcing successful completion first.

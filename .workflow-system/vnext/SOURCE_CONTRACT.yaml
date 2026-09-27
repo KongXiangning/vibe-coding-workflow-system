@@ -1,3 +1,9 @@
+# Authorized-intent invariant: state chooses a legal transaction path, not user authority.
+# Execution facts are recorded before completion qualification. User-confirmed
+# disposition preserves false/missing facts; it never fabricates PASS or scope.
+# See docs/product/vnext-authorized-intent.md and agent-side validation in
+# docs/ops/vnext-authorized-intent-validation.md. No whole-lifecycle verification
+# is claimed until those behavioral checks run against the rebuilt distribution.
 # All public entries use the internal run-entry driver for typed operations.
 # entry-operation-result/v1 carries invocation, recovery history and original
 # outcome; recovery-required is an agent continuation, not a user-facing terminal.
@@ -389,7 +395,7 @@ capabilities:
       - 'ordinary execute-step results preserve the frozen claim/slot/check plan; replace-validation may replace one read-only invocation under unchanged observation, boundary, subjects, validation ownership, exact granularity, selector, authority and retained budgets, without a whole-task replan'
       - 'record-human-acceptance records an explicit Task Basis user observation for a frozen human check; record-evidence-waiver discharges only an exact user-owned current obligation and its exclusively bound validation labels, rechecked at record and consumption, without rewriting failed/missing reports as PASS; both are caller-reported and cannot authorize administrative realign'
       - 'user evidence decisions remain source/subject/plan bound and visible in context and archive; raw progress cannot manufacture them, prerequisites and policy/contract obligations are not waived, and required review/findings remain intact'
-      - 'legacy CURRENT_TASK documents remain readable but require prepare-task refinement/migration before task-complete or terminal close-task; aggregate command success cannot provide completion compatibility'
+      - 'legacy CURRENT_TASK documents remain readable but require prepare-task refinement/migration before verified task-complete or verified close-task; aggregate command success cannot provide completion compatibility'
       - 'exploratory probe budget: duration, tool/run count, permitted temporary artifact locations, and cleanup/audit rule'
       - persistent-test policy, including default non-admission or user no-test deny
       - 'persistent-test admission fields when a persistent test is proposed: owner, basis, proves, existing-evidence insufficiency, assertion boundary, and failure disposition'
@@ -415,7 +421,7 @@ capabilities:
       - evidence is insufficient or unrelated to the claim
       - 'a draft defaults from a related test file, target, or suite to whole-target validation without a smaller valid selection or an explicit breadth reason and basis'
       - 'business-flow evidence is replaced by local/unit evidence, or E2E/broad regression lacks its allowed admission basis'
-      - 'task-complete or close-task relies on aggregate command success, notes, or model summary instead of the durable claim-bound evidence slots'
+      - 'verified task-complete or verified close-task relies on aggregate command success, notes, or model summary instead of the durable claim-bound evidence slots'
       - an exploratory probe lacks a bounded duration, tool/run count, permitted temporary artifact locations, or cleanup/audit rule
       - 'a persistent test lacks an explicit owner, closed admission basis, concrete claim, existing-evidence insufficiency reason, behavioral or contract boundary assertion, or expected failure disposition'
       - 'risk-analysis is used as a persistent-test owner without an identified changed behavior, known failure model, and admitted task scope'

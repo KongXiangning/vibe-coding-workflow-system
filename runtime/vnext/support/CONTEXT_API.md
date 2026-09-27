@@ -536,20 +536,16 @@ If the decision is recorded after preflight, call `resume-preflight` to obtain
 the current source revision for the same durable execution identity, then
 pass the decision ID as `record-step-result.policy_decision_id`. The result
 audit retains the decision ID without replacing the original admission.
-`blocked_by_replan + active` can record a separate `cancel-replan-block`
-effect with `target_ids: ["gate:blocked-by-replan"]`. This restores active
-workflow status while preserving pending review, findings and evidence, so a
-subsequent `close-with-exceptions` decision can authorize stopped-by-user
-archival.
+`cancel-replan-block` remains available when the user intends to resume the
+original plan. It is not a prerequisite for user termination: use the consequence
+preview below, confirm once and close directly from the real live tuple.
 
 This does not waive facts. Wrong task identity, stale revision, forged/stale
 receipt, changed review target, cross-execution binding, replay conflict, and
 target-set conflict remain hard rejects and require a fresh correctly bound
-request. A decision never produces `clean` or PASS. If the user explicitly
-chooses to advance without running a check, preserve the original failure or
-blocked result and record an applicable evidence report with
-`status: not-run`; advancement uses a `disposition` receipt and
-`completion_disposition: user-directed-with-exceptions`. `next_entry` must
+request. A decision never produces `clean` or PASS. For new user-directed advancement, use `step-decision-context` below. Preserve
+the original failed/missing evidence without synthesizing a not-run report or a
+review receipt. Legacy disposition receipts remain readable as historical facts. `next_entry` must
 always be one of the declared executable commands; a prose-only recommendation
 is a Runtime contract error.
 
@@ -1327,3 +1323,51 @@ is between 256 and 65536 bytes of content, with an 8192-byte default. This contr
 only the read response, never business execution, recovery attempts, or output
 retention. The full Kernel result and its routes are in `outcome_ref`; read them
 before constructing dependent requests instead of relying on shortened messages.
+
+
+## Authorized-intent semantic operations
+
+`record-step-result` records facts, not completion. New nonblocked records have
+status `in-progress`; blocked ones have status `blocked`. Legacy caller input
+`status: completed` plus `execution_result` is normalized as registration; old
+committed history is not rewritten. Repair facts never discharge a challenge or
+finding. Review-exempt ordinary execution uses a separate `complete-executed-step`
+with `{ "step_id": "<current step>", "note": null }`. Required checkpoints and
+repair use `complete-reviewed-step` after real clean review. Neither completion
+operation executes commands or adds new execution evidence.
+
+The two read-only previews below are available through `run-entry` or direct reads:
+
+- `closure-decision-context` takes `{ "completion_disposition": "stopped-by-user" }`
+  or `completed-with-exceptions`; returns complete effects, confirmation digest,
+  exact task/document identity and unfinished consequences. It supports every
+  valid live tuple, without first resuming or clearing a replan block.
+- `step-decision-context` takes `{}`; returns an explicit, non-verifying advance
+  decision and any necessary finding risk dispositions. It does not require a
+  preceding findings/blocked review, and never invents a review or execution.
+
+Present the consequences, then send the actual confirmation source/text and the
+returned effects unchanged to `record-user-decision --caller close-task` (closure)
+or the appropriate existing task adapter (advance). Supply a stable
+`idempotency_key`. The adapter fills current task/review/change-set coordinates;
+it does not supply user consent. Preview digests are not consent tokens by themselves.
+If only the transaction revision changed, reread and use the same semantic
+confirmation. Changed consequences/digest require a new confirmation, not an
+invented replacement instruction. The final exact source revision is still checked
+under the governance lock. For archive, use the returned durable decision ID and
+include all `consequences.unfinished_obligations` in `remaining_risks`; do not ask
+the user to name internal IDs. Preserve truthful closure booleans and external
+release/rollback/observation facts. No code rollback, publication or Git action
+is implied by closing.
+
+A matching admitted result can be appended after pause or termination while the
+original document, step, plan, preflight and authorized footprint still match.
+It is historical only: no lifecycle reactivation, no updated archived image,
+no finding discharge, no new live acceptance qualification. Missing/corrupt
+identity or a genuinely changed definition must be reconciled, never guessed.
+A new execution still requires ordinary current authorization and preflight.
+
+Runtime errors with `route_assurance: diagnosis-only-not-an-executable-remedy`
+do not establish a recovery path. Preserve the original operation and evidence;
+find a concrete supported transition or report a Runtime capability defect.
+Never loop on the same request, invent a user waiver, or change business scope.

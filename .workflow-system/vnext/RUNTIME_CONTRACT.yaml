@@ -1,3 +1,9 @@
+# Authorized-intent invariant: state chooses a legal transaction path, not user authority.
+# Execution facts are recorded before completion qualification. User-confirmed
+# disposition preserves false/missing facts; it never fabricates PASS or scope.
+# See docs/product/vnext-authorized-intent.md and agent-side validation in
+# docs/ops/vnext-authorized-intent-validation.md. No whole-lifecycle verification
+# is claimed until those behavioral checks run against the rebuilt distribution.
 # All public entries use the internal run-entry driver for typed operations.
 # entry-operation-result/v1 carries invocation, recovery history and original
 # outcome; recovery-required is an agent continuation, not a user-facing terminal.
@@ -551,6 +557,7 @@ proposal:
         - replace-validation
         - begin-repair
         - record-step-result
+        - complete-executed-step
         - complete-reviewed-step
       step_source: confirmed-current-task
       scope_enforcement: task-authority-envelope-with-v1-step-compatibility
@@ -899,6 +906,15 @@ proposal:
     preview_mode: preview
     terminal_from:
       - active + active
+    exceptional_terminal_from:
+      - draft + active
+      - active + active
+      - blocked_by_replan + active
+      - superseded + active
+      - replaced + active
+      - suspended + paused_pending_closure
+      - suspended + paused_blocked
+      - suspended + interrupted
     terminal_to:
       - closed + archived
     completion_disposition:

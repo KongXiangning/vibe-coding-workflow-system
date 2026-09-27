@@ -114,6 +114,7 @@ export const EXECUTE_STEP_ADAPTER_COMMANDS = [
   'replace-validation',
   'begin-repair',
   'record-step-result',
+  'complete-executed-step',
   'complete-reviewed-step',
 ] as const;
 
@@ -729,7 +730,7 @@ function normalizePreflightReceipt(value: unknown): AnyExecuteStepPreflightRecei
   };
 }
 
-function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepPlan: StepPlan, receipt: AnyExecuteStepPreflightReceipt): void {
+function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepPlan: StepPlan, receipt: AnyExecuteStepPreflightReceipt, recording = false): void {
   if (receipt.task_id !== current.runtimeState.task_id || receipt.document_id !== current.sourceTuple.document_id) {
     fail('EXECUTE_PREFLIGHT_IDENTITY_CONFLICT', 'preflight receipt does not identify the current task document.');
   }
@@ -740,7 +741,11 @@ function assertCurrentReceipt(root: string, current: CanonicalCurrentTask, stepP
         const finding = current.runtimeState.findings.find(item => item.fingerprint === fingerprint);
         return finding?.last_repair_wave_id === receipt.repair_wave_id && finding.status === 'in-progress';
       });
-    if (!expectedRepairBookkeeping) {
+    const retainedExecution = recording && receipt.execution_id !== undefined
+      && current.runtimeState.execution_preflight?.execution_id === receipt.execution_id
+      && current.runtimeState.execution_preflight?.plan_revision === receipt.plan_revision
+      && receipt.plan_revision === (receipt.mode === 'repair' ? stepPlanRevision(stepPlan) : ordinaryPreflightPlanRevision(current));
+    if (!expectedRepairBookkeeping && !retainedExecution) {
       fail('EXECUTE_PREFLIGHT_STALE', 'CURRENT_TASK changed after preflight; run preflight-step again before editing or committing.');
     }
   }
@@ -1237,6 +1242,13 @@ export function beginRepair(
       && digest(requestedRepairFingerprints) !== digest([...recoveredReceipt.repair_fingerprints].sort())) {
       fail('EXECUTE_PREFLIGHT_SCOPE_CONFLICT', 'the outstanding repair preflight owns a different repair target set; reuse its exact finding fingerprints.');
     }
+    if (!options.dryRun && !blockedContinuation) {
+      const reserved = applyRepairAttempts(root, current, recoveredReceipt, [current.relativePath],
+        { execution_id: recoveredReceipt.execution_id, repair_wave_id: recoveredReceipt.repair_wave_id }, options, recoveredReceipt.policy_decision_id);
+      if ('status' in reserved) throwRuntimeResult(reserved, 'REPAIR_ADMISSION_INCOMPLETE');
+      current = reserved;
+      recoveredReceipt.source_revision = current.sourceTuple.revision;
+    }
     return {
       status: 'pass',
       operation_kind: 'execute-step-repair-preflight',
@@ -1421,6 +1433,13 @@ export function beginRepair(
     ...(executionPreflight?.blocked_result_id === undefined ? {} : { blocked_result_id: executionPreflight.blocked_result_id }),
     review_base: captureReviewTarget(root, reviewTargetPaths),
   };
+  if (!options.dryRun && !blockedContinuation) {
+    const reserved = applyRepairAttempts(root, current, receipt, [current.relativePath],
+      { execution_id: receipt.execution_id, repair_wave_id: receipt.repair_wave_id }, options, receipt.policy_decision_id);
+    if ('status' in reserved) throwRuntimeResult(reserved, 'REPAIR_ADMISSION_INCOMPLETE');
+    current = reserved;
+    receipt.source_revision = current.sourceTuple.revision;
+  }
   return {
     status: 'pass',
     operation_kind: 'execute-step-repair-preflight',
@@ -2124,9 +2143,14 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
   if (hasAppliedProposal(current, resultKey)) {
     return semanticNoOp(current, resultKey, 'This exact execute-step result was already committed.', options);
   }
-  assertExecutableTask(current);
+  // An exact admitted result remains recordable after pause/termination. This
+  // path never starts a new execution or reactivates the task.
+  const detached = current.runtimeState.workflow_status !== 'active' || current.runtimeState.lifecycle_state !== 'active';
+  if (detached && (!receipt.execution_id || current.runtimeState.execution_preflight?.execution_id !== receipt.execution_id)) {
+    fail('EXECUTE_PREFLIGHT_REQUIRED', 'Historical result registration requires its retained admitted execution identity.');
+  }
   let stepPlan = currentStepPlan(current);
-  assertCurrentReceipt(root, current, stepPlan, receipt);
+  assertCurrentReceipt(root, current, stepPlan, receipt, true);
   if (receipt.mode === 'repair') {
     const priorResult = currentDefinitionExecutionLog(current).findLast(item =>
       !('action' in item)
@@ -2139,8 +2163,6 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
       fail('EXECUTE_RESULT_REPLAY_CONFLICT', 'this repair execution identity already has a different durable result; obtain a fresh repair preflight before submitting another result.');
     }
   }
-  const strategy = resolveTestStrategyExecutionContext(current);
-  assertTestStrategySequenceReady(current, strategy);
   assertPathsAdmitted(current, stepPlan, receipt.candidate_paths, 'preflight_receipt.candidate_paths', root, [], receipt.mode, receipt.execution_phase);
   assertPathsAdmitted(current, stepPlan, actualChangedPaths, 'actual_changed_paths', root, [], receipt.mode, receipt.execution_phase);
   assertCommandResults(root, current, stepPlan, commandResults, receipt.execution_phase, receipt.mode);
@@ -2229,15 +2251,9 @@ export function recordStepResult(root: string, input: unknown, options: RuntimeA
     }
   }
 
-  const blockedRepairResult = receipt.mode === 'repair' && outcome === 'blocked';
-  let status: 'blocked' | 'completed' | 'in-progress';
-  // Repair result status is separate from the progress status of the step.
-  // The step is already completed and remains awaiting verification even when
-  // this repair execution truthfully records a failed/blocked command.
-  if (blockedRepairResult) status = 'completed';
-  else if (outcome === 'blocked') status = 'blocked';
-  else if (receipt.mode === 'repair' || (stepPlan.step.review_checkpoint === 'not-required' && !dynamicReviewRequiredForCurrentExecution(current))) status = 'completed';
-  else status = 'in-progress';
+  // Registration reports what happened. Completion/advancement is a separate
+  // operation even when the current checkpoint is exempt from review.
+  const status = outcome === 'blocked' ? 'blocked' : 'in-progress';
   const proposal = createTaskStateProposal(current, {
     mode: receipt.mode,
     status,
@@ -2309,6 +2325,38 @@ function previewResolvedFindings(current: CanonicalCurrentTask, fingerprints: re
         : item),
     },
   };
+}
+
+/** Complete an executed review-exempt step without recording another result. */
+export function completeExecutedStep(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
+  const source = record(input, 'complete-executed-step input');
+  exactKeys(source, ['step_id', 'note'], 'complete-executed-step input');
+  const stepId = text(source.step_id, 'step_id', 128);
+  const note = nullableText(source.note, 'note');
+  const current = readCanonicalCurrentTask(root);
+  const execution = currentDefinitionExecutionLog(current).findLast((item): item is StepExecutionLogEntry =>
+    !('action' in item) && item.step_id === stepId && item.execution_result !== undefined);
+  if (!execution?.execution_result) fail('EXECUTE_RESULT_REQUIRED', 'Completion requires a retained execution result; it cannot create one.');
+  const key = idempotencyKey('execute-exempt-complete', { step_id: stepId, execution_id: execution.idempotency_key, note });
+  if (hasAppliedProposal(current, key)) return semanticNoOp(current, key, 'This execution was already completed.', options);
+  assertExecutableTask(current);
+  if (current.runtimeState.active_step_id !== stepId) fail('ACTIVE_STEP_CONFLICT', 'Completion must bind the current step.');
+  const plan = currentStepPlan(current);
+  if (plan.step.review_checkpoint !== 'not-required' || execution.mode === 'repair'
+    || dynamicReviewRequiredForCurrentExecution(current)) {
+    fail('REVIEW_CHECKPOINT_REQUIRED', 'This execution requires review; use review-change or an explicit user disposition, not exempt completion.');
+  }
+  if (execution.execution_result.outcome === 'blocked') fail('EXECUTE_RESULT_BLOCKED', 'A blocked result remains a fact, not a completed step.');
+  const target = captureReviewTarget(root, execution.execution_result.review_target.entries.map(item => item.path));
+  if (target.revision !== execution.execution_result.review_target.revision) fail('REVIEW_TARGET_STALE', 'Files changed after the recorded execution.');
+  return verifyReadBack(root, applyVNextRuntimeProposal(root, createTaskStateProposal(current, {
+    mode: 'default', status: 'completed', idempotency_key: key,
+    evidence_refs: execution.evidence_refs,
+    authority_evidence: authority(current, ['active-task-owner', 'scope-admission', 'evidence-admission']),
+    change_set_id: execution.execution_result.change_set_id,
+    ...(current.runtimeState.claim_evidence === undefined ? {} : { claim_evidence: current.runtimeState.claim_evidence }),
+    ...(note ? { note } : {}),
+  }), options), options);
 }
 
 export function completeReviewedStep(root: string, input: unknown, options: RuntimeApplyOptions = {}): RuntimeResult {
@@ -2568,6 +2616,9 @@ export async function runExecuteStepAdapterCli(argv: string[] = process.argv.sli
         break;
       case 'record-step-result':
         result = recordStepResult(args.root, input, { dryRun: args.dryRun });
+        break;
+      case 'complete-executed-step':
+        result = completeExecutedStep(args.root, input, { dryRun: args.dryRun });
         break;
       case 'complete-reviewed-step':
         result = completeReviewedStep(args.root, input, { dryRun: args.dryRun });

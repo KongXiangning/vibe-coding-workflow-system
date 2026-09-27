@@ -945,3 +945,28 @@ old decision to create another attempt. Legacy decisions without this binding
 remain readable audit history and require a freshly recorded decision before
 new budget admission; retained user instructions need not be requested again
 when they already authorize that operation.
+
+
+## Authorized-intent compatibility additions
+
+An execution log containing `execution_result` is a fact registration, not step
+completion. Newly recorded nonblocked facts have `status: in-progress`; blocked
+facts have `status: blocked`. Previously committed legacy `completed` repair
+records remain historical, not an implied clean verification. Completion is a
+separate step-progress without a new execution result.
+
+`advance-with-exceptions` and `close-with-exceptions` decision effects may contain
+`confirmation_digest` (SHA-256). New semantic preview routes require that digest
+and the exact Runtime-derived target set. It binds consequences, not authentication
+or implied user consent. User decision logs retain verbatim source/text and exact
+transaction identity. A v2 `closure_obligation_snapshot` adds `snapshot_version: 2`;
+older snapshots/audits remain readable. Pure audit appends do not revoke the
+semantic confirmation; changed consequences do.
+
+New `user-directed-with-exceptions` completion requires its user decision ID and
+contains no synthesized `execution_result`; a review receipt is optional and, when
+present for legacy records, must be a matching disposition receipt, never clean.
+Archive audit source tuples record the actual valid live state for exception
+termination; verified closure still originates at active + active. Archive
+read-back preserves this distinction. A late admitted result may append history
+without changing the immutable archive or live claim qualification.

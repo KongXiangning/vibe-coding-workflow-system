@@ -135,7 +135,7 @@ export async function runEntryRunnerCli(argv: string[], allowedCommands: readonl
         phase, original_operation: retainEntryOutput(outputDirectory(), 'original-operation', original),
         outcome, recovery_history: journal,
         ...(!success ? { entry_recovery: recovery,
-          next_action: `Read the retained transaction; run ${recovery?.recovery_route?.command ?? 'task-context'} when applicable, then resume this invocation from current state.` } : {}) });
+          next_action: `Read the retained transaction and recovery postconditions; ${recovery?.route_assurance === 'diagnosis-only-not-an-executable-remedy' ? 'diagnose an actual typed remedy, not an unchanged retry or invented user authorization' : `run ${recovery?.recovery_route?.command ?? 'task-context'} when applicable and verify its effect`}. Resume only a still-needed operation.` } : {}) });
       return success ? 0 : 2;
     };
     // A recovery plan is supplied after diagnosis. Its steps are existing typed

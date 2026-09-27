@@ -15,6 +15,38 @@ software and the canonical `.agents/skills/<skill-name>/SKILL.md` surface, but d
 The next required project transition is to invoke the `bootstrap-project` Agent
 Skill.
 
+## Authorized Intent
+
+The user's explicit invocation authorizes this entry's declared intent and
+necessary internal operations inside the existing authority. Apply this rule to
+all modes and lifecycle combinations, not only execution or repair. State chooses
+a truthful transaction path; process preference does not veto a user-owned decision.
+Separate permission, execution facts, verification qualification and lifecycle
+disposition. Never synthesize a PASS, a clean review, a resolved finding, an
+execution, or expanded write authority merely to make a transition acceptable.
+
+Perform bookkeeping and recoverable same-intent transitions internally. For a
+material user-owned choice, explain the actual consequences once and record the
+real response. Reuse a retained confirmation only while its semantic consequences
+remain unchanged; refresh the transaction revision after read-back, without
+pretending the user supplied a new instruction. A new scope, goal, external side
+effect or material risk needs the appropriate new decision. Read-only intent
+never authorizes repair, and closing a task never authorizes rollback or Git writes.
+
+`closure-decision-context` and `step-decision-context` are read-only consequence
+previews, not user confirmation. After presenting them, record the user's actual
+confirmation with `record-user-decision`, the returned exact effects and a stable
+idempotency key. Internal obligation IDs are filled by Runtime/agent, not the user.
+A suggested next entry is a default, not the user's only available choice.
+
+A Runtime refusal concerns one proposed operation, not the validity of the user's
+intent. Read its retained result, choose a concrete supported recovery and verify
+its postcondition before resuming. Never repeat an unchanged rejection or treat
+`task-context` diagnostics as a proven remedy. A missing legal transition is a
+Runtime capability defect: preserve the pending request and actual evidence, name
+the gap, and do not disguise it as missing user authorization or business failure.
+Do not edit workflow software from a business task lacking that authority.
+
 ## Authoritative boundaries
 
 - `PROJECT_PROFILE.yaml` identifies the project and workflow home.
@@ -576,11 +608,9 @@ turns a failed or blocked check into PASS or `clean`.
 For a mixed review, a repair effect and a defer/reject/accept-risk effect may be
 committed together: the repair set contains only the still-open admitted targets,
 while the terminal disposition is recorded as a separate decision. A disposition
-can be recorded on its own while preserving the pending review and step. Only
-when the user also authorizes advancement does `advance-with-exceptions` produce
-a `disposition` receipt with
-`completion_disposition: user-directed-with-exceptions`; it does not invoke an
-empty repair wave or fabricate a clean receipt. `reopen-finding` is an explicit
+can be recorded on its own while preserving the pending review and step. A separately confirmed advancement records
+`completion_disposition: user-directed-with-exceptions`, never a fabricated clean
+receipt or empty repair wave. Legacy disposition receipts remain historical facts. `reopen-finding` is an explicit
 decision that may restore a deferred/rejected/accepted-risk finding within its
 current findings or blocked review without consuming that review or advancing.
 It binds the exact review and unchanged execution target, retains repair counts,
@@ -614,14 +644,12 @@ Distinct process-policy gates crossed by the same operation may be covered by
 separate `continue-after-warning` effects in one decision; each gate checks
 its own exact targets. A blocked repair or new-finding budget review may
 resume selected repair targets with that decision, retaining the blocked
-review as an audit fact. To stop a `blocked_by_replan + active` task, first
-record a separate `cancel-replan-block` decision for
-`gate:blocked-by-replan`. It restores active workflow status without removing
-review or finding facts; a subsequent `close-with-exceptions` decision may
-authorize stopped-by-user archival. When a user explicitly advances while
-skipping a validation,
-the affected evidence remains `not-run` (or its original failed/blocked status)
-and the step receives a user-directed exception receipt, never a clean receipt.
+review as an audit fact. User termination instead reads `closure-decision-context`, presents its complete
+consequences and obtains one explicit confirmation. It closes directly from the
+real valid live tuple, without a separate cancel/re-activation transaction.
+New advancement uses `step-decision-context` and a confirmed decision; it preserves
+missing/failed evidence and does not manufacture not-run or review records.
+Legacy disposition receipts remain readable, not a prerequisite for new decisions.
 `authorize-mutation` records
 an exact-path decision bound to pending review findings, but does not itself
 change task or step mutation scope. The existing scope amendment may consume
