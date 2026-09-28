@@ -3,6 +3,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import { parse, stringify } from 'yaml';
+import { spawnSync } from 'node:child_process';
+import { ContextBlockCollector } from './task-context-test-utils';
+import { taskStoreDefinitionPayload } from '../runtime/vnext/src/task-store';
 import { readCanonicalCurrentTask } from '../runtime/vnext/src/kernel';
 import {
   taskContext,
@@ -41,6 +44,134 @@ function withoutHistoryNavigation(value: ReturnType<typeof taskContext>): unknow
 }
 
 describe('vNext task context projection', () => {
+  test('Node CLI delivers partial pages successfully while retaining required continuation and rejecting stale reads', () => {
+    const body = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8')
+      + '\n## Large Constraint\n\n' + '不可丢失的约束。'.repeat(2000);
+    const root = fixtureRoot(body);
+    try {
+      const cli = (input: unknown) => spawnSync('node', [path.join(ROOT, 'runtime/vnext/dist/cli.js'), 'task-context', '--root', root], {
+        input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 256 * 1024,
+      });
+      const first = cli({ entry: 'preflight-step', max_bytes: 4096 });
+      expect(first.status).toBe(0);
+      const page = JSON.parse(first.stdout);
+      expect(page.status).toBe('partial');
+      expect(page.complete_for_operation).toBe(false);
+      expect(page.required_unexpanded.length).toBeGreaterThan(0);
+      expect(page.continuation.kind).toBe('task-context-page/v2');
+      expect(cli({ continuation: page.continuation }).status).toBe(0);
+      fs.appendFileSync(path.join(root, 'docs/workflow/CURRENT_TASK.md'), '\nsource changed\n');
+      const stale = cli({ continuation: page.continuation });
+      expect(stale.status).not.toBe(0);
+      expect(stale.stderr).toContain('TASK_CONTEXT_STALE');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('selects distinct preparation, execution, review and archived handoff context without inheriting authority', () => {
+    const template = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8');
+    const body = template.replace('## 执行记录', '- future-step: FUTURE_STEP_ONLY\n  - Purpose: unrelated later work\n  - Mutation scope: docs/workflow/**\n  - Required evidence: exact future result\n  - Review checkpoint: not-required\n\n## 执行记录')
+      + '\n## Unknown Safety Constraint\n\nKEEP_THIS_CONSTRAINT\n';
+    const root = fixtureRoot(body);
+    try {
+      const before = currentOf(root).raw;
+      const prepare = taskContext(root, { purpose: 'prepare-new', max_bytes: 65536 });
+      expect(prepare.selection.required).toEqual(['task-origin', 'preparation-status', 'overview-details']);
+      expect(prepare.selection.definition_coverage).toBe('selected');
+      const handoff = taskContext(root, { entry: 'prepare-task', max_bytes: 65536 });
+      expect(handoff.selection.purpose).toBe('archive-handoff');
+      expect(handoff.selection.required).toContain('unfinished-obligations');
+      expect(handoff.selection.required).toContain('unresolved-findings');
+      expect(handoff.selection.required).not.toContain('mutation-authority');
+      expect(handoff.overview.inherits_authority).toBe(false);
+      const execute = taskContext(root, { entry: 'preflight-step', max_bytes: 65536 });
+      expect(execute.selection.purpose).toBe('execute');
+      expect(execute.selection.required).toContain('mutation-authority');
+      expect(JSON.stringify(execute)).toContain('KEEP_THIS_CONSTRAINT');
+      expect(JSON.stringify(execute)).not.toContain('FUTURE_STEP_ONLY');
+      const review = taskContext(root, { entry: 'review-context', mode: 'review', max_bytes: 65536 });
+      expect(review.selection.purpose).toBe('review');
+      expect(review.selection.required).toContain('cumulative-review-target');
+      expect(review.selection.required).toContain('review-evidence');
+      expect(JSON.stringify(review)).toContain('FUTURE_STEP_ONLY');
+      expect(taskContext(root, { entry: 'prepare-task', mode: 'prepare-replan' }).selection.purpose).toBe('full');
+      expect(taskContext(root, { purpose: 'full' }).selection.definition_coverage).toBe('full');
+      expect(currentOf(root).raw).toBe(before);
+      expect(fs.existsSync(path.join(root, 'docs/workflow/task-data'))).toBe(false);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('successor preparation retains full predecessor context on a superseded task', () => {
+    const template = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8');
+    const parts = template.split(/^---\s*$/m);
+    const frontmatter = parse(parts[1]!);
+    frontmatter.runtime_state.workflow_status = 'superseded';
+    frontmatter.runtime_state.lifecycle_state = 'active';
+    const body = parts.slice(2).join('---')
+      .replace('- 当前状态：closed', '- 当前状态：superseded')
+      .replace('- 生命周期状态：archived', '- 生命周期状态：active');
+    const root = fixtureRoot(`---\n${stringify(frontmatter)}---\n${body}`);
+    try {
+      const before = currentOf(root).raw;
+      const expected = taskContext(root, { purpose: 'full', max_bytes: 65536 });
+      for (const mode of ['default', 'draft', 'prepare-draft']) {
+        const page = taskContext(root, { entry: 'prepare-successor', mode, max_bytes: 65536 });
+        expect(page.selection.purpose).toBe('full');
+        expect(page.selection.definition_coverage).toBe('full');
+        expect(page.selection.required).toContain('current-definition');
+        expect(page.selection.required).toContain('unfinished-obligations');
+        expect(page.selection.required).toContain('required-dependencies');
+        expect(page.selection.required).toContain('global-gates');
+        expect(page.blocks).toEqual(expected.blocks);
+        expect(page.complete_for_operation).toBe(true);
+      }
+      expect(currentOf(root).raw).toBe(before);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('carries a bound selection across pages and rejects selection swaps, v1 cursors and invalid offsets', () => {
+    const body = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8')
+      + '\n## Retained Constraint\n\n' + '上下文。'.repeat(4000);
+    const root = fixtureRoot(body);
+    try {
+      const first = taskContext(root, { entry: 'review-context', mode: 'review', max_bytes: 4096 });
+      expect(first.continuation).not.toBeNull();
+      const next = taskContext(root, { continuation: first.continuation, max_bytes: 65536 });
+      expect(next.selection).toEqual(first.selection);
+      expect(next.receipt.selection.purpose).toBe('review');
+      for (const change of [{ entry: 'preflight-step' }, { mode: 'default' }, { purpose: 'full' }, { step_id: 'bootstrap-baseline' }, { definition_visible: true, visible_definition_revision: first.aggregate.definition_revision }]) {
+        expect(() => taskContext(root, { continuation: first.continuation, ...change })).toThrow('TASK_CONTEXT_STALE');
+      }
+      expect(() => taskContext(root, { continuation: { ...first.continuation!, kind: 'task-context-page/v1' } })).toThrow('TASK_CONTEXT_CONTINUATION_INVALID');
+      expect(() => taskContext(root, { continuation: { ...first.continuation!, record_index: 999999 } })).toThrow('TASK_CONTEXT_CONTINUATION_INVALID');
+      expect(() => taskContext(root, { continuation: { ...first.continuation!, byte_offset: 999999 } })).toThrow('TASK_CONTEXT_CONTINUATION_INVALID');
+      expect(() => taskContext(root, { purpose: 'typo' })).toThrow('TASK_CONTEXT_INPUT_INVALID');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('pages many individually readable sections as complete records with exact coverage at changing budgets', () => {
+    const template = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8');
+    const body = template + Array.from({ length: 40 }, (_, i) => `\n## Constraint ${i}\n\n${'完整记录。'.repeat(22)}\n`).join('');
+    const root = fixtureRoot(body);
+    try {
+      const collector = new ContextBlockCollector();
+      let continuation: unknown;
+      let pages = 0;
+      let final: ReturnType<typeof taskContext>;
+      do {
+        const budget = pages % 2 ? 16384 : 4096;
+        final = taskContext(root, { max_bytes: budget, ...(continuation ? { continuation } : {}) });
+        expect(Buffer.byteLength(JSON.stringify(final))).toBeLessThanOrEqual(budget);
+        expect(final.blocks.every(block => block.text === undefined)).toBe(true);
+        collector.add(final.blocks);
+        continuation = final.continuation;
+        expect(++pages).toBeLessThan(100);
+      } while (continuation);
+      expect(pages).toBeGreaterThan(1);
+      expect(final.complete_for_operation).toBe(true);
+      expect(collector.values.get('current-definition')).toEqual({ revision: final.aggregate.definition_revision, ...taskStoreDefinitionPayload(currentOf(root) as any) });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
   test.each(['active', 'archived'])('keeps historical dynamic review facts without terminal execution advice (%s)', (lifecycle) => {
     const template = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8');
     const parts = template.split(/^---\s*$/m);
@@ -65,8 +196,11 @@ describe('vNext task context projection', () => {
     const root = fixtureRoot(`---\n${stringify(frontmatter)}---\n${body}`);
     try {
       const before = currentOf(root);
-      const chunks = new Map<string, string>();
-      const values = new Map<string, any>();
+      const preparation = taskContext(root, { entry: 'prepare-task', max_bytes: 65536 });
+      expect(preparation.selection.purpose).toBe(lifecycle === 'archived' ? 'archive-handoff' : 'prepare-new');
+      if (lifecycle === 'active') expect((preparation.blocks.find(block => block.id === 'preparation-status')!.value as any).handoff_read).toBeNull();
+      const collector = new ContextBlockCollector();
+      const values = collector.values;
       let continuation: unknown;
       let pages = 0;
       do {
@@ -75,16 +209,7 @@ describe('vNext task context projection', () => {
           expect(page.overview.next_entry).toBeNull();
           expect(page.overview.next_options).toEqual([]);
         }
-        for (const block of page.blocks) {
-          if (block.text !== undefined) {
-            const previous = chunks.get(block.id) ?? '';
-            expect(block.byte_offset).toBe(Buffer.byteLength(previous));
-            chunks.set(block.id, previous + block.text);
-            if (!block.truncated) values.set(block.id, JSON.parse(previous + block.text));
-          } else {
-            values.set(block.id, block.value);
-          }
-        }
+        collector.add(page.blocks);
         continuation = page.continuation;
         if (!continuation) expect(page.complete_for_operation).toBe(true);
         expect(++pages).toBeLessThan(100);
@@ -133,8 +258,8 @@ describe('vNext task context projection', () => {
     const root = fixtureRoot(`---\n${stringify(frontmatter)}---\n${body}`);
     try {
       const before = fs.readFileSync(path.join(root, 'docs/workflow/CURRENT_TASK.md'), 'utf8');
-      const values = new Map<string, unknown>();
-      const chunks = new Map<string, string>();
+      const collector = new ContextBlockCollector();
+      const values = collector.values;
       let continuation: unknown;
       let pageCount = 0;
       do {
@@ -143,17 +268,7 @@ describe('vNext task context projection', () => {
         expect(Buffer.byteLength(JSON.stringify(page.overview))).toBeLessThanOrEqual(Math.min(4096, maxBytes / 4));
         expect(page.overview.next_entry).toBeNull();
         expect(page.overview.next_options).toEqual([]);
-        for (const block of page.blocks) {
-          if (block.text !== undefined) {
-            const previous = chunks.get(block.id) ?? '';
-            expect(block.byte_offset).toBe(Buffer.byteLength(previous));
-            chunks.set(block.id, previous + block.text);
-            if (!block.truncated) values.set(block.id, JSON.parse(previous + block.text));
-          } else {
-            expect(chunks.has(block.id)).toBe(false);
-            values.set(block.id, block.value);
-          }
-        }
+        collector.add(page.blocks);
         continuation = page.continuation;
         if (!continuation) expect(page.complete_for_operation).toBe(true);
         expect(++pageCount).toBeLessThan(500);
@@ -206,8 +321,8 @@ describe('vNext task context projection', () => {
         definition_visible: true,
         visible_definition_revision: first.aggregate.definition_revision,
       });
-      expect(first.blocks.some(block => block.id === 'current-definition')).toBe(true);
-      expect(reused.blocks.some(block => block.id === 'current-definition')).toBe(false);
+      expect(first.blocks.some(block => block.id === 'task-constraints')).toBe(true);
+      expect(reused.blocks.some(block => block.id === 'task-constraints')).toBe(false);
       expect(reused.selection.definition_reused).toBe(true);
       expect(reused.receipt.definition_revision).toBe(first.aggregate.definition_revision);
     } finally {
@@ -221,28 +336,19 @@ describe('vNext task context projection', () => {
     try {
       let continuation: unknown;
       let pages = 0;
-      const offsets = new Set<string>();
-      const chunks = new Map<string, number>();
+      const collector = new ContextBlockCollector();
       let final: ReturnType<typeof taskContext> | undefined;
-      let totalBytes: number | undefined;
       do {
         const page = taskContext(root, { max_bytes: increaseBudget && pages > 0 ? 64 * 1024 : 16 * 1024, ...(continuation === undefined ? {} : { continuation }) });
         pages += 1;
-        for (const block of page.blocks) {
-          if (block.text === undefined) continue;
-          const key = `${block.id}:${block.byte_offset}`;
-          expect(offsets.has(key)).toBe(false);
-          offsets.add(key);
-          chunks.set(block.id, (chunks.get(block.id) ?? 0) + Buffer.byteLength(block.text, 'utf8'));
-          totalBytes ??= block.total_bytes;
-          expect(block.total_bytes).toBeGreaterThanOrEqual(Buffer.byteLength(block.text, 'utf8'));
-        }
+        collector.add(page.blocks);
         final = page;
         continuation = page.continuation;
       } while (continuation !== null);
       expect(pages).toBeGreaterThan(1);
       expect(final?.complete_for_operation).toBe(true);
-      expect(chunks.get('current-definition')).toBe(totalBytes);
+      expect(collector.values.get('current-definition')).toEqual({ revision: final!.aggregate.definition_revision, ...taskStoreDefinitionPayload(currentOf(root) as any) });
+      if (!increaseBudget) expect(collector.chunks.size).toBeGreaterThan(0);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

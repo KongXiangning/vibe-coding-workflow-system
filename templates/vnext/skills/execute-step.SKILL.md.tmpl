@@ -232,7 +232,14 @@ explicit storage-migration route, never task replan or a size-based blocker.
 
 
 Start with a fresh `validate --summary`, then call the read-only
-`task-context(entry:"preflight-step", mode:"default")`. Follow every required
+`task-context(entry:"preflight-step", mode:"default")`. Its default `execute`
+selection contains the current step, task constraints/authority, relevant evidence
+and dependencies, pending review and unreviewed expansions. Unknown dependencies
+remain required. Read complete `value` or `records[].value` records directly;
+pass the returned continuation unchanged. Only oversized individual records need
+byte-fragment reconstruction. Use `selection.full_context` if other steps or
+history are needed; a selected view is not a fully visible definition.
+Follow every required
 continuation before treating the operation context as complete; use
 `task-read`/`file-context`/`review-read` for exact definitions, results,
 evidence, source files, and diffs. Reuse definition text only in the same

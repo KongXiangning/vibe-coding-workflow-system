@@ -25,11 +25,8 @@ identifiable and ordered. The hot arrays retained in the legacy file are only a
 compatibility cache; they do not determine whether older facts exist.
 
 For ordinary operations use the read-only `task-context` projection. It has
-three layers: a bounded overview; the operation context with the complete
-current definition (unless the exact definition revision is still visible in
-the same conversation), current-step requirements, unfinished obligations,
-recorded dependencies, explicit unknown-dependency warnings, global gates, the
-latest execution, and the cumulative review target; and on-demand history. It never returns raw
+three layers: a bounded overview, the necessary records for the selected
+operation, and on-demand full definition/history. It never returns raw
 `runtime_state`, an unbounded execution log, or an unbounded idempotency list.
 Unknown dependency data stays unknown: a missing dependency graph is not proof
 that a gate can be skipped.
@@ -38,9 +35,10 @@ The serialized overview is capped at the smaller of 4096 UTF-8 bytes and one
 quarter of `max_bytes`. When it exceeds that limit, it retains lifecycle and
 next-entry routing plus a reference to the required `overview-details` block.
 That block always contains the complete overview fields and participates in
-normal continuation paging. Dynamic expansion records are returned without a
-64-record cutoff in `global-gates.dynamic_expansions`; the overview carries only
-their count and block reference. Follow all required continuations before using
+normal continuation paging. Dynamic expansion records have no 64-record cutoff:
+execution/review select `unreviewed-expansions` (including legacy records whose
+review status is unknown); the full view retains every expansion in
+`global-gates.dynamic_expansions`. Follow all required continuations before using
 the context. Budgets too small for the response envelope still fail explicitly.
 For closed or archived tasks, `next_entry` is null and `next_options` is empty;
 historical unfinished steps and findings remain facts, not repair instructions.
@@ -49,6 +47,62 @@ empty, `ordinary_attempt_admission` is null, and the overview's
 `gates.blocked_repair_continuation` is null. Retained dynamic-review flags,
 expansions, attempt history and pending reviews describe unfinished historical
 work; they do not recommend executing against the archived task.
+
+### Operation-specific reads and complete records
+
+`selection.purpose` explains the selection. Runtime chooses it from the entry
+and mode, or callers can request an explicit `purpose`:
+
+| Purpose | Default entry | Required context |
+| --- | --- | --- |
+| `prepare-new` | `prepare-task` / `prepare-draft`, default or draft mode, on a nonterminal task | Task identity, Task Basis reference, lifecycle and preparation status; full prior context is available by reference. |
+| `archive-handoff` | The same preparation entries on a closed/archived task | Original requirements, unresolved/unknown steps, unsatisfied evidence obligations and dependencies, findings, pending review, challenges and archive outcome sections (including retained diagnostics). This does not inherit the old task's authority. |
+| `execute` | `preflight-step`, `execute-step`, `begin-repair`, `resume-preflight`, `evidence-context` | Current step, task constraints and authority, relevant evidence plan/obligations/dependencies, gates, unreviewed expansions, pending review and latest execution. Unknown dependencies stay included. |
+| `review` | `review-context`, `review-change`, `review` | Execution context plus the cumulative plan, evidence index and cumulative review target. Use `review-context`/`review-read` for exact reports and diffs before deciding a verdict. |
+| `full` | Other entries/modes, including `prepare-successor`, replan/refinement and `validate` | Complete frozen definition, authority, obligations, gates and retained history navigation. |
+
+`prepare-successor` defaults to `full` so preparation can account for every
+predecessor obligation and open finding on a `superseded` task.
+
+Use `{"purpose":"prepare-new"}` explicitly when starting an unrelated task after
+an archive; use `{"purpose":"archive-handoff"}` to carry unfinished work forward.
+The latter requires a terminal task. An `unknown` step status is not a claim
+that the step failed or must be repeated. Inspect the referenced definition and
+results before choosing the new task's work. No read creates or reopens a task.
+`archive-outcome` binds the observed archive hash and the hash recorded at closure.
+If these differ, resolve the drift before treating the archive as verified closure
+evidence. A missing recorded archive reports `TASK_CONTEXT_ARCHIVE_UNAVAILABLE`;
+bootstrap baselines with no archive record report `not-recorded`. The repeated
+original-task snapshot is available through the archive's hash-bound `full_read`.
+
+`selection.full_context` requests the full view. `definition_coverage:"selected"`
+means only the operation's necessary definition records were selected; it must
+not be claimed as a fully visible definition. `definition_visible:true` remains
+valid only when the complete exact definition is already visible. Completion
+and receipts apply to the named selection, not to task completion or authority.
+
+Small blocks return `value`. Larger blocks return `records`, each with its
+structural `path` and complete `value` (for example a whole finding, section or
+evidence obligation). Read these records directly; do not concatenate them as
+JSON text. `record_offset` and `total_records` describe coverage. A record that
+fits on a fresh page is deferred intact instead of being cut to fill a page.
+Only a single record too large for an otherwise empty page uses `encoding:"json"`
+and `text`; `record_path`, `record_offset`, `byte_offset` and `total_bytes` bind
+that fragment. Byte offsets apply to that one record. Increasing `max_bytes`
+(up to 65536) may avoid further fragments; incomplete records remain required.
+
+Pass the returned `continuation` unchanged to the next `task-context` call;
+entry, mode, purpose and visible-definition reuse are carried automatically.
+The `task-context-page/v2` cursor binds those choices plus the source, definition,
+state and target step. Changing the selection or revision requires a fresh read.
+It also binds a `content_revision` for selected material, including archive bytes
+and evaluated evidence, so external file changes cannot silently mix two views.
+Old v1 cursors must restart. Page budget may change without changing record order.
+`task-context` CLI exits 0 for both successfully delivered full and partial pages;
+inspect `complete_for_operation` and follow `continuation` before using the whole
+selection. A partial page is not a recovery failure or permission to skip records.
+Invalid/stale reads still exit nonzero. Other context/read CLI exit conventions
+are unchanged.
 
 ```powershell
 node .workflow-system/runtime/dist/cli.js validate --summary --root <project>

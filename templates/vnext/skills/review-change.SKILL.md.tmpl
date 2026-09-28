@@ -173,7 +173,14 @@ consumers or contract impact does not add a checkpoint; ordinary required review
 and existing unreviewed elevated changes still apply.
 
 Start with a fresh `validate --summary`. In default mode, call the read-only
-`task-context(entry:"review-context", mode:"review")` and follow every required
+`task-context(entry:"review-context", mode:"review")`. The default `review`
+selection includes cumulative plan/target and evidence navigation as well as
+constraints, authority, findings and unreviewed expansions. Read complete `value`
+or `records[].value` records directly and pass the continuation unchanged. Only
+an oversized individual record needs byte-fragment reconstruction. Use
+`selection.full_context` for additional definition/history; this selected view
+does not establish full-definition visibility or replace exact review evidence.
+Follow every required
 continuation. In `recheck-completed-step` mode, first obtain the bound
 `review-context` through `run-entry`, then follow its target-step
 `context_projection` and every required continuation. Use exact

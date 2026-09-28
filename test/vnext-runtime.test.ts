@@ -1,3 +1,4 @@
+import { ContextBlockCollector } from './task-context-test-utils';
 import { ordinaryAttemptAdmission, assertReviewExecutionEligible } from '../runtime/vnext/src/kernel';
 import { authorityDomainContext, updateAuthorityDomains } from '../runtime/vnext/src/authority-domain-transaction';
 import { rebindTaskAuthorityDomains } from '../runtime/vnext/src/kernel';
@@ -1082,25 +1083,16 @@ function removeInlineExecutionPreflightMarker(root: string): void {
 
 function readContextOverviewDetails(root: string): ReturnType<typeof taskContext>['overview'] {
   let page = taskContext(root, {});
-  let details: ReturnType<typeof taskContext>['overview'] | undefined;
-  let text = '';
+  const collector = new ContextBlockCollector();
   let pages = 0;
   while (true) {
-    for (const block of page.blocks) {
-      if (block.id !== 'overview-details') continue;
-      if (block.text !== undefined) {
-        expect(block.byte_offset).toBe(Buffer.byteLength(text));
-        text += block.text;
-        if (!block.truncated) details = JSON.parse(text);
-      } else {
-        details = block.value as ReturnType<typeof taskContext>['overview'];
-      }
-    }
+    collector.add(page.blocks);
     expect(++pages).toBeLessThan(500);
     if (page.continuation === null) break;
     page = taskContext(root, { continuation: page.continuation });
   }
   expect(page.complete_for_operation).toBe(true);
+  const details = collector.values.get('overview-details');
   if (!details) throw new Error('Required overview-details block was not returned');
   return details;
 }
@@ -1982,6 +1974,24 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(archived.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
     expect(archived.runtimeState.findings.find(item => item.fingerprint === fingerprint)?.status).toBe(openFinding.status);
     expect(archived.runtimeState.execution_preflight).toBeDefined();
+    const firstHandoff = taskContext(root, { entry: 'prepare-task', max_bytes: 4096 });
+    const handoff = new ContextBlockCollector();
+    let page = firstHandoff;
+    let pages = 0;
+    while (true) {
+      handoff.add(page.blocks);
+      expect(++pages).toBeLessThan(100);
+      if (!page.continuation) break;
+      page = taskContext(root, { continuation: page.continuation, max_bytes: 4096 });
+    }
+    expect(handoff.values.get('unresolved-findings')).toContainEqual(expect.objectContaining({ fingerprint, status: openFinding.status }));
+    const outcome = handoff.values.get('archive-outcome');
+    expect(outcome.matches_recorded_revision).toBe(true);
+    expect(JSON.stringify(outcome.sections)).toContain('review remains pending; finding repair was not completed');
+    expect(firstHandoff.continuation).not.toBeNull();
+    fs.appendFileSync(path.join(root, outcome.path), '\n## Later diagnostic\n\nArchive changed during paging.\n');
+    expect(() => taskContext(root, { continuation: firstHandoff.continuation })).toThrow('TASK_CONTEXT_STALE');
+    expect(readCanonicalCurrentTask(root).runtimeState).toEqual(archived.runtimeState);
   });
 
   test('captures one unrelated work item in an isolated pure-vNext Virtual Project and preserves record-only state', () => {
