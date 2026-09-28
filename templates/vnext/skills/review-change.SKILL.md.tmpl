@@ -245,6 +245,24 @@ material contested until assessed; dismissal requires evidence, not convenience.
    fingerprint in `resolved_fingerprints`; do not report it as unresolved merely
    to compensate for a stale queue projection. New findings remain pending
    normal Runtime admission.
+   For each claimed test or evidence gap, identify the exact currently due
+   acceptance boundary, the concrete defect an additional check would catch,
+   and why the existing checks and reports cannot catch it. Distinguish a
+   current-step fixture obligation from a later step's real-environment run;
+   a future missing report is not a current-step finding unless the current
+   result falsely claims that boundary passed. Before carrying a finding into
+   another repair round, compare its full remaining condition with the prior
+   review and current tests. State the complete actionable remainder together;
+   do not split one known gap into successive new criteria or fingerprints.
+   A genuinely new, distinct defect may still be reported with its new evidence.
+   When the caller disputes the necessity or factual basis of an existing
+   blocked review, re-read the same recorded execution and confirmed step
+   obligations through a fresh `review-context`. A blocked pending review may
+   be reassessed without a product edit or another repair attempt. Correct the
+   verdict from the actual evidence, retaining the earlier result in history;
+   use verified `resolved_fingerprints` or an appropriate finding disposition
+   according to the cause, not a fabricated clean result. Neither the prior
+   blocker nor an unchanged subject requires `prepare-task` or a budget increase.
 4. Return exactly one verdict:
    - `clean`: the recorded change is acceptable.
    - `findings`: include specific file, failure condition, required behavior, root-cause confidence, and evidence for each repairable project-owned issue; the existing repair handoff then belongs to `execute-step`.
@@ -264,6 +282,20 @@ material contested until assessed; dismissal requires evidence, not convenience.
    record a separate `authorize-mutation` decision for sorted exact paths from
    the pending review, then pass its decision ID to `prepare-task:amend-scope`.
    A defer/reject/accepted-risk disposition needs no scope amendment.
+   Route an implementation defect or a currently due fixture gap within the
+   confirmed definition to `execute-step:repair`, with budget analysis or a
+   supported bounded continuation when its repair limit is exhausted. If the
+   bounded continuation is owned by `prepare-task`, name that exact operation,
+   such as `extend-repair-budget`, without presenting it as replanning. A review
+   finding, repeated repair, failed check, or exhausted quota does not by itself
+   justify a task-definition change. Recommend a definition-changing
+   `prepare-task` mode only after identifying the exact confirmed goal,
+   acceptance boundary, frozen check, step structure, or authorization boundary
+   that must change, or a recorded historical challenge requiring a correction
+   step. Explain why repair, evidence refresh, or finding disposition under the
+   existing definition cannot address it. Name the affected claim, check, step,
+   path or challenge and the proposed change; do not recommend generic
+   `prepare-task` merely to reconsider the reviewer's test preference.
 5. Treat process-policy blockers as explicit decision points, not as evidence that the review has no conclusion. Preserve every finding, unresolved/resolved fingerprint, failed or not-run check, and blocker in the structured review. If the user authorizes continuation, use the Runtime-declared `record-user-decision` route and bind the exact task/source revision plus review/change-set and target IDs; Runtime may continue only that operation. Fact, identity, receipt, target, and replay conflicts remain hard rejects. A skipped check remains `not-run` (or its actual failed/blocked result) and any advancement is a disposition with exceptions, never `clean`.
 6. Include `test_assessment: {applicable,reason,evidence_refs,necessity,oracle,boundary,reuse,applicability}` with explicit conclusions and supporting references. Read the cumulative delta; use `review-read` with its context receipt for unexpanded files and needed before/after ranges. Follow continuations before judging the relevant content; unavailable content is not clean. Do not replace dirty baselines with Git HEAD. Use `file-context` to locate/read reused tests and their dependencies; see `.workflow-system/runtime/support/CONTEXT_API.md` for inputs and limits. Check the original request and P-12 necessity/owner; whether expectations are independently specified; weak assertions and self-validation; mocks/fixtures versus real integration; reused test/claim mappings; current report and fixture versions. For an existing test file admitted through v2 discovery, explicitly assess oracle/reuse/boundary and any changed assertion oracle. A production constant can supply input, but an expectation that changes with the same defective constant cannot independently detect that defect. Test files need not change for reused checks or fixture changes to trigger these dimensions. Verify that each report is bound to its exact claim/slot/check: many PASS results, or one command PASS, do not increase assurance for an unrelated claim. Check the frozen selection remains minimum-sufficient, flag broad/whole-target/E2E evidence without its recorded basis, and reject a business-flow claim whose real boundary was bypassed by unit tests, mocks, or fixtures. Local rule success cannot replace missing/failed required flow evidence. Use one verdict for the mixed diff. Runtime validates structure and binding, not the truth of this caller-reported judgment.
 6. Send an ordinary verdict to Runtime `record-review-result` on stdin. For an earlier-result challenge, record the challenge or its evidence-bound dismissal through the corresponding Runtime action; a confirmed error requires correction. Do not create proposal or helper files in the project.

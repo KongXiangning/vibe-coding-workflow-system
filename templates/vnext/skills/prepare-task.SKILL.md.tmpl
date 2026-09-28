@@ -135,6 +135,24 @@ recovery stays in this invocation; an unresolved user choice must state the actu
 alternatives; an unavailable external prerequisite must name what internal
 recovery could not restore. Completed reports/verdicts remain legitimate outcomes.
 
+For an active task with review findings, distinguish execution repair from a
+change to the confirmed task definition before selecting a mode. An implementation
+bug, incomplete current-step fixture, stale report, repeated review, or exhausted
+repair quota stays with the existing finding, evidence, and repair/disposition
+routes; none alone authorizes a new draft or replan. A budget extension owned
+by this entry is an exact continuation of that repair route, not a plan change.
+Use a task-definition-changing `prepare-task` operation only when a concrete
+confirmed goal, acceptance boundary, frozen evidence check, step structure,
+or authority boundary must change, or a recorded historical evidence challenge
+requires an authorized correction step. First establish why execution, evidence
+refresh, review disposition, and bounded recovery under the current definition
+cannot satisfy the authorized intent. Identify the
+exact old and proposed boundary, its source and affected claim/check/step/path,
+and why the narrower route is insufficient. An exact path outside the current
+authority uses `amend-scope` when eligible; a check-selection defect uses the
+evidence-plan amendment route when eligible. Do not treat a reviewer's preference
+for more tests or a later step's not-yet-due evidence as a task-definition defect.
+
 ## Bounded task context protocol
 
 The compact-v3 CURRENT_TASK file is only an active navigation projection. Read

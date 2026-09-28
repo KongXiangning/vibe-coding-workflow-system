@@ -6555,7 +6555,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.22.0";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.22.1";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -10389,10 +10389,6 @@ function completedStepReviewTarget(root, current, requestedStepId) {
   if (requestedStepId !== undefined && requestedStepId !== step.id) {
     fail3("COMPLETED_STEP_RECHECK_TARGET_INVALID", `completed-step recheck must target the latest eligible completed step ${step.id}.`);
   }
-  const attempts = state.step_attempts?.[resolution.current.id]?.attempts ?? [];
-  if (readySuccessor && (attempts.length > 0 || currentDefinitionExecutionLog(current).some((item) => !("action" in item) && item.step_id === resolution.current.id))) {
-    fail3("COMPLETED_STEP_RECHECK_WINDOW_CLOSED", "the successor step has a recorded preflight, attempt, or execution.");
-  }
   const log = currentDefinitionExecutionLog(current);
   const completionIndex = log.findLastIndex((item) => !("action" in item) && item.step_id === step.id && item.status === "completed" && item.advancement === (nextStepId === null ? "task-complete" : "advanced") && item.next_step_id === nextStepId && item.review_receipt?.verdict === "clean");
   if (completionIndex < 0)
@@ -10402,10 +10398,11 @@ function completedStepReviewTarget(root, current, requestedStepId) {
     fail3("COMPLETED_STEP_RECHECK_WINDOW_CLOSED", "a later task execution or audited action exists after the completion being rechecked.");
   }
   const execution = log.slice(0, completionIndex).findLast((item) => !("action" in item) && item.step_id === step.id && item.idempotency_key.startsWith("execute-step-result-") && item.review_receipt === undefined && item.execution_result !== undefined);
-  if (!execution?.execution_result || !execution.change_set_id || execution.change_set_id !== completion.review_receipt.change_set_id || execution.execution_result.review_target.revision !== completion.review_receipt.review_target_revision || execution.execution_result.outcome === "blocked") {
+  const reviewedExecution = execution ? cumulativeReviewExecution(current, execution) : null;
+  if (!execution?.execution_result || !execution.change_set_id || execution.change_set_id !== completion.review_receipt.change_set_id || reviewedExecution?.execution_result?.review_target.revision !== completion.review_receipt.review_target_revision || execution.execution_result.outcome === "blocked") {
     fail3("COMPLETED_STEP_RECHECK_TARGET_INVALID", "the clean completion does not bind a reviewable recorded execution and stable review target.");
   }
-  const currentTarget = captureReviewTarget(root, execution.execution_result.review_target.entries.map((item) => item.path));
+  const currentTarget = captureReviewTarget(root, reviewedExecution.execution_result.review_target.entries.map((item) => item.path));
   if (currentTarget.revision !== completion.review_receipt.review_target_revision) {
     fail3("REVIEW_TARGET_STALE", "product files changed after the completed-step review target was recorded.");
   }

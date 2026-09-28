@@ -1,5 +1,5 @@
 import { ContextBlockCollector } from './task-context-test-utils';
-import { ordinaryAttemptAdmission, assertReviewExecutionEligible } from '../runtime/vnext/src/kernel';
+import { ordinaryAttemptAdmission, assertReviewExecutionEligible, completedStepReviewTarget } from '../runtime/vnext/src/kernel';
 import { authorityDomainContext, updateAuthorityDomains } from '../runtime/vnext/src/authority-domain-transaction';
 import { rebindTaskAuthorityDomains } from '../runtime/vnext/src/kernel';
 import { prepareEvidencePlanAmendment, confirmEvidencePlanAmendment, discardEvidencePlanAmendment } from '../runtime/vnext/src/kernel';
@@ -8735,6 +8735,90 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     expect(completeReviewedStep(root, completionInput).status).toBe('no-op');
     expect(() => reviewContext(root, {})).toThrow('REVIEW_EXECUTION_ALREADY_COMPLETED');
+  });
+
+  test('completed-step recheck ignores a successor attempt retained from before completion', () => {
+    const root = v2TwoStepConfirmedRoot();
+    const preflight = preflightStep(root, { candidate_paths: ['packages/node-rollout/src/session.ts'] });
+    expect(recordStepResult(root, {
+      preflight_receipt: preflight.receipt,
+      actual_changed_paths: [],
+      command_results: [],
+      validation_results: preflight.current_step.validation.map(validation => ({
+        validation, status: 'passed' as const, evidence_refs: ['evidence-report.txt'],
+      })),
+      acceptance_evidence: [reportFixture(root)],
+      outcome: 'implemented',
+      note: 'Complete the first step before a retained successor attempt is examined.',
+    }).status).toBe('success');
+    const review = reviewContext(root, {});
+    expect(recordReviewResult(root, {
+      context_receipt: review.receipt, verdict: 'clean', findings: [],
+      unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null,
+    }).status).toBe('success');
+    expect(completeReviewedStep(root, { step_id: 'step-1', note: 'Reviewed first step' }).status).toBe('success');
+
+    const current = readCanonicalCurrentTask(root);
+    expect(current.runtimeState.active_step_id).toBe('step-2');
+    expect(current.runtimeState.active_step_status).toBe('ready');
+    const historicalLedger = current.runtimeState.step_attempts?.['step-1'];
+    if (!historicalLedger) throw new Error('fixture requires a retained attempt ledger');
+    const retained = {
+      ...current,
+      runtimeState: {
+        ...current.runtimeState,
+        step_attempts: { ...current.runtimeState.step_attempts, 'step-2': structuredClone(historicalLedger) },
+      },
+    };
+    expect(completedStepReviewTarget(root, retained, 'step-1').step.id).toBe('step-1');
+
+    const auditedAction = current.runtimeState.execution_log.find(item => 'action' in item);
+    if (!auditedAction) throw new Error('fixture requires a recorded preflight action');
+    const later = {
+      ...retained,
+      runtimeState: {
+        ...retained.runtimeState,
+        execution_log: [...retained.runtimeState.execution_log, auditedAction],
+      },
+    };
+    expect(() => completedStepReviewTarget(root, later, 'step-1')).toThrow('COMPLETED_STEP_RECHECK_WINDOW_CLOSED');
+  });
+
+  test('completed-step recheck binds the cumulative target reviewed at completion', () => {
+    const root = v2TwoStepConfirmedRoot();
+    for (const [stepId, candidatePath] of [
+      ['step-1', 'packages/node-rollout/src/session.ts'],
+      ['step-2', 'packages/node-rollout/src/reconnect.ts'],
+    ] as const) {
+      const preflight = preflightStep(root, { candidate_paths: [candidatePath] });
+      expect(recordStepResult(root, {
+        preflight_receipt: preflight.receipt,
+        actual_changed_paths: [],
+        command_results: [],
+        validation_results: preflight.current_step.validation.map(validation => ({
+          validation, status: 'passed' as const, evidence_refs: ['evidence-report.txt'],
+        })),
+        acceptance_evidence: stepId === 'step-1' ? [reportFixture(root)] : [],
+        outcome: 'implemented',
+        note: `Complete ${stepId} with its own review target.`,
+      }).status).toBe('success');
+      const review = reviewContext(root, {});
+      expect(recordReviewResult(root, {
+        context_receipt: review.receipt, verdict: 'clean', findings: [],
+        unresolved_fingerprints: [], evidence_refs: ['evidence-report.txt'], blocker: null,
+      }).status).toBe('success');
+      expect(completeReviewedStep(root, { step_id: stepId, note: `Reviewed ${stepId}` }).status).toBe('success');
+    }
+    const current = readCanonicalCurrentTask(root);
+    const recorded = current.runtimeState.execution_log.findLast(item =>
+      !('action' in item) && item.step_id === 'step-2' && item.idempotency_key.startsWith('execute-step-result-'));
+    const completion = current.runtimeState.execution_log.findLast(item =>
+      !('action' in item) && item.step_id === 'step-2' && item.status === 'completed');
+    if (!recorded || 'action' in recorded || !completion || 'action' in completion) {
+      throw new Error('fixture requires the second recorded execution and its clean completion');
+    }
+    expect(recorded.execution_result?.review_target.revision).not.toBe(completion.review_receipt?.review_target_revision);
+    expect(completedStepReviewTarget(root, current, 'step-2').step.id).toBe('step-2');
   });
 
   test('does not admit review for a successful step without a review checkpoint', () => {

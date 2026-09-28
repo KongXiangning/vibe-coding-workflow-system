@@ -139,7 +139,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.22.0';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.22.1';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -6361,10 +6361,6 @@ export function completedStepReviewTarget(
   if (requestedStepId !== undefined && requestedStepId !== step.id) {
     fail('COMPLETED_STEP_RECHECK_TARGET_INVALID', `completed-step recheck must target the latest eligible completed step ${step.id}.`);
   }
-  const attempts = state.step_attempts?.[resolution.current.id]?.attempts ?? [];
-  if (readySuccessor && (attempts.length > 0 || currentDefinitionExecutionLog(current).some(item => !('action' in item) && item.step_id === resolution.current.id))) {
-    fail('COMPLETED_STEP_RECHECK_WINDOW_CLOSED', 'the successor step has a recorded preflight, attempt, or execution.');
-  }
   const log = currentDefinitionExecutionLog(current);
   const completionIndex = log.findLastIndex((item): item is StepExecutionLogEntry =>
     !('action' in item)
@@ -6386,13 +6382,14 @@ export function completedStepReviewTarget(
     && item.review_receipt === undefined
     && item.execution_result !== undefined,
   );
+  const reviewedExecution = execution ? cumulativeReviewExecution(current, execution) : null;
   if (!execution?.execution_result || !execution.change_set_id
     || execution.change_set_id !== completion.review_receipt!.change_set_id
-    || execution.execution_result.review_target.revision !== completion.review_receipt!.review_target_revision
+    || reviewedExecution?.execution_result?.review_target.revision !== completion.review_receipt!.review_target_revision
     || execution.execution_result.outcome === 'blocked') {
     fail('COMPLETED_STEP_RECHECK_TARGET_INVALID', 'the clean completion does not bind a reviewable recorded execution and stable review target.');
   }
-  const currentTarget = captureReviewTarget(root, execution.execution_result.review_target.entries.map(item => item.path));
+  const currentTarget = captureReviewTarget(root, reviewedExecution!.execution_result!.review_target.entries.map(item => item.path));
   if (currentTarget.revision !== completion.review_receipt!.review_target_revision) {
     fail('REVIEW_TARGET_STALE', 'product files changed after the completed-step review target was recorded.');
   }
