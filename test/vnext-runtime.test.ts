@@ -1080,6 +1080,31 @@ function removeInlineExecutionPreflightMarker(root: string): void {
   fs.writeFileSync(current.filePath, `---\n${stringify(frontmatter).trimEnd()}\n---\n${current.body}`, 'utf8');
 }
 
+function readContextOverviewDetails(root: string): ReturnType<typeof taskContext>['overview'] {
+  let page = taskContext(root, {});
+  let details: ReturnType<typeof taskContext>['overview'] | undefined;
+  let text = '';
+  let pages = 0;
+  while (true) {
+    for (const block of page.blocks) {
+      if (block.id !== 'overview-details') continue;
+      if (block.text !== undefined) {
+        expect(block.byte_offset).toBe(Buffer.byteLength(text));
+        text += block.text;
+        if (!block.truncated) details = JSON.parse(text);
+      } else {
+        details = block.value as ReturnType<typeof taskContext>['overview'];
+      }
+    }
+    expect(++pages).toBeLessThan(500);
+    if (page.continuation === null) break;
+    page = taskContext(root, { continuation: page.continuation });
+  }
+  expect(page.complete_for_operation).toBe(true);
+  if (!details) throw new Error('Required overview-details block was not returned');
+  return details;
+}
+
 function runtimeFinding(fingerprint: string, status: FindingRecord['status'], overrides: Partial<FindingRecord> = {}): FindingRecord {
   return {
     fingerprint,
@@ -1913,6 +1938,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(beginRepair(root, { candidate_paths: [file] }).receipt.kind).toBe('execute-step-repair-preflight/v1');
     const beforeStop = readCanonicalCurrentTask(root);
     const openFinding = beforeStop.runtimeState.findings.find(item => item.fingerprint === fingerprint)!;
+    expect(taskContext(root).overview.next_entry).toBe('execute-step:repair');
     expect(['admitted', 'in-progress']).toContain(openFinding.status);
     expect(beforeStop.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
 
@@ -1949,6 +1975,10 @@ describe('vNext Phase 2 Runtime contract', () => {
     });
     const archived = readCanonicalCurrentTask(root);
     expect(archived.runtimeState).toMatchObject({ workflow_status: 'closed', lifecycle_state: 'archived' });
+    expect(taskContext(root).overview).toMatchObject({
+      next_entry: null, next_options: [], repair_execution_recovery: null,
+      budget_extension: null, controlled_recovery: null,
+    });
     expect(archived.runtimeState.pending_review_result?.review_id).toBe(pending.review_id);
     expect(archived.runtimeState.findings.find(item => item.fingerprint === fingerprint)?.status).toBe(openFinding.status);
     expect(archived.runtimeState.execution_preflight).toBeDefined();
@@ -9353,7 +9383,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     let current = readCanonicalCurrentTask(root);
     const pending = current.runtimeState.pending_review_result!;
     expect(pending.findings.map(item => item.repair_scope_hint)).toEqual(['outside-current-authority', 'outside-current-authority']);
-    expect(taskContext(root, {}).overview.pending_scope_findings.findings).toHaveLength(2);
+    expect(readContextOverviewDetails(root).pending_scope_findings.findings).toHaveLength(2);
     const laterFingerprint = pending.findings.find(item => item.file === later)!.fingerprint;
     const deferDecision: UserDecision = {
       task_id: current.runtimeState.task_id, source_revision: current.sourceTuple.revision,
@@ -9865,7 +9895,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       repair_wave_id: repair.receipt.repair_wave_id,
       change_set_id: repair.receipt.change_set_id,
     });
-    expect(taskContext(root, {}).overview.repair_execution_recovery).toMatchObject({
+    expect(readContextOverviewDetails(root).repair_execution_recovery).toMatchObject({
       required: true,
       exact_retry: true,
       recovery_command: 'execute-step:repair',
@@ -10410,7 +10440,7 @@ describe('vNext Phase 2 Runtime contract', () => {
         change_set_id: repairFour.receipt.change_set_id,
       },
     });
-    expect(taskContext(root, {}).overview.repair_execution_recovery).toMatchObject({
+    expect(readContextOverviewDetails(root).repair_execution_recovery).toMatchObject({
       required: true, exact_retry: true,
       preflight_id: repairFour.receipt.preflight_id,
       execution_id: repairFour.receipt.execution_id,
@@ -10501,9 +10531,9 @@ describe('vNext Phase 2 Runtime contract', () => {
           next_repair_round_limit: Math.max(3, round + 1),
         });
         if (round === 7) {
-          const context = taskContext(root, {});
-          expect(context.overview.next_entry).toBe('prepare-task:extend-repair-budget');
-          expect(context.overview.budget_extension).toMatchObject({
+          const overview = readContextOverviewDetails(root);
+          expect(overview.next_entry).toBe('prepare-task:extend-repair-budget');
+          expect(overview.budget_extension).toMatchObject({
             eligible: true,
             finding_fingerprints: [fingerprint],
             next_repair_round_limit: 8,
@@ -10524,14 +10554,14 @@ describe('vNext Phase 2 Runtime contract', () => {
           'finding-attempt-absolute-limit', 'repair-round-absolute-limit',
         ]));
         expect(repairBudgetExtensionTargets(current)).toBeNull();
-        const context = taskContext(root, {});
-        expect(context.overview.next_entry).toBe('prepare-task:authorize-controlled-repair-recovery');
-        expect(context.overview.next_options).toEqual(['record-user-decision', 'prepare-task:authorize-controlled-repair-recovery', 'debug-task']);
-        expect(context.overview.budget_extension).toMatchObject({
+        const overview = readContextOverviewDetails(root);
+        expect(overview.next_entry).toBe('prepare-task:authorize-controlled-repair-recovery');
+        expect(overview.next_options).toEqual(['record-user-decision', 'prepare-task:authorize-controlled-repair-recovery', 'debug-task']);
+        expect(overview.budget_extension).toMatchObject({
           eligible: false,
           user_decision_route: 'prepare-task:authorize-controlled-repair-recovery',
         });
-        expect(context.overview.controlled_recovery).toMatchObject({
+        expect(overview.controlled_recovery).toMatchObject({
           eligible: true,
           disposition_source: 'legacy-explicit-user',
           recovery_fingerprints: [fingerprint],
@@ -10660,7 +10690,7 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(repairFingerprintsForPendingReview(blocked)).toEqual([a, b, d].sort());
     expect(repairBudgetExtensionTargets(blocked)).toBeNull();
     expect(taskContext(root, {}).overview.next_entry).toBe('prepare-task:authorize-controlled-repair-recovery');
-    expect(taskContext(root, {}).overview.controlled_recovery).toMatchObject({
+    expect(readContextOverviewDetails(root).controlled_recovery).toMatchObject({
       eligible: true, recovery_scope: 'mixed', repair_fingerprints: [a, b, d].sort(),
       recovery_fingerprints: [a], disposition_source: 'review-disposition', controlled_attempt_limit: 5,
     });
@@ -10846,7 +10876,7 @@ describe('vNext Phase 2 Runtime contract', () => {
       status: 'in-progress', repair_attempts: 8,
     });
     expect(taskContext(root, {}).overview.next_entry).toBe('record-user-decision');
-    expect(taskContext(root, {}).overview.controlled_recovery).toMatchObject({
+    expect(readContextOverviewDetails(root).controlled_recovery).toMatchObject({
       unselected_exhausted_fingerprints: [c],
     });
     const disposition: UserDecision = {
@@ -10954,11 +10984,11 @@ describe('vNext Phase 2 Runtime contract', () => {
     expect(formatBlocked.runtimeState.pending_review_result).toMatchObject({
       verdict: 'blocked', blocker: { code: 'FORMAT_CHECK_SCOPE_BLOCKED' }, unresolved_fingerprints: [fingerprint],
     });
-    expect(taskContext(root, {}).overview.format_scope_blocker).toMatchObject({
+    expect(readContextOverviewDetails(root).format_scope_blocker).toMatchObject({
       present: true, preserves_business_findings: true,
       controlled_recovery_route: 'prepare-task:authorize-controlled-repair-recovery',
     });
-    expect(taskContext(root, {}).overview.controlled_recovery).toMatchObject({
+    expect(readContextOverviewDetails(root).controlled_recovery).toMatchObject({
       eligible: true, authorized_repair_waves: 5, remaining_repair_waves: 5, controlled_attempt_limit: 5,
     });
     const pending = formatBlocked.runtimeState.pending_review_result!;

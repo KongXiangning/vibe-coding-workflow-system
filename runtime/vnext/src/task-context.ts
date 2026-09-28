@@ -560,7 +560,12 @@ function executableContextEntry(route: string | undefined): string | undefined {
   return route === 'user' ? 'record-user-decision' : route;
 }
 
+function isTerminalContext(current: CanonicalCurrentTask): boolean {
+  return current.runtimeState.workflow_status === 'closed' || current.runtimeState.lifecycle_state === 'archived';
+}
+
 function policyGatesForCurrent(current: CanonicalCurrentTask, root: string): AnyRecord[] {
+  if (isTerminalContext(current)) return [];
   const state = current.runtimeState;
   const pendingReview = record(state.pending_review_result) ? state.pending_review_result : null;
   const policyGates: AnyRecord[] = [];
@@ -619,6 +624,7 @@ function policyGatesForCurrent(current: CanonicalCurrentTask, root: string): Any
 
 function contextOverview(root: string, current: CanonicalCurrentTask, manifest: TaskStoreManifest | null): AnyRecord {
   const state = current.runtimeState;
+  const terminal = isTerminalContext(current);
   const retryReview = pendingReviewForOrdinaryRetry(current);
   const retryGates = ['RETRY_REVIEW_REQUIRED', ...(ordinaryRetryBudgetExhausted(current, root) ? ['RETRY_BUDGET_EXHAUSTED'] : [])];
   const retryDecision = retryReview ? state.execution_log.findLast(item => 'action' in item
@@ -681,7 +687,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const pendingPolicy = policyGateDescriptor(pendingReview?.blocker?.code);
   const outstandingRepair = outstandingRepairPreflight(current);
   const reviewableUnreviewedExecution = latestReviewableUnreviewedExecution(current);
-  const blockedRepairContinuation = blockedRepairContinuationForPendingReview(current);
+  const blockedRepairContinuation = terminal ? null : blockedRepairContinuationForPendingReview(current);
   const pendingRepair = pendingReview?.verdict === 'findings';
   const repairExecutionRequired = outstandingRepair !== null || pendingRepair;
   const pendingDispositionRequired = pendingReview !== null
@@ -702,7 +708,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
   const pendingPolicyEntry = executableContextEntry(pendingPolicy?.route);
   const exemptCompletionReady = !pendingReview && !reviewableUnreviewedExecution
     && state.active_step_status === 'in-progress' && latestReviewableUnreviewedExecution(current, true) !== null;
-  const nextEntry = state.workflow_status === 'blocked_by_replan'
+  const nextEntry = terminal ? null : state.workflow_status === 'blocked_by_replan'
     ? 'record-user-decision'
     : state.resume_requires_review
       ? 'prepare-task:clear-resume-review'
@@ -743,7 +749,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
                 : dynamicReviewReady
                   ? 'review-change'
                   : 'preflight-step';
-  const nextOptions = state.workflow_status === 'blocked_by_replan'
+  const nextOptions = terminal ? [] : state.workflow_status === 'blocked_by_replan'
     ? ['record-user-decision', 'prepare-task:amend-scope', 'prepare-task:prepare-replan', 'debug-task']
     : reviewableUnreviewedExecution !== null
     ? ['review-change']
@@ -804,33 +810,14 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       },
     pending_scope_findings: {
       findings: pendingScopeFindings,
-      decision_route: pendingScopeFindings.length > 0 ? 'record-user-decision' : null,
-      authorization_effect: pendingScopeFindings.length > 0 ? 'authorize-mutation' : null,
-      amendment_route: pendingScopeFindings.length > 0 ? 'prepare-task:amend-scope' : null,
+      decision_route: !terminal && pendingScopeFindings.length > 0 ? 'record-user-decision' : null,
+      authorization_effect: !terminal && pendingScopeFindings.length > 0 ? 'authorize-mutation' : null,
+      amendment_route: !terminal && pendingScopeFindings.length > 0 ? 'prepare-task:amend-scope' : null,
     },
     dynamic_mutation: {
       review_required: dynamicReviewRequiredForCurrentExecution(current),
-      expansions: (state.dynamic_expansions ?? []).slice(0, 64).map(item => ({
-        path: item.path,
-        domain: item.domain,
-        assessment: item.assessment,
-        first_touch_state: item.first_touch_state,
-        admitted_at: item.admitted_at,
-        ...(item.execution_id === undefined ? {} : {
-          execution_id: item.execution_id,
-          preflight_id: item.preflight_id,
-          step_id: item.step_id,
-          plan_revision: item.plan_revision,
-          change_set_id: item.change_set_id,
-          mode: item.mode,
-        }),
-        ...(item.reviewed_by_review_id === undefined ? {} : {
-          reviewed_by_review_id: item.reviewed_by_review_id,
-          reviewed_at: item.reviewed_at,
-        }),
-      })),
+      expansions_block: { kind: 'task-context-block', reference: 'global-gates' },
       expansion_count: state.dynamic_expansions?.length ?? 0,
-      expansions_truncated: (state.dynamic_expansions?.length ?? 0) > 64,
     },
     next_entry_kind: 'runtime-command',
     next_entry: nextEntry,
@@ -871,7 +858,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       dynamic_expansion_count: state.dynamic_expansions?.length ?? 0,
     },
     latest_execution: latestIndex,
-    repair_execution_recovery: outstandingRepair === null ? null : {
+    repair_execution_recovery: terminal || outstandingRepair === null ? null : {
       required: true,
       action: 'record-step-result',
       exact_retry: true,
@@ -884,7 +871,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
       repair_fingerprints: [...(outstandingRepair.repair_fingerprints ?? [])],
       recovery_command: 'execute-step:repair',
     },
-    budget_extension: budgetExtensionEligibility === null ? null : {
+    budget_extension: terminal || budgetExtensionEligibility === null ? null : {
       eligible: budgetExtensionEligibility.eligible,
       extension_scope: budgetExtensionEligibility.extension_scope,
       repair_fingerprints: budgetExtensionEligibility.repair_fingerprints,
@@ -900,7 +887,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
           ? 'prepare-task:authorize-controlled-repair-recovery'
           : 'record-user-decision',
     },
-    controlled_recovery: controlledRecoveryEligibility === null ? null : {
+    controlled_recovery: terminal || controlledRecoveryEligibility === null ? null : {
       eligible: controlledRecoveryEligibility.eligible,
       review_blocker_code: controlledRecoveryEligibility.review_blocker_code,
       recovery_scope: controlledRecoveryEligibility.recovery_scope,
@@ -931,7 +918,7 @@ function contextOverview(root: string, current: CanonicalCurrentTask, manifest: 
         ? 'prepare-task:authorize-controlled-repair-recovery'
         : 'record-user-decision',
     },
-    ...(formatScopeBlocked ? {
+    ...(!terminal && formatScopeBlocked ? {
       format_scope_blocker: {
         present: true,
         blocker: pendingReview?.blocker ?? null,
@@ -961,7 +948,7 @@ function compactContextOverviewForSmallPage(overview: AnyRecord): AnyRecord {
   }
   const dynamicMutation = record(compact.dynamic_mutation) ? compact.dynamic_mutation : null;
   if (dynamicMutation && dynamicMutation.review_required === false
-    && Array.isArray(dynamicMutation.expansions) && dynamicMutation.expansions.length === 0) {
+    && dynamicMutation.expansion_count === 0) {
     delete compact.dynamic_mutation;
   }
   for (const key of ['latest_execution', 'repair_execution_recovery', 'budget_extension', 'controlled_recovery'] as const) {
@@ -1019,7 +1006,7 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
     })),
     required_action: 'Read the complete current definition and perform the bounded dependency check before skipping a gate.',
   });
-  const admission = ordinaryAttemptAdmission(current, root);
+  const admission = isTerminalContext(current) ? null : ordinaryAttemptAdmission(current, root);
   add('global-gates', true, {
     resume_requires_review: current.runtimeState.resume_requires_review,
     resume_review_reasons: current.runtimeState.resume_review_reasons,
@@ -1033,7 +1020,7 @@ function operationBlocks(root: string, current: CanonicalCurrentTask, entry: str
     unresolved_evidence_challenges: Array.isArray(current.runtimeState.evidence_challenges) ? current.runtimeState.evidence_challenges.filter(record).filter(item => item.status !== 'resolved').map(item => ({ challenge_id: item.challenge_id ?? null, status: item.status ?? null, claim_id: item.claim_id ?? null, slot_id: item.slot_id ?? null, result_id: item.result_id ?? null })) : [],
     active_attempt: record(current.runtimeState.step_attempts) && record(current.runtimeState.step_attempts[current.runtimeState.active_step_id]) ? current.runtimeState.step_attempts[current.runtimeState.active_step_id] : null,
     policy_gates: policyGatesForCurrent(current, root),
-    ordinary_attempt_admission: {
+    ordinary_attempt_admission: admission === null ? null : {
       attempt_id: admission.authorized_attempt_id,
       blocked_attempt_id: admission.blocked_attempt_id,
       creates_attempt: admission.creates_attempt,
@@ -1122,11 +1109,31 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
   };
   const selection = { entry, mode, ...(stepId ? { step_id: stepId } : {}), required: [] as string[], optional: [] as string[], definition_reused: definitionReused };
   const built = operationBlocks(root, current, entry, mode, definitionReused, manifest, stepId);
+  const details = contextOverview(root, current, manifest);
+  // Always select the detail block so its cursor position is independent of
+  // page size. No field is lost when a smaller page needs a compact overview.
+  built.blocks.push({ id: 'overview-details', required: true, value: details });
+  built.required.push('overview-details');
   selection.required = built.required;
   selection.optional = built.optional;
-  const overview = maxBytes <= 4096
-    ? compactContextOverviewForSmallPage(contextOverview(root, current, manifest))
-    : contextOverview(root, current, manifest);
+  let overview = maxBytes <= 4096 ? compactContextOverviewForSmallPage(details) : details;
+  const overviewLimit = Math.min(4096, Math.floor(maxBytes / 4));
+  if (byteLength(JSON.stringify(overview)) > overviewLimit) {
+    overview = {
+      status: {
+        workflow_status: current.runtimeState.workflow_status,
+        lifecycle_state: current.runtimeState.lifecycle_state,
+        active_step_status: current.runtimeState.active_step_status,
+      },
+      next_entry_kind: details.next_entry_kind,
+      next_entry: details.next_entry,
+      next_options: details.next_options,
+      details_block: { kind: 'task-context-block', reference: 'overview-details' },
+    };
+  }
+  if (byteLength(JSON.stringify(overview)) > overviewLimit) {
+    throw new Error('TASK_CONTEXT_BUDGET_EXHAUSTED: page budget is too small for the bounded overview.');
+  }
   const base: AnyRecord = {
     status: 'success',
     operation_kind: TASK_CONTEXT_OPERATION,
@@ -1191,7 +1198,7 @@ function contextPage(root: string, current: CanonicalCurrentTask, input: TaskCon
       ? { kind: 'task-context-page/v1' as const, source_revision: current.sourceTuple.revision, definition_revision: definitionRevision, state_revision: stateRevision, ...(stepId ? { step_id: stepId } : {}), block_index: blockIndex + 1, byte_offset: 0 }
       : null;
     const candidate = makePage([...returned, full], fullCursor);
-    if (fits(candidate, maxBytes)) {
+    if (byteOffset === 0 && fits(candidate, maxBytes)) {
       returned.push(full);
       blockIndex++;
       byteOffset = 0;

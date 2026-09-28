@@ -34,6 +34,22 @@ latest execution, and the cumulative review target; and on-demand history. It ne
 Unknown dependency data stays unknown: a missing dependency graph is not proof
 that a gate can be skipped.
 
+The serialized overview is capped at the smaller of 4096 UTF-8 bytes and one
+quarter of `max_bytes`. When it exceeds that limit, it retains lifecycle and
+next-entry routing plus a reference to the required `overview-details` block.
+That block always contains the complete overview fields and participates in
+normal continuation paging. Dynamic expansion records are returned without a
+64-record cutoff in `global-gates.dynamic_expansions`; the overview carries only
+their count and block reference. Follow all required continuations before using
+the context. Budgets too small for the response envelope still fail explicitly.
+For closed or archived tasks, `next_entry` is null and `next_options` is empty;
+historical unfinished steps and findings remain facts, not repair instructions.
+The same terminal rule applies to paged content: `global-gates.policy_gates` is
+empty, `ordinary_attempt_admission` is null, and the overview's
+`gates.blocked_repair_continuation` is null. Retained dynamic-review flags,
+expansions, attempt history and pending reviews describe unfinished historical
+work; they do not recommend executing against the archived task.
+
 ```powershell
 node .workflow-system/runtime/dist/cli.js validate --summary --root <project>
 '{"entry":"preflight-step","max_bytes":16384}' |
@@ -545,8 +561,8 @@ receipt, changed review target, cross-execution binding, replay conflict, and
 target-set conflict remain hard rejects and require a fresh correctly bound
 request. A decision never produces `clean` or PASS. For new user-directed advancement, use `step-decision-context` below. Preserve
 the original failed/missing evidence without synthesizing a not-run report or a
-review receipt. Legacy disposition receipts remain readable as historical facts. `next_entry` must
-always be one of the declared executable commands; a prose-only recommendation
+review receipt. Legacy disposition receipts remain readable as historical facts. When non-null, `next_entry` must
+be one of the declared executable commands; a prose-only recommendation
 is a Runtime contract error.
 
 ### Retry after a blocked ordinary review

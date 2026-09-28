@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, test } from 'bun:test';
+import { parse, stringify } from 'yaml';
 import { readCanonicalCurrentTask } from '../runtime/vnext/src/kernel';
 import {
   taskContext,
@@ -40,6 +41,135 @@ function withoutHistoryNavigation(value: ReturnType<typeof taskContext>): unknow
 }
 
 describe('vNext task context projection', () => {
+  test.each(['active', 'archived'])('keeps historical dynamic review facts without terminal execution advice (%s)', (lifecycle) => {
+    const template = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8');
+    const parts = template.split(/^---\s*$/m);
+    const frontmatter = parse(parts[1]!);
+    const state = frontmatter.runtime_state;
+    state.workflow_status = lifecycle === 'active' ? 'active' : 'closed';
+    state.lifecycle_state = lifecycle;
+    state.active_step_status = 'in-progress';
+    state.dynamic_review_required = true;
+    state.dynamic_expansions = [{
+      path: 'docs/workflow/discovered.md', domain: null,
+      assessment: {
+        target: { path: 'docs/workflow/discovered.md' }, reason: 'Retained discovery awaiting review',
+        blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+        evidence_refs: ['test:retained-discovery'], disposition: 'self-admit',
+      },
+      first_touch_state: 'file', admitted_at: '2026-09-28T00:00:00.000Z',
+    }];
+    const body = parts.slice(2).join('---')
+      .replace('- 当前状态：closed', `- 当前状态：${state.workflow_status}`)
+      .replace('- 生命周期状态：archived', `- 生命周期状态：${state.lifecycle_state}`);
+    const root = fixtureRoot(`---\n${stringify(frontmatter)}---\n${body}`);
+    try {
+      const before = currentOf(root);
+      const chunks = new Map<string, string>();
+      const values = new Map<string, any>();
+      let continuation: unknown;
+      let pages = 0;
+      do {
+        const page = taskContext(root, { max_bytes: 4096, ...(continuation ? { continuation } : {}) });
+        if (lifecycle === 'archived') {
+          expect(page.overview.next_entry).toBeNull();
+          expect(page.overview.next_options).toEqual([]);
+        }
+        for (const block of page.blocks) {
+          if (block.text !== undefined) {
+            const previous = chunks.get(block.id) ?? '';
+            expect(block.byte_offset).toBe(Buffer.byteLength(previous));
+            chunks.set(block.id, previous + block.text);
+            if (!block.truncated) values.set(block.id, JSON.parse(previous + block.text));
+          } else {
+            values.set(block.id, block.value);
+          }
+        }
+        continuation = page.continuation;
+        if (!continuation) expect(page.complete_for_operation).toBe(true);
+        expect(++pages).toBeLessThan(100);
+      } while (continuation);
+      const gates = values.get('global-gates');
+      const details = values.get('overview-details');
+      expect(gates.dynamic_review_required).toBe(true);
+      expect(gates.dynamic_expansions).toEqual(state.dynamic_expansions);
+      if (lifecycle === 'archived') {
+        expect(gates.policy_gates).toEqual([]);
+        expect(gates.ordinary_attempt_admission).toBeNull();
+        expect(details.gates.blocked_repair_continuation).toBeNull();
+        expect(details.repair_execution_recovery).toBeNull();
+      } else {
+        expect(gates.policy_gates).toContainEqual(expect.objectContaining({
+          code: 'DYNAMIC_REVIEW_REQUIRED', command: 'record-user-decision', effect: 'continue-after-warning',
+        }));
+        expect(gates.ordinary_attempt_admission.creates_attempt).toBe(true);
+      }
+      expect(currentOf(root).runtimeState).toEqual(before.runtimeState);
+      expect(fs.readFileSync(before.filePath, 'utf8')).toBe(before.raw);
+      expect(fs.existsSync(path.join(root, 'docs/workflow/task-data'))).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test.each([4096, 16384, 65536])('bounds the overview and losslessly pages large expansion history at %i bytes', (maxBytes) => {
+    const template = fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8');
+    const parts = template.split(/^---\s*$/m);
+    const frontmatter = parse(parts[1]!);
+    const expansions = Array.from({ length: 70 }, (_, index) => ({
+      path: `docs/workflow/extension-${index}.md`, domain: null,
+      assessment: {
+        target: { path: `docs/workflow/extension-${index}.md` },
+        reason: '保留完整扩展依据。'.repeat(60),
+        blast_radius: { locality: 'local', visibility: 'private', cross_component_consumers: 'none', contract_impact: 'none' },
+        evidence_refs: ['test:expansion-history'], disposition: 'self-admit',
+      },
+      first_touch_state: 'file', admitted_at: '2026-09-28T00:00:00.000Z',
+    }));
+    frontmatter.runtime_state.dynamic_expansions = expansions;
+    // A long title exercises summary overflow independently of expansion arrays.
+    const title = '上下文标题'.repeat(1000);
+    const body = parts.slice(2).join('---').replace('Bootstrap baseline (non-executable)', title);
+    const root = fixtureRoot(`---\n${stringify(frontmatter)}---\n${body}`);
+    try {
+      const before = fs.readFileSync(path.join(root, 'docs/workflow/CURRENT_TASK.md'), 'utf8');
+      const values = new Map<string, unknown>();
+      const chunks = new Map<string, string>();
+      let continuation: unknown;
+      let pageCount = 0;
+      do {
+        const page = taskContext(root, { max_bytes: maxBytes, ...(continuation ? { continuation } : {}) });
+        expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(maxBytes);
+        expect(Buffer.byteLength(JSON.stringify(page.overview))).toBeLessThanOrEqual(Math.min(4096, maxBytes / 4));
+        expect(page.overview.next_entry).toBeNull();
+        expect(page.overview.next_options).toEqual([]);
+        for (const block of page.blocks) {
+          if (block.text !== undefined) {
+            const previous = chunks.get(block.id) ?? '';
+            expect(block.byte_offset).toBe(Buffer.byteLength(previous));
+            chunks.set(block.id, previous + block.text);
+            if (!block.truncated) values.set(block.id, JSON.parse(previous + block.text));
+          } else {
+            expect(chunks.has(block.id)).toBe(false);
+            values.set(block.id, block.value);
+          }
+        }
+        continuation = page.continuation;
+        if (!continuation) expect(page.complete_for_operation).toBe(true);
+        expect(++pageCount).toBeLessThan(500);
+      } while (continuation);
+      expect((values.get('global-gates') as any).dynamic_expansions).toEqual(expansions);
+      const details = values.get('overview-details') as any;
+      expect(details.identity.title).toBe(title);
+      expect(details.dynamic_mutation).toMatchObject({ expansion_count: 70, expansions_block: { reference: 'global-gates' } });
+      expect(details.dynamic_mutation.expansions).toBeUndefined();
+      expect(fs.readFileSync(path.join(root, 'docs/workflow/CURRENT_TASK.md'), 'utf8')).toBe(before);
+      expect(fs.existsSync(path.join(root, 'docs/workflow/task-data'))).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }, 30000);
+
   test('keeps the default projection stable when unrelated persistent history grows', { timeout: 20_000 }, () => {
     const root = fixtureRoot();
     try {
@@ -85,7 +215,7 @@ describe('vNext task context projection', () => {
     }
   });
 
-  test('paginates required Unicode context without overlap or silent omission', () => {
+  test.each([false, true])('paginates Unicode context without overlap or omission (increase budget: %s)', (increaseBudget) => {
     const body = `${fs.readFileSync(path.join(ROOT, 'templates', 'vnext', 'bootstrap', 'CURRENT_TASK.md'), 'utf8')}\n## Long Constraint\n\n${'中文约束内容。'.repeat(1000)}\n`;
     const root = fixtureRoot(body);
     try {
@@ -96,7 +226,7 @@ describe('vNext task context projection', () => {
       let final: ReturnType<typeof taskContext> | undefined;
       let totalBytes: number | undefined;
       do {
-        const page = taskContext(root, { max_bytes: 16 * 1024, ...(continuation === undefined ? {} : { continuation }) });
+        const page = taskContext(root, { max_bytes: increaseBudget && pages > 0 ? 64 * 1024 : 16 * 1024, ...(continuation === undefined ? {} : { continuation }) });
         pages += 1;
         for (const block of page.blocks) {
           if (block.text === undefined) continue;
