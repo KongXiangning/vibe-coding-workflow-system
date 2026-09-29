@@ -43,14 +43,69 @@ clear. Discovery is not write permission. Ask only when a genuinely unresolved
 user-owned choice changes the requested work. Do not invent a new user quote,
 permission, risk acceptance or test result.
 
+## One-time confirmation for workflow deviations
+
+This applies to every entry and mode, not only review, approval or closure. When an
+old gate would have stopped work, identify its real consequence rather than restoring
+the gate. Use the latest applicable user instructions, plan, execution, review and
+disposition records; an unsynchronized CURRENT_TASK alone does not prove a missing
+review or a new conflict. Superseded workflow rules do not regain authority.
+
+**Continue without confirmation** for record/read/search operations, stale receipts,
+missing metadata, index repair and equivalent implementation details already covered
+by the request. Preserve gaps and use available authorized tools; neither those
+conditions nor an old error code creates a user decision. Never rerun work just to
+make a record fit. A real business/I/O failure must still be reported truthfully.
+
+**Ask once before the affected action** when it materially departs from an applicable
+workflow commitment and the user has not already made that informed choice. Examples
+include finishing without the expected review or checks, proceeding with unresolved
+findings, changing planned scope/acceptance/validation, changing execution order or
+retry policy, replacing or stopping unfinished work, and replacing independent review
+with self-review. These are examples, not a closed list. Do not solicit an unrelated
+exception or expand the task merely because one is possible.
+
+State the intended action, expected workflow, actual gap and concrete consequences.
+Bundle all currently known deviations for that action into one understandable question;
+include the proposed action and a meaningful alternative, not internal gate IDs.
+Wait only for that choice: silence is not consent and the proposed action has not
+happened. Independent authorized reading/recording remains available. If the user's
+current request or still-effective earlier instruction already explicitly covers the
+same action and disclosed consequences, use it without asking the same question again.
+A bare "complete the task", test PASS or next_route is not informed deviation consent.
+
+After confirmation, carry out exactly the chosen action, including any authorized
+remaining stages, without requiring another Skill invocation, a waiver receipt,
+clean review, legacy state repair or another approval for the same disclosed gap.
+Record the actual outcome, not just the decision. For step/task disposition use the
+assistance journal; do not send the choice back through an incompatible legacy
+complete/advance/close gate. Completion of work and verification remain separate.
+Confirmation never turns failed/not-run/unknown into PASS or self-review into independent
+review. It authorizes only the chosen work; file changes, deletion, commit or deployment
+outside its disclosed scope remain unauthorized.
+
+Reuse a decision for the same target, action and disclosed consequences, including
+across sessions. Check actual relevant changes, not a global revision or time-to-live.
+Audit additions, reindexing, equivalent receipt refresh or switching sessions alone do
+not invalidate it. Ask again only about material new consequences, a changed target or
+action, or a revised/revoked instruction; show what changed. A prior one-step decision
+is not blanket permission for later work. Do not invent earlier consent if unavailable.
+
+Keep the user's actual source/text separate from the agent's summary. Use existing
+`record` with kind `decision`, plus links from the later outcome; include the target,
+choice, disclosed gaps and scope as available. These are recording conventions, not
+required token fields or Runtime authorization. A recording failure does not revoke
+a choice still available in the conversation: report it and use another authorized
+recording method. Never claim the journal or legacy projection was updated when not.
+
 ## Lifecycle and review
 
 Preparation, execution, review and disposition are distinct observations. New
 plans and corrections link previous plans and preserve their history. Lifecycle
 changes record user intent without forcing unfinished work to be completed first.
-Before irreversible or incomplete termination, show concrete consequences and
-obtain the appropriate user confirmation; do not ask again for unchanged internal
-receipts. Closure neither rolls back code nor grants Git/deployment permission.
+Use One-time confirmation for workflow deviations for unresolved choices before
+irreversible or incomplete termination; an already sufficient decision is reused.
+Closure neither rolls back code nor grants Git/deployment permission.
 
 By default execute includes implementation self-check, not a fresh formal review.
 Creating a review requires an instruction that actually covers it; an explicit

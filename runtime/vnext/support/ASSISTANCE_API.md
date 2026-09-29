@@ -62,11 +62,64 @@ verified-state store. Existing task-data, task-history, task IDs and reports sta
 unchanged. Install/upgrade manifests must never own the journal.
 
 Recommended kinds: `plan`, `execution`, `test-plan`, `test-run`, `review`,
-`finding`, `decision`, `task-disposition`, `lesson`, `reconciliation`.
+`finding`, `decision`, `step-disposition`, `task-disposition`, `lesson`, `reconciliation`.
 New plans/dispositions refer to the old plan/report using `links`; keep the
 original requirement and authorization verbatim, separate from agent inference.
 Corrections are new records. A closed disposition means the user stopped/finished
 the work; it is not automatic verification of the work.
+
+## Recording a workflow-deviation decision
+
+The Skill applies **One-time confirmation for workflow deviations** in
+WORKFLOW_PROTOCOL. This service does not detect consent, ask questions, validate an
+approval, or authorize the next operation. No new command, required schema or
+revision-bound token is involved. Use `find`/`read` to recover relevant decisions and
+outcomes; read their actual scope instead of treating any matching keyword as consent.
+An empty or partial search is not proof no decision exists. If its meaning cannot be
+established from available records/conversation, ask the concrete outstanding choice.
+
+After a real reply, save an ordinary `decision` observation. The following is only a
+shape example, NOT a user instruction, actual approval or execution evidence. Replace
+its source, text, target and consequences with the real conversation; omit unknown
+IDs instead of inventing them. A still-effective earlier informed instruction may
+already supply the decision without another question.
+
+```json
+{
+  "kind": "decision",
+  "task_ref": "TASK-EXAMPLE",
+  "body": {
+    "topic": "workflow-deviation",
+    "target": {"step": "S1"},
+    "expected_workflow": "review before ending this step",
+    "observed_facts": ["no applicable review pass found"],
+    "presented_choice": "finish with review incomplete, or review first",
+    "chosen_action": "finish S1 with review incomplete",
+    "retained_gaps": ["review incomplete"],
+    "scope": "S1 disposition only; no task closure, next step, commit or deployment",
+    "decision_source": "<actual conversation/message reference>",
+    "decision_text": "<actual user reply, verbatim>"
+  }
+}
+```
+
+Do not save a proposed question as an approved decision. A real reply to a specific
+question may be short; preserve that question's consequences with it. Record declined,
+revised or revoked decisions truthfully as later observations. The journal does not
+choose which decision controls the current work; that remains the caller's assessment.
+
+Then actually carry out the selected operation. For a step disposition, save a
+`step-disposition` outcome with its decision reference, actual review/check status and
+remaining work. Use `links: [{"relation":"implements-decision","ref":"<returned decision ref>"}]`
+when available. For plan/execution/review/task/Git operations use their existing kinds.
+A decision record alone is not evidence that any subsequent action succeeded.
+
+These fields are conventions, not required admission keys. Reuse is semantic: the same
+target, action and disclosed consequences, not a current source revision, signature,
+one-use token or expiry time. Replaying the same record never performs the action again;
+inspect the actual operation result before repeating it. Missing persistence does not
+revoke a decision still visible in the conversation. Report the missing record and use
+another authorized means; do not fabricate a saved reference or force a legacy waiver.
 
 ## Fixed evidence, not current-file guesses
 
