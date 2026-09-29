@@ -65,7 +65,8 @@ test('close 004, prepare/adopt 005, execute/review/dispose/commit/close share on
   assert.equal(committed.task.commits[0].verification, 'local-git-object');
   assert.equal(committed.task.commits[0].pushed, 'not-inferred');
   task(root, { action: 'step', state: 'skipped', decision_text: 'defer device smoke' });
-  const end = task(root, { action: 'close', decision_text: 'close with gaps', remaining_work: ['device smoke not run', 'F1'] });
+  const closeRequest = { action: 'close', decision_text: 'close with gaps', remaining_work: ['device smoke not run', 'F1'], idempotency_key: 'close-app' };
+  const end = task(root, closeRequest);
   assert.equal(end.task.lifecycle, 'closed'); assert.equal(end.current_task_id, null);
   const after = taskStatus(root); assert.equal(after.tasks.find(x => x.display_id === 'TASK-004').lifecycle, 'closed');
   assert.equal(after.tasks.find(x => x.display_id === 'TASK-005').steps[0].review_status, 'findings');
@@ -78,6 +79,21 @@ test('close 004, prepare/adopt 005, execute/review/dispose/commit/close share on
   task(root, { action: 'execution', task_id: created.task_id, plan_ref: created.ref, step_id: 'S1', result: 'blocked', historical: true });
   assert.equal(taskStatus(root).current_task, null);
   assert.equal(git(root, ['rev-list', '--count', 'HEAD']), '1');
+  const closeBytes = bytes(root, end.ref);
+  const resumed = task(root, { action: 'resume', task_id: created.task_id, decision_text: 'resume with gaps retained' });
+  const eventsBeforeReplay = fs.readdirSync(path.join(root, '.workflow-system/records/events')).sort();
+  const closeReplay = task(root, closeRequest);
+  assert.equal(closeReplay.ref, end.ref);
+  assert.equal(closeReplay.recorded, true);
+  assert.equal(closeReplay.status, 'applied');
+  assert.equal(closeReplay.association, 'applied');
+  assert.equal(closeReplay.issues.some(i => i.code === 'ASSOCIATION_NOT_APPLIED'), false);
+  assert.equal(closeReplay.task.lifecycle, 'active');
+  assert.equal(closeReplay.task.lifecycle_ref, resumed.ref);
+  assert.ok(closeReplay.task.dispositions.some(d => d.ref === end.ref && d.action === 'close'));
+  assert.deepEqual(bytes(root, end.ref), closeBytes);
+  assert.deepEqual(fs.readdirSync(path.join(root, '.workflow-system/records/events')).sort(), eventsBeforeReplay);
+  assert.equal(taskStatus(root).current_task.lifecycle_ref, resumed.ref);
 });
 
 test('fact/view failure split, read-through freshness, display preservation and rebuild do not replay work', t => {

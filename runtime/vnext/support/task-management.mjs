@@ -325,6 +325,8 @@ export function taskView(root, input, io) {
       legacy_source: task.baseline?.source_ref ?? null, legacy_plan_ref: task.baseline?.plan_ref ?? null, heads: maxima(events).map(e => e.ref) });
     const applied = [
       ...events.filter(e => e.action === 'prepare' && e.data.plan && typeof e.data.plan === 'object'),
+      // Valid lifecycle history remains associated after a later decision takes over.
+      ...events.filter(e => ['close', 'pause', 'resume'].includes(e.action)),
       ...executions, ...tests, ...reviews, ...decisions, ...commits, ...dispositions,
       ...(adopted?.ref ? [adopted] : []), ...(life?.ref ? [life] : []),
     ];
