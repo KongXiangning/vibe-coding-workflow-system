@@ -18,10 +18,11 @@ bun run test:workflow-all
 bun run workflow:health --root .
 ```
 
-## vNext Authorization Design
+## vNext Assistance Design
 
-- Runtime admission and lifecycle changes must preserve `docs/product/vnext-authorized-intent.md`.
-- Agent-side validation and unverified delivery boundaries are recorded in `docs/ops/vnext-authorized-intent-validation.md`; source submission is not behavioral acceptance.
+- Default workflow policy is `docs/product/vnext-assistance-runtime.md`; it supersedes older mandatory admission/recovery instructions while preserving historical truth and user scope.
+- Use the non-blocking service in `runtime/vnext/support/ASSISTANCE_API.md`. Do not require the old task kernel to approve ordinary development or recording.
+- Validation scope and delivery limits: `docs/ops/vnext-assistance-validation.md`. Do not automatically run `test:workflow-all`; source changes are not deployment proof.
 
 ## Key Conventions
 

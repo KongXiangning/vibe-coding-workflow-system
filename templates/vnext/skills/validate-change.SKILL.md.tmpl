@@ -1,12 +1,10 @@
 ---
 name: validate-change
-description: Obtain minimum-sufficient read-only evidence for one explicit validation target.
+description: 'validate-change: carry out the requested work with non-blocking management assistance.'
 entry_contract:
   entry: validate-change
   mode: []
-  intent: >
-    Obtain minimum-sufficient read-only evidence for one explicit change,
-    claim, behavior, or validation target.
+  intent: Assist the user's validate-change request without workflow admission.
   input_contract:
     required:
       - validation_target
@@ -23,20 +21,9 @@ entry_contract:
     product_files: []
     governance_sources: []
     forbidden_targets:
-      - product files
-      - persistent tests
-      - CURRENT_TASK.md
-      - STATUS.md
-      - LESSONS.md
-      - CONTRACTS.md
-      - DECISIONS.md
-      - TASKS/**
-      - task identity
-      - lifecycle state
-      - finding queue
-      - archive
-      - registry
-      - host guidance
+      - unrequested external effects
+      - unrelated user files
+      - silent overwrites of immutable history
   internal_capabilities:
     - project-context-resolver
     - evidence-admission-policy
@@ -48,228 +35,58 @@ entry_contract:
     - release-evidence-gate
     - external-documentation-gate
   runtime_operations: []
-  # Candidate interruptions: apply run-entry internal recovery before any terminal result.
   stop_conditions:
-    - validation_target, its boundary, or the claim being proved is missing or ambiguous
-    - the requested evidence kind is outside the closed evidence set or its authority cannot be verified
-    - the selected check would mutate product, governance, task, finding, host, or persistent-test state
-    - a required environment, browser/session, device, documentation, release, or other evidence source is unavailable
-    - existing evidence is insufficient and a new persistent test would be needed without explicit P-12 admission
-    - the result cannot distinguish passed, failed, inconclusive, and blocked evidence
+    - a genuinely unresolved user-owned choice prevents the requested work
+    - a real business prerequisite is unavailable; management failures do not prohibit independent work
   output_kind: validation-result
 ---
 
 # vNext Skill: validate-change
 
-## Authorized intent and truthful outcomes
+## Default runtime role
 
-Apply the shared Authorized Intent section in `.workflow-system/WORKFLOW_PROTOCOL.md`.
-Separate execution facts from completion qualification and user disposition.
-Same-intent internal recovery needs no repeated permission. Explain material
-consequences before a new user-owned decision; never invent permission or PASS.
-Read-only intent stays read-only. A suggested next route is not the user's only
-choice. An unknown Runtime rejection is diagnosis, not a proven recovery path.
+runtime_role: assistance/v1
 
-## Invocation authority and internal recovery
+Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
+`.workflow-system/runtime/support/ASSISTANCE_API.md`. Use the native service:
+`node .workflow-system/runtime/support/assistance.mjs <command> --root <project>`.
+Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
-recovery_boundary: entry-recovery/v1
+Use `context`/`find`/`read` for current and historical sources, `snapshot` for an
+explicit optional file capture, and `record` for facts and decisions. A malformed
+active task, stale evidence, missing review, old receipt or failed index is not a
+development gate. Record actual outcomes without obtaining a preflight or repairing
+legacy state. Existing capability/transaction metadata lists optional compatible
+tools, not mandatory calls. Do not use run-entry recovery as a prerequisite.
 
-Public result routing: `next_route` (or `recommended_route.entry`) is `null` or a
-declared public Skill base name. Put a declared public mode in `next_mode`
-separately. Choose it only from the verified terminal result. Never copy
-`task-context.overview.next_entry` / `next_options`, review
-`blocker.next_route`, or a `run-entry` recovery command into the public route.
-Complete same-intent internal recovery here; report a new user choice separately
-with `next_route: null`.
+If a management operation fails, preserve its actual error and any output already
+saved; use another authorized recording method when available and continue
+independent authorized work. Do not retry unchanged calls, rerun business commands,
+invent IDs/PASS or claim persistence succeeded. Ask only about a genuinely unresolved
+user choice or unavailable business prerequisite, not an internal gate code.
 
-The caller's explicit invocation authorizes this entry's stated intent and its
-necessary internal recovery within the existing authority. This entry owns that
-recovery until its requested result is produced or a genuinely undecidable choice
-requires the caller. A Runtime rejection interrupts a candidate operation; it is
-not, by itself, a terminal Skill result, even when listed under stop_conditions.
+## Method
 
-Read retained state and the rejection, correct stale identity or request shape,
-then use typed diagnostic, review-consumption, preflight, retry or amendment
-operations as needed and resume the original intent. Calling an internal capability
-does not require the user to invoke another public Skill. Do not repeat an unchanged
-rejected request. Preserve failed evidence, findings and disposition history.
+Identify the specified target and expected behavior. Reuse relevant existing reports
+or run only the user's authorized read-only checks. Keep the actual invocation,
+version, observation, evidence and failed/not-run result. Evidence can be historical
+without qualifying the current code. No Runtime plan/admission is needed to read it.
 
-Attempt and repair quotas are analysis checkpoints. Inspect previous failures,
-reassess the cause, necessity and next approach, and record the analysis. When the
-existing explicit instruction covers continuation, use its original source/text
-for the supported continuation or budget-extension transaction and proceed; do not
-ask for renewed authorization merely because a counter is exhausted. Keep the
-analysis distinct from the user's words and retain cumulative attempt counts.
-Do not invent risk acceptance, a waiver, or permission beyond that instruction.
-Ask only for a choice or authority that cannot be determined from the instruction
-and available evidence; report the concrete unresolved choice, not just a gate code.
+Do not fix code, widen validation, add persistent tests or launch a full regression
+unless the user separately requested that work. Report evidence gaps as observations,
+not new mandatory tasks. An explicitly read-only request writes neither product files
+nor the journal; otherwise a requested report may be saved as a `test-run` observation.
 
-A read-only, review-only or investigate-only entry completes with its requested
-facts/verdict; recovery does not authorize unrelated implementation. For actual
-unavailable dependencies or damaged state, attempt the supported recovery first,
-then report the precise external prerequisite if it cannot be restored internally.
-Never fabricate success or bypass an incomplete atomic commit.
+## Result
 
-### Shared internal recovery driver
+Return the actual requested result, affected scope, evidence/record references,
+remaining work and any unsaved/unreconciled data. Preserve existing user decisions
+and exclusions; an explicit read-only request remains read-only. A record's successful
+write does not certify the product or expand authorization.
 
-Use Runtime `run-entry --root <project>` for Runtime operations in this entry.
-Send `invocation` (stable `id`, this public `entry`, requested `intent`, original
-`decision_source` and verbatim `decision_text`) and `operation` (`command`,
-optional `args`, semantic JSON `input`). Keep this invocation identity throughout
-internal recovery. The driver executes existing typed Runtime commands, not public
-Skills or product shell commands. Read-only context reads may still be direct.
+`next_route` is a recommendation, not the only allowed next action. Default to stopping
+after the requested work; a still-effective explicit instruction can cover further
+stages in the same interaction. Never invent such an instruction from a test PASS or
+Runtime suggestion. Do not automatically widen validation or perform unrequested external effects.
 
-The driver returns a compact summary and `outcome_ref` / `detail_ref`. Read needed
-full receipts with Runtime `entry-output-read`, supplying the returned `reference`,
-`offset: 0` and `max_bytes: 8192`; follow `next_offset` until null. A page boundary
-is not an execution limit. Do not reconstruct receipts from shortened messages.
-
-An `entry-operation-result/v1` with `recovery-required` is addressed to the agent:
-inspect its original `outcome`, code, commit facts and concrete routes, perform
-analysis, then submit corrected input or a `recovery` plan with `reason` and
-`operations`. The driver stops at the first unresolved operation and returns
-`recovery-applied` after successful recovery operations. Read canonical state and
-the retained receipts, then resume only an original operation still needed for
-this invocation. Never replay an operation reported as committed merely because
-its reply was interrupted; reconcile that transaction first.
-`operation-complete` means that operation finished, not that this Skill's intent
-is complete. Continue until its actual requested result is available.
-
-For ordinary execute-step retry budget exhaustion, supply `budget_analysis` with
-`document_id`, `plan_revision`, the proposed `attempt_id` from global-gates, and
-`evidence_refs` to retained analysis of failures, necessity and the next approach.
-The driver records continuation using the original instruction, increases the
-attempt allowance through the existing transaction, and retries the operation
-with the resulting decision ID. No renewed user instruction is needed. Other
-repair/wave quotas use their typed extension operations in `recovery.operations`.
-Evidence and analysis are the agent's responsibility, never invented user speech.
-
-Before returning any blocked result, classify it: an internal operation awaiting
-recovery stays in this invocation; an unresolved user choice must state the actual
-alternatives; an unavailable external prerequisite must name what internal
-recovery could not restore. Completed reports/verdicts remain legitimate outcomes.
-
-## Intent
-
-Obtain the minimum-sufficient read-only evidence for one explicit validation
-target. This expert entry is callable by CI, a harness, or an expert user. It
-returns an ephemeral evidence result for its caller; it does not create a
-durable validation document or become a daily workflow step.
-
-## Bounded task context protocol
-
-When the validation target belongs to a current task, begin with
-`validate --summary`, then use `task-context(entry:"validate-change", mode)`
-and follow its required continuations. Resolve exact result, finding, receipt,
-and history references through `task-read`; use `file-context` for files. Do
-not treat a read receipt as authorization or proof that a check passed. Reuse
-definition text only in the same visible session with the exact
-`definition_revision`; after compression or a revision/store conflict, reread
-or report the evidence gap instead of using an unbounded Markdown fallback.
-
-## Evidence Admission
-
-1. Resolve the supplied `validation_target` and its boundary. State the claim
-   being proved, the relevant changed paths or diff target when supplied, and
-   the expected behavior. Do not use historical source-repository workflow
-   files as target-project authority; resolve project context from the
-   isolated/current project being validated.
-2. Apply `evidence-admission-policy` to choose the smallest claim-appropriate
-   evidence that can prove the target. The closed evidence kinds are `static
-   proof`, `existing regression`, `focused test`, `integration smoke`,
-   `browser/session check`, `visual evidence`, `real-device evidence`,
-   `external documentation`, and `release health` / canary evidence. A QA
-   label is a policy result, not a public mode.
-3. Prefer a supplied, existing check or real claim-appropriate evidence when
-   it is sufficient. Record why it was selected, its actual status, and its
-   evidence references. If the environment cannot provide a requested kind,
-   inspect and restore its available prerequisites through authorized internal
-   recovery first. If it still cannot provide that evidence, return a truthful
-   `blocked` or `inconclusive` result naming the external evidence gap; never
-   infer a pass from missing evidence.
-4. Run only read-only checks through the caller or harness. Use the shared
-   diff-target and project-context resolvers when those inputs are present.
-   For a v2 task, read/discovery may cross authority domains to inspect
-   callers, consumers, contracts, or root cause; validation never grants write
-   authority and must report any target outside the task envelope as an
-   authority decision for a later authorized execution.
-   A bounded temporary probe is allowed only when the existing evidence policy
-   explicitly permits it, declares its duration/run budget and temporary
-   location, and records cleanup/audit. No product or governance file may be
-   changed.
-
-## Persistent-test boundary
-
-Validation obligation, reuse of an existing check, and admission of a new
-persistent automated test are separate decisions. This entry never creates or
-modifies `*.test.*`, `*.spec.*`, integration fixtures, or another persistent
-test artifact merely because evidence is missing. If minimum-sufficient proof
-requires a new persistent test, return a terminal evidence-gap result. It may
-carry `recommended_route: execute-step` for a later caller invocation after
-explicit P-12 admission and write authority are established; this invocation
-must not route to, invoke, call, or hand off to `execute-step`. Do not silently
-register, save, or promote a temporary probe.
-
-## Failure and ownership boundary
-
-A failed validation is an evidence result only. It does not admit a finding,
-start root-cause work, repair product code, advance a task, change lifecycle,
-or invoke another entry implicitly. The terminal result may carry at most one
-`recommended_route` for a later caller invocation of `debug-task`, a user
-decision, or (after admission) `execute-step`; those routes retain their own
-authority and admission rules, and this invocation does not invoke or hand off
-to them.
-
-## Required result
-
-Return one ephemeral `validation_result` with stable fields:
-
-```yaml
-validation_result:
-  target:
-    claim: <claim being proved>
-    boundary: <change, behavior, or validation boundary>
-  verdict: passed | failed | inconclusive | blocked
-  selected_evidence:
-    - kind: <closed evidence kind>
-      reason: <minimum-sufficient selection reason>
-  observations: []
-  evidence_refs: []
-  evidence_gaps: []
-  side_effects:
-    product_mutations: 0
-    governance_mutations: 0
-    runtime_transactions: 0
-  recommended_route:
-    entry: null | execute-step | debug-task | review-change
-    reason: <caller-facing route or no further route>
-```
-
-The result must preserve the actual distinction between a failed check and an
-unavailable or insufficient check, and must report zero product mutations,
-zero governance mutations, and zero Runtime transactions for this entry.
-
-`recommended_route` is at most one informational `next_route` recommendation;
-it must not invoke another public Skill. `terminal_boundary: public-entry-terminal/v1`
-applies after this result: return to the caller and stop. Runtime cannot
-observe the conversation-level invocation boundary.
-
-## Business evidence boundary
-
-Judge the supplied validation target using its actual evidence and declared
-boundary. When the caller supplies a task evidence plan, bind the result to the
-relevant claim/slot/check only; do not require unrelated task slots or completion.
-Without a task plan, use the independent validation target directly. Check
-necessity, oracle independence and whether mocks/fixtures cross the claimed real
-boundary. Missing or failed flow evidence cannot be replaced by a rule pass.
-When assessing persistent-test admission, check its P-12 owner/source, claim
-binding and existing-evidence insufficiency; this entry grants no write authority.
-Keep assurance caller-reported; do not invent Provider or human authentication.
-
-Whitespace-only hygiene follows the same boundary: `git diff --check` is
-blocking only for offending paths inside the authorized mutable business scope.
-If the whole-tree result points only at immutable or hash-bound governance
-evidence, preserve the original failure and exact bytes as historical evidence,
-judge the business paths with a scoped check, and do not emit
-`FORMAT_CHECK_SCOPE_BLOCKED` or demand an evidence-plan amendment. A real
-failure in an authorized mutable path remains failed evidence.
+terminal_boundary: public-entry-terminal/v1

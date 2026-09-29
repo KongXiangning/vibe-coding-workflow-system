@@ -1,15 +1,16 @@
 ---
 name: capture-work-item
-description: Record one unrelated work item without promoting it into the active task.
+description: Record a work item without activating it or requiring workflow admission.
 entry_contract:
   entry: capture-work-item
   mode: []
-  intent: Record one work item proven unrelated to the active task without promoting or switching it.
+  intent: Retain the requested work item without authorizing implementation.
   input_contract:
     required:
-      - work_item
-      - relation_to_current_task
+      - user_request
     optional:
+      - existing_plan
+      - historical_evidence
       - evidence
       - duplicate_check
       - proposed_owner
@@ -19,18 +20,9 @@ entry_contract:
     product_files: []
     governance_sources: []
     forbidden_targets:
-      - product files
-      - Contracts
-      - Decisions
-      - Lessons
-      - CURRENT_TASK.md
-      - task identity
-      - lifecycle state
-      - task catalog
-      - archive
-      - registry
-      - installation surface
-      - host surface
+      - unrequested external effects
+      - unrelated user files
+      - silent overwrites of immutable history
   internal_capabilities:
     - record-only-intake-guard
     - owner-route-resolver
@@ -38,124 +30,54 @@ entry_contract:
     - project-context-resolver
   runtime_operations:
     - inbox-record-transaction
-  # Candidate interruptions: apply run-entry internal recovery before any terminal result.
   stop_conditions:
-    - relation to the active task is uncertain or duplicate suspicion is unresolved
-    - the item belongs to the active task or requires scope widening
-    - owner or record identity cannot be established
-    - the proposal would create, switch, or mutate task, lifecycle, identity, catalog, or archive state
-    - the request uses an old or unsupported workflow schema
+    - a genuinely unresolved user-owned choice prevents the requested work
+    - a real business prerequisite is unavailable; management failures do not prohibit independent work
   output_kind: capture-result
 ---
 
 # vNext Skill: capture-work-item
 
-## Authorized intent and truthful outcomes
+## Default runtime role
 
-Apply the shared Authorized Intent section in `.workflow-system/WORKFLOW_PROTOCOL.md`.
-Separate execution facts from completion qualification and user disposition.
-Same-intent internal recovery needs no repeated permission. Explain material
-consequences before a new user-owned decision; never invent permission or PASS.
-Read-only intent stays read-only. A suggested next route is not the user's only
-choice. An unknown Runtime rejection is diagnosis, not a proven recovery path.
+runtime_role: assistance/v1
 
-## Invocation authority and internal recovery
+Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
+`.workflow-system/runtime/support/ASSISTANCE_API.md`. Use the native service:
+`node .workflow-system/runtime/support/assistance.mjs <command> --root <project>`.
+Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
-recovery_boundary: entry-recovery/v1
+Use `context`/`find`/`read` for current and historical sources, `snapshot` for an
+explicit optional file capture, and `record` for facts and decisions. A malformed
+active task, stale evidence, missing review, old receipt or failed index is not a
+development gate. Record actual outcomes without obtaining a preflight or repairing
+legacy state. Existing capability/transaction metadata lists optional compatible
+tools, not mandatory calls. Do not use run-entry recovery as a prerequisite.
 
-Public result routing: `next_route` (or `recommended_route.entry`) is `null` or a
-declared public Skill base name. Put a declared public mode in `next_mode`
-separately. Choose it only from the verified terminal result. Never copy
-`task-context.overview.next_entry` / `next_options`, review
-`blocker.next_route`, or a `run-entry` recovery command into the public route.
-Complete same-intent internal recovery here; report a new user choice separately
-with `next_route: null`.
+If a management operation fails, preserve its actual error and any output already
+saved; use another authorized recording method when available and continue
+independent authorized work. Do not retry unchanged calls, rerun business commands,
+invent IDs/PASS or claim persistence succeeded. Ask only about a genuinely unresolved
+user choice or unavailable business prerequisite, not an internal gate code.
 
-The caller's explicit invocation authorizes this entry's stated intent and its
-necessary internal recovery within the existing authority. This entry owns that
-recovery until its requested result is produced or a genuinely undecidable choice
-requires the caller. A Runtime rejection interrupts a candidate operation; it is
-not, by itself, a terminal Skill result, even when listed under stop_conditions.
+## Method
 
-Read retained state and the rejection, correct stale identity or request shape,
-then use typed diagnostic, review-consumption, preflight, retry or amendment
-operations as needed and resume the original intent. Calling an internal capability
-does not require the user to invoke another public Skill. Do not repeat an unchanged
-rejected request. Preserve failed evidence, findings and disposition history.
+Capture the requested item with its original source, desired result, context and
+relationship to existing work. Use `record` with kind `work-item`; task identity and
+priority can remain unknown. Do not require an active task, an inbox schema migration
+or a clean current task. Capturing is not authorization to implement the item.
+Return the saved reference and any genuinely missing information.
 
-Attempt and repair quotas are analysis checkpoints. Inspect previous failures,
-reassess the cause, necessity and next approach, and record the analysis. When the
-existing explicit instruction covers continuation, use its original source/text
-for the supported continuation or budget-extension transaction and proceed; do not
-ask for renewed authorization merely because a counter is exhausted. Keep the
-analysis distinct from the user's words and retain cumulative attempt counts.
-Do not invent risk acceptance, a waiver, or permission beyond that instruction.
-Ask only for a choice or authority that cannot be determined from the instruction
-and available evidence; report the concrete unresolved choice, not just a gate code.
+## Result
 
-A read-only, review-only or investigate-only entry completes with its requested
-facts/verdict; recovery does not authorize unrelated implementation. For actual
-unavailable dependencies or damaged state, attempt the supported recovery first,
-then report the precise external prerequisite if it cannot be restored internally.
-Never fabricate success or bypass an incomplete atomic commit.
+Return the actual requested result, affected scope, evidence/record references,
+remaining work and any unsaved/unreconciled data. Preserve existing user decisions
+and exclusions; an explicit read-only request remains read-only. A record's successful
+write does not certify the product or expand authorization.
 
-### Shared internal recovery driver
+`next_route` is a recommendation, not the only allowed next action. Default to stopping
+after the requested work; a still-effective explicit instruction can cover further
+stages in the same interaction. Never invent such an instruction from a test PASS or
+Runtime suggestion. Do not automatically widen validation or perform unrequested external effects.
 
-Use Runtime `run-entry --root <project>` for Runtime operations in this entry.
-Send `invocation` (stable `id`, this public `entry`, requested `intent`, original
-`decision_source` and verbatim `decision_text`) and `operation` (`command`,
-optional `args`, semantic JSON `input`). Keep this invocation identity throughout
-internal recovery. The driver executes existing typed Runtime commands, not public
-Skills or product shell commands. Read-only context reads may still be direct.
-
-The driver returns a compact summary and `outcome_ref` / `detail_ref`. Read needed
-full receipts with Runtime `entry-output-read`, supplying the returned `reference`,
-`offset: 0` and `max_bytes: 8192`; follow `next_offset` until null. A page boundary
-is not an execution limit. Do not reconstruct receipts from shortened messages.
-
-An `entry-operation-result/v1` with `recovery-required` is addressed to the agent:
-inspect its original `outcome`, code, commit facts and concrete routes, perform
-analysis, then submit corrected input or a `recovery` plan with `reason` and
-`operations`. The driver stops at the first unresolved operation and returns
-`recovery-applied` after successful recovery operations. Read canonical state and
-the retained receipts, then resume only an original operation still needed for
-this invocation. Never replay an operation reported as committed merely because
-its reply was interrupted; reconcile that transaction first.
-`operation-complete` means that operation finished, not that this Skill's intent
-is complete. Continue until its actual requested result is available.
-
-For ordinary execute-step retry budget exhaustion, supply `budget_analysis` with
-`document_id`, `plan_revision`, the proposed `attempt_id` from global-gates, and
-`evidence_refs` to retained analysis of failures, necessity and the next approach.
-The driver records continuation using the original instruction, increases the
-attempt allowance through the existing transaction, and retries the operation
-with the resulting decision ID. No renewed user instruction is needed. Other
-repair/wave quotas use their typed extension operations in `recovery.operations`.
-Evidence and analysis are the agent's responsibility, never invented user speech.
-
-Before returning any blocked result, classify it: an internal operation awaiting
-recovery stays in this invocation; an unresolved user choice must state the actual
-alternatives; an unavailable external prerequisite must name what internal
-recovery could not restore. Completed reports/verdicts remain legitimate outcomes.
-
-## Intent
-
-Record one work item proven unrelated to the active task. This is a record-only intake intent, not a task-creation or task-switching path.
-
-## Operating rules
-
-1. Resolve the active task and owner only far enough to prove the new item is unrelated. Read/discovery context may be broader for that determination, but it is not write authority. Treat `scope widening`, `uncertain`, and duplicate-suspected relations as fail-closed results and route any scope change to the scope guard/replan boundary.
-2. Admit at most one inbox record with a stable identity, evidence, proposed owner route, and clear relation statement. Do not create a task, change the active task, change lifecycle or identity, or alter a catalog.
-3. The only durable action this entry may propose is one `inbox-record-transaction` with the internal `capture-work-item:record` action. The public mode set remains empty; the bound Runtime derives and writes exactly one canonical `TASKS/inbox/INBOX-<YYYYMMDD>-<short-id>-<slug>.md` record, or returns a truthful no-op, conflict, or blocked result.
-4. The Runtime record transaction is record-only: it never writes `CURRENT_TASK.md`, `STATUS.md`, `LESSONS.md`, task identity, lifecycle state, archive, catalog, or product files. Do not auto-promote the record or start another intent.
-
-## Required result
-
-Return one structured `capture_result` containing:
-
-- work-item identity, relation evidence, duplicate check, and owner route;
-- record-only admission verdict and exact inbox target;
-- a single inbox Runtime proposal and its truthful Runtime result, or a blocked/user result;
-- explicit confirmation that active task, lifecycle, identity, catalog, and archive state were not mutated;
-- at most one `next_route` recommendation, if applicable; it is informational only and must not invoke another public Skill;
-- `terminal_boundary: public-entry-terminal/v1`; after this result, return to the caller and stop. Record-only capabilities are not public Skill chaining.
+terminal_boundary: public-entry-terminal/v1

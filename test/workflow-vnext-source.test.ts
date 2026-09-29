@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { validateVNextSource } from '../scripts/vnext-source-contract';
+import { validateVNextSource, PHASE_1_ENTRIES, ADMIN_ENTRIES, EXPERT_ENTRIES } from '../scripts/vnext-source-contract';
+import { parse } from 'yaml';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const temporaryRoots: string[] = [];
@@ -46,70 +47,16 @@ afterEach(() => {
 });
 
 describe('vNext Phase 2 source contract', () => {
-  test('every public vNext entry carries the canonical terminal boundary', () => {
-    const result = validateVNextSource(ROOT);
-    const publicEntries = [
-      ...result.entries,
-      ...result.administrativeEntries,
-      ...result.expertEntries,
-    ];
-    const protocol = fs.readFileSync(
-      fixtureFile(ROOT, 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md'),
-      'utf8',
-    );
-
-    expect(protocol).toContain('## Public entry invocation terminal boundary');
-    expect(protocol).toContain('public-entry-terminal/v1');
-    expect(protocol).toContain('must not invoke the next public Skill');
-    expect(protocol).toContain('next_mode');
-    expect(protocol).toContain('Do not copy `task-context.overview.next_entry`');
-    expect(protocol).toContain('cannot observe conversation-level public Skill invocations');
-
-    for (const entry of publicEntries) {
-      const content = fs.readFileSync(
-        fixtureFile(ROOT, `templates/vnext/skills/${entry}.SKILL.md.tmpl`),
-        'utf8',
-      );
-      const requiredResult = content.indexOf('## Required result');
-      const terminalMarker = content.indexOf('terminal_boundary: public-entry-terminal/v1');
-
-      expect(requiredResult).toBeGreaterThanOrEqual(0);
-      expect(terminalMarker).toBeGreaterThan(requiredResult);
-      expect(content).toContain('next_route');
-      expect(content).toContain('Public result routing:');
-      expect(content).toContain('must not invoke another public Skill');
-    }
-  });
-
-  test('rejects positive cross-public-entry continuations while allowing caller recommendations and prohibitions', () => {
-    for (const continuation of [
-      'After this result, route to execute-step.',
-      'After this result, route through execute-step.',
-      'After this result, route it to execute-step.',
-      'Proceed to close-task.',
-      'Invoke review-change.',
-      'Call review-change.',
-      'Start execute-step.',
-      'Continue with debug-task.',
-      'Hand off to prepare-task.',
-      'Handoff to review-change.',
-      'After this result, invoke `review-change`.',
-      'After this result, automatically invoke execute-step.',
-      'The caller may invoke execute-step later, then invoke execute-step.',
-    ]) {
+  test('every public vNext entry declares a terminal boundary without a required recovery driver', () => {
+    const entries = [...PHASE_1_ENTRIES, ...ADMIN_ENTRIES, ...EXPERT_ENTRIES];
+    expect(validateVNextSource(ROOT).entries).toEqual(PHASE_1_ENTRIES);
+    for (const entry of entries) {
       const root = copyFixture();
-      const file = fixtureFile(root, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
-      fs.appendFileSync(file, `\n${continuation}\n`);
-      expect(() => validateVNextSource(root)).toThrow(/executable cross-public-entry continuation/i);
+      const file = fixtureFile(root, `templates/vnext/skills/${entry}.SKILL.md.tmpl`);
+      const content = fs.readFileSync(file, 'utf8');
+      fs.writeFileSync(file, content.replace('terminal_boundary: public-entry-terminal/v1', ''), 'utf8');
+      expect(() => validateVNextSource(root)).toThrow(/terminal_boundary/i);
     }
-
-    const allowedRoot = copyFixture();
-    const allowedFile = fixtureFile(allowedRoot, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl');
-    fs.appendFileSync(
-      allowedFile,
-      '\nRecommend next_route: execute-step for a later caller invocation; do not invoke it from this invocation.\nRecommend route to execute-step for a later caller invocation.\nThe caller may invoke execute-step later.\nDo not invoke execute-step.\nMust not hand off to review-change.\n',
-    );
-    expect(() => validateVNextSource(allowedRoot)).not.toThrow();
   });
 
   test('rejects internal commands and user decisions as public next_route literals', () => {
@@ -192,26 +139,13 @@ describe('vNext Phase 2 source contract', () => {
     expect(() => validateVNextSource(duplicateRoot)).toThrow(/contract\.expert_entries must contain exactly 2 expert entr/i);
   });
 
-  test('keeps git-commit local, caller-authorized, and independent from Runtime', () => {
-    const template = fs.readFileSync(
-      fixtureFile(ROOT, 'templates/vnext/skills/git-commit.SKILL.md.tmpl'),
-      'utf8',
-    );
-    expect(template).toContain('authority_owner: user');
-    expect(template).toContain('runtime_operations: []');
-    expect(template).toContain('Stage only the intended paths');
-    expect(template).toContain('Never amend, reset, clean, switch or create branches, or push');
-    expect(template).toContain('terminal_boundary: public-entry-terminal/v1');
-  });
-
-  test('keeps execute-step limited to recommending an explicit commit handoff', () => {
-    const template = fs.readFileSync(
-      fixtureFile(ROOT, 'templates/vnext/skills/execute-step.SKILL.md.tmpl'),
-      'utf8',
-    );
-    expect(template).toContain('`next_route: git-commit`');
-    expect(template).toContain('`commit_scope`');
-    expect(template).toContain('neither execute-step nor Runtime invokes it');
+  test('keeps git-commit caller-authorized and independent from task transactions', () => {
+    const template = fs.readFileSync(fixtureFile(ROOT, 'templates/vnext/skills/git-commit.SKILL.md.tmpl'), 'utf8');
+    const contract = parse(template.split('---')[1]!).entry_contract;
+    expect(contract.authority_owner).toBe('user');
+    expect(contract.runtime_operations).toEqual([]);
+    expect(contract.input_contract.required).toEqual(['repository', 'intended_changes']);
+    expect(contract.internal_capabilities).toContain('dangerous-operation-gate');
   });
 
   test('rejects a review template with direct writes', () => {
@@ -316,39 +250,6 @@ describe('vNext Phase 2 source contract', () => {
       '    product_files:\n      - admitted_scope',
     );
     expect(() => validateVNextSource(writeRoot)).toThrow(/review-draft.*product files/i);
-  });
-
-  test('keeps debug ownership conditional and lesson admission non-blocking for closure', () => {
-    const debug = fs.readFileSync(
-      fixtureFile(ROOT, 'templates/vnext/skills/debug-task.SKILL.md.tmpl'),
-      'utf8',
-    );
-    expect(debug).toContain('task ownership is required for a task-state proposal or resolve route');
-    expect(debug).toContain('For a current-task proposal or `resolve`');
-    expect(debug).not.toContain('symptom, target, or task ownership is missing or conflicted');
-
-    const close = fs.readFileSync(
-      fixtureFile(ROOT, 'templates/vnext/skills/close-task.SKILL.md.tmpl'),
-      'utf8',
-    );
-    expect(close).toContain('Lesson admission may return `admit`, `defer`, or `no-op`');
-    expect(close).toContain('never blocks an otherwise eligible closure');
-    expect(close).not.toContain('or lesson admission cannot be verified');
-  });
-
-  test('scopes lifecycle evidence requirements to the selected transition', () => {
-    const lifecycle = fs.readFileSync(
-      fixtureFile(ROOT, 'templates/vnext/skills/task-lifecycle.SKILL.md.tmpl'),
-      'utf8',
-    );
-    expect(lifecycle).toContain('required evidence for the selected lifecycle transition is incomplete');
-    expect(lifecycle).not.toContain('snapshot, checkpoint, dirty attribution, or recovery evidence is incomplete');
-    expect(lifecycle).toContain('one typed `LifecycleProposal`');
-    expect(lifecycle).toContain('Runtime resolves canonical paths');
-    expect(lifecycle).toContain('recovery_package_revision');
-    expect(lifecycle).not.toContain('write_incomplete');
-    expect(lifecycle).not.toContain('read-back');
-    expect(lifecycle).not.toContain('atomic write');
   });
 
   test('rejects cycle phases promoted into a mode', () => {

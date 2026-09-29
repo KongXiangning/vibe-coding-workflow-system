@@ -139,6 +139,8 @@ function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string
   return [
     { source_path: 'runtime/vnext/dist/install-tools.js', target_path: RG_INSTALL_ENTRY, category: 'runtime' },
     { source_path: 'runtime/vnext/support/CONTEXT_API.md', target_path: '.workflow-system/runtime/support/CONTEXT_API.md', category: 'runtime' },
+    { source_path: 'runtime/vnext/support/assistance.mjs', target_path: '.workflow-system/runtime/support/assistance.mjs', category: 'runtime' },
+    { source_path: 'runtime/vnext/support/ASSISTANCE_API.md', target_path: '.workflow-system/runtime/support/ASSISTANCE_API.md', category: 'runtime' },
     { source_path: 'runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md', target_path: '.workflow-system/runtime/support/CONTEXT_THIRD_PARTY_NOTICES.md', category: 'runtime' },
     { source_path: 'templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md', target_path: '.workflow-system/WORKFLOW_PROTOCOL.md', category: 'protocol' },
     { source_path: 'templates/vnext/bootstrap/FILE_SCHEMAS.md', target_path: '.workflow-system/FILE_SCHEMAS.md', category: 'schema' },
@@ -174,6 +176,8 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
   for (const relativePath of [
     'runtime/vnext/dist/install-tools.js',
     'runtime/vnext/support/CONTEXT_API.md',
+    'runtime/vnext/support/assistance.mjs',
+    'runtime/vnext/support/ASSISTANCE_API.md',
     'runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md',
     'runtime/vnext/dist/cli.js',
     'runtime/vnext/package.json',

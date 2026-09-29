@@ -31,16 +31,6 @@ const PUBLIC_ENTRY_IDS = [
   ...EXPERT_ENTRIES,
 ] as const;
 const PUBLIC_ENTRY_TERMINAL_MARKER = 'terminal_boundary: public-entry-terminal/v1';
-const PUBLIC_ENTRY_NAMES_PATTERN = PUBLIC_ENTRY_IDS
-  .map(entry => entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  .join('|');
-const PUBLIC_ENTRY_TARGET_PATTERN = `(?:${PUBLIC_ENTRY_NAMES_PATTERN})(?::[a-z0-9-]+)?`;
-const PUBLIC_ENTRY_CONTINUATION_PATTERN = new RegExp(
-  `\\b(?:invoke|call|start|proceed\\s+to|continue\\s+with|hand\\s+off\\s+to|handoff\\s+to|route\\s+(?:(?:(?:this|the)\\s+result|it|that)\\s+)?(?:to|through))\\s+(?:the\\s+)?(?:public\\s+)?(?:Skill\\s+)?\`?${PUBLIC_ENTRY_TARGET_PATTERN}\\b\`?`,
-  'iu',
-);
-const PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN = new RegExp(PUBLIC_ENTRY_CONTINUATION_PATTERN.source, 'giu');
-
 export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan', 'amend-scope'],
   'review-draft': [],
@@ -702,50 +692,17 @@ function validateLegacyExecutableTargets(content: string, entry: string, legacyS
 }
 
 function validatePublicEntryTerminalBoundary(content: string, entry: string): void {
-  if (!content.includes('Runtime `run-entry --root <project>`')
-    || !content.includes('entry-operation-result/v1')) {
-    fail(`${entry} must bind its internal recovery to the shared run-entry driver`);
-  }
-  if (!content.includes('recovery_boundary: entry-recovery/v1')) {
-    fail(`${entry} must declare ownership of internal recovery via entry-recovery/v1`);
-  }
+  // Entry/output structure is checked; requiring a recovery driver in prose would
+  // put the old admission kernel back on the assistance-first critical path.
   if (!content.includes(PUBLIC_ENTRY_TERMINAL_MARKER)) {
     fail(`${entry} must declare ${PUBLIC_ENTRY_TERMINAL_MARKER}`);
   }
-  if (!content.includes('next_route') && !content.includes('recommended_route')) {
-    fail(`${entry} must expose a next_route or recommended_route recommendation field`);
-  }
-  if (!content.includes('Public result routing:') || !content.includes('Complete same-intent internal recovery here')) {
-    fail(`${entry} must distinguish public route recommendations from internal recovery`);
-  }
-  if (!/must not invoke another public Skill/iu.test(content)) {
-    fail(`${entry} must state that a recommendation must not invoke another public Skill`);
-  }
-
   const routeValue = '(?:null|[a-z][a-z0-9-]*(?::[a-z0-9-]+)?)';
   const routeLiterals = new RegExp(`\\bnext_route:\\s*(${routeValue}(?:\\s*\\|\\s*${routeValue})*)`, 'gu');
   for (const literal of content.matchAll(routeLiterals)) {
     for (const route of literal[1]!.split('|').map(value => value.trim())) {
       if (route !== 'null' && !(PUBLIC_ENTRY_IDS as readonly string[]).includes(route)) {
         fail(`${entry} declares non-public next_route ${route}`);
-      }
-    }
-  }
-
-  for (const [lineIndex, line] of content.split(/\r?\n/u).entries()) {
-    for (const clause of line.split(/[.;]/u)) {
-      for (const match of clause.matchAll(PUBLIC_ENTRY_CONTINUATION_GLOBAL_PATTERN)) {
-        if (match.index === undefined) continue;
-        const before = clause.slice(0, match.index);
-        const after = clause.slice(match.index + match[0].length);
-        const prohibition = /\b(?:do not|must not|does not|never|cannot)\b/iu.test(before)
-          && !/\b(?:then|and then|however|but)\b[\s\S]*$/iu.test(before);
-        const callerLater = /\bcaller\s+(?:may|can|should)\b/iu.test(before) && /\blater\b/iu.test(after);
-        const recommendation = /\b(?:recommend(?:ed|ation)?|next_route|recommended_route)\b/iu.test(before)
-          && /\b(?:later caller invocation|later)\b/iu.test(after)
-          && !/\b(?:then|and then|and)\s*$/iu.test(before);
-        if (prohibition || callerLater || recommendation) continue;
-        fail(`${entry} contains an executable cross-public-entry continuation at line ${lineIndex + 1}`);
       }
     }
   }
