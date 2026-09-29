@@ -58,13 +58,22 @@ test('close 004, prepare/adopt 005, execute/review/dispose/commit/close share on
   assert.equal(disposition.task.next_mode, null);
   const finished = task(root, { action: 'step', state: 'finished', decision_ref: disposition.ref, remaining_work: ['F1 remains'] });
   assert.equal(finished.task.current_step_id, 'S2'); assert.equal(finished.task.steps[0].execution.result, 'failed');
+  const skipped = task(root, { action: 'step', state: 'skipped', decision_text: 'defer device smoke' });
+  assert.equal(skipped.task.commits.length, 0);
+  assert.equal(skipped.task.next_route, 'close-task');
   git(root, ['init', '-q']); git(root, ['config', 'user.name', 'test']); git(root, ['config', 'user.email', 'test@example.invalid']);
-  fs.writeFileSync(path.join(root, 'app.txt'), 'a real change'); git(root, ['add', 'app.txt']); git(root, ['commit', '-qm', 'real test commit']);
+  fs.writeFileSync(path.join(root, 'app.txt'), 'a real change');
+  git(root, ['add', '--', 'app.txt', '.workflow-system/records', 'docs/workflow']);
+  git(root, ['commit', '-qm', 'real test commit']);
   const sha = git(root, ['rev-parse', 'HEAD']);
+  const afterCommit = taskStatus(root).current_task;
+  assert.equal(afterCommit.next_route, 'close-task');
+  assert.equal(afterCommit.commits.length, 0);
+  assert.equal(git(root, ['status', '--porcelain']), '');
+  // A persistent Git association is a separate, explicitly requested management write.
   const committed = task(root, { action: 'git', sha, execution_refs: [run.ref] });
   assert.equal(committed.task.commits[0].verification, 'local-git-object');
   assert.equal(committed.task.commits[0].pushed, 'not-inferred');
-  task(root, { action: 'step', state: 'skipped', decision_text: 'defer device smoke' });
   const closeRequest = { action: 'close', decision_text: 'close with gaps', remaining_work: ['device smoke not run', 'F1'], idempotency_key: 'close-app' };
   const end = task(root, closeRequest);
   assert.equal(end.task.lifecycle, 'closed'); assert.equal(end.current_task_id, null);

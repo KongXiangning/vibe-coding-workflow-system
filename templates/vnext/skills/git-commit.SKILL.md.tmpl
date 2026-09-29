@@ -45,8 +45,9 @@ plan, step, review/disposition and actual commits. It reads the complete journal
 not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
 For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
 `record` is for general observations, not a substitute for task registration.
-Normal management updates are part of the requested task operation, not optional
-future reconciliation. Check `recorded`, `association` and `projection` separately.
+Git itself records a commit. A commit request alone requires no task-management write.
+For explicitly requested task-management writes, check `recorded`, `association`
+and `projection` separately.
 If an association/view update fails, retain facts, try a bounded deterministic rebuild
 when appropriate, and present concrete link/correct/resolve/defer choices. Honor the
 chosen recovery without repeating business actions or asking again for existing consent.
@@ -77,10 +78,16 @@ completed/clean/archived tuple before honoring an authorized commit.
 Commit only authorized paths and report the actual Git result. Do not push, amend,
 reset, clean, force or bypass host security unless specifically authorized. Existing
 Git hooks may report their own failures; do not call them Runtime qualification.
-A management write failure cannot undo a real Git commit; retain its SHA and report
-the missing record. When reporting the commit, use `task` action `git` with the actual SHA and
-task/execution associations. It checks the local Git object read-only; it never commits
-or pushes. If recording fails, preserve the SHA and supplement it without recommitting.
+After committing, inspect Git read-only and report the actual SHA, committed scope and
+remaining working-tree changes. Do not automatically call `task git`, `record`, `rebuild`
+or refresh CURRENT_TASK merely to report this commit. Missing journal Git observations
+do not mean the commit is missing and do not require supplementation or another commit.
+
+Use `task` action `git` only when the user explicitly requests a persisted task/execution
+association (including an already agreed explicit recording policy). This action writes
+management files even though its Git-object check is read-only. Report those writes as
+the requested association result; never recursively commit them to record their own SHA.
+If that optional write fails, report the real SHA and the association failure separately.
 
 If the requested commit departs from an actual agreed review/test prerequisite, use
 one combined consequence confirmation, not a demand to repair Runtime status. Then

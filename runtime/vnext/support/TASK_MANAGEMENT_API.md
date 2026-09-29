@@ -5,7 +5,8 @@ Pass JSON on stdin. `task-status` is read-only; `context.management` uses the sa
 The source-repository entry is `node runtime/vnext/support/assistance.mjs`.
 Both assistance.mjs and task-management.mjs must be installed together. No task kernel or npm
 package is imported. The service never performs execution, tests, commits, push or deployment.
-For git observations it only reads local Git commit objects.
+For git observations its Git-object check is read-only; the task action itself writes
+the journal and management views.
 
 ## Normal task actions
 
@@ -25,7 +26,7 @@ permission tokens. Raw `record` remains the permissive path for arbitrary eviden
 | review | stage=`draft`, plan_ref OR stage=`change`, execution_ref; verdict, findings, coverage, provenance | assessment of an exact target |
 | review-decision | review_ref, choice, actual decision | disposition separate from verdict/findings |
 | step | plan_ref, step_id, state=`finished`/`skipped`/`closed`/`in-progress`/`not-started`, decision_ref, remaining_work | work disposition; suggests next unfinished step |
-| git | actual full SHA, execution_refs/plan_ref as available | local commit availability and reported associations; no replay |
+| git (optional) | actual full SHA, execution_refs/plan_ref as available | persist an explicitly requested task/commit association and refresh views; no Git replay |
 | close | remaining_work, gaps, actual decision and source links | closed; removed from active focus without setting PASS |
 | pause/resume | actual decision and retained context | work lifecycle changes |
 | focus | task_id and actual choice | selects work focus, without closing another task |
@@ -54,6 +55,12 @@ After actual review and user adoption (replace all example refs with real return
 A step can finish with findings or missing review after the appropriate informed choice.
 Record the actual gaps; the reducer does not create clean reviews, drop findings, or require
 legacy complete-reviewed-step. Confirmation of work disposition is not verification.
+
+Ordinary Git commits require no `task git` call. Verify the actual commit with Git and
+report its SHA without appending management records or rebuilding views. An empty `commits`
+list means no persisted associations, not that Git has no commits. Use the optional action
+only for an explicitly requested persistent association; never recursively commit the
+management files it produces just to record that new commit's SHA.
 
 ## Read model and publication
 

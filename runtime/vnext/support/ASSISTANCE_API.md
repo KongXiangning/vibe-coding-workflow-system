@@ -8,7 +8,9 @@ Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 Input is JSON on stdin. Commands: context, task-status, task, record, snapshot, read, find.
 Native modules assistance.mjs and task-management.mjs use Node built-ins, not the old
 transaction/qualification kernel. The service never executes product commands or tests.
-The task Git observer only reads actual local commit objects; it does not commit or push.
+`task git` reads local commit objects but writes the requested association and management
+views. It is optional, for explicitly requested persistent associations; ordinary commits
+are verified and reported directly from Git without calling it. It does not commit or push.
 
 ## Two responsibilities, separate results
 

@@ -101,12 +101,18 @@ recording method. Never claim the journal or legacy projection was updated when 
 ## Unified task management
 
 Non-blocking does not mean unmanaged. Use assistance `task` actions for task
-preparation, adoption, execution, tests, reviews, review disposition, Git observations
+preparation, adoption, execution, tests, reviews, review disposition, explicit Git associations
 and lifecycle. Read `TASK_MANAGEMENT_API.md` for their association fields and recovery.
 A new prepare allocates stable identity and a display number; a revision keeps identity.
 Adoption chooses the exact plan, initializes work position and maintains focus.
 Review is not adoption; execution is not review; user disposition is not PASS.
 A close updates the task view and removes that task from active focus, keeping gaps.
+
+Git's own history is the source for commit facts. An ordinary commit ends with read-only
+Git verification and reporting its SHA; it does not require a journal entry or view update.
+`task git` is an optional write for an explicitly requested task/commit association, not
+an automatic post-commit step. Missing journal commit entries alone justify neither
+another commit nor recovery work. Never create a chain of commits recording their own SHA.
 
 Every state question uses `task-status` / `context.management`. They recompute from
 the complete retained journal. A generic find page or old CURRENT_TASK is not current

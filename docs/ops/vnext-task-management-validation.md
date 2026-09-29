@@ -103,6 +103,6 @@ state/task_ref 时用 link 补充其实际含义。新 App 计划用既有计划
 adopted_plan_ref 与原确认记录相符、current_step_id 及环境信息来自已采纳计划、未执行仍
 未执行、旧失败仍保留。编号是否为005以实际已占用编号为准，不预先伪造。
 
-只需重建、补登、更正时不运行测试/commit。若真实 Git 已提交但记录缺失，从本地 Git
-取得实际 SHA 后登记，不能重新 commit。处理失败时展示 recorded/association/projection
+只需重建、补登、更正时不运行测试/commit。仅在用户明确要求补登 Git 关联时，从本地 Git
+取得实际 SHA 后登记；普通提交不要求补录。处理失败时展示 recorded/association/projection
 各自结果和可执行的补充/暂缓选择，不说“全部完成”也不禁用开发。

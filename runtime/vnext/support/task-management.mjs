@@ -312,7 +312,7 @@ export function taskView(root, input, io) {
         else if (!currentStep.execution_ref) route = 'execute-step';
         else if (!currentStep.review_ref) route = 'review-change';
         else { route = 'execute-step'; mode = currentStep.review_status === 'clean' || ['accept', 'continue', 'finish', 'defer'].includes(currentStep.review_choice) ? null : 'repair'; }
-      } else route = commits.some(c => c.object_available) || !executions.length ? 'close-task' : 'git-commit';
+      } else route = 'close-task'; // Missing optional Git associations do not imply uncommitted work.
     }
     result.push({ task_id: task.task_id, display_id: task.display_id, title: plan?.title ?? task.title,
       lifecycle, lifecycle_ref: life?.ref ?? task.baseline?.source_ref ?? null, adopted_plan_ref: adopted?.value ?? null,
