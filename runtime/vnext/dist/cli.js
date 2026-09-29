@@ -6555,7 +6555,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.23.2";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.23.3";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -27037,6 +27037,8 @@ async function runEntryRunnerCli(argv, allowedCommands) {
 // runtime/vnext/src/cli.ts
 import * as fs26 from "fs";
 import * as path27 from "path";
+import { fileURLToPath } from "node:url";
+import { spawn as spawn3 } from "node:child_process";
 
 // runtime/vnext/src/host-guidance.ts
 var START = "<!-- vnext-assistance-guidance:start -->";
@@ -27048,7 +27050,8 @@ function renderAssistanceGuidance() {
     "",
     "- Read `.workflow-system/WORKFLOW_PROTOCOL.md` and the selected `.agents/skills/<entry>/SKILL.md`. Their assistance and one-time confirmation rules supersede older workflow admission/terminal instructions; project business constraints remain effective.",
     "- Runtime assists recording, evidence, snapshots and lookup. Use `.workflow-system/runtime/support/assistance.mjs` and `ASSISTANCE_API.md`; no mandatory preflight, run-entry, waiver, review receipt, retry budget or legacy state repair is needed for authorized work.",
-    "- Read the latest applicable plans, execution, reviews, decisions and dispositions. Legacy CURRENT_TASK is a retained projection, not execution permission; an unsynchronized projection does not prove a missing review or decision.",
+    "- Query `assistance.mjs task-status` or `context.management` for current task/plan/step state. The journal-backed view replaces stale CURRENT_TASK tuples; ordinary `find` pages are not state queries. `task-context --legacy` is historical only.",
+    "- Use the assistance `task` actions for prepare/adopt/execution/review/review-decision/step/git/close. Check fact persistence, association and view publication separately; normal state maintenance is not optional. Offer rebuild/link/correct/resolve/defer for unresolved management data, without replaying business work.",
     "- Read/search/record operations, stale metadata and equivalent details already authorized need no new confirmation. Report actual service failures and continue independent authorized work; never rerun business work just to obtain a receipt.",
     "- For a material deviation from a still-effective workflow commitment, disclose the action, gaps and concrete consequences together and ask once only if that informed choice is unresolved. Silence is not consent.",
     "- Reuse an informed decision for the same target, action and disclosed consequences, including across sessions. Only new material consequences, a changed action/target, or revised/revoked instructions require a new question about the change.",
@@ -35373,9 +35376,30 @@ async function runAuthorityDomainCli(command, argv) {
     return 2;
   }
 }
+function runManagementCli(command, argv) {
+  const service = fileURLToPath(new URL("../support/assistance.mjs", import.meta.url));
+  return new Promise((resolve26) => {
+    const child = spawn3(process.execPath, [service, command, ...argv], { stdio: "inherit" });
+    child.once("error", (error) => {
+      console.log(JSON.stringify({
+        status: "unavailable",
+        recorded: false,
+        development_gate: false,
+        message: error.message,
+        next_action: "Report this management read failure, not a development veto."
+      }));
+      resolve26(1);
+    });
+    child.once("close", (code) => resolve26(code ?? 1));
+  });
+}
 var args = process.argv.slice(2);
 var runner;
-if (args[0] === "entry-output-read")
+if (args[0] === "task" || args[0] === "task-status")
+  runner = runManagementCli(args[0], args.slice(1));
+else if (args[0] === "task-context" && !args.includes("--legacy"))
+  runner = runManagementCli("context", args.slice(1));
+else if (args[0] === "entry-output-read")
   runner = runEntryOutputReadCli();
 else if (args[0] === "run-entry")
   runner = runEntryRunnerCli(args, [
@@ -35403,7 +35427,7 @@ else if (["authority-domain-context", "authority-domain-update", "authority-doma
 } else if (args[0] === "file-context")
   runner = runFileContextCli(args.slice(1));
 else if (args[0] === "task-context" || args[0] === "task-read" || args[0] === "task-storage-migration" || args[0] === "task-migrate" || args[0] === "task-export") {
-  runner = runTaskContextCli(args[0] === "task-migrate" ? "task-storage-migration" : args[0], args.slice(1));
+  runner = runTaskContextCli(args[0] === "task-migrate" ? "task-storage-migration" : args[0], args.slice(1).filter((arg) => arg !== "--legacy"));
 } else if (args[0] === "bootstrap-project")
   runner = runBootstrapCli(args.slice(1));
 else if (args[0] === "bootstrap-support")
