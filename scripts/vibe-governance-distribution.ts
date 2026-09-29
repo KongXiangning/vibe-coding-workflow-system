@@ -45,6 +45,7 @@ import { parseDocument } from 'yaml';
 import { validateMigrationDecisions, legacyCurrentTaskBackup } from '../runtime/vnext/src/migration-preservation';
 import { isAlignedPath, originalBackupPath } from './migration-alignment';
 import { RG_INSTALL_ENTRY, RG_TOOLS_PATH, resolveRg, assertRgDirectory } from '../runtime/vnext/src/rg-tool';
+import { updateHostGuidance } from '../runtime/vnext/src/host-guidance';
 
 export const VIBE_GOVERNANCE_PRODUCT = 'Vibe Governance' as const;
 export const VIBE_GOVERNANCE_PACKAGE_NAME = 'vibe-governance' as const;
@@ -856,11 +857,23 @@ function pruneCreatedEmptyDirectories(targetRoot: string, relativePaths: readonl
   }
 }
 
-function planFreshOrUpgrade(targetRoot: string, payload: LoadedPayload, operation: 'install' | 'upgrade', oldState: DistributionState | null): { writes: Array<{ path: string; content: string }>; deletes: string[]; directories: Array<{ path: string; sourcePath: string }>; stagingRoot?: string; state: DistributionState } {
+// AGENTS.md belongs to the project, not the software manifest. Merge its known
+// workflow text in the same rollback transaction without owning the whole file.
+function planHostGuidance(targetRoot: string): Array<{ path: string; content: string; previous: string }> {
+  const file = path.join(targetRoot, 'AGENTS.md');
+  if (!fs.existsSync(file)) return [];
+  if (fs.lstatSync(file).isSymbolicLink() || !fs.statSync(file).isFile()) throw new Error('AGENTS.md must be a regular file for guidance alignment.');
+  const previous = fs.readFileSync(file, 'utf8');
+  const content = updateHostGuidance(previous);
+  return content === previous ? [] : [{ path: 'AGENTS.md', content, previous }];
+}
+
+function planFreshOrUpgrade(targetRoot: string, payload: LoadedPayload, operation: 'install' | 'upgrade', oldState: DistributionState | null, guidance: ReturnType<typeof planHostGuidance>): { writes: Array<{ path: string; content: string }>; deletes: string[]; directories: Array<{ path: string; sourcePath: string }>; stagingRoot?: string; state: DistributionState } {
   const writes = payload.manifest.artifacts.map(artifact => ({ path: artifact.target_path, content: fs.readFileSync(resolveRepoPath(payload.payloadRoot, artifact.source_path, 'Distribution payload artifact'), 'utf8') }));
   const prepared: ReturnType<typeof prepareRuntimeDistribution> = prepareRuntimeDistribution(payload.bundleDir, payload.bundle.artifacts, targetRoot);
   const state = parseDistributionState(JSON.parse(stateContent(payload.manifest)), 'planned Distribution State');
   writes.push({ path: payload.manifest.state.path, content: stateContent(payload.manifest) });
+  writes.push(...guidance);
   const oldManaged = admittedOldManagedMap(targetRoot, oldState);
   const deletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
   return { writes, deletes, directories: prepared ? [{ path: payload.manifest.runtime_dependency_path, sourcePath: prepared.sourceNodeModulesPath }, { path: RG_TOOLS_PATH, sourcePath: prepared.sourceToolsPath }] : [], stagingRoot: prepared?.stagingRoot, state };
@@ -887,7 +900,13 @@ function runTransactionalPromotion(
       return result;
     }
   }
-  const plannedWrites = payload.manifest.artifacts.map(artifact => artifact.target_path).concat(payload.manifest.state.path).sort();
+  let guidance: ReturnType<typeof planHostGuidance>;
+  try { guidance = planHostGuidance(targetRoot); }
+  catch (error) {
+    result.blockers.push(distributionIssue('HOST_GUIDANCE_UNAVAILABLE', error instanceof Error ? error.message : String(error), 'AGENTS.md'));
+    return result;
+  }
+  const plannedWrites = payload.manifest.artifacts.map(artifact => artifact.target_path).concat(payload.manifest.state.path, guidance.map(item => item.path)).sort();
   const oldManaged = admittedOldManagedMap(targetRoot, oldState);
   const plannedDeletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
   result.planned_writes = [...plannedWrites, payload.manifest.runtime_dependency_path, RG_TOOLS_PATH];
@@ -896,14 +915,14 @@ function runTransactionalPromotion(
     || isFrozenPath(targetRoot, payload.manifest.state.in_progress_path)
     || isFrozenPath(targetRoot, RG_TOOLS_PATH)
     || isFrozenPath(targetRoot, payload.manifest.runtime_dependency_path)
-    || payload.manifest.artifacts.some(artifact => isFrozenPath(targetRoot, artifact.target_path))) {
+    || plannedWrites.some(file => isFrozenPath(targetRoot, file))) {
     result.blockers.push(distributionIssue('FROZEN_PATH', 'Distribution cannot replace or journal a frozen path.'));
     return result;
   }
 
   let plan: ReturnType<typeof planFreshOrUpgrade> | undefined;
   try {
-    plan = planFreshOrUpgrade(targetRoot, payload, operation, oldState);
+    plan = planFreshOrUpgrade(targetRoot, payload, operation, oldState, guidance);
   } catch (error) {
     result.blockers.push(distributionIssue('PAYLOAD_STAGE_FAILED', error instanceof Error ? error.message : String(error)));
     return result;
@@ -924,6 +943,9 @@ function runTransactionalPromotion(
   // installation and all destination checks happen before target mutation.
   let preimageTreeHash: string;
   try {
+    for (const item of guidance) {
+      if (fs.readFileSync(path.join(targetRoot, item.path), 'utf8') !== item.previous) throw new Error('AGENTS.md changed during staging; retry against the current file.');
+    }
     preimageTreeHash = computeDistributionPreimageHash(targetRoot, payload.manifest, result.planned_writes, result.planned_deletes);
   } catch (error) {
     if (plan.stagingRoot) fs.rmSync(plan.stagingRoot, { recursive: true, force: true });
@@ -970,6 +992,9 @@ function runTransactionalPromotion(
       plan.deletes,
       () => {
         verifyDistributionInstallation(targetRoot, payload);
+        for (const item of guidance) {
+          if (fs.readFileSync(path.join(targetRoot, item.path), 'utf8') !== item.content) throw new Error('AGENTS.md guidance read-back mismatch.');
+        }
         testHooks?.afterPromotion?.();
       },
       plan.directories,
@@ -1020,15 +1045,21 @@ function runDryRunPromotion(
     }
   }
   const oldManaged = admittedOldManagedMap(targetRoot, oldState);
+  let guidance: ReturnType<typeof planHostGuidance>;
+  try { guidance = planHostGuidance(targetRoot); }
+  catch (error) {
+    result.blockers.push(distributionIssue('HOST_GUIDANCE_UNAVAILABLE', error instanceof Error ? error.message : String(error), 'AGENTS.md'));
+    return result;
+  }
   result.planned_writes = payload.manifest.artifacts.map(artifact => artifact.target_path)
-    .concat(payload.manifest.state.path, payload.manifest.runtime_dependency_path, RG_TOOLS_PATH)
+    .concat(payload.manifest.state.path, payload.manifest.runtime_dependency_path, RG_TOOLS_PATH, guidance.map(item => item.path))
     .sort();
   result.planned_deletes = plannedDistributionDeletes(payload.manifest, oldState, oldManaged);
   if (isFrozenPath(targetRoot, payload.manifest.state.path)
     || isFrozenPath(targetRoot, payload.manifest.state.in_progress_path)
     || isFrozenPath(targetRoot, RG_TOOLS_PATH)
     || isFrozenPath(targetRoot, payload.manifest.runtime_dependency_path)
-    || payload.manifest.artifacts.some(artifact => isFrozenPath(targetRoot, artifact.target_path))) {
+    || result.planned_writes.some(file => isFrozenPath(targetRoot, file))) {
     result.blockers.push(distributionIssue('FROZEN_PATH', 'Distribution cannot replace or journal a frozen path.'));
     return result;
   }
@@ -1112,9 +1143,11 @@ function runUpgrade(options: DistributionOperationOptions, payload: LoadedPayloa
   if (comparison === 0 && fileExists(statePath(targetRoot, payload.manifest))) {
     try {
       verifyDistributionInstallation(targetRoot, payload);
-      result.status = 'no-op';
-      result.read_back_verified = true;
-      return result;
+      if (planHostGuidance(targetRoot).length === 0) {
+        result.status = 'no-op';
+        result.read_back_verified = true;
+        return result;
+      }
     } catch (error) {
       // The same-version administrative upgrade may prepare a lost rg dependency.
       // Artifact drift and invalid ownership remain blocking; all normal upgrade

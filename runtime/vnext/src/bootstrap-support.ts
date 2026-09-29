@@ -1,3 +1,4 @@
+import { updateHostGuidance } from './host-guidance';
 import { formatEntryRecoveryError } from './entry-recovery';
 /**
  * Target-local Bootstrap support.
@@ -626,6 +627,7 @@ function readBootstrapReceipt(root: string): BootstrapReceipt | null {
 
 function isDistributionManagedPath(relative: string): boolean {
   return relative === 'docs/workflow/.gitattributes'
+    || relative === 'docs/workflow/test-admission-policy.md'
     || relative === '.workflow-system/WORKFLOW_PROTOCOL.md'
     || relative === '.workflow-system/FILE_SCHEMAS.md'
     || relative === '.workflow-system/vnext/SOURCE_CONTRACT.yaml'
@@ -750,40 +752,11 @@ function renderProfile(
   });
 }
 
-const PUBLIC_ENTRY_TERMINAL_GUIDANCE = [
-  '## Public entry terminal boundary',
-  '',
-  '`public-entry-terminal/v1` applies to every public Skill invocation.',
-  '- An explicit Skill invocation authorizes its stated intent and routine internal recovery within the caller\'s scope. Do not require a second instruction for a corrected request, retained-state recovery, or an unambiguous warning decision already covered by the caller\'s words.',
-  '- A Runtime rejection is diagnostic: inspect current state, correct the request, and use this entry\'s typed recovery operations before returning blocked. Preserve failed evidence, cumulative changes, findings, and audit history.',
-  '- Ask the caller only when a materially new choice or authority is needed, or a required fact cannot be established. Record any warning decision from the caller\'s actual instruction; never invent one.',
-  '- Complete only this entry intent, its internal capabilities, and its bound Runtime operations.',
-  '- After a terminal result, return to the caller and stop.',
-  '- Report at most one `next_route` / `recommended_route`; it is recommendation-only for a later caller invocation, and the current invocation must not invoke another public Skill.',
-  '- A public `next_route` is null or a declared public Skill base name; put a declared public mode in `next_mode` separately. Derive it from the verified terminal result. Report a required user decision separately with `next_route: null`.',
-  '- `task-context.overview.next_entry` / `next_options`, review `blocker.next_route`, and `run-entry` recovery routes can name internal Runtime operations. Never copy them into a public `next_route`; complete same-intent recovery inside this invocation.',
-  '- This is instruction-level host guidance; the current Runtime cannot observe conversation-level public Skill chaining.',
-] as const;
-
-function renderGuidance(project: { name: string; slug: string }): string {
-  return [
-    '<!-- vNext bootstrap managed guidance; preserve target-owned additions outside this block. -->',
-    `# ${project.name} workflow guidance`,
-    '',
-    'This project uses the pure vNext workflow surface.',
-    '',
-    '- Use `bootstrap-project` only for project setup or explicit realignment.',
-    '- Use `prepare-task` before executing a new task.',
-    '- Use `execute-step` only for the admitted current step.',
-    '- Use `review-change`, `debug-task`, `task-lifecycle`, `capture-work-item`, and `close-task` according to their contracts.',
-    '- The project-local Runtime and canonical `docs/workflow/CURRENT_TASK.md` are authoritative for task state.',
-    '- Do not edit governance state directly or treat discovery context as write authority.',
-    '',
-    ...PUBLIC_ENTRY_TERMINAL_GUIDANCE,
-    '',
-    `Project slug: ${project.slug}`,
-    '',
-  ].join('\n');
+function renderGuidance(root: string, project: { name: string; slug: string }): string {
+  const file = targetPath(root, 'AGENTS.md');
+  const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8')
+    : `# ${project.name} workflow guidance\n\nProject slug: ${project.slug}\n`;
+  return updateHostGuidance(existing);
 }
 
 function renderWorkflowGuide(project: { name: string; slug: string }): string {
@@ -960,7 +933,7 @@ function makeGovernanceAssets(root: string, project: { name: string; slug: strin
     { path: PROJECT_PROFILE_RELATIVE_PATH, category: 'config', content: renderProfile(project, targetIdentity, mode, host, existingProfile(root), authorityDomainConfirmation) },
     { path: CURRENT_TASK_RELATIVE_PATH, category: 'generated', content: fs.readFileSync(templatePath, 'utf8') },
     ...FULL_WORKFLOW_DOCS.map(file => ({ path: file, category: 'governance' as const, content: renderGovernanceDocument(file, project, mode, facts, baseline, preservedBaselineKeys, existingGovernance) })),
-    { path: 'AGENTS.md', category: 'governance', content: renderGuidance(project) },
+    { path: 'AGENTS.md', category: 'governance', content: renderGuidance(root, project) },
   ];
 }
 

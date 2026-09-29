@@ -1,3 +1,4 @@
+import { updateHostGuidance } from '../runtime/vnext/src/host-guidance';
 /** One-time legacy migration projections. Never used by daily Runtime calls. */
 import { parseDocument, stringify } from 'yaml';
 
@@ -58,10 +59,7 @@ function profile(content: string, context: AlignmentContext): string {
 }
 
 function guidance(content: string): string {
-  const block = '## workflow-system baseline\n\n- 当前 workflow-system 为 vNext；命令在本仓库实际根目录执行，不使用历史绝对工作目录。\n- workflow-system 技能仅使用 `.agents/skills/<entry>/SKILL.md`。\n- 日常入口：' + VNEXT_ENTRIES.map(x => '`' + x + '`').join('、') + '。\n- 先读对应 SKILL.md；prepare/confirm、review 和完成校验按当前 Runtime 契约执行。\n- 软件验证：`node .workflow-system/runtime/dist/cli.js validate-contract --root .` 与 `node .workflow-system/runtime/dist/cli.js validate --root . --summary`。\n- 本项目不运行旧 workflow-system 的 Bun 生成、registry 或 host 同步命令。\n- 项目事实与业务验证以 `.workflow-system/PROJECT_PROFILE.yaml` 为准；业务约束和私有技能仍有效。\n\n';
-  // Section-scoped edits preserve unrelated host instructions byte-for-byte.
-  let result = content.replace(/^## workflow-system baseline[^\r\n]*\r?\n[\s\S]*?(?=^## |$(?![\s\S]))/m, block);
-  if (result === content && !content.includes('## workflow-system baseline')) result = block + content;
+  let result = updateHostGuidance(content);
   result = result.replace(/(^\d+\. `[^`]+`\r?\n)([\s\S]*?)(?=^\d+\. `|^## |$(?![\s\S]))/gm, (whole: string) =>
     /(?:\.codex|\.claude|\.agents)\/skills\/workflow-system-[^/]+\/SKILL\.md/.test(whole) ? '' : whole);
   result = result.replace(/^\d+\. workflow-system bootstrap skills .*\r?\n/gm, '')

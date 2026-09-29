@@ -573,6 +573,35 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(upgrade.next).toBeUndefined();
   });
 
+  test('upgrade aligns project guidance transactionally without owning business instructions', { timeout: 60000 }, () => {
+    const target = freshTarget();
+    expect(installDistribution({ targetRoot: target, packageRoot }).status).toBe('installed');
+    const file = targetPath(target, 'AGENTS.md');
+    const business = '# Business\r\n- Preserve the single storage authority.\r\n';
+    const before = '## workflow-system baseline\r\n- 先读对应 SKILL.md；prepare/confirm、review 和完成校验按当前 Runtime 契约执行。\r\n' + business;
+    fs.writeFileSync(file, before);
+    const preview = upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true });
+    expect(preview.status).toBe('ready');
+    expect(preview.planned_writes).toContain('AGENTS.md');
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    const rejected = upgradeDistribution({ targetRoot: target, packageRoot, testHooks: { afterPromotion: () => { throw new Error('injected read-back failure'); } } });
+    expect(rejected.status).toBe('rejected');
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    fs.writeFileSync(targetPath(target, 'FREEZE_REGISTRY.md'), 'AGENTS.md\n');
+    const frozen = upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true });
+    expect(frozen.blockers.some(issue => issue.code === 'FROZEN_PATH')).toBe(true);
+    fs.unlinkSync(targetPath(target, 'FREEZE_REGISTRY.md'));
+    const upgraded = upgradeDistribution({ targetRoot: target, packageRoot });
+    expect(upgraded.status, JSON.stringify(upgraded.blockers)).toBe('upgraded');
+    const after = fs.readFileSync(file, 'utf8');
+    expect(after.endsWith(business)).toBe(true);
+    expect(after).not.toContain('完成校验按当前 Runtime 契约执行');
+    expect(after).toContain('vnext-assistance-guidance:start');
+    const state = JSON.parse(fs.readFileSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH), 'utf8'));
+    expect(state.managed_files.some((item: { path: string }) => item.path === 'AGENTS.md')).toBe(false);
+    expect(upgradeDistribution({ targetRoot: target, packageRoot }).status).toBe('no-op');
+  });
+
   test('vNext upgrade preserves a confirmed active task byte-for-byte', { timeout: 60000 }, () => {
     const target = makeActiveVNextTarget();
     const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');

@@ -109,10 +109,10 @@ function assertStatusContract(target: string): void {
 
 function assertPublicEntryTerminalGuidance(target: string): void {
   const guidance = fs.readFileSync(path.join(target, 'AGENTS.md'), 'utf8');
-  expect(guidance).toContain('public-entry-terminal/v1');
-  expect(guidance).toContain('return to the caller and stop');
-  expect(guidance).toContain('recommendation-only');
-  expect(guidance).toContain('must not invoke another public Skill');
+  expect(guidance).toContain('vnext-assistance-guidance:start');
+  expect(guidance).toContain('same target, action and disclosed consequences');
+  expect(guidance).toContain('perform the chosen action and all already authorized stages');
+  expect(guidance).not.toContain('must not invoke another public Skill');
 }
 
 function assertCallerDrivenWorkflowGuide(target: string): void {
