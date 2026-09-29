@@ -78,6 +78,25 @@ describe('vNext Phase 2 source contract', () => {
     }
   });
 
+  test('new unreviewed plans recommend draft review before implementation', () => {
+    const prepare = fs.readFileSync(
+      path.join(ROOT, 'templates/vnext/skills/prepare-task.SKILL.md.tmpl'),
+      'utf8',
+    );
+    const review = fs.readFileSync(
+      path.join(ROOT, 'templates/vnext/skills/review-draft.SKILL.md.tmpl'),
+      'utf8',
+    );
+    expect(prepare).toContain('For a newly prepared or materially revised plan with no draft review yet');
+    expect(prepare).toContain('`next_route: review-draft` by default');
+    expect(prepare).toContain('Draft review is advice, not an admission prerequisite.');
+    expect(review).toContain('recommend `prepare-task` when material plan changes are');
+    expect(review).toContain('recommend `next_route: prepare-task` for plan');
+    expect(review).toContain('Recommend `execute-step` only when the plan is already adopted or');
+    expect(prepare).toContain('In confirm mode, read the latest candidate plan and applicable draft review.');
+    expect(prepare).toContain('do not require the legacy `confirm-draft` transaction or an approval token.');
+  });
+
   test('accepts exactly the eight daily entries and closed catalogs', () => {
     const result = validateVNextSource(ROOT);
 

@@ -105,4 +105,11 @@ already covered by the user's instruction before choosing the route. The route i
 advice, not permission or the only allowed next action. Do not invoke it solely
 because it was recommended or widen validation or external effects without authorization.
 
+After reviewing a draft, recommend `prepare-task` when material plan changes are
+needed. If the reviewed plan is ready but the user has not yet adopted it or
+requested implementation, recommend `next_route: prepare-task` for plan
+confirmation. Recommend `execute-step` only when the plan is already adopted or
+the user's instruction covers implementation. Report the actual findings and
+user choices; a clean review is not an admission token or user adoption.
+
 terminal_boundary: public-entry-terminal/v1

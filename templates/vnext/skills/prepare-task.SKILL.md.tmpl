@@ -93,6 +93,13 @@ unlinked; do not invent a canonical ID or lose the draft. Confirmation records
 the user's actual decision, not a manufactured receipt. Do not ask again solely
 because an internal revision changed without a material decision change.
 
+In confirm mode, read the latest candidate plan and applicable draft review. Make
+the adopted scope and any review conditions explicit. If the user's current or
+still-effective instruction already adopts that plan, record the real decision
+and link it to the plan and review. Otherwise obtain the unresolved plan choice
+before recording adoption. A review verdict alone is not the user's adoption;
+do not require the legacy `confirm-draft` transaction or an approval token.
+
 For replan/amend-scope, preserve old definitions/results and describe the real
 delta. Evidence selection changes do not require a successor task or fabricated
 challenge. Clarify only materially unresolved user choices. Preparing a plan does
@@ -117,5 +124,11 @@ with a brief reason. Choose it from the actual outcome and remaining work; use
 already covered by the user's instruction before choosing the route. The route is
 advice, not permission or the only allowed next action. Do not invoke it solely
 because it was recommended or widen validation or external effects without authorization.
+
+For a newly prepared or materially revised plan with no draft review yet, recommend
+`next_route: review-draft` by default. Recording a plan alone does not make
+`execute-step` the next recommendation. If the draft was already reviewed in the
+authorized work or the user clearly chose direct implementation, select the route
+from the remaining work. Draft review is advice, not an admission prerequisite.
 
 terminal_boundary: public-entry-terminal/v1
