@@ -112,6 +112,7 @@ test('unsafe attachment paths cannot write outside management storage or destroy
 test('the installed native entry works without kernel/dependencies; concurrent replays do not duplicate a report', async t => {
   const root = fixture(t), installed = path.join(root, '.workflow-system/runtime/support/assistance.mjs');
   fs.mkdirSync(path.dirname(installed), { recursive: true }); fs.copyFileSync(runtime, installed);
+  fs.copyFileSync(path.join(path.dirname(runtime), 'task-management.mjs'), path.join(path.dirname(installed), 'task-management.mjs'));
   const call = payload => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [installed, 'record', '--root', root]);
     let stdout = '', stderr = '';

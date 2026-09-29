@@ -56,12 +56,18 @@ Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
 `node .workflow-system/runtime/support/assistance.mjs <command> --root <project>`.
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
-Use `context`/`find`/`read` for current and historical sources, `snapshot` for an
-explicit optional file capture, and `record` for facts and decisions. A malformed
-active task, stale evidence, missing review, old receipt or failed index is not a
-development gate. Record actual outcomes without obtaining a preflight or repairing
-legacy state. Existing capability/transaction metadata lists optional compatible
-tools, not mandatory calls. Do not use run-entry recovery as a prerequisite.
+Use `task-status` (or the `context.management` view) to identify the task, adopted
+plan, step, review/disposition and actual commits. It reads the complete journal,
+not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
+For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
+`record` is for general observations, not a substitute for task registration.
+Normal management updates are part of the requested task operation, not optional
+future reconciliation. Check `recorded`, `association` and `projection` separately.
+If an association/view update fails, retain facts, try a bounded deterministic rebuild
+when appropriate, and present concrete link/correct/resolve/defer choices. Honor the
+chosen recovery without repeating business actions or asking again for existing consent.
+A read-only request uses live task-status without writing a cache. Never declare
+full task-management completion merely because a generic record was saved.
 
 If a management operation fails, preserve its actual error and any output already
 saved; use another authorized recording method when available and continue
@@ -87,17 +93,20 @@ Use context/find/read or ordinary authorized file tools; a stale or malformed
 CURRENT_TASK is not a prerequisite to repair. Describe the goal, acceptance,
 scope/exclusions, implementation steps and minimum-sufficient validation.
 
-Record a `plan` observation with the original instruction, task_ref when known,
-assumptions and links to the previous plan. Unknown identity can remain explicitly
-unlinked; do not invent a canonical ID or lose the draft. Confirmation records
-the user's actual decision, not a manufactured receipt. Do not ask again solely
-because an internal revision changed without a material decision change.
+For a new task, use `task` action `prepare` without task_ref, retaining the returned
+stable task_id, display_id and plan ref. Software assigns identity; this is not
+inventing a historical ID. For revision/replan pass the existing task_id and a new
+plan with base_plan_ref; do not allocate another task for a revision. Preserve the
+full goal, acceptance, scope, step definitions, validation and per-step environment.
+A candidate is not adopted and must not replace the current work focus by itself.
+Unknown raw drafts are retained and linked, not discarded or permanently unnumbered.
 
-In confirm mode, read the latest candidate plan and applicable draft review. Make
-the adopted scope and any review conditions explicit. If the user's current or
-still-effective instruction already adopts that plan, record the real decision
-and link it to the plan and review. Otherwise obtain the unresolved plan choice
-before recording adoption. A review verdict alone is not the user's adoption;
+In confirm mode, read the latest candidate plan and applicable draft review. Make the
+adopted scope and any review conditions explicit. If the user's current or still-effective
+instruction already adopts that plan, use `task` action `adopt` with the actual task_id,
+exact plan_ref, review_ref and original decision source/text. Read back
+adopted_plan_ref/current_step_id via task-status. Otherwise obtain the unresolved plan
+choice before recording adoption. A review verdict alone is not the user's adoption;
 do not require the legacy `confirm-draft` transaction or an approval token.
 
 For replan/amend-scope, preserve old definitions/results and describe the real
@@ -107,9 +116,15 @@ not authorize implementation; carry out combined work only when already requeste
 
 Drafting an alternative is not adopting it and needs no deviation approval by itself.
 Before adopting a material goal, scope, acceptance, order or validation change, apply
-the shared rule unless the instruction already makes that choice. Then record the
+the shared rule unless the instruction already makes that choice. Then use prepare/adopt actions for the
 selected plan linked to its predecessor; no successor task or legacy replan receipt
 is required. Adoption does not turn old execution evidence into proof of the new plan.
+
+When recovering an already prepared/reviewed/confirmed plan, use `task link` to
+interpret the saved records with explicit task/plan associations. Do not ask the user
+to repeat prepare, review or confirm. Resolve only genuinely ambiguous mappings.
+If another task remains active, explain focus choices and switch only as instructed;
+adopting a plan does not silently close the other task.
 
 ## Result
 

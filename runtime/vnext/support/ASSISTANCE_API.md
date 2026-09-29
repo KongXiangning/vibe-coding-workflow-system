@@ -1,201 +1,117 @@
 # vNext management API — assistance, not admission
 
-The default daily API is the native Node entry below. It has no dependency on
-CURRENT_TASK parsing, task-store qualification, run-entry, preflight, review
-receipts, evidence-plan revisions, or the installed transaction kernel.
-
 ```sh
 node .workflow-system/runtime/support/assistance.mjs <command> --root <project>
 ```
 
-In this source repository use `node runtime/vnext/support/assistance.mjs` instead.
-Input is JSON on stdin. Commands are `context`, `record`, `snapshot`, `read`, `find`.
-A read request may use `{}` where applicable. Do not run tests or business commands
-again merely to obtain a management receipt. The service never runs them.
+Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
+Input is JSON on stdin. Commands: context, task-status, task, record, snapshot, read, find.
+Native modules assistance.mjs and task-management.mjs use Node built-ins, not the old
+transaction/qualification kernel. The service never executes product commands or tests.
+The task Git observer only reads actual local commit objects; it does not commit or push.
 
-## Workflow contract
+## Two responsibilities, separate results
 
-User instructions and Skill methods determine the work. Runtime records and finds
-facts. Missing/stale evidence, an unrecognized task state or an unavailable old
-projection is not permission denial. A diagnostic is neither a new instruction
-nor an obligation to repair the workflow software. Do not recursively recover the
-old admission kernel before returning to development.
+User instructions and Skills determine work and informed workflow-deviation choices.
+`record` preserves arbitrary observations; `task` maintains identity, adopted plans,
+steps, execution, reviews/dispositions, Git observations and closure in the same journal.
+Do not substitute a generic note for a task operation. Full action shapes, examples and
+existing-record recovery: **TASK_MANAGEMENT_API.md** beside this file.
 
-Every response contains `development_gate: false` and `qualification: not-evaluated`.
-These are NOT permission grants or proof of quality. A real I/O failure returns
-`status: unavailable`, `recorded: false` and exit 1, never fabricated success.
-Preserve the output through another authorized means and report unsaved state;
-continue independent authorized work rather than repeatedly attempting recovery.
-Real business dependencies and unresolved user choices remain real limitations.
+Every response retains development_gate=false and qualification=not-evaluated. These are
+not permission grants or PASS. Task operations report fact persistence, association and
+view publication independently. A projection/association failure never discards the saved
+fact or revokes a still-visible user decision; it also is not complete management success.
 
-## Save first, associate later
+State queries use `task-status` or `context.management`, computed from all task facts.
+CURRENT_TASK is a generated presentation, not a second current authority. A stale display,
+one literal-search page or a raw legacy tuple must not decide the current task. Read-only
+queries rebuild in memory and report projection freshness; they do not write files.
 
-`record` accepts a JSON observation. `kind`, `task_ref`, `source_revision`, `body`,
-`links`, `idempotency_key` and `files` are conventional fields, not an admission
-schema. Missing identifiers and unrecognized kinds do not prevent retention.
-Malformed JSON submitted to `record` is retained as a raw observation. Do not put
-secrets into reports or capture unrelated files.
+One-time confirmation for material workflow deviations is in WORKFLOW_PROTOCOL. Read,
+search, save and deterministic view maintenance need no new approval. Ask only about an
+unresolved choice with real consequences. After the choice, perform the actual operation
+and update its view, without legacy gate/waiver/preflight recovery. Never fabricate consent,
+PASS or independent review. A user's review disposition does not edit the review verdict.
 
-```json
-{
-  "kind": "test-run",
-  "task_ref": "TASK-016",
-  "source_revision": "the-version-actually-tested",
-  "idempotency_key": "TASK-016-run-2026-09-29-1",
-  "body": {"command": "the authorized selector", "result": "failed", "observation": "actual output"},
-  "links": [{"relation": "references", "ref": "a prior report reference"}],
-  "files": ["reports/current-test.txt"]
-}
-```
+## Raw facts: save first
 
-The raw observation is atomically retained before optional attachment capture.
-The result gives `ref`, `sha256`, attachment references and issues. Missing or
-changed attachments leave the observation intact. Exact idempotent replay returns
-the original reference and never reexecutes or recaptures. A different observation
-using the same key is retained separately with `IDEMPOTENCY_CONFLICT_RETAINED` and
-an explicit link to the original, not written over it.
-
-Records live in `.workflow-system/records/events`; optional attachment indexes in
-`records/attachments`; immutable bodies in `records/evidence-objects`. These are
-an append-only management journal, NOT a second task state machine or a shadow
-verified-state store. Existing task-data, task-history, task IDs and reports stay
-unchanged. Install/upgrade manifests must never own the journal.
-
-Recommended kinds: `plan`, `execution`, `test-plan`, `test-run`, `review`,
-`finding`, `decision`, `step-disposition`, `task-disposition`, `lesson`, `reconciliation`.
-New plans/dispositions refer to the old plan/report using `links`; keep the
-original requirement and authorization verbatim, separate from agent inference.
-Corrections are new records. A closed disposition means the user stopped/finished
-the work; it is not automatic verification of the work.
-
-## Recording a workflow-deviation decision
-
-The Skill applies **One-time confirmation for workflow deviations** in
-WORKFLOW_PROTOCOL. This service does not detect consent, ask questions, validate an
-approval, or authorize the next operation. No new command, required schema or
-revision-bound token is involved. Use `find`/`read` to recover relevant decisions and
-outcomes; read their actual scope instead of treating any matching keyword as consent.
-An empty or partial search is not proof no decision exists. If its meaning cannot be
-established from available records/conversation, ask the concrete outstanding choice.
-
-After a real reply, save an ordinary `decision` observation. The following is only a
-shape example, NOT a user instruction, actual approval or execution evidence. Replace
-its source, text, target and consequences with the real conversation; omit unknown
-IDs instead of inventing them. A still-effective earlier informed instruction may
-already supply the decision without another question.
+`record` accepts arbitrary JSON. kind, task_ref, source_revision, body, links,
+idempotency_key and files are conventional fields. Missing IDs or unknown kinds do not
+prevent retention. Malformed JSON passed to record is retained as a raw observation.
+The raw payload is saved before optional attachments; missing/changed attachments are
+reported separately, not used to reject the report. Do not capture secrets/unrelated files.
 
 ```json
-{
-  "kind": "decision",
-  "task_ref": "TASK-EXAMPLE",
-  "body": {
-    "topic": "workflow-deviation",
-    "target": {"step": "S1"},
-    "expected_workflow": "review before ending this step",
-    "observed_facts": ["no applicable review pass found"],
-    "presented_choice": "finish with review incomplete, or review first",
-    "chosen_action": "finish S1 with review incomplete",
-    "retained_gaps": ["review incomplete"],
-    "scope": "S1 disposition only; no task closure, next step, commit or deployment",
-    "decision_source": "<actual conversation/message reference>",
-    "decision_text": "<actual user reply, verbatim>"
-  }
-}
+{"kind":"test-run","task_ref":"TASK-016","source_revision":"actually-tested-version","idempotency_key":"actual-run-1","body":{"command":"authorized selector","result":"failed","observation":"actual output"},"files":["reports/test.txt"]}
 ```
 
-Do not save a proposed question as an approved decision. A real reply to a specific
-question may be short; preserve that question's consequences with it. Record declined,
-revised or revoked decisions truthfully as later observations. The journal does not
-choose which decision controls the current work; that remains the caller's assessment.
+The result includes recorded, ref, payload hash, attachment references/issues and management
+publication status. Exact replay returns the original record and does not recapture changed
+files. Conflicting input with the same key is retained separately, linked to the original,
+never overwrites it. Task-command retries compare the original semantic request, so changed
+derived defaults/heads do not turn a retry into another adoption or task.
 
-Then actually carry out the selected operation. For a step disposition, save a
-`step-disposition` outcome with its decision reference, actual review/check status and
-remaining work. Use `links: [{"relation":"implements-decision","ref":"<returned decision ref>"}]`
-when available. For plan/execution/review/task/Git operations use their existing kinds.
-A decision record alone is not evidence that any subsequent action succeeded.
+Raw records live in `.workflow-system/records/events`, attachment indexes in records/attachments,
+immutable bytes in records/evidence-objects. Task events use this same store. task-labels stores
+stable display allocation; task-view.json/task-views are rebuildable presentations. Original
+legacy displays are retained under records/legacy. None are software distribution assets.
 
-These fields are conventions, not required admission keys. Reuse is semantic: the same
-target, action and disclosed consequences, not a current source revision, signature,
-one-use token or expiry time. Replaying the same record never performs the action again;
-inspect the actual operation result before repeating it. Missing persistence does not
-revoke a decision still visible in the conversation. Report the missing record and use
-another authorized means; do not fabricate a saved reference or force a legacy waiver.
+## Fixed evidence
 
-## Fixed evidence, not current-file guesses
+`snapshot {"path":"reports/test.txt"}` captures an explicit regular file using buffered I/O.
+An optional sha256 requests exact historical bytes. A saved digest is resolved first in the
+journal, then in the existing workflow-home evidence-objects directory. Changed live content
+is never relabelled with the old digest. Missing/corrupt original bytes are reported, not guessed.
+This does not prevent new reports or other evidence from being saved.
 
-`snapshot` captures one explicitly named regular file, using bounded-buffer I/O:
+`read` accepts a path/ref or sha256, workflow_home when needed, offset and max_bytes.
+In-repository absolute paths and common separators are normalized. External and symbolic
+paths are not followed. Historical reads do not require a live plan, current task or review.
 
 ```json
-{"path":"reports/test.txt"}
+{"sha256":"<actual 64-character digest>","workflow_home":"docs/workflow","offset":0,"max_bytes":8192}
 ```
 
-`read` accepts a `path` (or the returned `ref`) or a `sha256`.
-Relative paths are preferred; in-repository absolute paths and common separators
-are normalized. External paths and symbolic paths are not followed by this service. A digest resolves preserved bytes,
-first in the journal and then in the existing workflow-home `evidence-objects`.
-It never validates those bytes against CURRENT_TASK, a current plan or live code.
-`snapshot` with both `path` and `sha256` reuses the fixed historical object when
-available; otherwise it only captures the live file if the digest really matches.
-It does not relabel new bytes with an old digest.
+Read responses contain exact base64 data, text_preview, size and next_offset. Follow
+next_offset until null. Decode base64 for exact reconstruction: the UTF-8 preview may split
+a character at a byte boundary. Page limits are not evidence failures. There is no old
+one-MiB qualification limit. Availability, historical truth and current applicability are
+separate; an old PASS only reports that old run until current applicability is established.
 
-```json
-{"sha256":"<64-character sha256>","workflow_home":"docs/workflow","offset":0,"max_bytes":8192}
-```
+## Navigation and literal search
 
-Read responses contain exact `data` in base64 plus `text_preview`, `next_offset`
-and size. Continue with `next_offset`; a page limit is not evidence failure.
-The preview can split a UTF-8 character at a byte boundary, so decode base64 for
-exact reconstruction. There is no old one-MiB evidence eligibility limit here.
-A missing/corrupt old object is reported unavailable, not recreated or guessed.
-It does not prevent a new observation from being saved.
+`context {"task_ref":"TASK-016"}` returns unified task management plus legacy and journal
+source navigation. workflow_home is optional; a simple profile hint is read best-effort.
+For unusual/ambiguous YAML provide the actual home explicitly. No report save requires it.
 
-Availability, historical truth and applicability to current code are distinct.
-An old PASS is still the report of that old run; current applicability remains
-unassessed until supported by evidence. Never rerun or waive merely to read it.
-
-## Find plans, runs and existing history
-
-`context` returns source locations and journal navigation without validating the
-active projection. `workflow_home` is optional; the conventional scalar profile
-hint is read best-effort. For unusual YAML or an ambiguous hint, provide the known
-workflow home explicitly. No record write depends on the profile hint.
-
-```json
-{"task_ref":"TASK-016","workflow_home":"docs/workflow"}
-```
-
-`find` performs literal byte searches over journal records, existing workflow
-files/task-data/task-history and TASKS by default. Supply `roots` for a narrower
-known location, and `query` for a task ID, command, test name or report text.
-It returns paths and byte offsets usable by `read`; it does not require a task
-receipt. Queries operate on stored bytes: encoded legacy payloads need to be read
-and decoded rather than claimed as searchable decoded content.
+`find` searches literal stored bytes, not decoded semantics of arbitrary historical payloads.
+Use query and optional roots to narrow evidence searches. It returns paths/byte offsets for read.
+Encoded legacy reports may need reading and decoding; do not claim decoded full-text coverage.
 
 ```json
 {"query":"TASK-016","max_results":20}
 ```
 
-Use the returned `next_cursor` with the same query for the next batch. `partial`
-is successful pagination (exit 0), not a blocker. Cursor position is not an
-immutable snapshot; after concurrent additions, a new search may be needed.
-Unreadable objects are listed in `issues` without denying access to other history.
+Follow next_cursor with the same query. partial is pagination, not failure or permission denial.
+A cursor is not an immutable snapshot; concurrent additions may need a fresh search. Unreadable
+objects appear in issues without excluding other files. Do not interpret no hit on one page as
+proof no plan, review or user decision exists; current state is a task-status query.
 
-The existing file-context/task-context, evidence, test-history, knowledge and
-transaction interfaces are preserved. Their detailed reference is now in
-`CONTEXT_API.md`. They are optional specialized tools, not required
-preconditions to use this API or perform development. If a strict view fails,
-read its saved file/object with `read` or use ordinary authorized file tools.
+## Failures, recovery and compatibility
 
-## Default entry outcomes
+A real raw I/O failure returns unavailable, recorded=false and exit 1; do not claim it saved.
+Preserve output through another authorized means and report unsaved state. A task request with
+incomplete meaning can still be recorded with association=unresolved. Offer the relevant
+rebuild/link/correct/resolve/defer operation, not hand editing or repeating user approval.
+Rebuild never reruns tests, execution, git commit or deployment.
 
-Prepare records a plan; execute records actual work and selected validation;
-review records a real assessment; close records the user's disposition and all
-remaining findings/evidence gaps. Read the latest relevant plan/disposition
-records alongside the old projection. Do not silently mutate a legacy CURRENT_TASK
-or pretend its old gate state is current. Reconciliation can be requested later,
-but is never required to keep working.
+Unsupported legacy/free-text associations are reported with source refs. Supplement the real
+meaning by linking records; do not replay preparation or confirmation. Unknown or conflicting
+facts are not silently selected by latest timestamp. Corrections append, original bytes remain.
 
-Read-only user requests stay read-only: return an assessment without even journal
-writes when the user explicitly prohibits writes. Default review may record its
-report but must not edit product files. A next-route recommendation is not new
-authorization; an existing explicit instruction may already cover multiple stages.
+Existing file-context, historical task-read/export, knowledge and evidence APIs remain optional
+specialized tools in CONTEXT_API.md. The compiled CLI's default task-context delegates to the
+unified view after the software is rebuilt; --legacy explicitly opts into the old historical
+reader, which may not parse the new CURRENT_TASK display. Do not use it for current status or
+send accepted user choices back through old complete/replan/close gates.

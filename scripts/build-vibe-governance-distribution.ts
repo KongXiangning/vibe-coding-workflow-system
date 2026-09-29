@@ -139,6 +139,8 @@ function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string
   return [
     { source_path: 'runtime/vnext/dist/install-tools.js', target_path: RG_INSTALL_ENTRY, category: 'runtime' },
     { source_path: 'runtime/vnext/support/CONTEXT_API.md', target_path: '.workflow-system/runtime/support/CONTEXT_API.md', category: 'runtime' },
+    { source_path: 'runtime/vnext/support/TASK_MANAGEMENT_API.md', target_path: '.workflow-system/runtime/support/TASK_MANAGEMENT_API.md', category: 'runtime' },
+    { source_path: 'runtime/vnext/support/task-management.mjs', target_path: '.workflow-system/runtime/support/task-management.mjs', category: 'runtime' },
     { source_path: 'runtime/vnext/support/assistance.mjs', target_path: '.workflow-system/runtime/support/assistance.mjs', category: 'runtime' },
     { source_path: 'runtime/vnext/support/ASSISTANCE_API.md', target_path: '.workflow-system/runtime/support/ASSISTANCE_API.md', category: 'runtime' },
     { source_path: 'runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md', target_path: '.workflow-system/runtime/support/CONTEXT_THIRD_PARTY_NOTICES.md', category: 'runtime' },
@@ -177,6 +179,8 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
     'runtime/vnext/dist/install-tools.js',
     'runtime/vnext/support/CONTEXT_API.md',
     'runtime/vnext/support/assistance.mjs',
+    'runtime/vnext/support/task-management.mjs',
+    'runtime/vnext/support/TASK_MANAGEMENT_API.md',
     'runtime/vnext/support/ASSISTANCE_API.md',
     'runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md',
     'runtime/vnext/dist/cli.js',

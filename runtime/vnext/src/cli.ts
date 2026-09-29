@@ -4,6 +4,8 @@ import { runCli, rebindTaskAuthorityDomains } from './kernel';
 import { authorityDomainContext, updateAuthorityDomains } from './authority-domain-transaction';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { runBootstrapCli } from './bootstrap';
 import { runBootstrapSupportCli } from './bootstrap-support';
 import { PREPARE_TASK_ADAPTER_COMMANDS, runPrepareTaskAdapterCli } from './prepare-task-adapter';
@@ -38,9 +40,25 @@ async function runAuthorityDomainCli(command: string, argv: string[]): Promise<n
   }
 }
 
+/** The default task query shares the native journal view; old tuple reads are explicit. */
+function runManagementCli(command: string, argv: string[]): Promise<number> {
+  const service = fileURLToPath(new URL('../support/assistance.mjs', import.meta.url));
+  return new Promise(resolve => {
+    const child = spawn(process.execPath, [service, command, ...argv], { stdio: 'inherit' });
+    child.once('error', error => {
+      console.log(JSON.stringify({ status: 'unavailable', recorded: false, development_gate: false,
+        message: error.message, next_action: 'Report this management read failure, not a development veto.' }));
+      resolve(1);
+    });
+    child.once('close', code => resolve(code ?? 1));
+  });
+}
+
 const args = process.argv.slice(2);
 let runner: Promise<number>;
-if (args[0] === 'entry-output-read') runner = runEntryOutputReadCli();
+if (args[0] === 'task' || args[0] === 'task-status') runner = runManagementCli(args[0], args.slice(1));
+else if (args[0] === 'task-context' && !args.includes('--legacy')) runner = runManagementCli('context', args.slice(1));
+else if (args[0] === 'entry-output-read') runner = runEntryOutputReadCli();
 else if (args[0] === 'run-entry') runner = runEntryRunnerCli(args, [
   ...PREPARE_TASK_ADAPTER_COMMANDS, ...EXECUTE_STEP_ADAPTER_COMMANDS,
   ...REVIEW_CHANGE_ADAPTER_COMMANDS, ...USER_DECISION_ADAPTER_COMMANDS,
@@ -53,7 +71,7 @@ else if (['authority-domain-context', 'authority-domain-update', 'authority-doma
 }
 else if (args[0] === 'file-context') runner = runFileContextCli(args.slice(1));
 else if (args[0] === 'task-context' || args[0] === 'task-read' || args[0] === 'task-storage-migration' || args[0] === 'task-migrate' || args[0] === 'task-export') {
-  runner = runTaskContextCli(args[0] === 'task-migrate' ? 'task-storage-migration' : args[0], args.slice(1));
+  runner = runTaskContextCli(args[0] === 'task-migrate' ? 'task-storage-migration' : args[0], args.slice(1).filter(arg => arg !== '--legacy'));
 }
 else if (args[0] === 'bootstrap-project') runner = runBootstrapCli(args.slice(1));
 else if (args[0] === 'bootstrap-support') runner = runBootstrapSupportCli(args.slice(1));

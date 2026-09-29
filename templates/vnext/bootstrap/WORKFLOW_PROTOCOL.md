@@ -16,7 +16,7 @@ internal-recovery instructions for daily development.
 
 The default API is `.workflow-system/runtime/support/assistance.mjs`. See
 `.workflow-system/runtime/support/ASSISTANCE_API.md` for inputs and outputs. Its
-native Node module runs without the transaction kernel or dependencies.
+native Node modules run without the transaction kernel or npm dependencies.
 
 ## Keep facts separate from qualifications
 
@@ -98,6 +98,36 @@ required token fields or Runtime authorization. A recording failure does not rev
 a choice still available in the conversation: report it and use another authorized
 recording method. Never claim the journal or legacy projection was updated when not.
 
+## Unified task management
+
+Non-blocking does not mean unmanaged. Use assistance `task` actions for task
+preparation, adoption, execution, tests, reviews, review disposition, Git observations
+and lifecycle. Read `TASK_MANAGEMENT_API.md` for their association fields and recovery.
+A new prepare allocates stable identity and a display number; a revision keeps identity.
+Adoption chooses the exact plan, initializes work position and maintains focus.
+Review is not adoption; execution is not review; user disposition is not PASS.
+A close updates the task view and removes that task from active focus, keeping gaps.
+
+Every state question uses `task-status` / `context.management`. They recompute from
+the complete retained journal. A generic find page or old CURRENT_TASK is not current
+state. Report partial associations instead of concluding an unlinked plan never existed.
+CURRENT_TASK is the generated human-readable view; its previous bytes and old task
+store remain historical sources. The old task kernel is not a writer of this display.
+
+Normal view maintenance belongs to each task operation. Check fact persistence,
+association and projection separately; a saved note is not full task-management
+completion. On a deterministic view failure try bounded rebuild, never business replay.
+For missing meaning/conflict offer link, correct, resolve or defer; user-facing Skills
+explain the actual choices and fill references. Keep the original records/decisions.
+Defer preserves known uncertainty; it does not mark it resolved. An existing valid
+choice does not need another approval merely because the cache or view changed.
+If display content was edited, preserve it and ask only about an actual overwrite.
+Read-only status computes in memory and never writes a cache.
+
+This section supersedes older guidance that left current task maintenance optional.
+Legacy archive mirrors may remain historical; the current task view must not remain
+silently stale. Compiled task-context defaults to this view; --legacy is historical.
+
 ## Lifecycle and review
 
 Preparation, execution, review and disposition are distinct observations. New
@@ -138,8 +168,9 @@ that historical objects or unrelated records are unavailable.
 Existing Task Store, task-data, task-history, evidence blobs, test reports,
 knowledge records and document lookup remain available; no task reset or forced
 rebootstrap is required. The new append-only journal extends retained management
-facts; it does not certify or rewrite the old active state. Its files are project
-data, never distribution-owned artifacts.
+facts. A preserved old baseline and generated current view replace the obsolete active
+display without rewriting old evidence. The journal, labels and views are project data,
+never distribution-owned artifacts.
 
 The capability and runtime_operations lists in existing entry metadata and
 SOURCE_CONTRACT/RUNTIME_CONTRACT enumerate compatible tools. They are not a list

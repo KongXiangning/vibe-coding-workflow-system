@@ -51,12 +51,18 @@ Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
 `node .workflow-system/runtime/support/assistance.mjs <command> --root <project>`.
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
-Use `context`/`find`/`read` for current and historical sources, `snapshot` for an
-explicit optional file capture, and `record` for facts and decisions. A malformed
-active task, stale evidence, missing review, old receipt or failed index is not a
-development gate. Record actual outcomes without obtaining a preflight or repairing
-legacy state. Existing capability/transaction metadata lists optional compatible
-tools, not mandatory calls. Do not use run-entry recovery as a prerequisite.
+Use `task-status` (or the `context.management` view) to identify the task, adopted
+plan, step, review/disposition and actual commits. It reads the complete journal,
+not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
+For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
+`record` is for general observations, not a substitute for task registration.
+Normal management updates are part of the requested task operation, not optional
+future reconciliation. Check `recorded`, `association` and `projection` separately.
+If an association/view update fails, retain facts, try a bounded deterministic rebuild
+when appropriate, and present concrete link/correct/resolve/defer choices. Honor the
+chosen recovery without repeating business actions or asking again for existing consent.
+A read-only request uses live task-status without writing a cache. Never declare
+full task-management completion merely because a generic record was saved.
 
 If a management operation fails, preserve its actual error and any output already
 saved; use another authorized recording method when available and continue
@@ -85,11 +91,12 @@ from discovery alone. Distinguish a real workflow/scope choice from internal map
 quota, receipt or revision drift; apply the shared confirmation rule to the former,
 not the latter.
 
-Run only the authorized, necessary validation. Keep actual selectors, commands,
-outputs, source versions, failures and not-run checks. Do not add persistent tests
-or full-suite/E2E runs merely to satisfy a workflow record. Save an `execution`
-and/or `test-run` observation even when results fail, plans changed or links cannot
-be resolved. Never change failed to passed to satisfy a completion condition.
+Run only the authorized, necessary validation. Keep actual selectors, commands, outputs,
+source versions, failures and not-run checks. Do not add persistent tests or full-suite/E2E
+runs merely to satisfy a workflow record. Use `task` action `execution` and/or `test`,
+retaining actual task_id, plan_ref, step_id and source_revision; raw reports may be
+attached/referenced separately, even when results fail, plans changed or links cannot be
+resolved. Never change failed to passed to satisfy a completion condition.
 
 Implementation self-check is normal work, not a formal review. By default do not
 create a new formal review, including via record-review-result. An existing explicit
@@ -103,11 +110,17 @@ For a requested finish/advance, inspect the latest applicable review, checks and
 findings, not just a legacy completed/clean flag. If a workflow commitment is unmet,
 apply the shared rule before that action. For example: "No applicable review pass was
 found. Finish this step while keeping review incomplete, or review first?" After the
-user chooses to finish, record a `step-disposition` with the actual step, decision link,
-review/check status and remaining work; do not manufacture a clean review or call an
+user chooses to finish, use `task` action `step` with state `finished` (or the chosen disposition),
+actual task/plan/step, decision link and remaining work; do not manufacture a clean review or call an
 old completion gate to obtain permission. Finishing alone does not authorize the next
 step or task closure. Changed plans, scope, validation and ordering use the same rule;
 necessary in-scope implementation details and management drift do not trigger it.
+
+Read task-status after recording: execution, review and step disposition are separate.
+Keep historical/late results marked historical; they must not reopen closed work or
+replace the current execution. Report an unassociated result and link/correct it,
+not repeat the actual execution. The view suggests the next unfinished step without
+automatically executing it.
 
 ## Result
 

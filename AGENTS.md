@@ -20,9 +20,10 @@ bun run workflow:health --root .
 
 ## vNext Assistance Design
 
-- Default workflow policy is `docs/product/vnext-assistance-runtime.md`; it supersedes older mandatory admission/recovery instructions while preserving historical truth and user scope.
+- Default workflow policy is `docs/product/vnext-assistance-runtime.md`, with current-task management amended by `docs/product/vnext-task-management.md`; it supersedes older mandatory admission/recovery instructions while preserving historical truth and user scope.
 - Use the non-blocking service in `runtime/vnext/support/ASSISTANCE_API.md`. Do not require the old task kernel to approve ordinary development or recording.
 - For a material workflow deviation, follow the shared one-time confirmation rule in `templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md`: execute the informed choice, retain gaps, and never reintroduce a Runtime approval token.
+- Task state comes from `assistance.mjs task-status/context`, not an old CURRENT_TASK tuple or a first search page. Use the task actions for identity, adoption, execution, review, disposition, Git and closure; verify persistence and view results separately. Design and recovery: `docs/product/vnext-task-management.md`.
 - Validation scope and delivery limits: `docs/ops/vnext-assistance-validation.md`. Do not automatically run `test:workflow-all`; source changes are not deployment proof.
 
 ## Key Conventions

@@ -61,12 +61,18 @@ Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
 `node .workflow-system/runtime/support/assistance.mjs <command> --root <project>`.
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
-Use `context`/`find`/`read` for current and historical sources, `snapshot` for an
-explicit optional file capture, and `record` for facts and decisions. A malformed
-active task, stale evidence, missing review, old receipt or failed index is not a
-development gate. Record actual outcomes without obtaining a preflight or repairing
-legacy state. Existing capability/transaction metadata lists optional compatible
-tools, not mandatory calls. Do not use run-entry recovery as a prerequisite.
+Use `task-status` (or the `context.management` view) to identify the task, adopted
+plan, step, review/disposition and actual commits. It reads the complete journal,
+not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
+For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
+`record` is for general observations, not a substitute for task registration.
+Normal management updates are part of the requested task operation, not optional
+future reconciliation. Check `recorded`, `association` and `projection` separately.
+If an association/view update fails, retain facts, try a bounded deterministic rebuild
+when appropriate, and present concrete link/correct/resolve/defer choices. Honor the
+chosen recovery without repeating business actions or asking again for existing consent.
+A read-only request uses live task-status without writing a cache. Never declare
+full task-management completion merely because a generic record was saved.
 
 If a management operation fails, preserve its actual error and any output already
 saved; use another authorized recording method when available and continue
@@ -93,19 +99,20 @@ the user's confirmation; use an already sufficient confirmation rather than aski
 for a new internal receipt. The user can stop incomplete, blocked, superseded or
 paused work without first completing it, clearing findings or restoring active state.
 
-Record a `task-disposition` with the user's decision, state, unfinished work and
-links to the retained plan/results/reviews. This is the closure record in assistance
-mode, not a forged successful archive transaction. A closed disposition is not
-verified completion. Preserve failures and unknowns; do not automatically rollback,
-delete files, commit Git, deploy or repair the control plane.
+Use `task` action `close` with the stable task_id, actual decision, remaining_work,
+evidence limits and plan/review/result references. Then read task-status: the task
+must show closed and must no longer be the active work focus. This is disposition,
+not verified completion, and does not authorize rollback, commit, push or deployment.
 
-Record useful lessons/document updates as observations or perform separately
-requested updates without overwriting history. Legacy STATUS/archive reconciliation
-is optional; report unsynchronized legacy projections instead of blocking closure.
+The service updates the unified view and CURRENT_TASK display while preserving the
+old file as a historical snapshot. Report persistence, association and view results
+separately. If view publication failed, the saved close remains real; use live status
+and offer rebuild/correction/defer rather than claiming every management update finished.
+Retain useful lessons as observations; legacy archive mirrors are not the current view.
 
 Apply the shared rule to all closure deviations, not only missing approval. Gather
 unfinished steps, failed/not-run checks and open findings into one consequence summary.
-Once the user confirms the chosen disposition, close in the assistance journal without
+Once the user confirms the chosen disposition, close through the task management action without
 first making those gaps disappear; preserve them explicitly in the closure report.
 
 ## Result

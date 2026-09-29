@@ -63,12 +63,18 @@ Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
 `node .workflow-system/runtime/support/assistance.mjs <command> --root <project>`.
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
-Use `context`/`find`/`read` for current and historical sources, `snapshot` for an
-explicit optional file capture, and `record` for facts and decisions. A malformed
-active task, stale evidence, missing review, old receipt or failed index is not a
-development gate. Record actual outcomes without obtaining a preflight or repairing
-legacy state. Existing capability/transaction metadata lists optional compatible
-tools, not mandatory calls. Do not use run-entry recovery as a prerequisite.
+Use `task-status` (or the `context.management` view) to identify the task, adopted
+plan, step, review/disposition and actual commits. It reads the complete journal,
+not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
+For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
+`record` is for general observations, not a substitute for task registration.
+Normal management updates are part of the requested task operation, not optional
+future reconciliation. Check `recorded`, `association` and `projection` separately.
+If an association/view update fails, retain facts, try a bounded deterministic rebuild
+when appropriate, and present concrete link/correct/resolve/defer choices. Honor the
+chosen recovery without repeating business actions or asking again for existing consent.
+A read-only request uses live task-status without writing a cache. Never declare
+full task-management completion merely because a generic record was saved.
 
 If a management operation fails, preserve its actual error and any output already
 saved; use another authorized recording method when available and continue

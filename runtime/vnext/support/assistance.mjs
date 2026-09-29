@@ -4,8 +4,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { taskCommand, taskStatus as buildTaskStatus, synchronizeTasks } from './task-management.mjs';
 
-export const COMMANDS = ['context', 'record', 'snapshot', 'read', 'find'];
+export const COMMANDS = ['context', 'record', 'snapshot', 'read', 'find', 'task', 'task-status'];
 const STORE = '.workflow-system/records';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const json = value => JSON.stringify(value, null, 2) + '\n';
@@ -128,7 +129,7 @@ export function snapshot(root, input) {
     fs.rmSync(temp, { force: true });
   }
 }
-export function record(root, input) {
+function recordObservation(root, input) {
   // Keep caller fields verbatim. Missing IDs, stale revisions and unknown kinds
   // are association information, never qualifications for retaining the report.
   const payload = input && typeof input === 'object' && !Array.isArray(input) ? input : { body: input };
@@ -159,7 +160,11 @@ export function record(root, input) {
     let previous;
     try { previous = JSON.parse(fs.readFileSync(local(root, ref), 'utf8')); }
     catch (error) { issues.push({ ...issue(error), unreadable_ref: ref }); }
-    if (previous?.payload_sha256 === payloadDigest && sha(JSON.stringify(stable(previous.payload))) === payloadDigest) {
+    const sameRequest = payload.kind === 'task-event' && previous?.payload?.kind === 'task-event'
+      && payload.request && previous.payload.request
+      && JSON.stringify(stable(payload.request)) === JSON.stringify(stable(previous.payload.request));
+    if (previous && sha(JSON.stringify(stable(previous.payload))) === previous.payload_sha256
+      && (previous.payload_sha256 === payloadDigest || sameRequest)) {
       const a = `${STORE}/attachments/${id}.json`;
       return { ...base(), status: 'already-recorded', recorded: true, ref,
         attachments_ref: fs.existsSync(local(root, a)) ? a : null, issues: previous.issues ?? [],
@@ -169,6 +174,30 @@ export function record(root, input) {
       message: 'Different observation retained separately; the original was not overwritten.' });
     id = issues.length === 1 ? `conflict-${sha(key ?? id)}-${payloadDigest}` : `${Date.now()}-${randomUUID()}`;
     ref = `${STORE}/events/${id}.json`;
+  }
+}
+// The raw store stays permissive. Management updates are a separately reported result.
+const taskIO = () => ({ local, workflowHome, publish, record: recordObservation, snapshot });
+export function task(root, input = {}) {
+  try { return taskCommand(root, input, taskIO()); }
+  catch (error) {
+    if ((input?.action ?? 'status') === 'status') throw error;
+    if (input?.action === 'rebuild') return { ...base(), status: 'unavailable', recorded: false, projection: { status: 'failed', ...issue(error) }, recovery_options: ['rebuild', 'defer'] };
+    // A malformed management request must not destroy the original report/choice.
+    const saved = recordObservation(root, { kind: 'unassociated-task-request', body: input });
+    return { ...saved, association: 'unresolved', projection: { status: 'not-updated' },
+      issues: [...saved.issues, issue(error)], recovery_options: ['link', 'correct', 'rebuild', 'defer'] };
+  }
+}
+export function taskStatus(root, input = {}) { return buildTaskStatus(root, input, taskIO()); }
+export function record(root, input) {
+  const saved = recordObservation(root, input);
+  try {
+    const projection = synchronizeTasks(root, input && typeof input === 'object' ? input : {}, taskIO());
+    return { ...saved, management: { ...projection, view: undefined },
+      current_task_id: projection.view?.current_task_id ?? null };
+  } catch (error) {
+    return { ...saved, management: { status: 'failed', ...issue(error), recovery_options: ['rebuild', 'defer'] } };
   }
 }
 export function read(root, input) {
@@ -252,22 +281,25 @@ export function find(root, input) {
 export function context(root, input) {
   const { home, issues } = workflowHome(root, input.workflow_home);
   const candidates = [`${home}/CURRENT_TASK.md`, `${home}/task-data`, `${home}/task-history`,
-    `${home}/evidence-objects`, `${STORE}/events`, 'TASKS'];
+    `${home}/evidence-objects`, `${STORE}/events`, `${STORE}/legacy`, `${STORE}/task-view.json`, 'TASKS'];
   const sources = [];
   for (const candidate of candidates) {
     try { if (fs.existsSync(local(root, candidate))) sources.push(candidate); }
     catch (error) { issues.push({ path: candidate, ...issue(error) }); }
   }
+  const management = taskStatus(root, input);
   return { ...base(), status: 'available', workflow_home: home, sources, issues,
+    current_task: management.current_task, current_task_id: management.current_task_id,
+    tasks: management.tasks, management,
     records: find(root, { query: input.task_ref ?? '', roots: [`${STORE}/events`], max_results: input.max_results ?? 20 }),
-    note: 'Sources are navigation, not execution permission. Legacy CURRENT_TASK is a retained projection; use later plan/disposition observations without rewriting its history. Never infer verified completion from a closed disposition.' };
+    note: 'Current task state is computed from the whole task journal; sources/search hits are navigation only. Inspect management.issues and unassociated_records. A closed task is not verified completion.' };
 }
 export async function runAssistance(argv = process.argv.slice(2)) {
   let command = argv[0] ?? 'context', root = process.cwd();
   try {
     for (let i = 1; i < argv.length; i++) {
       if (argv[i] === '--root' && argv[i + 1]) root = path.resolve(argv[++i]);
-      else throw failure('INVALID_ARGUMENT', 'Usage: assistance.mjs <context|record|snapshot|read|find> --root <project>; JSON on stdin.');
+      else throw failure('INVALID_ARGUMENT', 'Usage: assistance.mjs <context|record|snapshot|read|find|task|task-status> --root <project>; JSON on stdin.');
     }
     if (!COMMANDS.includes(command)) throw failure('UNKNOWN_COMMAND', command);
     if (!fs.statSync(root).isDirectory()) throw failure('INVALID_ROOT', root);
@@ -275,7 +307,7 @@ export async function runAssistance(argv = process.argv.slice(2)) {
     let input;
     try { input = text.trim() ? JSON.parse(text) : {}; }
     catch (error) { if (command !== 'record') throw error; input = { kind: 'raw-observation', body: text }; }
-    const result = { context, record, snapshot, read, find }[command](root, input);
+    const result = { context, record, snapshot, read, find, task, 'task-status': taskStatus }[command](root, input);
     console.log(json(result)); return 0;
   } catch (error) {
     console.log(json({ ...base(), status: 'unavailable', recorded: false, command, ...issue(error),
