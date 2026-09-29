@@ -47,7 +47,7 @@ afterEach(() => {
 });
 
 describe('vNext Phase 2 source contract', () => {
-  test('every public vNext entry declares a terminal boundary without a required recovery driver', () => {
+  test('every public vNext entry declares a terminal boundary and advisory next route', () => {
     const entries = [...PHASE_1_ENTRIES, ...ADMIN_ENTRIES, ...EXPERT_ENTRIES];
     expect(validateVNextSource(ROOT).entries).toEqual(PHASE_1_ENTRIES);
     for (const entry of entries) {
@@ -56,6 +56,16 @@ describe('vNext Phase 2 source contract', () => {
       const content = fs.readFileSync(file, 'utf8');
       fs.writeFileSync(file, content.replace('terminal_boundary: public-entry-terminal/v1', ''), 'utf8');
       expect(() => validateVNextSource(root)).toThrow(/terminal_boundary/i);
+    }
+    for (const entry of entries) {
+      const root = copyFixture();
+      replaceIn(
+        root,
+        `templates/vnext/skills/${entry}.SKILL.md.tmpl`,
+        'Always include `next_route` in the final result',
+        'Optionally include a route',
+      );
+      expect(() => validateVNextSource(root)).toThrow(/advisory next_route/i);
     }
   });
 

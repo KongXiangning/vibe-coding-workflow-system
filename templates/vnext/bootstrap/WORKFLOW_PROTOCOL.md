@@ -110,7 +110,11 @@ Closure neither rolls back code nor grants Git/deployment permission.
 By default execute includes implementation self-check, not a fresh formal review.
 Creating a review requires an instruction that actually covers it; an explicit
 combined request may be completed in one interaction. Report self-review honestly.
-A public next_route is advice, never an exclusive permitted next action.
+A public result always reports one `next_route`: a public Skill ID or `null`,
+with a brief reason based on the actual outcome and remaining work. Use `null`
+when no public Skill is justified. Complete stages already authorized by the
+user before choosing the route. The route is advice, never an exclusive permitted
+next action or authorization to perform it.
 
 ## Evidence and tests
 

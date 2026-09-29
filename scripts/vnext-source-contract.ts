@@ -692,10 +692,12 @@ function validateLegacyExecutableTargets(content: string, entry: string, legacyS
 }
 
 function validatePublicEntryTerminalBoundary(content: string, entry: string): void {
-  // Entry/output structure is checked; requiring a recovery driver in prose would
-  // put the old admission kernel back on the assistance-first critical path.
+  // Advisory output is required; it must not become a recovery or admission gate.
   if (!content.includes(PUBLIC_ENTRY_TERMINAL_MARKER)) {
     fail(`${entry} must declare ${PUBLIC_ENTRY_TERMINAL_MARKER}`);
+  }
+  if (!content.includes('Always include `next_route` in the final result')) {
+    fail(`${entry} must require an advisory next_route in the final result`);
   }
   const routeValue = '(?:null|[a-z][a-z0-9-]*(?::[a-z0-9-]+)?)';
   const routeLiterals = new RegExp(`\\bnext_route:\\s*(${routeValue}(?:\\s*\\|\\s*${routeValue})*)`, 'gu');

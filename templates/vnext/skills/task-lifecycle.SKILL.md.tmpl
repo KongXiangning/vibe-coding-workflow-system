@@ -108,9 +108,11 @@ remaining work and any unsaved/unreconciled data. Preserve existing user decisio
 and exclusions; an explicit read-only request remains read-only. A record's successful
 write does not certify the product or expand authorization.
 
-`next_route` is a recommendation, not the only allowed next action. Default to stopping
-after the requested work; a still-effective explicit instruction can cover further
-stages in the same interaction. Never invent such an instruction from a test PASS or
-Runtime suggestion. Do not automatically widen validation or perform unrequested external effects.
+Always include `next_route` in the final result: one public Skill ID or `null`,
+with a brief reason. Choose it from the actual outcome and remaining work; use
+`next_route: null` when no public Skill is justified. Finish any further stages
+already covered by the user's instruction before choosing the route. The route is
+advice, not permission or the only allowed next action. Do not invoke it solely
+because it was recommended or widen validation or external effects without authorization.
 
 terminal_boundary: public-entry-terminal/v1
