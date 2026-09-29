@@ -1,11 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import fsMutable from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { task, taskStatus, record, context, read } from '../runtime/vnext/support/assistance.mjs';
+import { synchronizeTasks } from '../runtime/vnext/support/task-management.mjs';
 
 const RUNTIME = fileURLToPath(new URL('../runtime/vnext/support/', import.meta.url));
 const bytes = (root, ref) => fs.readFileSync(path.join(root, ref));
@@ -154,10 +157,155 @@ test('installed native CLI allocates stable noncolliding tasks and exact concurr
     child.on('error', reject); child.on('close', code => code ? reject(new Error(err || out)) : resolve(JSON.parse(out)));
     child.stdin.end(JSON.stringify(input));
   });
+  const abandonedLock = path.join(root, '.workflow-system/records/task-view.lock');
+  fs.writeFileSync(abandonedLock, '');
+  const oldLockTime = new Date(Date.now() - 60_000);
+  fs.utimesSync(abandonedLock, oldLockTime, oldLockTime);
   const created = await Promise.all(['one', 'two'].map(k => call({ action: 'prepare', plan: plan(k), idempotency_key: k })));
   assert.notEqual(created[0].task_id, created[1].task_id);
   const view = taskStatus(root); assert.deepEqual(view.tasks.filter(t => !t.task_id.startsWith('legacy-')).map(t => t.display_id).sort(), ['TASK-005', 'TASK-006']);
   const input = { action: 'adopt', task_id: created[0].task_id, plan_ref: created[0].ref, decision_text: 'confirm', idempotency_key: 'same-adoption' };
   const copies = await Promise.all([call(input), call(input)]); assert.equal(copies[0].ref, copies[1].ref);
   const final = taskStatus(root); assert.equal(final.tasks.find(t => t.task_id === created[0].task_id).adopted_plan_ref, created[0].ref);
+  assert.equal((await call({ action: 'rebuild' })).rebuild.status, 'updated');
+  assert.equal(fs.readFileSync(abandonedLock, 'utf8'), '');
+});
+
+test('correcting a resolved adoption uses the new choice and retains the original decision', t => {
+  const root = fixture(t);
+  task(root, { action: 'close', task_ref: '004' });
+  const a = task(root, { action: 'prepare', plan: plan('A') });
+  const b = task(root, { action: 'prepare', task_id: a.task_id, plan: plan('B') });
+  const heads = taskStatus(root).heads;
+  const choiceA = task(root, { action: 'adopt', task_id: a.task_id, plan_ref: a.ref, parents: heads, decision_text: 'A' });
+  const choiceB = task(root, { action: 'adopt', task_id: a.task_id, plan_ref: b.ref, parents: heads, decision_text: 'B' });
+  const conflict = taskStatus(root).issues.find(i => i.code === 'RECORD_CONFLICT' && i.field.endsWith(':plan'));
+  assert.ok(conflict);
+  const selected = task(root, { action: 'resolve', conflict_id: conflict.id, selected_ref: choiceA.ref, decision_text: 'Choose A' });
+  const original = bytes(root, selected.ref);
+  const corrected = task(root, { action: 'correct', record_ref: selected.ref, event: { data: { selected_ref: choiceB.ref } }, decision_text: 'Choose B instead' });
+  assert.equal(corrected.association, 'applied');
+  assert.equal(taskStatus(root).tasks.find(x => x.task_id === a.task_id).adopted_plan_ref, b.ref);
+  assert.equal(task(root, { action: 'rebuild' }).rebuild.status, 'updated');
+  assert.equal(taskStatus(root).tasks.find(x => x.task_id === a.task_id).adopted_plan_ref, b.ref);
+  assert.equal(bytes(root, corrected.ref).length > 0, true);
+  assert.deepEqual(bytes(root, selected.ref), original);
+});
+
+test('abandoned empty view lock is reclaimed while a fresh lock remains busy', t => {
+  const root = fixture(t);
+  const created = task(root, { action: 'prepare', plan: plan('lock') });
+  const lock = path.join(root, '.workflow-system/records/task-view.lock');
+  fs.writeFileSync(lock, '');
+  const fresh = task(root, { action: 'close', task_id: created.task_id, decision_text: 'done' });
+  assert.equal(fresh.recorded, true);
+  assert.equal(fresh.projection.code, 'VIEW_BUSY');
+  assert.equal(taskStatus(root).tasks.find(x => x.task_id === created.task_id).lifecycle, 'closed');
+  const old = new Date(Date.now() - 60_000); fs.utimesSync(lock, old, old);
+  assert.equal(task(root, { action: 'rebuild' }).rebuild.status, 'updated');
+  assert.equal(fs.readFileSync(lock, 'utf8'), '');
+  assert.equal(task(root, { action: 'rebuild' }).rebuild.status, 'updated');
+  fs.writeFileSync(lock, '{broken'); fs.utimesSync(lock, old, old);
+  assert.equal(task(root, { action: 'rebuild', overwrite_display: true }).rebuild.status, 'updated');
+  assert.equal(fs.readFileSync(lock, 'utf8'), '{broken');
+  const live = JSON.stringify({ host: os.hostname(), pid: process.pid, id: 'live' });
+  fs.writeFileSync(lock, live); fs.utimesSync(lock, old, old);
+  assert.equal(task(root, { action: 'rebuild' }).rebuild.code, 'VIEW_BUSY');
+  assert.equal(fs.readFileSync(lock, 'utf8'), live);
+});
+
+test('publication detects an edit made after validation and preserves it', t => {
+  const root = fixture(t);
+  const created = task(root, { action: 'prepare', plan: plan('display race') });
+  const target = path.join(root, 'docs/workflow/CURRENT_TASK.md');
+  const before = fs.readFileSync(target, 'utf8');
+  const note = '\nUSER EDIT DURING PUBLICATION\n';
+  let injected = false;
+  const io = {
+    local: (r, ref) => path.join(r, ref),
+    workflowHome: () => ({ home: 'docs/workflow', issues: [] }),
+    publish: (r, ref, data) => {
+      const file = path.join(r, ref); fs.mkdirSync(path.dirname(file), { recursive: true });
+      let written = true;
+      try { fs.writeFileSync(file, data, { flag: 'wx' }); }
+      catch (e) { if (e.code !== 'EEXIST') throw e; written = false; }
+      if (ref.startsWith('.workflow-system/records/legacy/display-') && !injected) {
+        fs.appendFileSync(target, note); injected = true;
+      }
+      return written;
+    },
+  };
+  const lock = path.join(root, '.workflow-system/records/task-view.lock');
+  fs.writeFileSync(lock, JSON.stringify({ host: os.hostname(), pid: process.pid, id: 'held' }));
+  task(root, { action: 'pause', task_id: created.task_id, decision_text: 'pause' });
+  fs.unlinkSync(lock);
+  const publication = synchronizeTasks(root, {}, io);
+  assert.equal(injected, true);
+  assert.equal(publication.status, 'partial');
+  assert.equal(publication.display, 'drift');
+  assert.equal(fs.readFileSync(target, 'utf8'), before + note);
+  assert.equal(bytes(root, publication.preserved_display_ref).toString(), before + note);
+  assert.equal(taskStatus(root).tasks.find(x => x.task_id === created.task_id).lifecycle, 'paused');
+});
+
+test('exclusive display installation protects late path saves and retains delayed writes through open handles', t => {
+  for (const mode of ['path-save', 'after-install', 'open-handle']) {
+    const root = fixture(t);
+    const created = task(root, { action: 'prepare', plan: plan(mode) });
+    const target = path.join(root, 'docs/workflow/CURRENT_TASK.md');
+    const before = fs.readFileSync(target, 'utf8'), edited = before + '\nLate user edit\n';
+    const handle = mode === 'open-handle' ? fs.openSync(target, 'a') : null;
+    const lock = path.join(root, '.workflow-system/records/task-view.lock');
+    fs.writeFileSync(lock, JSON.stringify({ host: os.hostname(), pid: process.pid, id: 'held' }));
+    task(root, { action: 'pause', task_id: created.task_id });
+    fs.unlinkSync(lock);
+    const originalLink = fsMutable.linkSync;
+    let injected = false;
+    const mocked = t.mock.method(fsMutable, 'linkSync', (source, destination) => {
+      if (destination === target && source.endsWith('.tmp') && !injected) {
+        injected = true;
+        if (mode === 'after-install') {
+          originalLink(source, destination);
+          fs.writeFileSync(target, edited);
+          return;
+        }
+        if (handle !== null) fs.writeSync(handle, '\nLate user edit\n');
+        else fs.writeFileSync(target, edited);
+      }
+      return originalLink(source, destination);
+    });
+    syncBuiltinESMExports();
+    try {
+      const rebuilt = task(root, { action: 'rebuild', overwrite_display: true }).rebuild;
+      assert.equal(injected, true);
+      assert.equal(rebuilt.status, 'partial');
+      assert.equal(rebuilt.display, 'drift');
+      if (handle === null) assert.equal(fs.readFileSync(target, 'utf8'), edited);
+      else {
+        assert.equal(bytes(root, rebuilt.preserved_display_ref).toString(), edited);
+        fs.writeSync(handle, 'Still editing after publication\n');
+        assert.match(bytes(root, rebuilt.preserved_display_ref).toString(), /Still editing after publication/);
+      }
+      assert.equal(taskStatus(root).tasks.find(x => x.task_id === created.task_id).lifecycle, 'paused');
+    } finally {
+      mocked.mock.restore(); syncBuiltinESMExports();
+      if (handle !== null) fs.closeSync(handle);
+    }
+  }
+});
+
+test('cyclic correction and decisions on ineffective reviews report unresolved association', t => {
+  const root = fixture(t);
+  task(root, { action: 'close', task_ref: '004' });
+  const created = task(root, { action: 'prepare', plan: plan('associations') });
+  task(root, { action: 'adopt', task_id: created.task_id, plan_ref: created.ref, decision_text: 'adopt' });
+  const run = task(root, { action: 'execution', result: 'failed' });
+  const cyclic = task(root, { action: 'correct', record_ref: run.ref, event: { parents: [run.ref] } });
+  assert.equal(cyclic.recorded, true); assert.equal(cyclic.association, 'unresolved');
+  assert.ok(cyclic.issues.some(i => i.code === 'ASSOCIATION_CYCLE'));
+  assert.equal(taskStatus(root).current_task.steps[0].execution_ref, null);
+  const review = task(root, { action: 'review', stage: 'change', execution_ref: 'missing', verdict: 'clean' });
+  const decision = task(root, { action: 'review-decision', review_ref: review.ref, choice: 'accept' });
+  assert.equal(review.association, 'unresolved'); assert.equal(decision.association, 'unresolved');
+  assert.equal(taskStatus(root).current_task.review_decisions.length, 0);
 });

@@ -156,15 +156,20 @@ export function taskView(root, input, io) {
     for (const e of entries) for (const p of ancestors(e.ref)) if (p !== e.ref && refs.has(p)) superseded.add(p);
     return entries.filter(e => !superseded.has(e.ref));
   }
-  const resolutions = [...all.values()].filter(e => e.action === 'resolve' && !e.data.association_error);
+  const effective = new Set();
   function choose(field, entries) {
     const heads = maxima(entries);
     if (!heads.length) return null;
     if (heads.length === 1 || heads.every(e => digest(e.semantic ?? e.value) === digest(heads[0].semantic ?? heads[0].value))) return heads[0];
     const candidates = heads.map(e => e.ref).sort();
     const id = `conflict-${digest([field, candidates]).slice(0, 24)}`;
-    const decisions = maxima(resolutions.filter(e => e.data.conflict_id === id && candidates.includes(e.data.selected_ref)));
-    if (decisions.length === 1) return heads.find(e => e.ref === decisions[0].data.selected_ref);
+    const decisions = maxima([...all.values()].filter(e => e.action === 'resolve' && !e.data.association_error
+      && e.data.conflict_id === id && candidates.includes(e.data.selected_ref)));
+    if (decisions.length === 1) {
+      effective.add(decisions[0].ref);
+      if (decisions[0].interpretation_ref) effective.add(decisions[0].interpretation_ref);
+      return heads.find(e => e.ref === decisions[0].data.selected_ref);
+    }
     issues.push({ id, code: 'RECORD_CONFLICT', field, candidates, message: 'Concurrent alternatives require a specific selection; no last-write-wins.', options: ['resolve', 'defer'] });
     return { ref: null, value: null, conflict: id };
   }
@@ -246,26 +251,15 @@ export function taskView(root, input, io) {
     const reviews = [], executions = [], tests = [], decisions = [], commits = [], dispositions = [];
     for (const e of events) {
       const data = e.data, shared = { ...data, ref: e.ref, interpretation_ref: e.interpretation_ref ?? null };
-      if (['execution', 'test', 'review', 'step'].includes(e.action)) {
+      if (['execution', 'test', 'step'].includes(e.action)) {
         if (data.plan_ref && data.plan_ref !== task.baseline?.plan_ref && !belongs(data.plan_ref, task, ['prepare'])) { unassociated.push({ ref: e.ref, reason: 'Unknown/cross-task plan reference.' }); continue; }
-        if (['execution', 'test', 'step'].includes(e.action)) {
-          const targetPlan = data.plan_ref === task.baseline?.plan_ref ? task.baseline?.plan : plans.find(p => p.ref === data.plan_ref);
-          const ids = list(targetPlan?.steps).map((s, i) => typeof s === 'string' ? `S${i + 1}` : obj(s).id ?? `S${i + 1}`);
-          if (!data.plan_ref || !data.step_id || !ids.includes(data.step_id)) { unassociated.push({ ref: e.ref, reason: 'Exact plan/step association is missing or unknown.' }); continue; }
-        }
+        const targetPlan = data.plan_ref === task.baseline?.plan_ref ? task.baseline?.plan : plans.find(p => p.ref === data.plan_ref);
+        const ids = list(targetPlan?.steps).map((s, i) => typeof s === 'string' ? `S${i + 1}` : obj(s).id ?? `S${i + 1}`);
+        if (!data.plan_ref || !data.step_id || !ids.includes(data.step_id)) { unassociated.push({ ref: e.ref, reason: 'Exact plan/step association is missing or unknown.' }); continue; }
       }
       if (e.action === 'step' && !['finished', 'skipped', 'closed', 'in-progress', 'not-started'].includes(data.state)) { unassociated.push({ ref: e.ref, reason: 'Unknown work disposition; observation retained without advancing a step.' }); continue; }
       if (e.action === 'execution') executions.push(shared);
       if (e.action === 'test') tests.push(shared);
-      if (e.action === 'review') {
-        const valid = data.stage === 'draft' ? belongs(data.plan_ref, task, ['prepare']) : data.stage === 'change' && belongs(data.execution_ref, task, ['execution']);
-        if (!valid) { unassociated.push({ ref: e.ref, reason: 'Review must identify its real draft or execution target, without inventing a clean receipt.' }); continue; }
-        reviews.push(shared);
-      }
-      if (e.action === 'review-decision') {
-        if (!belongs(data.review_ref, task, ['review'])) unassociated.push({ ref: e.ref, reason: 'Review disposition target is missing or belongs to another task.' });
-        else decisions.push(shared);
-      }
       if (e.action === 'step') dispositions.push(shared);
       if (e.action === 'git') {
         const gitRef = data.sha ?? data.commit_sha;
@@ -277,6 +271,18 @@ export function taskView(root, input, io) {
       if (e.action === 'focus' || ((e.action === 'adopt' || e.action === 'resume') && data.focus === true)) {
         if (e.action !== 'adopt' || belongs(data.plan_ref, task, ['prepare'])) focus.push({ ...e, value: task.task_id });
       }
+    }
+    // Validate dependent observations after collecting their targets; journal filenames have no causal order.
+    for (const e of events.filter(e => e.action === 'review')) {
+      const planValid = !e.data.plan_ref || e.data.plan_ref === task.baseline?.plan_ref || belongs(e.data.plan_ref, task, ['prepare']);
+      const valid = planValid && (e.data.stage === 'draft' ? belongs(e.data.plan_ref, task, ['prepare'])
+        : e.data.stage === 'change' && executions.some(x => x.ref === e.data.execution_ref));
+      if (valid) reviews.push({ ...e.data, ref: e.ref, interpretation_ref: e.interpretation_ref ?? null });
+      else unassociated.push({ ref: e.ref, reason: 'Review must identify its real draft or effective execution target, without inventing a clean receipt.' });
+    }
+    for (const e of events.filter(e => e.action === 'review-decision')) {
+      if (reviews.some(r => r.ref === e.data.review_ref)) decisions.push({ ...e.data, ref: e.ref, interpretation_ref: e.interpretation_ref ?? null });
+      else unassociated.push({ ref: e.ref, reason: 'Review disposition target has no effective review association.' });
     }
     const steps = list(plan?.steps).map((s, index) => {
       const definition = typeof s === 'string' ? { id: `S${index + 1}`, title: s } : obj(s);
@@ -317,8 +323,21 @@ export function taskView(root, input, io) {
       dispositions: events.filter(e => ['close', 'pause', 'resume'].includes(e.action)).map(e => ({ ...e.data, ref: e.ref, action: e.action })),
       next_route: route, next_mode: mode, recommendation_only: true,
       legacy_source: task.baseline?.source_ref ?? null, legacy_plan_ref: task.baseline?.plan_ref ?? null, heads: maxima(events).map(e => e.ref) });
+    const applied = [
+      ...events.filter(e => e.action === 'prepare' && e.data.plan && typeof e.data.plan === 'object'),
+      ...executions, ...tests, ...reviews, ...decisions, ...commits, ...dispositions,
+      ...(adopted?.ref ? [adopted] : []), ...(life?.ref ? [life] : []),
+    ];
+    for (const item of applied) {
+      effective.add(item.ref);
+      if (item.interpretation_ref) effective.add(item.interpretation_ref);
+    }
   }
   const selected = choose('project:focus', focus);
+  if (selected?.ref) {
+    effective.add(selected.ref);
+    if (selected.interpretation_ref) effective.add(selected.interpretation_ref);
+  }
   const active = result.filter(t => t.lifecycle === 'active');
   const current = selected?.conflict ? null : selected?.value ? active.find(t => t.task_id === selected.value) ?? null : active.length === 1 ? active[0] : null;
   if (!selected && active.length > 1) issues.push(diagnostic('FOCUS_CHOICE_REQUIRED', null, 'Multiple active tasks; select a work focus without silently closing another task.', { task_ids: active.map(t => t.task_id) }));
@@ -327,14 +346,16 @@ export function taskView(root, input, io) {
   const deferred = [...all.values()].filter(e => e.action === 'defer');
   for (const item of issues) {
     const refs = deferred.filter(e => list(e.data.issue_ids).includes(item.id)).map(e => e.ref);
-    if (refs.length) item.deferred_by = refs;
+    if (refs.length) { item.deferred_by = refs; refs.forEach(ref => effective.add(ref)); }
   }
   const output = { ...meta(), kind: 'task-view/v1', source_revision: loaded.source_revision, workflow_home: loaded.legacy.home,
     current_task_id: current?.task_id ?? null, current_task: current, tasks: result,
     issues, unassociated_records: dedup, health: issues.length || dedup.length ? 'needs-attention' : 'consistent',
     recovery_options: RECOVERY, heads: maxima([...all.values()]).map(e => e.ref), records_scanned: loaded.records.length,
     state_completeness: dedup.length ? 'partial-associations' : issues.length ? 'partial' : 'complete' };
-  return { ...output, view_revision: digest(output) };
+  const view = { ...output, view_revision: digest(output) };
+  Object.defineProperty(view, 'effective_refs', { value: effective });
+  return view;
 }
 
 function render(view) {
@@ -366,27 +387,79 @@ function atomicReplace(root, ref, bytes, io) {
     fs.renameSync(temp, file);
   } finally { fs.rmSync(temp, { force: true }); }
 }
+function publishDisplay(root, ref, text, previous, io) {
+  const file = io.local(root, ref), next = Buffer.from(text);
+  if (previous?.equals(next)) return { status: 'updated' };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const candidate = `${file}.${randomUUID()}.tmp`;
+  const preservedRef = `${STORE}/legacy/display-capture-${randomUUID()}.md`;
+  const preserved = io.local(root, preservedRef);
+  let captured = false;
+  const drift = () => ({ status: 'drift', preserved_display_ref: captured ? preservedRef : undefined });
+  try {
+    const fd = fs.openSync(candidate, 'wx', 0o600);
+    try { fs.writeFileSync(fd, next); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    if (previous !== null) {
+      io.publish(root, `${STORE}/legacy/display-${digest(previous)}.md`, previous);
+      fs.mkdirSync(path.dirname(preserved), { recursive: true });
+      // Move the actual inode into history, including edits made since validation.
+      try { fs.renameSync(file, preserved); captured = true; }
+      catch (e) { if (e.code === 'ENOENT') return drift(); throw e; }
+      if (!fs.readFileSync(preserved).equals(previous)) return drift();
+    }
+    // Never replace an existing path. An editor that saves during publication wins.
+    try { fs.linkSync(candidate, file); }
+    catch (e) { if (e.code === 'EEXIST') return drift(); throw e; }
+    if (captured && !fs.readFileSync(preserved).equals(previous)) return drift();
+    return { status: 'updated', preserved_display_ref: captured ? preservedRef : undefined };
+  } finally {
+    if (captured) {
+      // Restore only an absent path. Keep the captured inode even on success so delayed
+      // writes through an editor's already-open descriptor cannot disappear on cleanup.
+      try { fs.linkSync(preserved, file); } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    }
+    fs.rmSync(candidate, { force: true });
+  }
+}
 function viewLock(root, io, fn) {
-  const ref = `${STORE}/task-view.lock`, file = io.local(root, ref);
+  const ref = `${STORE}/task-view.lock`;
+  let file = io.local(root, ref);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const owner = { pid: process.pid, host: hostname(), id: randomUUID() };
+  const busy = () => Object.assign(new Error('Task view is being published; facts are saved and live queries remain available.'), { code: 'VIEW_BUSY' });
+  // Link a completely written inode into place. A crash cannot leave a new empty lock.
+  const temp = `${file}.${owner.id}.tmp`;
+  const fd = fs.openSync(temp, 'wx', 0o600);
   try {
-    let fd;
-    try { fd = fs.openSync(file, 'wx', 0o600); }
-    catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      const raw = fs.readFileSync(file, 'utf8'), old = JSON.parse(raw);
-      let dead = false;
-      if (old.host === hostname() && Number.isSafeInteger(old.pid)) {
-        try { process.kill(old.pid, 0); } catch (p) { dead = p.code === 'ESRCH'; }
-      }
-      if (!dead || fs.readFileSync(file, 'utf8') !== raw) throw Object.assign(new Error('Task view is being published; facts are saved and live queries remain available.'), { code: 'VIEW_BUSY' });
-      fs.unlinkSync(file); fd = fs.openSync(file, 'wx', 0o600);
-    }
     try { fs.writeFileSync(fd, json(owner)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    for (;;) {
+      try { fs.linkSync(temp, file); break; }
+      catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        let stat, raw;
+        try { stat = fs.statSync(file); raw = fs.readFileSync(file, 'utf8'); }
+        catch (readError) { if (readError.code === 'ENOENT') continue; throw readError; }
+        let old = null;
+        try { old = JSON.parse(raw); } catch { /* Legacy interrupted writer. */ }
+        let abandoned = false;
+        const validOwner = typeof old?.host === 'string' && Number.isSafeInteger(old?.pid) && old.pid > 0;
+        if (validOwner && old.host === hostname()) {
+          try { process.kill(old.pid, 0); } catch (p) { abandoned = p.code === 'ESRCH'; }
+        } else if (!validOwner && Date.now() - stat.mtimeMs > 30_000) abandoned = true;
+        if (!abandoned) {
+          const error = busy();
+          if (!validOwner) error.message = 'Incomplete legacy lock metadata; retry rebuild after 30 seconds. Facts and live queries remain available.';
+          throw error;
+        }
+        // Reclaimers compete for the same successor without deleting or renaming the
+        // old lock: one reclaimer can never remove a new owner's lock in a check/delete race.
+        file = io.local(root, `${STORE}/task-view-recovery-${digest([path.basename(file), raw])}.lock`);
+      }
+    }
     return fn();
   } finally {
     try { if (JSON.parse(fs.readFileSync(file, 'utf8')).id === owner.id) fs.unlinkSync(file); } catch { /* Do not remove another writer's lock. */ }
+    fs.rmSync(temp, { force: true });
   }
 }
 /** View publication is secondary; every failure is returned separately from fact persistence. */
@@ -415,11 +488,10 @@ export function synchronizeTasks(root, input, io) {
       if (!view.tasks.length) return { status: 'updated', cache_ref: CACHE, display: 'retained-no-managed-task', view };
       if (!replaceable && input.overwrite_display !== true) return { status: 'partial', cache_ref: CACHE, display: 'drift', view,
         issues: [diagnostic('CURRENT_TASK_DRIFT', target, 'Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it.')] };
-      if (previous && !previous.equals(Buffer.from(text))) {
-        io.publish(root, `${STORE}/legacy/display-${digest(previous)}.md`, previous);
-      }
-      atomicReplace(root, target, text, io);
-      if (!readFile(root, target, io).equals(Buffer.from(text))) throw new Error('CURRENT_TASK display changed during publication.');
+      const publication = publishDisplay(root, target, text, previous, io);
+      if (publication.status === 'drift' || !readFile(root, target, io).equals(Buffer.from(text))) return { status: 'partial', cache_ref: CACHE, display: 'drift', view,
+        preserved_display_ref: publication.preserved_display_ref,
+        issues: [diagnostic('CURRENT_TASK_DRIFT', target, 'Current display changed during publication. Live task-status is current; inspect the current file and preserved display before retrying.', { preserved_display_ref: publication.preserved_display_ref })] };
       return { status: 'updated', cache_ref: CACHE, display: 'updated', display_ref: target, view };
     });
   } catch (e) { return { status: 'failed', ...errorInfo(e), recovery_options: ['rebuild', 'defer'], development_gate: false }; }
@@ -552,11 +624,16 @@ function operationResult(saved, projection, taskId, issues, event) {
   const view = projection.view;
   const affected = new Set([saved.ref, ...(['link', 'correct'].includes(event?.action) ? [event.data.record_ref] : [])]);
   const pending = view?.unassociated_records.filter(r => affected.has(r.ref)) ?? [];
-  const conflicts = view?.issues.filter(i => i.code === 'RECORD_CONFLICT' && i.candidates.some(ref => affected.has(ref))) ?? [];
-  const unresolved = pending.length || conflicts.length;
+  const related = view?.issues.filter(i => (i.code === 'RECORD_CONFLICT' && i.candidates.some(ref => affected.has(ref)))
+    || (i.code === 'ASSOCIATION_CYCLE' && affected.has(i.ref))) ?? [];
+  const applied = view ? view.effective_refs.has(saved.ref) : false;
+  const unresolved = !!view && (!applied || pending.length || related.length);
+  const notApplied = view && !applied && !pending.length && !related.length
+    ? [diagnostic('ASSOCIATION_NOT_APPLIED', saved.ref, 'Saved observation did not enter the effective task view; inspect its target and current alternatives.')]
+    : [];
   return { ...meta(), status: unresolved ? 'recorded-unassociated' : projection.status === 'updated' ? 'applied' : 'recorded-pending-view',
     recorded: saved.recorded, ref: saved.ref, task_id: taskId, task: view?.tasks.find(t => t.task_id === taskId) ?? null,
     association: view ? unresolved ? 'unresolved' : 'applied' : 'not-evaluated',
     projection: { ...projection, view: undefined }, current_task_id: view?.current_task_id ?? null,
-    issues: [...issues, ...list(saved.issues), ...pending, ...list(view?.issues)], recovery_options: RECOVERY };
+    issues: [...issues, ...list(saved.issues), ...pending, ...notApplied, ...list(view?.issues)], recovery_options: RECOVERY };
 }

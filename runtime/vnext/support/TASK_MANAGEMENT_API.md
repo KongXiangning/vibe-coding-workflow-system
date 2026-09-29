@@ -69,7 +69,7 @@ the returned state itself was recomputed. Cache failure never makes the old cach
 Normal task writes try publication automatically. Results distinguish:
 
 - recorded/ref: whether the immutable observation was saved;
-- association: applied/unresolved/not-evaluated;
+- association: applied/unresolved/not-evaluated, checked against the effective task view after validation;
 - projection: updated/partial/failed, including actual cache/display results.
 
 Report actual partial results. `recorded-pending-view` is not complete management success.
@@ -86,8 +86,17 @@ selects the old historical interface. No source patch alone updates an installed
 
 `task rebuild` republishes view/cache from facts. `overwrite_display:true` is only for an
 explicit choice to preserve and replace an edited/unrecognized display. Original bytes are
-saved first. A live view writer is not killed. An abandoned same-host lock is reclaimed only
-when its owner process is absent; other I/O problems are reported and can be deferred.
+saved first. Publication captures the actual prior file in records/legacy and installs the new
+file only at an absent path. A competing save produces display drift; `preserved_display_ref`
+identifies the captured file. That file remains linked in history, so delayed writes through
+already-open editor handles survive as well. Inspect both files when resolving display drift.
+The capture can also be recovered from records/legacy after an interrupted publication.
+
+A live view writer is not killed. New lock metadata is written before the lock becomes visible.
+For an abandoned same-host owner or malformed legacy metadata older than 30 seconds, writers
+compete for a deterministic successor lock. The abandoned file remains intact; concurrent
+recovery never deletes or renames another writer's lock. Fresh malformed metadata returns
+VIEW_BUSY with a timed rebuild suggestion. Other I/O problems are reported and can be deferred.
 
 `task link` supplements the interpretation of an existing record, not its bytes. `task correct`
 appends a changed interpretation. Use `record_ref` and `event` containing only the action,
@@ -118,6 +127,8 @@ a later lifecycle decision. Conflicting causal heads are not silently collapsed.
 one interpretation while retaining alternatives. `task defer` takes issue_ids and the user's
 reason; deferred issues remain visible and unresolved. These options are internal tool inputs
 filled by the Skill, not IDs the user must type or approval tickets.
+To change a selection after it has resolved a conflict, use `task correct` on the saved resolve
+record with the new `selected_ref`; the original decision remains in the journal.
 
 ```json
 {"action":"resolve","conflict_id":"<displayed conflict>","selected_ref":"<one displayed candidate>","decision_text":"<actual choice>"}
