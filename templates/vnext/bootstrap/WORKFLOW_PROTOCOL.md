@@ -103,6 +103,11 @@ recording method. Never claim the journal or legacy projection was updated when 
 Non-blocking does not mean unmanaged. Use assistance `task` actions for task
 preparation, adoption, execution, tests, reviews, review disposition, explicit Git associations
 and lifecycle. Read `TASK_MANAGEMENT_API.md` for their association fields and recovery.
+At every explicit workflow Skill invocation, reread the selected project-local
+`SKILL.md` from disk and query the current `task-status` or `context.management`,
+even when the same conversation invoked it earlier. Earlier Skill text and route
+suggestions are historical context. Report a failed state query truthfully and
+continue independent authorized work rather than treating it as a development gate.
 A new prepare allocates stable identity and a display number; a revision keeps identity.
 Adoption chooses the exact plan, initializes work position and maintains focus.
 Review is not adoption; execution is not review; user disposition is not PASS.

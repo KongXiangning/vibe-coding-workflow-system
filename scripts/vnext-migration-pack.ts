@@ -2410,7 +2410,7 @@ const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan', 'amend-scope'],
   'review-draft': [],
   'review-change': ['default', 'recheck-completed-step'],
-  'execute-step': ['default', 'repair'],
+  'execute-step': ['default', 'repair', 'finish'],
   'debug-task': ['investigate-only', 'resolve'],
   'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
   'capture-work-item': [],

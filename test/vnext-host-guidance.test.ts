@@ -32,5 +32,7 @@ test('subsequent guidance refresh only replaces the bounded managed block', () =
   const after = '\n## Local rules\n- Only deploy on explicit request.\n';
   const result = updateHostGuidance(before + '<!-- vnext-assistance-guidance:start -->\nobsolete\n<!-- vnext-assistance-guidance:end -->' + after);
   expect(result).toBe(before + renderAssistanceGuidance() + after);
+  expect(result).toContain('read the selected `.agents/skills/<entry>/SKILL.md` from disk again');
+  expect(result).toContain('Query `assistance.mjs task-status` or `context.management` on every workflow invocation');
   expect(() => updateHostGuidance('<!-- vnext-assistance-guidance:start -->')).toThrow('Ambiguous');
 });

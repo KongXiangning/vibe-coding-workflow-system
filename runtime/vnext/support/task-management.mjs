@@ -313,7 +313,7 @@ export function taskView(root, input, io) {
         else if (!currentStep.review_ref) { route = 'review-change'; nextAction = 'review-step'; }
         else {
           route = 'execute-step';
-          mode = currentStep.review_status === 'clean' || ['accept', 'continue', 'finish', 'defer'].includes(currentStep.review_choice) ? null : 'repair';
+          mode = currentStep.review_status === 'clean' || ['accept', 'continue', 'finish', 'defer'].includes(currentStep.review_choice) ? 'finish' : 'repair';
           nextAction = mode === 'repair' ? 'repair-step' : 'finish-step';
         }
       } else route = 'close-task'; // Missing optional Git associations do not imply uncommitted work.

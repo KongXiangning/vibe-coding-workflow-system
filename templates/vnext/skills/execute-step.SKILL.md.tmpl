@@ -6,6 +6,7 @@ entry_contract:
   mode:
     - default
     - repair
+    - finish
   intent: Assist the user's execute-step request without workflow admission.
   input_contract:
     required:
@@ -80,6 +81,16 @@ report real gaps without making them PASS. Pause only an unresolved user choice.
 
 ## Method
 
+Read the fresh task-status and select the requested mode before checking for new
+code work. `default` implements the current step; `repair` addresses reviewed
+findings; `finish` disposes the current step after checking its actual execution,
+applicable review and remaining gaps. A bare invocation does not infer `finish`
+from the absence of code changes. If the step is already executed and reviewed,
+report `next_route: execute-step` with `next_mode: finish`; do not copy an earlier
+review's `close-task` suggestion while the step remains open. An explicit read-only
+request remains read-only. In `finish` mode, do not repeat implementation or tests
+solely to perform the step disposition.
+
 Establish the current requested work and actual scope from the user's instruction,
 existing plan and source. Runtime state is context, not permission. Read relevant
 requirements, contracts, past findings and tests. An optional snapshot can preserve
@@ -106,26 +117,21 @@ Do not claim independent review. Existing real reviews may be referenced without
 manufacturing a new one. Record the actual outcome and remaining work; no mandatory
 complete-executed-step or complete-reviewed-step call is needed to continue.
 
-For a requested finish/advance, inspect the latest applicable review, checks and open
+In `finish` mode, inspect the latest applicable review, checks and open
 findings, not just a legacy completed/clean flag. If a workflow commitment is unmet,
 apply the shared rule before that action. For example: "No applicable review pass was
 found. Finish this step while keeping review incomplete, or review first?" After the
-user chooses to finish, use `task` action `step` with state `finished` (or the chosen disposition),
+user chooses to finish, or when no material deviation needs a new choice, use
+`task` action `step` with state `finished` (or the chosen disposition),
 actual task/plan/step, decision link and remaining work; do not manufacture a clean review or call an
 old completion gate to obtain permission. Finishing alone does not authorize the next
 step or task closure. Changed plans, scope, validation and ordering use the same rule;
 necessary in-scope implementation details and management drift do not trigger it.
 
-When the user invokes `execute-step` without a new implementation scope after a
-clean applicable change review, and task-status still shows the current step as
-`executed` with no finish disposition, treat this as the requested step finish.
-The task-status `next_action: finish-step` makes this intent explicit; it is advice,
-not a permission token or a substitute for checking the reviewed work.
-Verify the review still covers the actual work; a Git commit alone does not change
-the reviewed files. Record `task` action `step` with state `finished`, the current
-task/plan/step and review reference, then read task-status again. Do not stop with
-"nothing to implement" or recommend `close-task` while that step remains open.
-An explicit status-only or read-only request remains read-only.
+In `finish` mode, verify the review still covers the actual work; a Git commit
+alone does not change the reviewed files. Record the current task/plan/step and
+review reference, then read task-status again. If the disposition was not saved,
+report that fact and do not present the step as finished.
 
 Read task-status after recording: execution, review and step disposition are separate.
 Keep historical/late results marked historical; they must not reopen closed work or

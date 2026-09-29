@@ -55,7 +55,7 @@ test('close 004, prepare/adopt 005, execute/review/dispose/commit/close share on
   assert.equal(disposition.task.steps[0].review_status, 'findings');
   assert.equal(disposition.task.steps[0].findings.length, 1);
   assert.equal(disposition.task.steps[0].review_choice, 'accept');
-  assert.equal(disposition.task.next_mode, null);
+  assert.equal(disposition.task.next_mode, 'finish');
   const finished = task(root, { action: 'step', state: 'finished', decision_ref: disposition.ref, remaining_work: ['F1 remains'] });
   assert.equal(finished.task.current_step_id, 'S2'); assert.equal(finished.task.steps[0].execution.result, 'failed');
   const skipped = task(root, { action: 'step', state: 'skipped', decision_text: 'defer device smoke' });
@@ -115,6 +115,7 @@ test('a clean change review recommends finishing the step before task closure', 
   const pending = taskStatus(root).current_task;
   assert.equal(pending.steps[0].state, 'executed');
   assert.equal(pending.next_route, 'execute-step');
+  assert.equal(pending.next_mode, 'finish');
   assert.equal(pending.next_action, 'finish-step');
   assert.equal(pending.steps[0].disposition_ref, null);
   const finished = task(root, { action: 'step', state: 'finished', review_ref: pending.steps[0].review_ref });

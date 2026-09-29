@@ -597,6 +597,8 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(after.endsWith(business)).toBe(true);
     expect(after).not.toContain('完成校验按当前 Runtime 契约执行');
     expect(after).toContain('vnext-assistance-guidance:start');
+    expect(after).toContain('read the selected `.agents/skills/<entry>/SKILL.md` from disk again');
+    expect(after).toContain('task-status` or `context.management` on every workflow invocation');
     const state = JSON.parse(fs.readFileSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH), 'utf8'));
     expect(state.managed_files.some((item: { path: string }) => item.path === 'AGENTS.md')).toBe(false);
     expect(upgradeDistribution({ targetRoot: target, packageRoot }).status).toBe('no-op');

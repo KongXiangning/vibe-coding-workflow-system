@@ -35,7 +35,7 @@ export const PHASE_1A_MODES: Record<Phase1AEntry, readonly string[]> = {
   'prepare-task': ['default', 'confirm', 'replan', 'amend-scope'],
   'review-draft': [],
   'review-change': ['default', 'recheck-completed-step'],
-  'execute-step': ['default', 'repair'],
+  'execute-step': ['default', 'repair', 'finish'],
 };
 
 export const PHASE_1_MODES: Record<Phase1Entry, readonly string[]> = {
