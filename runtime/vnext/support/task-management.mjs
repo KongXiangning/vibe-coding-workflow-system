@@ -302,16 +302,20 @@ export function taskView(root, input, io) {
         historical_execution_refs: executions.filter(e => e.step_id === id && !eligible(e)).map(e => e.ref) };
     });
     const currentStep = steps.find(s => !['finished', 'skipped', 'closed'].includes(s.state));
-    let route = null, mode = null;
+    let route = null, mode = null, nextAction = null;
     if (lifecycle !== 'closed' && lifecycle !== 'paused') {
       if (adopted?.conflict) route = 'task-lifecycle';
       else if (!adopted?.value && !task.baseline) route = reviews.some(r => r.stage === 'draft') ? 'prepare-task' : 'review-draft';
       else if (plan && !list(plan.steps).length) route = 'prepare-task';
       else if (currentStep) {
         if (currentStep.state === 'ambiguous' || currentStep.state === 'legacy-state' || currentStep.review_status === 'ambiguous') route = 'task-lifecycle';
-        else if (!currentStep.execution_ref) route = 'execute-step';
-        else if (!currentStep.review_ref) route = 'review-change';
-        else { route = 'execute-step'; mode = currentStep.review_status === 'clean' || ['accept', 'continue', 'finish', 'defer'].includes(currentStep.review_choice) ? null : 'repair'; }
+        else if (!currentStep.execution_ref) { route = 'execute-step'; nextAction = 'implement-step'; }
+        else if (!currentStep.review_ref) { route = 'review-change'; nextAction = 'review-step'; }
+        else {
+          route = 'execute-step';
+          mode = currentStep.review_status === 'clean' || ['accept', 'continue', 'finish', 'defer'].includes(currentStep.review_choice) ? null : 'repair';
+          nextAction = mode === 'repair' ? 'repair-step' : 'finish-step';
+        }
       } else route = 'close-task'; // Missing optional Git associations do not imply uncommitted work.
     }
     result.push({ task_id: task.task_id, display_id: task.display_id, title: plan?.title ?? task.title,
@@ -321,7 +325,7 @@ export function taskView(root, input, io) {
       current_step_id: lifecycle === 'closed' || adopted?.conflict ? null : (steps.length ? currentStep?.id ?? null : task.baseline?.current_step_id ?? null),
       steps, reviews, executions, tests, review_decisions: decisions, commits,
       dispositions: events.filter(e => ['close', 'pause', 'resume'].includes(e.action)).map(e => ({ ...e.data, ref: e.ref, action: e.action })),
-      next_route: route, next_mode: mode, recommendation_only: true,
+      next_route: route, next_mode: mode, next_action: nextAction, recommendation_only: true,
       legacy_source: task.baseline?.source_ref ?? null, legacy_plan_ref: task.baseline?.plan_ref ?? null, heads: maxima(events).map(e => e.ref) });
     const applied = [
       ...events.filter(e => e.action === 'prepare' && e.data.plan && typeof e.data.plan === 'object'),
@@ -368,7 +372,8 @@ function render(view) {
     '> Query assistance.mjs task-status/context for the current journal state; do not parse this with the legacy task kernel.', '',
     '## Current work', current ? `- Task: ${clean(current.display_id)} (${clean(current.task_id)}) — ${clean(current.title)}` : '- No unambiguous active work focus.',
     `- Adopted plan: ${clean(current?.adopted_plan_ref ?? 'none')}`, `- Step: ${clean(current?.current_step_id ?? 'none')}`,
-    `- Suggested next route: ${clean(current?.next_route ?? 'none')} (advice only)`, '', '## Tasks',
+    `- Suggested next route: ${clean(current?.next_route ?? 'none')} (advice only)`,
+    `- Suggested next action: ${clean(current?.next_action ?? 'none')} (advice only)`, '', '## Tasks',
     '| Task | Lifecycle | Plan | Step |', '| --- | --- | --- | --- |',
     ...view.tasks.map(t => `| ${clean(t.display_id ?? t.task_id)} | ${clean(t.lifecycle)} | ${clean(t.plan_status)} | ${clean(t.current_step_id ?? 'none')} |`), '',
     '## Review, execution and remaining work',

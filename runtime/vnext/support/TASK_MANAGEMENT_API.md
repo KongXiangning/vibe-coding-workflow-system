@@ -68,7 +68,9 @@ management files it produces just to record that new commit's SHA.
 request selected_task. They scan the entire saved task journal, not a bounded search page.
 The response includes adopted_plan_ref, plan/steps/environment, current_step_id, execution,
 review status and findings, review decisions, actual commits, remaining work, and advisory
-next_route. `state_completeness`, issues and unassociated_records must be reported; unknown
+next_route/next_action. `finish-step` means the reviewed current step still needs a
+separate work disposition; it is not an automatic finish or closure. `state_completeness`,
+issues and unassociated_records must be reported; unknown
 association is not evidence that a plan/decision never existed.
 
 Reads do not write. `projection.cache` and `projection.display` describe persisted freshness;

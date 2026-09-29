@@ -82,6 +82,11 @@ After committing, inspect Git read-only and report the actual SHA, committed sco
 remaining working-tree changes. Do not automatically call `task git`, `record`, `rebuild`
 or refresh CURRENT_TASK merely to report this commit. Missing journal Git observations
 do not mean the commit is missing and do not require supplementation or another commit.
+After a successful commit, read task-status and use its current unfinished stage
+for the result's `next_route` (normally `execute-step` for the next step, or
+`close-task` when the task has no unfinished step). Do not repeat an earlier
+execute-step Git recommendation solely because no `task git` association exists.
+If no commit was made, report why and do not imply the Git checkpoint completed.
 
 Use `task` action `git` only when the user explicitly requests a persisted task/execution
 association (including an already agreed explicit recording policy). This action writes

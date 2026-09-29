@@ -105,6 +105,24 @@ test('close 004, prepare/adopt 005, execute/review/dispose/commit/close share on
   assert.equal(taskStatus(root).current_task.lifecycle_ref, resumed.ref);
 });
 
+test('a clean change review recommends finishing the step before task closure', t => {
+  const root = fixture(t);
+  task(root, { action: 'close', task_ref: 'TASK-004', decision_text: 'close legacy work' });
+  const prepared = task(root, { action: 'prepare', plan: { ...plan('reviewed work'), steps: [{ id: 'S1', title: 'finish reviewed change' }] } });
+  task(root, { action: 'adopt', task_id: prepared.task_id, plan_ref: prepared.ref, decision_text: 'confirm plan' });
+  const run = task(root, { action: 'execution', result: 'implemented', source_revision: 'reviewed-version' });
+  task(root, { action: 'review', stage: 'change', execution_ref: run.ref, verdict: 'clean', findings: [] });
+  const pending = taskStatus(root).current_task;
+  assert.equal(pending.steps[0].state, 'executed');
+  assert.equal(pending.next_route, 'execute-step');
+  assert.equal(pending.next_action, 'finish-step');
+  assert.equal(pending.steps[0].disposition_ref, null);
+  const finished = task(root, { action: 'step', state: 'finished', review_ref: pending.steps[0].review_ref });
+  assert.equal(finished.task.steps[0].state, 'finished');
+  assert.equal(finished.task.next_route, 'close-task');
+  assert.equal(finished.task.next_action, null);
+});
+
 test('fact/view failure split, read-through freshness, display preservation and rebuild do not replay work', t => {
   const root = fixture(t);
   task(root, { action: 'close', task_ref: '004', decision_text: 'stop' });

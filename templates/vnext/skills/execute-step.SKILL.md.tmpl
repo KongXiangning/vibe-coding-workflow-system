@@ -116,11 +116,33 @@ old completion gate to obtain permission. Finishing alone does not authorize the
 step or task closure. Changed plans, scope, validation and ordering use the same rule;
 necessary in-scope implementation details and management drift do not trigger it.
 
+When the user invokes `execute-step` without a new implementation scope after a
+clean applicable change review, and task-status still shows the current step as
+`executed` with no finish disposition, treat this as the requested step finish.
+The task-status `next_action: finish-step` makes this intent explicit; it is advice,
+not a permission token or a substitute for checking the reviewed work.
+Verify the review still covers the actual work; a Git commit alone does not change
+the reviewed files. Record `task` action `step` with state `finished`, the current
+task/plan/step and review reference, then read task-status again. Do not stop with
+"nothing to implement" or recommend `close-task` while that step remains open.
+An explicit status-only or read-only request remains read-only.
+
 Read task-status after recording: execution, review and step disposition are separate.
 Keep historical/late results marked historical; they must not reopen closed work or
 replace the current execution. Report an unassociated result and link/correct it,
 not repeat the actual execution. The view suggests the next unfinished step without
 automatically executing it.
+Base `next_route` on this fresh view after any step disposition; an earlier review's
+route cannot override the current step state. After successfully finishing a
+nonfinal step, if Git commits are within the user's task scope and there are
+actual in-scope changes to save, recommend `next_route: git-commit` in this
+execute-step result. State the exact `commit_scope`, excluding unrelated changes.
+This is a one-time recommendation at the finish boundary, not a task-status stage,
+permission to commit, or a prerequisite for starting the next step. The fresh
+task-status can already point to the next unfinished step. If this was the last
+step, recommend `next_route: close-task`; a final Git commit may follow closure
+when requested. If Git is excluded or no relevant changes remain, follow the
+fresh task-status route. Never present a failed or unrecorded finish as finished.
 
 ## Result
 
