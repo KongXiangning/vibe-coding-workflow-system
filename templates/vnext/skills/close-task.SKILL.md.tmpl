@@ -94,6 +94,12 @@ Summarize actual delivered work, tests and evidence, open findings, missing chec
 external effects and remaining risks. `preview` only shows consequences; do not
 write or close anything for an explicitly read-only preview.
 
+Read every unfinished step and the actual Git status before closure. A clean
+review does not supply a step finish disposition, and a task close does not run
+`execute-step` or create a Git commit. If the user chooses to close with a step
+still `executed` or with uncommitted changes, retain those facts as remaining
+work and report them explicitly; do not imply the skipped actions happened.
+
 For an incomplete/irreversible termination, show concrete consequences and obtain
 the user's confirmation; use an already sufficient confirmation rather than asking
 for a new internal receipt. The user can stop incomplete, blocked, superseded or

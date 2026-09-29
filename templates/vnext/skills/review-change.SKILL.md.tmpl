@@ -108,6 +108,13 @@ are dispositions, not edits to the review verdict. A chosen finish is a separate
 `task step` action; a code correction is actual authorized implementation followed
 by a new execution record. Read back the view, not just the saved decision.
 
+Select the next route from the task-status readback, not the review verdict alone.
+When a clean change review leaves the current step `executed` without a finish
+disposition, recommend `next_route: execute-step` for step disposition and any
+remaining planned work. Do not recommend `close-task` as if clean review had
+finished the step. Git commit is a separate user-authorized action; review does
+not perform it or make a missing commit a reason to rewrite the review result.
+
 ## Result
 
 Return the actual requested result, affected scope, evidence/record references,
