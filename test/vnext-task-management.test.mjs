@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import fsMutable from 'node:fs';
@@ -136,7 +137,7 @@ test('fact/view failure split, read-through freshness, display preservation and 
   const original = bytes(root, adopted.ref); fs.rmdirSync(cache);
   const rebuilt = task(root, { action: 'rebuild' }); assert.equal(rebuilt.rebuild.status, 'updated'); assert.deepEqual(bytes(root, adopted.ref), original);
   const display = path.join(root, 'docs/workflow/CURRENT_TASK.md'); fs.appendFileSync(display, '\nUser note must survive\n');
-  const changed = task(root, { action: 'pause', task_id: created.task_id, decision_text: 'pause now' });
+  const changed = task(root, { action: 'pause', task_id: created.task_id, decision_text: 'pause' });
   assert.equal(changed.projection.display, 'drift'); assert.match(fs.readFileSync(display, 'utf8'), /User note must survive/);
   const prior = fs.readFileSync(display);
   task(root, { action: 'rebuild', overwrite_display: true });
@@ -352,4 +353,134 @@ test('cyclic correction and decisions on ineffective reviews report unresolved a
   const decision = task(root, { action: 'review-decision', review_ref: review.ref, choice: 'accept' });
   assert.equal(review.association, 'unresolved'); assert.equal(decision.association, 'unresolved');
   assert.equal(taskStatus(root).current_task.review_decisions.length, 0);
+});
+
+// Synthetic immutable journals exercise causal interpretation without repeatedly publishing views.
+const causalRef = id => `.workflow-system/records/events/graph-${String(id).padStart(5, '0')}.json`;
+const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+function causalFixture(t) {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, 'docs/workflow/CURRENT_TASK.md'), '<!-- vnext-task-view/v1 -->\n');
+  fs.mkdirSync(path.join(root, '.workflow-system/records/events'), { recursive: true });
+  return root;
+}
+function causalFact(root, id, action, parents, data = {}) {
+  const payload = { kind: 'task-event', task_event: { version: 1, action, task_id: 'task-causal', parents, data } };
+  const row = { schema_version: 1, kind: 'workflow-observation', recorded_at: '2000-01-01T00:00:00.000Z',
+    payload_sha256: createHash('sha256').update(JSON.stringify(canonical(payload))).digest('hex'), payload };
+  const ref = causalRef(id); fs.writeFileSync(path.join(root, ref), JSON.stringify(row) + '\n'); return ref;
+}
+const causalPlan = { create: true, display_id: 'TASK-001', plan: { title: 'Causal fixture', steps: [{ id: 'S1' }] } };
+function reachable(graph, ref) {
+  const found = new Set(), pending = [...(graph.get(ref) ?? [])];
+  while (pending.length) {
+    const parent = pending.pop();
+    if (!found.has(parent)) { found.add(parent); pending.push(...(graph.get(parent) ?? [])); }
+  }
+  return found;
+}
+function maximalRefs(graph, refs) {
+  const superseded = new Set();
+  for (const ref of refs) for (const parent of reachable(graph, ref)) if (parent !== ref) superseded.add(parent);
+  return refs.filter(ref => !superseded.has(ref));
+}
+
+test('causal heads and cycle diagnostics match explicit reachability on seeded DAGs and cyclic graphs', t => {
+  let seed = 913;
+  const random = n => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n; };
+  for (let sample = 0; sample < 50; sample++) {
+    const root = causalFixture(t), graph = new Map(), actions = new Map();
+    causalFact(root, 0, 'prepare', [], causalPlan); graph.set(causalRef(0), []);
+    for (let id = 1; id <= 12; id++) {
+      const parents = Array.from({ length: random(4) }, () => random(5)
+        ? causalRef(sample % 2 ? random(id) : random(13)) : 'missing-parent');
+      const action = id % 2 ? 'resume' : 'pause';
+      const ref = causalFact(root, id, action, parents);
+      graph.set(ref, parents); actions.set(ref, action);
+    }
+    const cycles = [...graph.keys()].filter(ref => reachable(graph, ref).has(ref));
+    const valid = new Map([...graph].filter(([ref]) => !cycles.includes(ref)));
+    const view = taskStatus(root), task = view.tasks.find(item => item.task_id === 'task-causal');
+    assert.deepEqual(view.issues.filter(i => i.code === 'ASSOCIATION_CYCLE').map(i => i.ref), cycles);
+    assert.deepEqual(view.heads, maximalRefs(valid, [...valid.keys()]));
+    const heads = maximalRefs(valid, [...valid.keys()].filter(ref => actions.has(ref)));
+    const states = new Set(heads.map(ref => actions.get(ref) === 'resume' ? 'active' : 'paused'));
+    assert.equal(task.lifecycle, states.size > 1 ? 'ambiguous' : states.size ? [...states][0] : 'draft');
+    const conflicts = view.issues.filter(i => i.code === 'RECORD_CONFLICT' && i.field.endsWith(':lifecycle'));
+    assert.equal(conflicts.length, states.size > 1 ? 1 : 0);
+    if (conflicts.length) assert.deepEqual(conflicts[0].candidates, heads.slice().sort());
+  }
+});
+
+test('a cyclic amendment cannot supersede itself; distinct cyclic alternatives remain mutually superseded', t => {
+  const single = causalFixture(t);
+  causalFact(single, 0, 'prepare', [], causalPlan);
+  causalFact(single, 1, 'pause', [causalRef(2)]);
+  causalFact(single, 2, 'correct', [causalRef(1)], { record_ref: causalRef(1), event: { data: { note: 'retained' } } });
+  assert.deepEqual(taskStatus(single).issues.filter(i => i.code === 'ASSOCIATION_CYCLE').map(i => i.ref), [causalRef(1), causalRef(2)]);
+  const multiple = causalFixture(t);
+  causalFact(multiple, 0, 'prepare', [], causalPlan);
+  causalFact(multiple, 1, 'pause', []);
+  causalFact(multiple, 2, 'correct', [causalRef(3)], { record_ref: causalRef(1), event: { data: { note: 'A' } } });
+  causalFact(multiple, 3, 'correct', [causalRef(2)], { record_ref: causalRef(1), event: { data: { note: 'B' } } });
+  causalFact(multiple, 4, 'correct', [], { record_ref: causalRef(1), event: { data: { note: 'outside cycle' } } });
+  const view = taskStatus(multiple), paused = view.tasks[0];
+  assert.equal(paused.lifecycle, 'paused');
+  assert.equal(paused.dispositions[0].note, 'outside cycle');
+  assert.deepEqual(view.issues.filter(i => i.code === 'ASSOCIATION_CYCLE').map(i => i.ref), [causalRef(2), causalRef(3)]);
+  assert.equal(view.issues.some(i => i.code === 'RECORD_CONFLICT'), false);
+});
+
+test('conflicting interpretations preserve the baseline lazy-observation boundary without ancestor sets', t => {
+  const root = causalFixture(t);
+  causalFact(root, 0, 'prepare', [], causalPlan);
+  causalFact(root, 1, 'pause', [causalRef(2)]);
+  causalFact(root, 2, 'resume', [causalRef(3)]);
+  causalFact(root, 3, 'correct', [causalRef(1)], { record_ref: causalRef(1), event: { data: { note: 'A' } } });
+  causalFact(root, 4, 'correct', [], { record_ref: causalRef(1), event: { data: { note: 'B' } } });
+  const originals = Array.from({ length: 5 }, (_, i) => bytes(root, causalRef(i)));
+  const view = taskStatus(root);
+  assert.deepEqual(view.issues.filter(i => i.code === 'RECORD_CONFLICT').map(i => i.candidates), [[causalRef(3), causalRef(4)]]);
+  // c510760's conflicting-interpretation deletion does not clear previously observed
+  // roots. Preserve that diagnostic boundary; changing it is a separate semantic fix.
+  assert.deepEqual(view.issues.filter(i => i.code === 'ASSOCIATION_CYCLE').map(i => i.ref), [causalRef(2)]);
+  assert.equal(view.tasks[0].lifecycle, 'draft');
+  for (let i = 0; i < originals.length; i++) assert.deepEqual(bytes(root, causalRef(i)), originals[i]);
+});
+
+test('a later parent correction restores a failed execution without rewriting original facts', t => {
+  const root = fixture(t); task(root, { action: 'close', task_ref: '004' });
+  const prepared = task(root, { action: 'prepare', plan: plan('parent replacement') });
+  const adopted = task(root, { action: 'adopt', task_id: prepared.task_id, plan_ref: prepared.ref });
+  const run = task(root, { action: 'execution', result: 'failed' });
+  const original = bytes(root, run.ref);
+  const cyclic = task(root, { action: 'correct', record_ref: run.ref, event: { parents: [run.ref] } });
+  assert.ok(taskStatus(root).issues.some(i => i.code === 'ASSOCIATION_CYCLE' && i.ref === run.ref));
+  const corrected = task(root, { action: 'correct', record_ref: run.ref, parents: [cyclic.ref], event: { parents: [adopted.ref] } });
+  const view = taskStatus(root);
+  assert.equal(corrected.association, 'applied');
+  assert.equal(view.issues.some(i => i.code === 'ASSOCIATION_CYCLE'), false);
+  assert.equal(view.current_task.steps[0].execution_ref, run.ref);
+  assert.equal(view.current_task.steps[0].execution.result, 'failed');
+  assert.equal(view.current_task.steps[0].execution.interpretation_ref, corrected.ref);
+  assert.deepEqual(bytes(root, run.ref), original);
+});
+
+test('a long journal is rebuilt under a bounded heap without truncating historical decisions', t => {
+  const root = causalFixture(t), count = 6000;
+  causalFact(root, 0, 'prepare', [], causalPlan);
+  for (let id = 1; id < count; id++) causalFact(root, id, id % 2 ? 'resume' : 'pause', [causalRef(id - 1)]);
+  const service = new URL('../runtime/vnext/support/assistance.mjs', import.meta.url).href;
+  const script = `import { taskStatus } from ${JSON.stringify(service)};
+    const view = taskStatus(process.argv[1]);
+    console.log(JSON.stringify({count:view.records_scanned, heads:view.heads,
+      dispositions:view.tasks[0].dispositions.length, lifecycle:view.tasks[0].lifecycle, issues:view.issues}));`;
+  const result = JSON.parse(execFileSync(process.execPath, ['--max-old-space-size=128', '--input-type=module', '-e', script, root],
+    { encoding: 'utf8', timeout: 30000, maxBuffer: 65536 }));
+  assert.equal(result.count, count);
+  assert.equal(result.dispositions, count - 1);
+  assert.equal(result.lifecycle, 'active');
+  assert.deepEqual(result.heads, [causalRef(count - 1)]);
+  assert.deepEqual(result.issues, []);
 });

@@ -129,6 +129,103 @@ function gitObject(root, requested) {
   } catch { return { sha: requested, object_available: false, verification: 'unverified', pushed: 'not-inferred', deployed: 'not-inferred' }; }
 }
 
+/** Query-local direct-edge graph; never materializes a transitive closure per event. */
+function causalRelations(events) {
+  const direct = new Map([...events].map(([ref, e]) => [ref, e.parents]));
+  for (const parents of direct.values()) for (const ref of parents) if (!direct.has(ref)) direct.set(ref, []);
+  const removedAt = new Map(), observedAt = new Map();
+  let revision = 0, cachedRevision = -1, cached;
+  const parentsAt = (ref, at) => (removedAt.get(ref) ?? Infinity) <= at ? [] : direct.get(ref) ?? [];
+  const observedRevision = ref => {
+    if (!observedAt.has(ref)) observedAt.set(ref, revision);
+    return observedAt.get(ref);
+  };
+  function components(at) {
+    if (cachedRevision === at) return cached;
+    // Iterative Kosaraju passes avoid recursion limits on a long causal chain.
+    const children = new Map([...direct.keys()].map(ref => [ref, []]));
+    for (const ref of direct.keys()) for (const parent of parentsAt(ref, at)) children.get(parent).push(ref);
+    const seen = new Set(), order = [];
+    for (const ref of direct.keys()) {
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      const stack = [{ ref, next: 0 }];
+      while (stack.length) {
+        const frame = stack[stack.length - 1], parents = parentsAt(frame.ref, at);
+        if (frame.next === parents.length) { order.push(frame.ref); stack.pop(); continue; }
+        const parent = parents[frame.next++];
+        if (!seen.has(parent)) { seen.add(parent); stack.push({ ref: parent, next: 0 }); }
+      }
+    }
+    const component = new Map();
+    let count = 0;
+    for (let index = order.length - 1; index >= 0; index--) {
+      const ref = order[index];
+      if (component.has(ref)) continue;
+      const id = count++, pending = [ref];
+      component.set(ref, id);
+      while (pending.length) {
+        for (const child of children.get(pending.pop())) {
+          if (!component.has(child)) { component.set(child, id); pending.push(child); }
+        }
+      }
+    }
+    const parents = Array.from({ length: count }, () => new Set());
+    for (const ref of direct.keys()) {
+      const id = component.get(ref);
+      for (const parent of parentsAt(ref, at)) {
+        const target = component.get(parent);
+        if (id !== target) parents[id].add(target);
+      }
+    }
+    // Keep only one condensation graph, even when conflicting amendments remove nodes.
+    cachedRevision = at; cached = { component, parents }; return cached;
+  }
+  return {
+    remove(ref) {
+      // Compatibility with the old lazy ancestry cache: a conflicting interpretation
+      // removes a node without clearing already observed roots. Remember their graph
+      // revision, not their ancestor sets. A successful correction resets this helper.
+      if (direct.has(ref) && !removedAt.has(ref)) removedAt.set(ref, ++revision);
+    },
+    maxima(entries) {
+      const refs = new Set(entries.map(e => e.ref)), byRevision = new Map(), superseded = new Set();
+      for (const ref of refs) {
+        const at = observedRevision(ref), roots = byRevision.get(at) ?? new Set();
+        roots.add(ref); byRevision.set(at, roots);
+      }
+      for (const [at, roots] of byRevision) {
+        const { component, parents } = components(at), counts = new Map(), visited = new Set(), pending = [];
+        for (const ref of roots) {
+          const id = component.get(ref);
+          if (id !== undefined) counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+        const visit = id => { if (!visited.has(id)) { visited.add(id); pending.push(id); } };
+        // All candidates share this walk over strict ancestor components.
+        for (const id of counts.keys()) for (const parent of parents[id]) visit(parent);
+        while (pending.length) for (const parent of parents[pending.pop()]) visit(parent);
+        for (const ref of refs) {
+          const id = component.get(ref), peers = counts.get(id) ?? 0;
+          // A cycle alone does not let a candidate supersede itself. Two DISTINCT
+          // candidates in one SCC supersede each other, matching the original walk.
+          if (visited.has(id) || peers > 1 || (peers === 1 && !roots.has(ref))) superseded.add(ref);
+        }
+      }
+      // Preserve caller order, duplicate refs and the original record objects.
+      return entries.filter(e => !superseded.has(e.ref));
+    },
+    cyclic(ref, parents) {
+      return parents.some(parent => {
+        if (parent === ref) return true;
+        const { component } = components(observedRevision(parent));
+        // This is used only for a direct edge ref -> parent of a surviving node.
+        // The reverse reachability exists exactly when both nodes share an SCC.
+        return component.has(ref) && component.get(ref) === component.get(parent);
+      });
+    },
+  };
+}
+
 /** Pure reconstruction except read-only Git object lookup. Never trusts the cache or replays business actions. */
 export function taskView(root, input, io) {
   const loaded = readInputs(root, io, input), issues = [...loaded.issues], unassociated = [], all = new Map();
@@ -139,23 +236,8 @@ export function taskView(root, input, io) {
     else if (['plan', 'decision', 'task-disposition', 'step-disposition', 'unassociated-task-request', 'task-event'].includes(r.payload.kind)) unassociated.push({ ref: r.ref, reason: 'No explicit machine-readable task action; use link with the actual meaning, not a new approval.' });
   }
   // Reachability, not filename or wall-clock time, determines supersession.
-  const ancestry = new Map();
-  function ancestors(ref) {
-    if (ancestry.has(ref)) return ancestry.get(ref);
-    const found = new Set(), pending = [...(all.get(ref)?.parents ?? [])];
-    while (pending.length) {
-      const parent = pending.pop();
-      if (found.has(parent)) continue;
-      found.add(parent); pending.push(...(all.get(parent)?.parents ?? []));
-    }
-    ancestry.set(ref, found); return found;
-  }
-  const ancestor = (a, b) => a === b || ancestors(b).has(a);
-  function maxima(entries) {
-    const refs = new Set(entries.map(e => e.ref)), superseded = new Set();
-    for (const e of entries) for (const p of ancestors(e.ref)) if (p !== e.ref && refs.has(p)) superseded.add(p);
-    return entries.filter(e => !superseded.has(e.ref));
-  }
+  let causal = causalRelations(all);
+  const maxima = entries => causal.maxima(entries);
   const effective = new Set();
   function choose(field, entries) {
     const heads = maxima(entries);
@@ -181,24 +263,24 @@ export function taskView(root, input, io) {
   }
   for (const [ref, group] of amendments) {
     const selected = choose(`interpretation:${ref}`, group);
-    if (selected?.conflict) { all.delete(ref); continue; }
+    if (selected?.conflict) { if (all.delete(ref)) causal.remove(ref); continue; }
     const original = loaded.records.find(r => r.ref === ref), old = all.get(ref) ?? rawEvent(original) ?? { data: obj(original.payload.body), parents: [] };
     const patch = obj(selected.data.event);
     all.set(ref, { ...old, ...patch, ref, data: { ...old.data, ...obj(patch.data) },
       parents: unique(patch.parents ?? old.parents), original, interpretation_ref: selected.ref });
-    ancestry.clear();
+    causal = causalRelations(all);
     const at = unassociated.findIndex(x => x.ref === ref); if (at >= 0) unassociated.splice(at, 1);
   }
   // Reject only the interpretation of malformed/cyclic associations, never their saved observations.
   const invalid = new Set();
   for (const e of all.values()) {
-    if (e.parents.some(p => p === e.ref || ancestor(e.ref, p))) {
+    if (causal.cyclic(e.ref, e.parents)) {
       invalid.add(e.ref); issues.push(diagnostic('ASSOCIATION_CYCLE', e.ref, 'Cyclic causal links; correct only this association.'));
     }
     if (!ACTIONS.has(e.action) || e.data.association_error) { invalid.add(e.ref); unassociated.push({ ref: e.ref, reason: e.data.association_error ?? 'Unknown task action; observation retained.' }); }
   }
   for (const ref of invalid) all.delete(ref);
-  ancestry.clear();
+  causal = causalRelations(all);
   const tasks = new Map(), aliases = new Map();
   const add = (id, display, title, baseline = null) => {
     if (!tasks.has(id)) tasks.set(id, { task_id: id, display_id: display ?? null, title: title ?? id, baseline, events: [] });
