@@ -1,0 +1,6 @@
+# BEGIN vNext checkpoint Git policy
+/task-view.json
+/task-views/
+/task-view*.lock
+**/*.tmp
+# END vNext checkpoint Git policy

@@ -19,7 +19,7 @@ const issue = error => ({ code: error?.code ?? 'IO_ERROR', message: error instan
 const base = () => ({ runtime_role: 'assistance', development_gate: false, qualification: 'not-evaluated' });
 
 // Protect this service's own I/O. This is not permission to edit product files.
-function local(root, requested) {
+function repositoryPath(root, requested) {
   if (typeof requested !== 'string' || !requested || requested.includes('\0'))
     throw failure('UNSAFE_PATH', 'Expected a repository-relative path or an in-repository absolute path.');
   const normalized = requested.replace(/\\/g, '/');
@@ -28,6 +28,10 @@ function local(root, requested) {
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
     || relative.split(path.sep).some(p => p.includes(':') || p.toLowerCase().replace(/[. ]+$/, '') === '.git'))
     throw failure('UNSAFE_PATH', 'Expected a repository-relative path without traversal into external or Git-control files.');
+  return absolute;
+}
+function local(root, requested) {
+  const absolute = repositoryPath(root, requested), relative = path.relative(path.resolve(root), absolute);
   let current = path.resolve(root);
   for (const part of [null, ...relative.split(path.sep)]) {
     if (part !== null) current = path.join(current, part);
@@ -82,9 +86,12 @@ function workflowHome(root, requested) {
     return { home: fallback, issues: error.code === 'ENOENT' ? [] : [issue(error)] };
   }
 }
-function preserved(root, digest, home) {
+function evidenceObjectPaths(digest, home) {
   if (!/^[a-f0-9]{64}$/.test(digest ?? '')) throw failure('INVALID_DIGEST', 'A SHA-256 object reference must have 64 lowercase hexadecimal characters.');
-  for (const candidate of [`${STORE}/evidence-objects/${digest}.blob`, `${home}/evidence-objects/${digest}.blob`]) {
+  return [`${STORE}/evidence-objects/${digest}.blob`, `${home}/evidence-objects/${digest}.blob`];
+}
+function preserved(root, digest, home) {
+  for (const candidate of evidenceObjectPaths(digest, home)) {
     const file = local(root, candidate);
     if (fs.existsSync(file)) {
       if (hashFile(file) !== digest) throw failure('OBJECT_CORRUPT', `Preserved object differs: ${candidate}`);
@@ -329,7 +336,8 @@ function stepSummary(step) {
     review_decision_ref: step.review_decision_ref, disposition_ref: step.disposition_ref,
     finding_count: Array.isArray(step.findings) ? step.findings.length : 0, test_count: step.tests.length };
 }
-function taskSummary(task) {
+function followUpRequest(home, fields) { return { ...fields, workflow_home: home }; }
+function taskSummary(task, home) {
   const step = task.steps.find(s => s.id === task.current_step_id);
   const disposition = task.dispositions.find(d => d.ref === task.lifecycle_ref);
   return { task_id: task.task_id, display_id: task.display_id, title: task.title,
@@ -345,13 +353,14 @@ function taskSummary(task) {
       findings_in_current_plan: task.steps.reduce((n, s) => n + (Array.isArray(s.findings) ? s.findings.length : 0), 0),
       plans: task.plans.length, executions: task.executions.length, tests: task.tests.length,
       reviews: task.reviews.length, review_decisions: task.review_decisions.length, commits: task.commits.length },
-    detail_request: { detail: 'task', task_ref: task.task_id } };
+    detail_request: followUpRequest(home, { detail: 'task', task_ref: task.task_id }) };
 }
 function presentStatus(view, input, options) {
   if (input.expected_view_revision && input.expected_view_revision !== view.view_revision)
     throw failure('QUERY_VIEW_CHANGED', 'The live view changed; restart the query. This is not a workflow gate.');
   if (options.detail === 'full') return view;
   const selected = input.task_ref ? view.selected_task : view.current_task;
+  const detailRequest = selected ? followUpRequest(view.workflow_home, { detail: 'task', task_ref: selected.task_id }) : null;
   const counts = {};
   for (const task of view.tasks) counts[task.lifecycle] = (counts[task.lifecycle] ?? 0) + 1;
   const output = { ...base(), kind: 'task-query/v1', detail: options.detail, status: view.status,
@@ -359,7 +368,7 @@ function presentStatus(view, input, options) {
     current_task_id: view.current_task_id,
     selection: { requested_task_ref: input.task_ref ?? null, task_id: selected?.task_id ?? null,
       status: selected ? 'resolved' : 'unresolved',
-      detail_request: selected ? { detail: 'task', task_ref: selected.task_id } : null },
+      detail_request: detailRequest },
     health: view.health, state_completeness: view.state_completeness, records_scanned: view.records_scanned,
     projection: view.projection, recovery_options: view.recovery_options,
     // Diagnostics are deliberately NOT paged or filtered to the selected task.
@@ -370,13 +379,12 @@ function presentStatus(view, input, options) {
   if (options.detail === 'summary') {
     const tasks = input.task_ref ? (selected ? [selected] : []) : view.tasks;
     const end = Math.min(options.offset + options.limit, tasks.length);
-    return { ...output, tasks: tasks.slice(options.offset, end).map(taskSummary),
+    return { ...output, tasks: tasks.slice(options.offset, end).map(task => taskSummary(task, view.workflow_home)),
       pagination: { total: tasks.length, offset: options.offset, limit: options.limit,
         next_offset: end < tasks.length ? end : null, view_revision: view.view_revision,
-        next_request: end < tasks.length ? { detail: 'summary', offset: end, limit: options.limit,
+        next_request: end < tasks.length ? followUpRequest(view.workflow_home, { detail: 'summary', offset: end, limit: options.limit,
           expected_view_revision: view.view_revision,
-          ...(input.task_ref ? { task_ref: input.task_ref } : {}),
-          ...(input.workflow_home ? { workflow_home: input.workflow_home } : {}) } : null } };
+          ...(input.task_ref ? { task_ref: input.task_ref } : {}) }) : null } };
   }
   if (options.detail === 'task') return { ...output,
     coverage: { ...output.coverage, history: 'selected-task' }, task: selected ?? null };
@@ -390,7 +398,7 @@ function presentStatus(view, input, options) {
       adopted_plan_ref: selected.adopted_plan_ref, legacy_plan_ref: selected.legacy_plan_ref } : null,
     coverage: { ...output.coverage, history: 'selected-step-projection-only' },
     step, review: step ? selected.reviews.find(r => r.ref === step.review_ref) ?? null : null,
-    detail_request: selected ? { detail: 'task', task_ref: selected.task_id } : null };
+    detail_request: detailRequest };
 }
 /** Agent-facing read APIs. The low-level taskStatus/context exports stay full for existing callers. */
 export function queryStatus(root, input = {}) {
@@ -408,17 +416,17 @@ export function queryContext(root, input = {}) {
 
 // Checkpoint planning/verifying is deliberately read-only. The Skill owns configuration,
 // staging and commit under the user's instruction; a manifest is not an approval token.
-function checkpointGit(root, args, input, accepted = [0]) {
+function checkpointGit(root, args, input, accepted = [0], encoding = 'utf8') {
   const result = spawnSync('git', args, {
-    cwd: root, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    cwd: root, input, encoding, maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
   });
   if (result.error) throw result.error;
-  if (!accepted.includes(result.status)) throw failure('GIT_READ_FAILED', (result.stderr || result.stdout || `Git exited ${result.status}`).trim());
+  if (!accepted.includes(result.status)) throw failure('GIT_READ_FAILED', (result.stderr?.toString() || result.stdout?.toString() || `Git exited ${result.status}`).trim());
   return result;
 }
 function checkpointPath(root, value) {
-  const relative = path.relative(path.resolve(root), local(root, value)).split(path.sep).join('/');
+  const relative = path.relative(path.resolve(root), repositoryPath(root, value)).split(path.sep).join('/');
   if (!relative) throw failure('EXACT_PATH_REQUIRED', 'Name a file, not the repository root.');
   return relative;
 }
@@ -457,6 +465,26 @@ function checkpointFile(root, ref, algorithm) {
     return { sha256: contentHash.digest('hex'), raw_git_oid: objectHash.digest('hex'), size: before.size };
   } finally { fs.closeSync(fd); }
 }
+function checkpointIndexFile(root, entry) {
+  if (entry.mode === '160000') return { mode: entry.mode, raw_git_oid: entry.oid, sha256: null, size: null };
+  if (!['100644', '100755', '120000'].includes(entry.mode)) throw failure('UNSUPPORTED_GIT_ENTRY', `Unsupported Git mode: ${entry.mode}`);
+  const bytes = checkpointGit(root, ['cat-file', 'blob', entry.oid], undefined, [0], null).stdout;
+  return { mode: entry.mode, raw_git_oid: entry.oid, sha256: sha(bytes), size: bytes.length };
+}
+function checkpointBusinessFile(root, ref, algorithm, entry, symlinks) {
+  if (entry?.mode === '160000') throw failure('GITLINK_INDEX_SOURCE_REQUIRED', 'Review/stage the intended submodule pointer and re-plan with source=index; no submodule work is replayed.');
+  const parent = local(root, path.posix.dirname(ref)), file = path.join(parent, path.posix.basename(ref));
+  const before = fs.lstatSync(file);
+  if (before.isSymbolicLink()) {
+    const bytes = fs.readlinkSync(file, { encoding: 'buffer' }), after = fs.lstatSync(file);
+    if (['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'].some(k => before[k] !== after[k]))
+      throw failure('SOURCE_CHANGED', `Link changed during checkpoint inspection: ${ref}`);
+    return { mode: '120000', sha256: sha(bytes), size: bytes.length,
+      raw_git_oid: createHash(algorithm).update(`blob ${bytes.length}\0`).update(bytes).digest('hex') };
+  }
+  const metadata = checkpointFile(root, ref, algorithm);
+  return entry?.mode === '120000' && !symlinks ? { ...metadata, mode: '120000' } : metadata;
+}
 function checkpointRole(ref, display) {
   if (ref === display) return 'display';
   if (ref === `${STORE}/.gitignore` || ref === `${STORE}/.gitattributes`) return 'configuration';
@@ -468,7 +496,14 @@ function checkpointRole(ref, display) {
   if (ref.startsWith(`${STORE}/`) && (ref.endsWith('.tmp') || /^task-view.*\.lock$/.test(path.posix.basename(ref)))) return 'temporary';
   return 'unclassified';
 }
-function checkpointInventory(root, display) {
+function checkpointObjectPath(root, ref) {
+  const target = checkpointPath(root, ref), directory = path.posix.dirname(target);
+  const digest = /^([a-f0-9]{64})\.blob$/.exec(path.posix.basename(target))?.[1];
+  if (!digest || path.posix.basename(directory) !== 'evidence-objects') return null;
+  const home = path.posix.dirname(directory);
+  return evidenceObjectPaths(digest, home).map(p => checkpointPath(root, p)).includes(target) ? target : null;
+}
+function checkpointInventory(root, display, business = []) {
   const files = new Map(), issues = [], pending = [STORE];
   while (pending.length) {
     const ref = pending.pop();
@@ -480,7 +515,33 @@ function checkpointInventory(root, display) {
       else issues.push({ code: 'UNSUPPORTED_RECORD_ENTRY', path: ref });
     } catch (error) { if (error.code !== 'ENOENT') issues.push({ ...issue(error), path: ref }); }
   }
-  return { files, issues };
+  // Follow typed attachment refs, not arbitrary text or a scan of the old workflow home.
+  const objects = new Set(), referenceIssues = [];
+  function includeObject(ref, from) {
+    try {
+      const target = checkpointObjectPath(root, ref);
+      if (!target) { referenceIssues.push({ code: 'ATTACHMENT_OBJECT_REF_UNSUPPORTED', from, path: ref }); return; }
+      objects.add(target);
+      const stat = fs.lstatSync(local(root, target));
+      if (!stat.isFile()) throw failure('NOT_A_FILE', `Not a regular preserved object: ${target}`);
+      files.set(target, 'fact');
+    } catch (error) { if (error.code !== 'ENOENT') referenceIssues.push({ ...issue(error), from, path: ref }); }
+  }
+  for (const [ref, role] of files) {
+    if (role !== 'fact' || !ref.startsWith(`${STORE}/attachments/`)) continue;
+    try {
+      const value = JSON.parse(fs.readFileSync(local(root, ref), 'utf8'));
+      for (const attachment of Array.isArray(value.attachments) ? value.attachments : [])
+        if (attachment.status !== 'unavailable' && attachment.ref) includeObject(attachment.ref, ref);
+    } catch { /* The reference check reports unreadable manifests without discarding their bytes. */ }
+  }
+  for (const ref of business) if (checkpointObjectPath(root, ref)) includeObject(ref, null);
+  for (const directory of new Set([...objects].map(ref => path.posix.dirname(ref)))) {
+    const ref = `${directory}/.gitattributes`;
+    try { if (fs.lstatSync(local(root, ref)).isFile()) files.set(ref, 'configuration'); }
+    catch (error) { if (error.code !== 'ENOENT') issues.push({ ...issue(error), path: ref }); }
+  }
+  return { files, issues, evidence_objects: objects, reference_issues: referenceIssues };
 }
 function checkpointAttributes(root, refs, cached = false) {
   if (!refs.length) return new Map();
@@ -492,10 +553,13 @@ function checkpointAttributes(root, refs, cached = false) {
   }
   return result;
 }
-function checkpointPolicy(root, home, generatedDisplay) {
+function checkpointPolicy(root, home, generatedDisplay, evidenceObjects = []) {
+  const legacyDirectories = [...new Set(evidenceObjects.filter(ref => !ref.startsWith(`${STORE}/`))
+    .map(ref => path.posix.dirname(ref)))].sort();
   const definitions = [
     [`${STORE}/.gitignore`, '/task-view.json\n/task-views/\n/task-view*.lock\n**/*.tmp\n'],
     [`${STORE}/.gitattributes`, '** -text -filter -ident -working-tree-encoding\n'],
+    ...legacyDirectories.map(directory => [`${directory}/.gitattributes`, '*.blob -text -filter -ident -working-tree-encoding\n']),
     ...(generatedDisplay ? [[`${home}/.gitignore`, '/CURRENT_TASK.md\n']] : []),
   ];
   const edits = [], paths = [], issues = [];
@@ -522,15 +586,16 @@ function checkpointPolicy(root, home, generatedDisplay) {
   return { edits, paths, issues };
 }
 function checkpointReferences(root, inventory, selected) {
-  const issues = [], check = (ref, from) => {
-    if (typeof ref !== 'string' || !ref.startsWith(`${STORE}/`)) return;
+  const issues = [...inventory.reference_issues], check = (ref, from, attachment = false) => {
+    if (typeof ref !== 'string' || (!attachment && !ref.startsWith(`${STORE}/`))) return;
     try {
       const target = checkpointPath(root, ref);
-      if (!inventory.has(target)) issues.push({ code: 'REFERENCE_MISSING', from, path: target });
+      if (!inventory.files.has(target)) issues.push({ code: 'REFERENCE_MISSING', from, path: target });
       else if (!selected.has(target)) issues.push({ code: 'REFERENCE_NOT_SELECTED', from, path: target });
+      return target;
     } catch (error) { issues.push({ ...issue(error), from, path: ref }); }
   };
-  for (const [ref, role] of inventory) {
+  for (const [ref, role] of inventory.files) {
     if (role !== 'fact') continue;
     try {
       if (!ref.endsWith('.json')) {
@@ -560,9 +625,9 @@ function checkpointReferences(root, inventory, selected) {
         for (const attachment of Array.isArray(value.attachments) ? value.attachments : []) {
           if (attachment.status === 'unavailable') issues.push({ code: 'RETAINED_ATTACHMENT_UNAVAILABLE', path: ref, request: attachment.request });
           else {
-            check(attachment.ref, ref);
+            const target = check(attachment.ref, ref, true);
             if (!attachment.ref) issues.push({ code: 'ATTACHMENT_REF_MISSING', path: ref });
-            const object = selected.get(attachment.ref);
+            const object = selected.get(target);
             if (object && (attachment.sha256 !== object.sha256 || (attachment.size !== undefined && attachment.size !== object.size)))
               issues.push({ code: 'ATTACHMENT_METADATA_MISMATCH', path: ref, object_ref: attachment.ref });
           }
@@ -589,6 +654,8 @@ export function gitCheckpoint(root, input = {}) {
   if (action !== 'plan') return verifyCheckpoint(root, input, head, algorithm);
   const mode = input.mode ?? 'checkpoint';
   if (!['checkpoint', 'paths'].includes(mode)) throw failure('INVALID_CHECKPOINT_MODE', mode);
+  const source = input.source ?? 'worktree';
+  if (!['worktree', 'index'].includes(source)) throw failure('INVALID_CHECKPOINT_SOURCE', 'source must be worktree or index; it selects the business content, not authority.');
   const exactPaths = values => {
     if (!Array.isArray(values) || values.some(v => typeof v !== 'string')) throw failure('EXACT_PATHS_REQUIRED', 'Use an array of exact file paths, not a glob or directory.');
     return [...new Set(values.map(v => checkpointPath(root, v)))].sort();
@@ -604,10 +671,12 @@ export function gitCheckpoint(root, input = {}) {
     generatedDisplay = text.includes('<!-- vnext-task-view/v1 -->') && !!revision
       && fs.readFileSync(local(root, `${STORE}/task-views/${revision}.md`)).equals(bytes);
   } catch (error) { if (error.code !== 'ENOENT') homeIssues.push({ ...issue(error), path: display }); }
-  const inventory = checkpointInventory(root, display), before = checkpointTree(root, head), index = checkpointIndex(root);
+  const inventory = checkpointInventory(root, display, source === 'worktree' ? business : []), before = checkpointTree(root, head), index = checkpointIndex(root);
+  const symlinks = checkpointGit(root, ['config', '--bool', 'core.symlinks'], undefined, [0, 1]).stdout.trim() !== 'false';
   const selected = new Set(business.filter(ref => !excluded(ref)));
   const omitted = [], problems = [...homeIssues, ...inventory.issues], policy = mode === 'checkpoint'
-    ? checkpointPolicy(root, home, generatedDisplay) : { edits: [], paths: [], issues: [] };
+    ? checkpointPolicy(root, home, generatedDisplay, [...inventory.evidence_objects].filter(ref => inventory.files.has(ref) && !excluded(ref)))
+    : { edits: [], paths: [], issues: [] };
   if (mode === 'checkpoint') {
     for (const [ref, role] of inventory.files) {
       if (['fact', 'recovery', 'configuration'].includes(role) && !excluded(ref)) selected.add(ref);
@@ -628,9 +697,27 @@ export function gitCheckpoint(root, input = {}) {
     problems.push({ code: 'DISPLAY_DRIFT_RETAINED', path: display, message: 'No matching saved generated view. Keep the file and resolve/preserve its content; do not newly ignore or untrack it.' });
   const files = [], deletions = [];
   for (const ref of [...selected].sort()) {
+    const fileSource = source === 'index' && business.includes(ref) ? 'index' : 'worktree';
+    const object = checkpointObjectPath(root, ref), byteExact = ref.startsWith(`${STORE}/`) || !!object;
+    let role = inventory.files.get(ref);
+    if (!role) {
+      if (object) role = 'fact';
+      else if (policy.paths.includes(ref)) role = 'configuration';
+      else role = 'business';
+    }
     try {
-      files.push({ path: ref, role: inventory.files.get(ref) ?? (policy.paths.includes(ref) ? 'configuration' : 'business'),
-        byte_exact: ref.startsWith(`${STORE}/`), ...checkpointFile(root, ref, algorithm) });
+      let metadata;
+      if (fileSource === 'index') {
+        const entry = index.entries.get(ref);
+        if (!entry) {
+          if (before.has(ref)) { deletions.push(ref); continue; }
+          throw failure('INDEX_PATH_NOT_FOUND', `No selected index or HEAD entry: ${ref}`);
+        }
+        if (byteExact && !['100644', '100755'].includes(entry.mode)) throw failure('UNSUPPORTED_PERSISTENT_ENTRY', `Preserved records require regular blobs: ${ref}`);
+        metadata = checkpointIndexFile(root, entry);
+      } else if (role === 'business') metadata = checkpointBusinessFile(root, ref, algorithm, index.entries.get(ref), symlinks);
+      else metadata = checkpointFile(root, ref, algorithm);
+      files.push({ path: ref, role, source: fileSource, byte_exact: byteExact, ...metadata });
     } catch (error) {
       if (error.code === 'ENOENT' && business.includes(ref) && before.has(ref) && mode === 'paths') deletions.push(ref);
       else if (error.code === 'ENOENT' && business.includes(ref) && before.has(ref) && !ref.startsWith(`${STORE}/`)) deletions.push(ref);
@@ -656,26 +743,29 @@ export function gitCheckpoint(root, input = {}) {
   const outside = indexChanges.filter(ref => !chosen.has(ref));
   if (outside.length) problems.push({ code: 'STAGED_OUTSIDE_SCOPE', paths: outside, message: 'Preserve the existing index; do not reset or include unrelated staged changes.' });
   if (index.unmerged.length) problems.push({ code: 'UNMERGED_INDEX', paths: index.unmerged });
-  const ignored = files.length ? new Set(checkpointGit(root, ['check-ignore', '-z', '--stdin'], files.map(f => f.path).join('\0') + '\0', [0, 1]).stdout.split('\0').filter(Boolean)) : new Set();
+  const worktreeFiles = files.filter(f => f.source === 'worktree');
+  const ignored = worktreeFiles.length ? new Set(checkpointGit(root, ['check-ignore', '-z', '--stdin'], worktreeFiles.map(f => f.path).join('\0') + '\0', [0, 1]).stdout.split('\0').filter(Boolean)) : new Set();
   for (const ref of ignored) problems.push({ code: 'SELECTED_PATH_IGNORED', path: ref, message: 'Do not force-add or override project exclusions without the actual user choice.' });
-  const attrs = checkpointAttributes(root, files.filter(f => f.byte_exact).map(f => f.path));
+  const attrs = checkpointAttributes(root, worktreeFiles.filter(f => f.byte_exact).map(f => f.path));
+  const indexAttrs = checkpointAttributes(root, files.filter(f => f.byte_exact && f.source === 'index').map(f => f.path), true);
   for (const f of files) {
     if (f.role === 'fact' && before.has(f.path) && before.get(f.path).oid !== f.raw_git_oid)
       problems.push({ code: 'TRACKED_FACT_CHANGED', path: f.path, message: 'Inspect the immutable-history change; do not silently overwrite it during a checkpoint.' });
-    if (f.byte_exact && Object.values(attrs.get(f.path) ?? {}).some(v => !['unset', 'unspecified'].includes(v)))
-      problems.push({ code: 'BYTE_ATTRIBUTE_REVIEW', path: f.path, attributes: attrs.get(f.path) });
-    if (indexChanges.includes(f.path) && index.entries.has(f.path) && index.entries.get(f.path).oid !== f.raw_git_oid)
+    const attributes = (f.source === 'index' ? indexAttrs : attrs).get(f.path);
+    if (f.byte_exact && Object.values(attributes ?? {}).some(v => !['unset', 'unspecified'].includes(v)))
+      problems.push({ code: 'BYTE_ATTRIBUTE_REVIEW', path: f.path, attributes });
+    if (f.source !== 'index' && indexChanges.includes(f.path) && index.entries.has(f.path) && index.entries.get(f.path).oid !== f.raw_git_oid)
       problems.push({ code: 'PRESTAGED_CONTENT_DIFFERS', path: f.path, message: 'Inspect staged hunks/normalization; do not silently replace a partial stage.' });
   }
-  const referenceIssues = mode === 'checkpoint' ? checkpointReferences(root, inventory.files, new Map(files.map(f => [f.path, f]))) : [];
+  const referenceIssues = mode === 'checkpoint' ? checkpointReferences(root, inventory, new Map(files.map(f => [f.path, f]))) : [];
   for (const f of files) {
     const named = /\/([a-f0-9]{64})\.blob$/.exec(f.path)?.[1] ?? /\/legacy\/(?:current|display)-([a-f0-9]{64})\.md$/.exec(f.path)?.[1];
-    if (named && named !== f.sha256) referenceIssues.push({ code: 'PRESERVED_DIGEST_MISMATCH', path: f.path });
+    if (named && f.mode !== '160000' && named !== f.sha256) referenceIssues.push({ code: 'PRESERVED_DIGEST_MISMATCH', path: f.path });
   }
-  const addPaths = files.filter(f => !index.entries.has(f.path) || index.entries.get(f.path).oid !== f.raw_git_oid || f.role === 'business').map(f => f.path);
-  const plan = { kind: 'git-checkpoint-plan/v1', root: path.resolve(root), base_head: head, object_format: algorithm, mode,
+  const addPaths = files.filter(f => f.source !== 'index' && (!index.entries.has(f.path) || index.entries.get(f.path).oid !== f.raw_git_oid || f.role === 'business')).map(f => f.path);
+  const plan = { kind: 'git-checkpoint-plan/v1', root: path.resolve(root), base_head: head, object_format: algorithm, mode, source,
     workflow_home: home, business_paths: business, exclude_paths: exclusions, files, delete_paths: deletions,
-    add_paths: [...new Set([...addPaths, ...deletions])].sort(), untrack_paths: untrack.sort(), untrack_files: untrackFiles,
+    add_paths: [...new Set([...addPaths, ...(source === 'worktree' ? deletions : [])])].sort(), untrack_paths: untrack.sort(), untrack_files: untrackFiles,
     configuration, tracked_derived_retained: trackedDerived.filter(p => !untrack.includes(p)), omitted,
     issues: problems, reference_issues: referenceIssues };
   return { ...base(), status: 'planned', ...plan,
@@ -690,9 +780,25 @@ function verifyCheckpoint(root, input, head, algorithm) {
     || (plan.base_head !== null && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(plan.base_head ?? '')))
     throw failure('INVALID_CHECKPOINT_PLAN', 'Use the plan from this worktree; a plan is data, not authority.');
   const normalize = ref => checkpointPath(root, ref);
-  for (const f of plan.files) { normalize(f.path); if (!/^[a-f0-9]{64}$/.test(f.sha256) || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(f.raw_git_oid)) throw failure('INVALID_CHECKPOINT_PLAN', 'Invalid file digest.'); }
+  for (const f of plan.files) {
+    normalize(f.path);
+    const gitlink = f.mode === '160000' && f.source === 'index' && f.role === 'business' && !f.byte_exact;
+    const persistent = f.byte_exact || f.path.startsWith(`${STORE}/`) || !!checkpointObjectPath(root, f.path);
+    if ((!gitlink && !/^[a-f0-9]{64}$/.test(f.sha256)) || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(f.raw_git_oid)
+      || (f.source !== undefined && !['worktree', 'index'].includes(f.source))
+      || (f.mode !== undefined && !['100644', '100755', '120000', '160000'].includes(f.mode))
+      || (persistent && f.mode !== undefined && !['100644', '100755'].includes(f.mode))
+      || (f.mode === '160000' && !gitlink)) throw failure('INVALID_CHECKPOINT_PLAN', 'Invalid file digest, source or Git mode.');
+  }
   const allowed = new Set([...plan.files.map(f => f.path), ...plan.delete_paths.map(normalize), ...plan.untrack_paths.map(normalize)]);
-  const problems = [], isCommit = input.action === 'verify-commit';
+  const problems = [], referenceIssues = [...(plan.reference_issues ?? [])], isCommit = input.action === 'verify-commit';
+  const objectPaths = new Set(plan.files.filter(f => checkpointObjectPath(root, f.path)).map(f => f.path));
+  const byteExactFiles = plan.files.filter(f => f.byte_exact || objectPaths.has(f.path));
+  const symlinks = checkpointGit(root, ['config', '--bool', 'core.symlinks'], undefined, [0, 1]).stdout.trim() !== 'false';
+  function storageIssue(problem) {
+    problems.push(problem);
+    if (objectPaths.has(problem.path)) referenceIssues.push(problem);
+  }
   if (plan.configuration?.length) problems.push({ code: 'CONFIGURATION_PENDING', message: 'Apply only authorized policy edits and re-plan before staging.' });
   let target, commit = null;
   if (isCommit) {
@@ -707,18 +813,27 @@ function verifyCheckpoint(root, input, head, algorithm) {
     if (index.unmerged.length) problems.push({ code: 'UNMERGED_INDEX', paths: index.unmerged });
   }
   if (!isCommit) {
-    const attrs = checkpointAttributes(root, plan.files.filter(f => f.byte_exact).map(f => f.path), true);
+    const attrs = checkpointAttributes(root, byteExactFiles.map(f => f.path), true);
     for (const [ref, row] of attrs) if (row.text !== 'unset' || ['filter', 'ident', 'working-tree-encoding'].some(k => !['unset', 'unspecified'].includes(row[k])))
-      problems.push({ code: 'INDEX_BYTE_ATTRIBUTES_UNSAFE', path: ref, attributes: row });
+      storageIssue({ code: 'INDEX_BYTE_ATTRIBUTES_UNSAFE', path: ref, attributes: row });
   }
   const outside = checkpointDiff(checkpointTree(root, plan.base_head), target).filter(ref => !allowed.has(ref));
   if (outside.length) problems.push({ code: 'OUTSIDE_SCOPE', paths: outside });
   for (const f of plan.files) {
     const stored = target.get(f.path);
-    if (!stored || !['100644', '100755'].includes(stored.mode)) problems.push({ code: 'PLANNED_FILE_NOT_SAVED', path: f.path });
-    else if (f.byte_exact && stored.oid !== f.raw_git_oid) problems.push({ code: 'STORED_BYTES_DIFFER', path: f.path, expected: f.raw_git_oid, actual: stored.oid });
-    if (!isCommit) {
-      try { if (checkpointFile(root, f.path, algorithm).sha256 !== f.sha256) problems.push({ code: 'SOURCE_CHANGED_SINCE_PLAN', path: f.path }); }
+    const modes = f.mode ? [f.mode] : ['100644', '100755'];
+    if (!stored) storageIssue({ code: 'PLANNED_FILE_NOT_SAVED', path: f.path });
+    else {
+      if (!modes.includes(stored.mode)) storageIssue({ code: 'STORED_MODE_DIFFERS', path: f.path, expected: modes, actual: stored.mode });
+      if ((f.source === 'index' || f.mode === '120000' || f.byte_exact || objectPaths.has(f.path)) && stored.oid !== f.raw_git_oid)
+        storageIssue({ code: f.mode === '160000' ? 'STORED_GITLINK_DIFFERS' : 'STORED_BYTES_DIFFER', path: f.path, expected: f.raw_git_oid, actual: stored.oid });
+    }
+    if (!isCommit && f.source !== 'index') {
+      try {
+        const current = f.role === 'business' ? checkpointBusinessFile(root, f.path, algorithm, f.mode ? { mode: f.mode } : null, symlinks) : checkpointFile(root, f.path, algorithm);
+        if (current.sha256 !== f.sha256 || current.mode !== f.mode)
+          problems.push({ code: 'SOURCE_CHANGED_SINCE_PLAN', path: f.path });
+      }
       catch (error) { problems.push({ ...issue(error), path: f.path }); }
     }
   }
@@ -740,9 +855,9 @@ function verifyCheckpoint(root, input, head, algorithm) {
   const treeDigest = checkpointTreeDigest(target);
   if (isCommit && input.index_verification?.tree_sha256 && input.index_verification.tree_sha256 !== treeDigest)
     problems.push({ code: 'COMMITTED_TREE_DIFFERS_FROM_REVIEWED_INDEX' });
-  const inventory = checkpointInventory(root, `${plan.workflow_home}/CURRENT_TASK.md`), saved = new Map(plan.files.map(f => [f.path, f]));
+  const inventory = checkpointInventory(root, `${plan.workflow_home}/CURRENT_TASK.md`, plan.files.filter(f => f.source !== 'index').map(f => f.path)), saved = new Map(plan.files.map(f => [f.path, f]));
   const remaining = [...inventory.issues.map(i => ({ ...i, reason: 'unreadable' }))];
-  for (const f of plan.files.filter(f => f.byte_exact)) if (!inventory.files.has(f.path)) remaining.push({ path: f.path, role: f.role, reason: 'missing-from-worktree' });
+  for (const f of byteExactFiles) if (!inventory.files.has(f.path)) remaining.push({ path: f.path, role: f.role, reason: 'missing-from-worktree' });
   for (const [ref, role] of inventory.files) if (['fact', 'recovery', 'configuration', 'unclassified'].includes(role)) {
     try {
       const f = checkpointFile(root, ref, algorithm);
@@ -754,8 +869,8 @@ function verifyCheckpoint(root, input, head, algorithm) {
     phase: isCommit ? 'commit' : 'index', commit_sha: commit, base_head: plan.base_head,
     tree_sha256: treeDigest, snapshot_verified: problems.length === 0,
     reviewed_index_compared: isCommit && !!input.index_verification?.tree_sha256,
-    reference_health: plan.reference_issues?.length ? 'gaps-retained' : 'no-known-gaps',
-    reference_issues: plan.reference_issues ?? [], planning_issues: plan.issues ?? [], issues: problems, remaining_records: remaining,
+    reference_health: referenceIssues.length ? 'gaps-retained' : 'no-known-gaps',
+    reference_issues: referenceIssues, planning_issues: plan.issues ?? [], issues: problems, remaining_records: remaining,
     scope_exclusions: plan.exclude_paths, recovery_files_retained: plan.files.filter(f => f.role === 'recovery').length,
     note: 'Checks the planned Git snapshot, not task completion, secret safety, future writes or remote backup. No file/index/history was modified. New records after planning remain for a later authorized checkpoint; do not recursively commit.' };
 }

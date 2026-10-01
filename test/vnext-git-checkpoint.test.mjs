@@ -204,8 +204,6 @@ test('edited displays, custom policy blocks, missing persistent files and unsafe
   assert.equal(plan.configuration.some(e => e.path === 'docs/workflow/.gitignore'), false);
   assert.throws(() => gitCheckpoint(root, { business_paths: ['.git/config'] }), /Git-control/);
   assert.throws(() => gitCheckpoint(root, { business_paths: ['../escape'] }), /repository-relative/);
-  fs.symlinkSync(path.join(root, 'app.txt'), path.join(root, 'alias.txt'));
-  assert.throws(() => gitCheckpoint(root, { business_paths: ['alias.txt'] }), /Symbolic/);
   write(root, `${STORE}/.gitattributes`, '# BEGIN vNext checkpoint Git policy\nCUSTOM\n# END vNext checkpoint Git policy\n');
   plan = gitCheckpoint(root); assert.ok(plan.issues.some(i => i.code === 'POLICY_BLOCK_EDITED'));
   assert.equal(plan.configuration.some(e => e.path === `${STORE}/.gitattributes`), false);
@@ -276,4 +274,198 @@ test('unknown records remain visible, malformed attachment metadata remains a ga
     { input: JSON.stringify({ action: 'verify-index', plan }), encoding: 'utf8' });
   assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).status, 'mismatch');
   assert.equal(fs.existsSync(path.join(root, STORE, 'mystery.txt')), true);
+});
+
+function historicalAttachment(root, home = 'docs/workflow') {
+  const content = Buffer.from('abcdef\r\nghijkl\r\n'), digest = hash(content);
+  const ref = `${home}/evidence-objects/${digest}.blob`;
+  write(root, ref, content);
+  const saved = record(root, { body: 'Reuse preserved historical evidence', files: [{ sha256: digest, workflow_home: home }] });
+  assert.equal(saved.attachments[0].ref, ref);
+  return { ref, content, digest, saved };
+}
+
+test('checkpoint preserves referenced historical objects and exact bytes without collecting the legacy directory', t => {
+  for (const home of ['docs/workflow', 'custom/workflow']) {
+    const root = fixture(t);
+    write(root, '.gitattributes', '* text=auto\n');
+    git(root, ['add', '--', '.gitattributes']); git(root, ['commit', '-qm', 'project text policy']);
+    const object = historicalAttachment(root, home);
+    const unrelated = `${home}/evidence-objects/${'0'.repeat(64)}.blob`;
+    write(root, unrelated, 'unreferenced object'); write(root, `${home}/notes.md`, 'unrelated user notes');
+    const plan = prepared(root), file = plan.files.find(f => f.path === object.ref);
+    assert.ok(file); assert.equal(file.role, 'fact'); assert.equal(file.byte_exact, true);
+    assert.equal(plan.files.some(f => f.path === unrelated || f.path === `${home}/notes.md`), false);
+    assert.equal(fs.existsSync(path.join(root, STORE, 'evidence-objects', `${object.digest}.blob`)), false);
+    const check = finish(root, plan);
+    assert.equal(check.reference_health, 'no-known-gaps'); assert.deepEqual(check.remaining_records, []);
+    assert.equal(Number(git(root, ['cat-file', '-s', `HEAD:${object.ref}`])), object.content.length);
+    const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-legacy-checkpoint-clone-'));
+    t.after(() => fs.rmSync(clone, { recursive: true, force: true }));
+    git(root, ['clone', '-q', '-c', 'core.autocrlf=false', '-c', 'core.eol=lf', root, clone]);
+    assert.deepEqual(bytes(clone, object.ref), object.content);
+    assert.deepEqual(bytes(root, object.ref), object.content);
+    assert.equal(snapshot(clone, { sha256: object.digest, workflow_home: home }).ref, object.ref);
+  }
+});
+
+test('explicitly selected historical evidence retains its fact role and byte checks in paths mode', t => {
+  const root = fixture(t), object = historicalAttachment(root);
+  write(root, '.gitattributes', '* text=auto\n');
+  const plan = gitCheckpoint(root, { mode: 'paths', business_paths: [object.ref] });
+  const file = plan.files.find(f => f.path === object.ref);
+  assert.equal(file.role, 'fact'); assert.equal(file.byte_exact, true); assert.deepEqual(plan.configuration, []);
+  git(root, ['add', '--', object.ref]);
+  const check = indexCheck(root, plan);
+  assert.equal(check.status, 'mismatch');
+  assert.ok(check.issues.some(i => i.code === 'STORED_BYTES_DIFFER' && i.path === object.ref));
+  assert.equal(check.reference_health, 'gaps-retained');
+});
+
+test('tracked historical evidence is checked against both the index and actual commit bytes', t => {
+  const root = fixture(t), object = historicalAttachment(root);
+  write(root, 'docs/workflow/evidence-objects/.gitattributes', '*.blob -text -filter -ident -working-tree-encoding\n');
+  git(root, ['add', '--', object.ref, 'docs/workflow/evidence-objects/.gitattributes']);
+  git(root, ['commit', '-qm', 'existing byte-exact historical object']);
+  const plan = prepared(root); stage(root, plan);
+  const normalized = git(root, ['hash-object', '-w', '--stdin'], object.content.toString().replaceAll('\r\n', '\n'));
+  git(root, ['update-index', '--cacheinfo', `100644,${normalized},${object.ref}`]);
+  const index = indexCheck(root, plan);
+  assert.equal(index.status, 'mismatch');
+  assert.ok(index.issues.some(i => i.code === 'STORED_BYTES_DIFFER' && i.path === object.ref));
+  assert.equal(index.reference_health, 'gaps-retained');
+  git(root, ['commit', '-qm', 'synthetic wrong object bytes']);
+  const check = gitCheckpoint(root, { action: 'verify-commit', plan, commit_sha: git(root, ['rev-parse', 'HEAD']) });
+  assert.equal(check.status, 'mismatch');
+  assert.ok(check.issues.some(i => i.code === 'STORED_BYTES_DIFFER' && i.path === object.ref));
+  assert.equal(check.reference_health, 'gaps-retained'); assert.deepEqual(bytes(root, object.ref), object.content);
+});
+
+test('excluded, missing and corrupt historical attachment objects remain explicit checkpoint gaps', t => {
+  for (const scenario of ['excluded', 'missing', 'corrupt']) {
+    const root = fixture(t), object = historicalAttachment(root, 'custom/workflow');
+    if (scenario === 'missing') fs.unlinkSync(path.join(root, object.ref));
+    if (scenario === 'corrupt') write(root, object.ref, 'corrupt original still retained');
+    const request = scenario === 'excluded' ? { exclude_paths: ['custom/workflow/evidence-objects'] } : {};
+    const plan = prepared(root, request);
+    const code = { excluded: 'REFERENCE_NOT_SELECTED', missing: 'REFERENCE_MISSING', corrupt: 'PRESERVED_DIGEST_MISMATCH' }[scenario];
+    assert.ok(plan.reference_issues.some(i => i.code === code && i.path === object.ref));
+    if (scenario === 'excluded') {
+      assert.equal(plan.add_paths.includes(object.ref), false);
+      assert.equal(plan.configuration.some(e => e.path.startsWith('custom/workflow/evidence-objects/')), false);
+    }
+    const check = finish(root, plan);
+    assert.equal(check.status, 'verified'); assert.equal(check.reference_health, 'gaps-retained');
+    if (scenario === 'excluded') assert.ok(check.remaining_records.some(f => f.path === object.ref));
+    if (scenario === 'corrupt') assert.equal(bytes(root, object.ref).toString(), 'corrupt original still retained');
+  }
+});
+
+test('only typed attachment object refs extend checkpoint scope and unsafe refs remain gaps', t => {
+  for (const target of ['docs/user-owned.txt', `../../evidence-objects/${'0'.repeat(64)}.blob`, `.git/evidence-objects/${'0'.repeat(64)}.blob`]) {
+    const root = fixture(t), object = historicalAttachment(root);
+    write(root, 'docs/user-owned.txt', 'unrelated user bytes');
+    const manifest = JSON.parse(bytes(root, object.saved.attachments_ref));
+    manifest.attachments[0].ref = target;
+    write(root, object.saved.attachments_ref, JSON.stringify(manifest));
+    record(root, { body: `arbitrary text mentioning ${object.ref}`, ref: object.ref });
+    const plan = prepared(root);
+    assert.equal(plan.add_paths.includes('docs/user-owned.txt'), false);
+    assert.equal(plan.add_paths.includes(object.ref), false);
+    assert.ok(plan.reference_issues.some(i => i.path === target));
+    assert.equal(finish(root, plan).reference_health, 'gaps-retained');
+  }
+});
+
+test('index source preserves a staged deletion despite a replacement in the worktree', t => {
+  const root = fixture(t); git(root, ['rm', '--', 'app.txt']); write(root, 'app.txt', 'local replacement\n');
+  const before = bytes(root, '.git/index');
+  const plan = gitCheckpoint(root, { mode: 'paths', source: 'index', business_paths: ['app.txt'] });
+  assert.deepEqual(plan.files, []); assert.deepEqual(plan.delete_paths, ['app.txt']); assert.deepEqual(plan.add_paths, []);
+  assert.deepEqual(plan.issues, []); assert.equal(indexCheck(root, plan).status, 'verified');
+  assert.deepEqual(bytes(root, '.git/index'), before);
+  assert.equal(finish(root, plan).status, 'verified');
+  assert.equal(git(root, ['ls-tree', 'HEAD', '--', 'app.txt']), '');
+  assert.equal(bytes(root, 'app.txt').toString(), 'local replacement\n');
+});
+
+test('index source saves an absent working copy and binary staged bytes without re-adding files', t => {
+  const root = fixture(t), content = Buffer.from([0, 255, 13, 10, 128, 65]);
+  write(root, 'new.bin', content); git(root, ['add', '--', 'new.bin']); fs.unlinkSync(path.join(root, 'new.bin'));
+  const before = bytes(root, '.git/index');
+  const plan = gitCheckpoint(root, { mode: 'paths', source: 'index', business_paths: ['new.bin'] });
+  assert.deepEqual(plan.issues, []); assert.deepEqual(plan.add_paths, []);
+  assert.equal(plan.files[0].source, 'index'); assert.equal(plan.files[0].sha256, hash(content));
+  assert.equal(plan.files[0].mode, '100644'); assert.equal(indexCheck(root, plan).status, 'verified');
+  assert.deepEqual(bytes(root, '.git/index'), before);
+  assert.equal(finish(root, plan).status, 'verified');
+  assert.equal(git(root, ['rev-parse', 'HEAD:new.bin']), plan.files[0].raw_git_oid);
+  assert.equal(fs.existsSync(path.join(root, 'new.bin')), false);
+});
+
+test('index source ignores worktree drift but detects changed staged content, mode and scope', t => {
+  const root = fixture(t); write(root, 'app.txt', 'staged part\n'); git(root, ['add', '--', 'app.txt']);
+  write(root, 'app.txt', 'unstaged remainder\n');
+  const plan = gitCheckpoint(root, { mode: 'paths', source: 'index', business_paths: ['app.txt'] });
+  assert.deepEqual(plan.add_paths, []); assert.deepEqual(plan.issues, []);
+  fs.unlinkSync(path.join(root, 'app.txt')); assert.equal(indexCheck(root, plan).status, 'verified');
+  git(root, ['update-index', '--cacheinfo', `100755,${plan.files[0].raw_git_oid},app.txt`]);
+  assert.ok(indexCheck(root, plan).issues.some(i => i.code === 'STORED_MODE_DIFFERS'));
+  git(root, ['update-index', '--cacheinfo', `100644,${plan.files[0].raw_git_oid},app.txt`]);
+  write(root, 'app.txt', 'different staged bytes\n'); git(root, ['add', '--', 'app.txt']);
+  assert.ok(indexCheck(root, plan).issues.some(i => i.code === 'STORED_BYTES_DIFFER'));
+  git(root, ['update-index', '--cacheinfo', `100644,${plan.files[0].raw_git_oid},app.txt`]);
+  write(root, 'other.txt', 'unrelated staged work'); git(root, ['add', '--', 'other.txt']);
+  const before = bytes(root, '.git/index');
+  assert.ok(indexCheck(root, plan).issues.some(i => i.code === 'OUTSIDE_SCOPE' && i.paths.includes('other.txt')));
+  assert.deepEqual(bytes(root, '.git/index'), before);
+});
+
+test('index business selection and worktree management records coexist in one checkpoint', t => {
+  const root = fixture(t); write(root, 'app.txt', 'selected staged part\n'); git(root, ['add', '--', 'app.txt']);
+  write(root, 'app.txt', 'local unstaged remainder\n'); const event = record(root, { body: 'checkpoint facts' });
+  const plan = prepared(root, { source: 'index', business_paths: ['app.txt'] });
+  assert.equal(plan.files.find(f => f.path === 'app.txt').source, 'index');
+  assert.equal(plan.add_paths.includes('app.txt'), false); assert.ok(plan.add_paths.includes(event.ref));
+  assert.equal(finish(root, plan).status, 'verified');
+  assert.equal(git(root, ['show', 'HEAD:app.txt']), 'selected staged part');
+  assert.equal(bytes(root, 'app.txt').toString(), 'local unstaged remainder\n');
+  assert.throws(() => gitCheckpoint(root, { source: 'unknown' }), { code: 'INVALID_CHECKPOINT_SOURCE' });
+});
+
+test('Git symlink index entries and Windows placeholders retain link mode and content', t => {
+  const root = fixture(t); git(root, ['config', 'core.symlinks', 'false']);
+  const value = 'nonexistent-target.txt'; write(root, 'alias.txt', value);
+  const oid = git(root, ['hash-object', '-w', '--stdin'], value);
+  git(root, ['update-index', '--add', '--cacheinfo', `120000,${oid},alias.txt`]);
+  for (const source of ['worktree', 'index']) {
+    const plan = gitCheckpoint(root, { mode: 'paths', source, business_paths: ['alias.txt'] });
+    assert.equal(plan.files[0].mode, '120000'); assert.equal(indexCheck(root, plan).status, 'verified');
+  }
+  const plan = gitCheckpoint(root, { mode: 'paths', source: 'index', business_paths: ['alias.txt'] });
+  assert.equal(finish(root, plan).status, 'verified');
+  assert.ok(git(root, ['ls-tree', 'HEAD', '--', 'alias.txt']).startsWith('120000 blob'));
+  assert.equal(git(root, ['show', 'HEAD:alias.txt']), value);
+});
+
+test('worktree symlinks save their link value without following targets or weakening evidence I/O', t => {
+  const root = fixture(t), link = path.join(root, 'alias.txt');
+  try { fs.symlinkSync('../../outside-or-missing.txt', link); }
+  catch (error) { if (error.code === 'EPERM') { t.skip('Host cannot create physical symlinks; index mode is covered separately.'); return; } throw error; }
+  const plan = gitCheckpoint(root, { mode: 'paths', business_paths: ['alias.txt'] });
+  assert.equal(plan.files[0].mode, '120000'); assert.equal(plan.files[0].sha256, hash(Buffer.from('../../outside-or-missing.txt')));
+  assert.throws(() => snapshot(root, { path: 'alias.txt' }), { code: 'UNSAFE_PATH' });
+  assert.equal(finish(root, plan).status, 'verified');
+  fs.symlinkSync(root, path.join(root, 'linked-directory'), process.platform === 'win32' ? 'junction' : 'dir');
+  assert.throws(() => gitCheckpoint(root, { mode: 'paths', business_paths: ['linked-directory/app.txt'] }), { code: 'UNSAFE_PATH' });
+});
+
+test('Gitlink index entries are verified by commit pointer without traversing a submodule', t => {
+  const root = fixture(t), oid = git(root, ['rev-parse', 'HEAD']);
+  git(root, ['update-index', '--add', '--cacheinfo', `160000,${oid},vendor/module`]);
+  const plan = gitCheckpoint(root, { mode: 'paths', source: 'index', business_paths: ['vendor/module'] });
+  assert.equal(plan.files[0].mode, '160000'); assert.equal(plan.files[0].raw_git_oid, oid);
+  assert.deepEqual(plan.add_paths, []); assert.equal(indexCheck(root, plan).status, 'verified');
+  assert.equal(finish(root, plan).status, 'verified');
+  assert.ok(git(root, ['ls-tree', 'HEAD', '--', 'vendor/module']).startsWith(`160000 commit ${oid}`));
 });

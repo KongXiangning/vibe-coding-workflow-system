@@ -325,3 +325,37 @@ test('installed CLI defaults to compact queries, supports full compatibility and
   assert.ok(Array.isArray(written.task.plans));
   assert.equal(JSON.parse(contents(root, written.ref)).payload.request.detail, 'caller-owned arbitrary field');
 });
+
+test('all query follow-ups retain the effective workflow home without writes or focus changes', t => {
+  const root = fixture(t), home = 'custom/workflow';
+  fs.mkdirSync(path.join(root, home), { recursive: true });
+  fs.writeFileSync(path.join(root, home, 'CURRENT_TASK.md'), [
+    '---', 'kind: vnext-current-task', 'document_id: custom-old', 'runtime_state:',
+    '  task_id: "004"', '  workflow_status: active', '  lifecycle_state: active',
+    '  active_step_id: S3', '  active_step_status: ready', '---', ''
+  ].join('\n'));
+  const initial = queryStatus(root, { workflow_home: home }), taskId = initial.tasks[0].task_id;
+  const selected = queryStatus(root, { workflow_home: home, task_ref: taskId });
+  const step = queryStatus(root, { workflow_home: home, task_ref: taskId, detail: 'step', step_id: 'S3' });
+  const navigation = queryContext(root, { workflow_home: home }).management;
+  const before = treeState(root);
+  for (const request of [initial.tasks[0].detail_request, selected.selection.detail_request, step.detail_request,
+    step.selection.detail_request, navigation.tasks[0].detail_request]) {
+    assert.equal(request.workflow_home, home);
+    const detail = queryStatus(root, request);
+    assert.equal(detail.task.task_id, taskId); assert.equal(detail.current_task_id, initial.current_task_id);
+  }
+  assert.deepEqual(treeState(root), before);
+  task(root, { action: 'prepare', workflow_home: home, plan: { title: 'Second custom task', steps: [] } });
+  const page = queryStatus(root, { workflow_home: home, limit: 1 });
+  assert.equal(page.pagination.next_request.workflow_home, home);
+  assert.equal(queryStatus(root, page.pagination.next_request).workflow_home, home);
+  fs.writeFileSync(path.join(root, '.workflow-system/PROJECT_PROFILE.yaml'), `workflow_home: ${home}\n`);
+  const implicit = queryStatus(root, { limit: 1 });
+  assert.equal(implicit.tasks[0].detail_request.workflow_home, home);
+  assert.equal(implicit.pagination.next_request.workflow_home, home);
+  fs.writeFileSync(path.join(root, '.workflow-system/PROJECT_PROFILE.yaml'), 'workflow_home: docs/workflow\n');
+  const changedProfile = treeState(root);
+  assert.equal(queryStatus(root, implicit.tasks[0].detail_request).task.task_id, implicit.tasks[0].task_id);
+  assert.deepEqual(treeState(root), changedProfile);
+});

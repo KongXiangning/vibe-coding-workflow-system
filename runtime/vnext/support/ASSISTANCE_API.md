@@ -73,6 +73,9 @@ first search page. Use `current_task_id`, `selection`, `tasks` and their
 `detail_request` values for navigation; compact results do not contain the old
 full `current_task` object. Read needed plan/step details before reasoning about
 implementation or review; an omitted body or a ref does not mean it has been read.
+All generated detail and pagination requests retain the effective workflow_home,
+including an explicit override or a profile-resolved home. Following a request keeps
+that directory context without changing task focus or creating management writes.
 
 Summary tasks use `offset` (default 0) and `limit` (default 20, maximum 100).
 `task_count` and `lifecycle_counts` always cover all reconstructed tasks;
@@ -196,27 +199,54 @@ per-record approval is required. API shapes are deliberately not permission/qual
 ```
 
 Send this to `assistance.mjs git-checkpoint --root <exact Git worktree root>`.
-`business_paths` are exact files whose intended diffs the Skill has identified, not globs or
-an entire directory. `exclude_paths` are exact files or directory prefixes (never glob rules).
+`business_paths` are exact file or Gitlink paths whose intended diffs the Skill has identified,
+not globs or an entire directory collection. `exclude_paths` are exact files or directory prefixes (never glob rules).
 `mode=paths` restricts candidates to business_paths and proposes no configuration or untracking;
 use it for an explicit files-only/staged-only instruction or an existing records opt-out.
 `workflow_home` is supported as in other assistance commands. No task identity or clean state
 is required. All tasks' records are considered because parents/attachments cross task boundaries.
 
+`source=worktree` (default) plans the authorized working copies. `source=index` plans the
+already prepared index content for business_paths: blob OIDs, Git modes and HEAD/index deletions.
+For a staged-only request use `{"mode":"paths","source":"index","business_paths":["<selected staged path>"]}`.
+These business entries are never placed in add_paths, and their working copies need not exist
+or equal the index. The helper still detects later index content/mode changes and staged paths
+outside scope. With checkpoint mode, source=index can preserve selected business hunks while
+automatically selected management records and policy files continue to come from the worktree.
+
+Business symlinks use mode 120000 and their link value, never their target's file bytes. Ancestor
+symlinks remain unsafe for worktree I/O; index inspection does not traverse working copies.
+Windows placeholders for tracked links are supported when core.symlinks=false. A Gitlink is
+supported with source=index by its mode 160000 and selected commit pointer, without entering
+or staging the submodule. Worktree planning reports GITLINK_INDEX_SOURCE_REQUIRED: review/stage
+the intended pointer with native Git and re-plan using the index. Pointer verification does
+not verify nested content, submodule availability, clean state or deployment. Evidence/record
+I/O retains its regular-file and no-symlink boundary. Independent authorized native Git work
+remains available when a requested operation is outside the helper's supported inspection.
+
 The result is `kind=git-checkpoint-plan/v1` with `base_head`, a file manifest (path, role,
-sha256, raw_git_oid, size, byte_exact), `add_paths`, `delete_paths`, `untrack_paths`,
+source, Git mode when selected from the index or a link, sha256, raw_git_oid, size, byte_exact), `add_paths`, `delete_paths`, `untrack_paths`,
 configuration proposals, omitted paths, issues, reference_issues and counts. Keep the full JSON
 in an **OS temporary file**, not under records or a distribution-owned path; show the user
 counts, scope and actionable exceptions, not every hash. A plan is a snapshot of inspected
 files, not a transaction over ongoing writers. Configuration proposals are not yet applied.
+Gitlinks have no blob bytes: sha256/size are null and raw_git_oid is the commit pointer.
 
 | Existing path | Default treatment |
 | --- | --- |
 | records/events/*.json, attachments/*.json, task-labels/*.json | Preserve, even if a saved report is malformed/unassociated |
 | records/evidence-objects/<sha256>.blob, legacy/baseline.json, legacy/current-<sha256>.md | Preserve original bytes; retain and report known digest/reference gaps |
+| Historical workflow_home/evidence-objects/<sha256>.blob referenced by structured attachment manifests | Preserve the actual referenced object with the same byte checks, including already tracked objects |
 | legacy/display-<sha256>.md, legacy/display-capture-*.md | Conservatively preserve as **recovery material**, not as new task facts |
 | task-view.json, task-views/, task-view*.lock, *.tmp | Local derived/temporary data; omit from default staging, do not delete |
 | Other paths in records | Report classification-required, never silently collect or discard |
+
+Historical object discovery follows typed content-addressed refs in attachment manifests,
+including a different workflow_home used when capturing the attachment. It does not scan the
+old workflow directory or follow arbitrary strings in reports. Explicitly selected evidence
+object paths also retain their fact role and byte requirements in paths mode. User exclusions,
+missing or unsupported refs and corrupt originals remain explicit reference gaps. Objects are
+not copied into a new location or rewritten to repair their historical meaning.
 
 Recovery snapshots intentionally remain in Git at this stage. The captured original file is
 not moved, deduplicated, truncated or deleted; later writes through an existing descriptor can
@@ -230,6 +260,10 @@ and records/.gitattributes. The attribute block disables text, filter, ident and
 transformations for record bytes. Existing content/newlines are retained. A recognizable generated
 CURRENT_TASK, byte-equal to its saved task-view, also permits a workflow-home/.gitignore proposal.
 An edited/unrecognized display is retained and reported, not automatically hidden.
+For selected historical objects outside records, the same policy proposes a .gitattributes
+block scoped to *.blob in each referenced evidence-objects directory. These policy files use
+the same preservation, exclusion, freeze and customization checks; unrelated legacy files
+and unreferenced objects are not automatically selected.
 
 Check each proposal's `before_sha256` immediately before applying it. Review existing project
 rules, freeze governance and any custom filters/encoding; do not silently override an explicit
@@ -288,6 +322,8 @@ The plan is not an authorization object. Do not alter its scope merely to hide a
 
 `remaining_records` lists new/changed/unclassified local records that differ from the saved
 snapshot, including ignored entries. `planning_issues` and `reference_issues` remain visible.
+Missing objects, transformed object bytes and unsafe index attributes found during verification
+also remain reference gaps; an earlier clean plan cannot make them report no-known-gaps.
 `reviewed_index_compared` states whether the index comparison was supplied; omitting it does not
 prove business hunks were preserved. `snapshot_verified` concerns only the inspected planned
 snapshot; it is not task PASS, absence of secrets, future-write coverage or remote backup.

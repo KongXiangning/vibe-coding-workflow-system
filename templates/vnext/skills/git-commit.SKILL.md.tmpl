@@ -83,6 +83,11 @@ Do not require a separate Skill, archive command or another user turn for these
 internal steps. Include project-wide persistent records and recovery material;
 do not restrict records to the focused task or wait for tasks to close.
 Explicit paths-only/staged-only requests and user exclusions override this default.
+Use `mode=paths, source=index` for staged-only requests. In a checkpoint with approved
+partial business hunks, `source=index` preserves those business entries while recording
+the selected management working copies. Never re-add index-source business paths.
+Business symlinks save link values without following targets; use the selected index
+pointer for Gitlinks/submodules as described in ASSISTANCE_API.
 Inspect actual staged hunks: the helper checks record bytes and Git path scope,
 not whether selected business hunks match the user's intended implementation.
 Preserve unrelated/partial staging and custom ignore/attribute policy. Resolve an

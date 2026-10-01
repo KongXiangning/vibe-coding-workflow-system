@@ -86,3 +86,19 @@ bun run build:vibe-governance-distribution
 
 以上完整套件与分发命令是后续集成步骤，不是本次全部已经执行的命令。
 不要把源代码分支提交当成目标项目已经升级；不要覆盖目标项目的 records 或 CURRENT_TASK。
+
+## R4：详情请求保留目录上下文（2026-10-01）
+
+后续修复统一生成 summary 任务列表、selection、step 到 task 的 detail_request 及分页
+next_request，继承重建结果的有效 workflow_home。它既保留显式目录覆盖，也保留 profile
+解析出的目录；随后 profile 变化不会让已有导航请求静默返回另一个目录。
+查询目标和工作焦点仍分开，读取不写缓存、展示或事实，不新增确认或审批。
+
+新增一项回归实际从 custom/workflow 的旧任务读取列表、选择、步骤和 context，逐个
+跟随后续请求回读任务，并核对文件、mtime 和焦点不变。还覆盖分页、隐式 profile
+目录及 profile 变化后的既有请求；修复前在缺少 workflow_home 时失败，修复后通过。
+
+本轮 Windows，Node.js v24.12.0，Git 2.47.0.windows.2。结合 R1–R3 的三个原生测试
+文件共 55 项：54 通过、0 失败、1 项因实体符号链接权限跳过；源码契约通过，相关
+源码测试 19 通过。没有修改 task-management.mjs、事件格式或完整响应契约；未进行
+分发构建、正式安装/升级、真实目标项目验证、提交或发布。
