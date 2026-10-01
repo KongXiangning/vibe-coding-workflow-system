@@ -167,3 +167,16 @@ Arbitrary old YAML, compact encoded task details and natural-language decisions 
 automatic semantic conversion: use their exact sources and link the missing interpretation.
 Unknown fields and body text remain available via record/read/find. Large-history incremental
 projection is not implemented in this version; correctness does not rely on a truncated page.
+
+## Git checkpoints versus task/commit associations
+
+The installed Git checkpoint policy and ASSISTANCE_API's `git-checkpoint` section define
+how one git-commit invocation saves existing project-wide facts and recovery material,
+excludes rebuildable caches, and verifies actual index/commit bytes. This helper is read-only;
+it is not a `task` action and does not append an association. Explicit files-only instructions
+and existing project storage exclusions take precedence over the checkpoint default.
+
+Saving records neither requires nor changes task closure, review, findings or unassociated
+history. A persistent task/commit association is still an optional separate semantic request.
+Do not generate it just because a checkpoint succeeded; never recursively commit its own SHA.
+The two existing native modules still suffice; no storage format or causality change is needed.

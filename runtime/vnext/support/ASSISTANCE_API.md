@@ -5,7 +5,7 @@ node .workflow-system/runtime/support/assistance.mjs <command> --root <project>
 ```
 
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
-Input is JSON on stdin. Commands: context, task-status, task, record, snapshot, read, find.
+Input is JSON on stdin. Commands: context, task-status, task, record, snapshot, read, find, git-checkpoint.
 Native modules assistance.mjs and task-management.mjs use Node built-ins, not the old
 transaction/qualification kernel. The service never executes product commands or tests.
 `task git` reads local commit objects but writes the requested association and management
@@ -176,3 +176,125 @@ specialized tools in CONTEXT_API.md. The compiled CLI's default task-context del
 unified view after the software is rebuilt; --legacy explicitly opts into the old historical
 reader, which may not parse the new CURRENT_TASK display. Do not use it for current status or
 send accepted user choices back through old complete/replan/close gates.
+
+## Git checkpoint: one git-commit invocation
+
+The **Git checkpoint policy** in WORKFLOW_PROTOCOL makes an ordinary authorized task/stage
+commit include project-wide persistent records, not just business filenames. It never grants
+push or includes other tasks' business work. Narrow user instructions and an existing local-only
+policy override it. This section is the internal recipe for git-commit, not another public Skill.
+
+`git-checkpoint` performs read-only Git/filesystem inspection. It never stages, commits, writes
+configuration, updates task state or deletes anything. All actions retain development_gate=false.
+The Skill performs the authorized writes with normal tools. No separate user invocation or
+per-record approval is required. API shapes are deliberately not permission/qualification tokens.
+
+### Plan
+
+```json
+{"action":"plan","mode":"checkpoint","business_paths":["src/example.ts"],"exclude_paths":[],"untrack_derived":true}
+```
+
+Send this to `assistance.mjs git-checkpoint --root <exact Git worktree root>`.
+`business_paths` are exact files whose intended diffs the Skill has identified, not globs or
+an entire directory. `exclude_paths` are exact files or directory prefixes (never glob rules).
+`mode=paths` restricts candidates to business_paths and proposes no configuration or untracking;
+use it for an explicit files-only/staged-only instruction or an existing records opt-out.
+`workflow_home` is supported as in other assistance commands. No task identity or clean state
+is required. All tasks' records are considered because parents/attachments cross task boundaries.
+
+The result is `kind=git-checkpoint-plan/v1` with `base_head`, a file manifest (path, role,
+sha256, raw_git_oid, size, byte_exact), `add_paths`, `delete_paths`, `untrack_paths`,
+configuration proposals, omitted paths, issues, reference_issues and counts. Keep the full JSON
+in an **OS temporary file**, not under records or a distribution-owned path; show the user
+counts, scope and actionable exceptions, not every hash. A plan is a snapshot of inspected
+files, not a transaction over ongoing writers. Configuration proposals are not yet applied.
+
+| Existing path | Default treatment |
+| --- | --- |
+| records/events/*.json, attachments/*.json, task-labels/*.json | Preserve, even if a saved report is malformed/unassociated |
+| records/evidence-objects/<sha256>.blob, legacy/baseline.json, legacy/current-<sha256>.md | Preserve original bytes; retain and report known digest/reference gaps |
+| legacy/display-<sha256>.md, legacy/display-capture-*.md | Conservatively preserve as **recovery material**, not as new task facts |
+| task-view.json, task-views/, task-view*.lock, *.tmp | Local derived/temporary data; omit from default staging, do not delete |
+| Other paths in records | Report classification-required, never silently collect or discard |
+
+Recovery snapshots intentionally remain in Git at this stage. The captured original file is
+not moved, deduplicated, truncated or deleted; later writes through an existing descriptor can
+still arrive and will be reported at the next inspection. This fixes checkpoint omission, not
+physical file growth. A saved snapshot is not a backup of future writes or an audit certification.
+
+### Scoped configuration and staging
+
+For checkpoint mode, `configuration` proposes appended managed blocks in records/.gitignore
+and records/.gitattributes. The attribute block disables text, filter, ident and working-tree-encoding
+transformations for record bytes. Existing content/newlines are retained. A recognizable generated
+CURRENT_TASK, byte-equal to its saved task-view, also permits a workflow-home/.gitignore proposal.
+An edited/unrecognized display is retained and reported, not automatically hidden.
+
+Check each proposal's `before_sha256` immediately before applying it. Review existing project
+rules, freeze governance and any custom filters/encoding; do not silently override an explicit
+storage choice. A changed managed block or frozen target requires reconciliation, not replacement.
+These are target-owned policy files created on the first authorized checkpoint, not software
+assets overwritten by install/upgrade. Default setup can be completed in this invocation; only
+an actually conflicting user-owned choice needs one combined question.
+
+After applying authorized proposals, **re-plan** to include their exact files in the same commit.
+Honor `SELECTED_PATH_IGNORED`, `TRACKED_FACT_CHANGED`, partial staging and scope conflicts. Do not
+use force-add, blanket add, automatic renormalization or reset to make a plan pass. Existing corrupt
+history may be saved unchanged with its known gaps; changing a previously committed immutable
+fact is a different operation and must not slip in as checkpoint cleanup.
+
+Stage only the listed authorized paths. For large lists or unusual names, pass NUL-separated
+paths on stdin to `git --literal-pathspecs add --pathspec-from-file=- --pathspec-file-nul`.
+When `untrack_derived=true` was authorized, remove only `untrack_paths` **from the index** using
+`git --literal-pathspecs rm --cached --pathspec-from-file=- --pathspec-file-nul`, without `-f`.
+This retains working files. No automatic untracking of staged derived changes is proposed.
+Missing persistent files are reported, not turned into cleanup deletions. Explicit business
+file deletions can be listed in business_paths; records are never implicitly deleted.
+
+Review `git diff --cached` and the actual existing index. A list is not authority. For a staged-only
+or partial-hunk request, retain the approved business index content rather than replaying a
+whole-file add from add_paths. Include only explicitly authorized paths in the plan. The helper
+verifies management bytes and path scope, not the intent or correctness of business hunks.
+
+### Verify the index and actual commit
+
+```json
+{"action":"verify-index","plan":"<the parsed plan object, not its filename>"}
+```
+
+The example's plan placeholder must be replaced programmatically with the saved JSON object.
+This checks the same HEAD, planned file presence, byte-exact records against Git index OIDs,
+byte-preserving index attributes, requested index removals, source drift and unapproved staged
+paths. `status=mismatch` is a real failed snapshot/scope check, not success. Do not pretend it
+passed, force a commit or repair task state to work around it. Independent authorized business
+commits remain possible when their own scope can be established; disclose unsaved records.
+A known historical reference gap alone does not prohibit saving the available original bytes.
+
+On a verified and reviewed index with actual staged changes, perform the user's normal Git commit
+(no `-a`, bypassed hooks, implicit push or empty recursive checkpoint). Save the index verification
+in OS temporary storage. Then pass the **actual full SHA** and that result back:
+
+```json
+{"action":"verify-commit","plan":"<parsed plan object>","commit_sha":"<actual full SHA>","index_verification":"<parsed verify-index result>"}
+```
+
+The actual commit's tree must contain the byte-exact record snapshot and only the authorized
+changes relative to base_head; its tree fingerprint is also compared with the reviewed index.
+This is for ordinary single-parent/root commits, not merge/cherry-pick/rebase automation.
+No Git operation is replayed. Hooks or concurrent writers may change what is committed; report
+any mismatch with the real SHA, without automatic amend/reset or claiming a verified checkpoint.
+The plan is not an authorization object. Do not alter its scope merely to hide an unexpected diff.
+
+`remaining_records` lists new/changed/unclassified local records that differ from the saved
+snapshot, including ignored entries. `planning_issues` and `reference_issues` remain visible.
+`reviewed_index_compared` states whether the index comparison was supplied; omitting it does not
+prove business hunks were preserved. `snapshot_verified` concerns only the inspected planned
+snapshot; it is not task PASS, absence of secrets, future-write coverage or remote backup.
+Use Git status for all remaining business/index changes as well. Commit success does not imply
+push, deployment, task closure or that all records in the worktree were selected.
+
+All inspection is read-only; verification mismatch exits 1 with its structured result. Service
+failure also exits 1, with status=unavailable. A completed plan exits 0 even with reported choices
+or reference gaps. No state/record is written for these commands. Do not write task git/record,
+refresh CURRENT_TASK, or recursively commit a new event merely to report the commit's own SHA.

@@ -75,11 +75,29 @@ requested commit scope. Only an actual instruction to commit authorizes a commit
 a next_route recommendation is not that instruction. Do not require a Runtime
 completed/clean/archived tuple before honoring an authorized commit.
 
+For an ordinary task/stage checkpoint, use the project's **Git checkpoint policy**
+from WORKFLOW_PROTOCOL. Within this invocation, run assistance `git-checkpoint`
+plan -> authorized setup/staging -> verify-index -> Git commit -> verify-commit.
+Follow ASSISTANCE_API's Git checkpoint section for exact inputs and the recipe.
+Do not require a separate Skill, archive command or another user turn for these
+internal steps. Include project-wide persistent records and recovery material;
+do not restrict records to the focused task or wait for tasks to close.
+Explicit paths-only/staged-only requests and user exclusions override this default.
+Inspect actual staged hunks: the helper checks record bytes and Git path scope,
+not whether selected business hunks match the user's intended implementation.
+Preserve unrelated/partial staging and custom ignore/attribute policy. Resolve an
+actual scope or policy conflict once; never reset the index or force-add to hide it.
+Keep plans and verification output in OS temporary files, not in records. Report
+saved facts, saved recovery snapshots, locally retained caches, excluded/unknown
+files and reference gaps separately. Do not call all residual changes garbage.
+
 Commit only authorized paths and report the actual Git result. Do not push, amend,
 reset, clean, force or bypass host security unless specifically authorized. Existing
 Git hooks may report their own failures; do not call them Runtime qualification.
 After committing, inspect Git read-only and report the actual SHA, committed scope and
-remaining working-tree changes. Do not automatically call `task git`, `record`, `rebuild`
+remaining working-tree changes. Verify the actual commit against the reviewed index
+and checkpoint plan; a mismatch is reported, not auto-amended or recursively repaired.
+Do not automatically call `task git`, `record`, `rebuild`
 or refresh CURRENT_TASK merely to report this commit. Missing journal Git observations
 do not mean the commit is missing and do not require supplementation or another commit.
 After a successful commit, read task-status and use its current unfinished stage

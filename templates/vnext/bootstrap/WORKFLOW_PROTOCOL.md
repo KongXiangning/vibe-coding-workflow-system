@@ -188,3 +188,33 @@ SOURCE_CONTRACT/RUNTIME_CONTRACT enumerate compatible tools. They are not a list
 of admission checks each invocation must pass. Their specialized transactional
 requirements describe those optional calls only, not the default development path.
 Historical transactional instructions are in support/CONTEXT_API.md.
+
+## Git checkpoint policy
+
+In projects adopting this policy, an ordinary task/stage `git-commit` request
+includes the authorized business changes and a project-wide snapshot of existing
+persistent management facts. This is not authorization for other tasks' business
+code, push, deletion or task closure. Explicit paths-only/staged-only instructions,
+exclusions and an already chosen local-only policy take precedence.
+
+The same Skill invocation plans, stages, commits and verifies the checkpoint.
+Use assistance `git-checkpoint` for the deterministic inventory and Git checks;
+its plan/verification output is temporary data, not new journal facts or approval.
+The Skill owns actual Git writes and the scoped policy setup described in
+ASSISTANCE_API. Preserve custom policy, frozen files and unrelated staged changes;
+combine only genuinely unresolved choices, never ask per generated filename.
+
+Events, evidence objects, attachment manifests, labels and old baselines are saved.
+Until a separate safe recovery lifecycle is implemented, also preserve legacy
+display/capture bytes as recovery material at each checkpoint; never delete their
+original files or infer that a Git commit protects future writes through old handles.
+Exclude rebuildable projections, locks and temporary files from default staging.
+Untracking a verified generated view retains its local file and must be explicit
+in the plan. An edited/unrecognized CURRENT_TASK is not silently hidden.
+
+A failed test, unassociated record or missing historical attachment is a retained
+gap, not a reason to demand clean task state before saving available facts.
+Verify actual staged/committed record bytes and exact path scope. A mismatch is
+not successful persistence; independent authorized business work remains possible.
+After the commit, only read Git and report residual/new/excluded records. Do not
+write or recursively commit an event recording the checkpoint's own SHA.
