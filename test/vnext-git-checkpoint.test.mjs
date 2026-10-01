@@ -469,3 +469,61 @@ test('Gitlink index entries are verified by commit pointer without traversing a 
   assert.equal(finish(root, plan).status, 'verified');
   assert.ok(git(root, ['ls-tree', 'HEAD', '--', 'vendor/module']).startsWith(`160000 commit ${oid}`));
 });
+
+test('index source hashes a blob larger than 64 MiB without a working copy or index writes', t => {
+  const root = fixture(t), content = Buffer.alloc(65 * 1024 * 1024, 17);
+  content.set([0, 255, 13, 10, 128], content.length - 5);
+  write(root, 'large.bin', content); git(root, ['add', '--', 'large.bin']);
+  fs.unlinkSync(path.join(root, 'large.bin'));
+  const before = bytes(root, '.git/index');
+  const plan = gitCheckpoint(root, { mode: 'paths', source: 'index', business_paths: ['large.bin'] });
+  assert.deepEqual(plan.issues, []); assert.deepEqual(plan.add_paths, []);
+  assert.equal(plan.files.length, 1); assert.equal(plan.files[0].sha256, hash(content));
+  assert.equal(plan.files[0].size, content.length); assert.equal(plan.files[0].mode, '100644');
+  assert.equal(indexCheck(root, plan).status, 'verified'); assert.deepEqual(bytes(root, '.git/index'), before);
+  assert.equal(finish(root, plan).status, 'verified');
+  assert.equal(Number(git(root, ['cat-file', '-s', 'HEAD:large.bin'])), content.length);
+  assert.equal(fs.existsSync(path.join(root, 'large.bin')), false);
+});
+
+test('old v1 plans verify attachment dependencies from Git even when legacy objects were not inventoried', t => {
+  for (const scenario of ['missing', 'saved', 'corrupt']) {
+    const root = fixture(t), object = historicalAttachment(root, 'custom/workflow');
+    const attributes = 'custom/workflow/evidence-objects/.gitattributes';
+    if (scenario !== 'missing') {
+      write(root, attributes, '*.blob -text -filter -ident -working-tree-encoding\n');
+      git(root, ['add', '--', object.ref, attributes]);
+      if (scenario === 'corrupt') {
+        const oid = git(root, ['hash-object', '-w', '--stdin'], object.content.toString().replaceAll('\r\n', '\n'));
+        git(root, ['update-index', '--cacheinfo', `100644,${oid},${object.ref}`]);
+      }
+      git(root, ['commit', '-qm', 'preexisting historical object']);
+    }
+    const current = prepared(root);
+    // Recreate the accepted pre-fix v1 shape: records were inventoried, old objects were not.
+    const omitted = new Set([object.ref, attributes]);
+    const plan = { ...current, reference_issues: [],
+      files: current.files.filter(f => !omitted.has(f.path)).map(({ source, mode, ...file }) => file),
+      add_paths: current.add_paths.filter(ref => !omitted.has(ref)),
+      issues: current.issues.filter(i => !omitted.has(i.path)) };
+    delete plan.source;
+    stage(root, plan);
+    const indexBefore = bytes(root, '.git/index');
+    const index = indexCheck(root, plan);
+    assert.equal(index.status, 'verified'); assert.deepEqual(bytes(root, '.git/index'), indexBefore);
+    const health = scenario === 'saved' ? 'no-known-gaps' : 'gaps-retained';
+    assert.equal(index.reference_health, health);
+    if (scenario !== 'saved') assert.ok(index.reference_issues.some(i => i.path === object.ref
+      && i.code === (scenario === 'missing' ? 'REFERENCE_MISSING' : 'PRESERVED_DIGEST_MISMATCH')));
+    git(root, ['commit', '-qm', 'old v1 checkpoint']);
+    const commit_sha = git(root, ['rev-parse', 'HEAD']);
+    const committed = gitCheckpoint(root, { action: 'verify-commit', plan, commit_sha, index_verification: index });
+    assert.equal(committed.reference_health, health); assert.equal(committed.reviewed_index_compared, true);
+    // Worktree changes must not substitute a different manifest/object for the committed snapshot.
+    fs.unlinkSync(path.join(root, object.saved.attachments_ref)); fs.unlinkSync(path.join(root, object.ref));
+    const check = gitCheckpoint(root, { action: 'verify-commit', plan, commit_sha, index_verification: index });
+    assert.equal(check.status, 'verified'); assert.equal(check.reference_health, health);
+    if (scenario !== 'saved') assert.ok(check.reference_issues.some(i => i.path === object.ref));
+    assert.equal(plan.add_paths.includes(object.ref), false); assert.equal(plan.files.some(f => f.path === object.ref), false);
+  }
+});

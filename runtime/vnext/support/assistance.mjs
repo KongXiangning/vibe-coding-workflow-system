@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Non-blocking management API. Deliberately imports no task/qualification kernel. */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -414,16 +415,33 @@ export function queryContext(root, input = {}) {
     note: 'Task data occurs once under management. Use its detail requests or explicit find/read for evidence; navigation is not task state.' };
 }
 
-// Checkpoint planning/verifying is deliberately read-only. The Skill owns configuration,
-// staging and commit under the user's instruction; a manifest is not an approval token.
-function checkpointGit(root, args, input, accepted = [0], encoding = 'utf8') {
+// Checkpoint inspection leaves project/Git state unchanged; blob reads use OS scratch files.
+// The Skill owns authorized configuration, staging and commit; a manifest is not an approval token.
+function checkpointGit(root, args, input, accepted = [0], stdout) {
   const result = spawnSync('git', args, {
-    cwd: root, input, encoding, maxBuffer: 64 * 1024 * 1024,
+    cwd: root, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    stdio: ['pipe', stdout ?? 'pipe', 'pipe'],
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
   });
   if (result.error) throw result.error;
   if (!accepted.includes(result.status)) throw failure('GIT_READ_FAILED', (result.stderr?.toString() || result.stdout?.toString() || `Git exited ${result.status}`).trim());
   return result;
+}
+function checkpointBlob(root, oid, inspect) {
+  // Keep the synchronous API without buffering whole Git blobs in process memory.
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-checkpoint-blob-'));
+  const file = path.join(directory, 'blob');
+  let fd;
+  try {
+    fd = fs.openSync(file, 'wx', 0o600);
+    checkpointGit(root, ['cat-file', 'blob', oid], undefined, [0], fd);
+    fs.closeSync(fd); fd = undefined;
+    return inspect(file);
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+    fs.rmSync(file, { force: true });
+    fs.rmdirSync(directory);
+  }
 }
 function checkpointPath(root, value) {
   const relative = path.relative(path.resolve(root), repositoryPath(root, value)).split(path.sep).join('/');
@@ -468,8 +486,8 @@ function checkpointFile(root, ref, algorithm) {
 function checkpointIndexFile(root, entry) {
   if (entry.mode === '160000') return { mode: entry.mode, raw_git_oid: entry.oid, sha256: null, size: null };
   if (!['100644', '100755', '120000'].includes(entry.mode)) throw failure('UNSUPPORTED_GIT_ENTRY', `Unsupported Git mode: ${entry.mode}`);
-  const bytes = checkpointGit(root, ['cat-file', 'blob', entry.oid], undefined, [0], null).stdout;
-  return { mode: entry.mode, raw_git_oid: entry.oid, sha256: sha(bytes), size: bytes.length };
+  return checkpointBlob(root, entry.oid, file => ({ mode: entry.mode, raw_git_oid: entry.oid,
+    sha256: hashFile(file), size: fs.statSync(file).size }));
 }
 function checkpointBusinessFile(root, ref, algorithm, entry, symlinks) {
   if (entry?.mode === '160000') throw failure('GITLINK_INDEX_SOURCE_REQUIRED', 'Review/stage the intended submodule pointer and re-plan with source=index; no submodule work is replayed.');
@@ -638,6 +656,45 @@ function checkpointReferences(root, inventory, selected) {
         if (original && value.sha256 !== original.sha256) issues.push({ code: 'BASELINE_DIGEST_MISMATCH', path: ref });
       }
     } catch (error) { issues.push({ code: 'RETAINED_RECORD_UNREADABLE', path: ref, message: error.message }); }
+  }
+  return issues;
+}
+function checkpointStoredReferences(root, plan, target, isCommit) {
+  const issues = [], objects = new Map();
+  for (const file of plan.files) {
+    if (!file.path.startsWith(`${STORE}/attachments/`) || checkpointRole(file.path, '') !== 'fact') continue;
+    const entry = target.get(file.path);
+    if (!entry) { issues.push({ code: 'PLANNED_FILE_NOT_SAVED', path: file.path }); continue; }
+    if (!['100644', '100755'].includes(entry.mode)) {
+      issues.push({ code: 'STORED_MODE_DIFFERS', path: file.path, actual: entry.mode }); continue;
+    }
+    try {
+      const value = checkpointBlob(root, entry.oid, blob => JSON.parse(fs.readFileSync(blob, 'utf8')));
+      for (const attachment of Array.isArray(value.attachments) ? value.attachments : []) {
+        if (attachment.status === 'unavailable') {
+          issues.push({ code: 'RETAINED_ATTACHMENT_UNAVAILABLE', path: file.path, request: attachment.request }); continue;
+        }
+        if (!attachment.ref) { issues.push({ code: 'ATTACHMENT_REF_MISSING', path: file.path }); continue; }
+        try {
+          const ref = checkpointObjectPath(root, attachment.ref), from = file.path;
+          if (!ref) { issues.push({ code: 'ATTACHMENT_OBJECT_REF_UNSUPPORTED', from, path: attachment.ref }); continue; }
+          const stored = target.get(ref);
+          if (!stored) { issues.push({ code: 'REFERENCE_MISSING', from, path: ref }); continue; }
+          if (!['100644', '100755'].includes(stored.mode)) {
+            issues.push({ code: 'STORED_MODE_DIFFERS', from, path: ref, actual: stored.mode }); continue;
+          }
+          if (!objects.has(ref)) objects.set(ref, checkpointIndexFile(root, stored));
+          const object = objects.get(ref), digest = path.posix.basename(ref).slice(0, 64);
+          if (object.sha256 !== digest) issues.push({ code: 'PRESERVED_DIGEST_MISMATCH', from, path: ref });
+          if (attachment.sha256 !== object.sha256 || (attachment.size !== undefined && attachment.size !== object.size))
+            issues.push({ code: 'ATTACHMENT_METADATA_MISMATCH', path: from, object_ref: ref });
+        } catch (error) { issues.push({ ...issue(error), from: file.path, path: attachment.ref }); }
+      }
+    } catch (error) { issues.push({ code: 'RETAINED_RECORD_UNREADABLE', path: file.path, message: error.message }); }
+  }
+  if (!isCommit) for (const [ref, row] of checkpointAttributes(root, [...objects.keys()], true)) {
+    if (row.text !== 'unset' || ['filter', 'ident', 'working-tree-encoding'].some(k => !['unset', 'unspecified'].includes(row[k])))
+      issues.push({ code: 'INDEX_BYTE_ATTRIBUTES_UNSAFE', path: ref, attributes: row });
   }
   return issues;
 }
@@ -855,6 +912,9 @@ function verifyCheckpoint(root, input, head, algorithm) {
   const treeDigest = checkpointTreeDigest(target);
   if (isCommit && input.index_verification?.tree_sha256 && input.index_verification.tree_sha256 !== treeDigest)
     problems.push({ code: 'COMMITTED_TREE_DIFFERS_FROM_REVIEWED_INDEX' });
+  // Older v1 plans may omit legacy objects. Inspect saved manifests and Git dependencies,
+  // without adding paths to the user's plan or substituting later working-copy facts.
+  referenceIssues.push(...checkpointStoredReferences(root, plan, target, isCommit));
   const inventory = checkpointInventory(root, `${plan.workflow_home}/CURRENT_TASK.md`, plan.files.filter(f => f.source !== 'index').map(f => f.path)), saved = new Map(plan.files.map(f => [f.path, f]));
   const remaining = [...inventory.issues.map(i => ({ ...i, reason: 'unreadable' }))];
   for (const f of byteExactFiles) if (!inventory.files.has(f.path)) remaining.push({ path: f.path, role: f.role, reason: 'missing-from-worktree' });
@@ -872,7 +932,7 @@ function verifyCheckpoint(root, input, head, algorithm) {
     reference_health: referenceIssues.length ? 'gaps-retained' : 'no-known-gaps',
     reference_issues: referenceIssues, planning_issues: plan.issues ?? [], issues: problems, remaining_records: remaining,
     scope_exclusions: plan.exclude_paths, recovery_files_retained: plan.files.filter(f => f.role === 'recovery').length,
-    note: 'Checks the planned Git snapshot, not task completion, secret safety, future writes or remote backup. No file/index/history was modified. New records after planning remain for a later authorized checkpoint; do not recursively commit.' };
+    note: 'Checks the planned Git snapshot, not task completion, secret safety, future writes or remote backup. No project file/index/history was modified. New records after planning remain for a later authorized checkpoint; do not recursively commit.' };
 }
 
 export async function runAssistance(argv = process.argv.slice(2)) {

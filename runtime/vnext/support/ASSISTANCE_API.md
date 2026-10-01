@@ -214,6 +214,12 @@ or equal the index. The helper still detects later index content/mode changes an
 outside scope. With checkpoint mode, source=index can preserve selected business hunks while
 automatically selected management records and policy files continue to come from the worktree.
 
+Index blob hashing uses fixed-size file reads after Git writes its raw output directly to a
+private OS temporary file. Blob payloads do not pass through the 64 MiB command-output buffer.
+Temporary files are removed after inspection, including errors; project files and the index
+are unchanged. The synchronous API remains available, and temporary-storage/I/O failures are
+reported as inspection issues rather than silently dropping selected content.
+
 Business symlinks use mode 120000 and their link value, never their target's file bytes. Ancestor
 symlinks remain unsafe for worktree I/O; index inspection does not traverse working copies.
 Windows placeholders for tracked links are supported when core.symlinks=false. A Gitlink is
@@ -324,13 +330,22 @@ The plan is not an authorization object. Do not alter its scope merely to hide a
 snapshot, including ignored entries. `planning_issues` and `reference_issues` remain visible.
 Missing objects, transformed object bytes and unsafe index attributes found during verification
 also remain reference gaps; an earlier clean plan cannot make them report no-known-gaps.
+Verification reads planned attachment manifests from the actual index/commit and checks their
+typed object dependencies there, including legacy objects omitted by an older v1 plan. It does
+not substitute the current working copies, scan arbitrary strings or enlarge the planned scope.
+An omitted dependency reports a reference gap; a previously saved dependency is checked by its
+actual Git mode, digest and attachment metadata even if it was absent from the plan. Available
+planned bytes can still be snapshot_verified with gaps-retained; use a fresh authorized plan
+to save a missing dependency. New records outside the plan remain pending for a later checkpoint.
 `reviewed_index_compared` states whether the index comparison was supplied; omitting it does not
 prove business hunks were preserved. `snapshot_verified` concerns only the inspected planned
 snapshot; it is not task PASS, absence of secrets, future-write coverage or remote backup.
 Use Git status for all remaining business/index changes as well. Commit success does not imply
 push, deployment, task closure or that all records in the worktree were selected.
 
-All inspection is read-only; verification mismatch exits 1 with its structured result. Service
-failure also exits 1, with status=unavailable. A completed plan exits 0 even with reported choices
+Inspection leaves project files, the Git index/history and task state unchanged; raw Git blob
+inspection uses automatically cleaned OS temporary files. Verification mismatch exits 1 with
+its structured result. Service failure also exits 1, with status=unavailable. A completed plan
+exits 0 even with reported choices
 or reference gaps. No state/record is written for these commands. Do not write task git/record,
 refresh CURRENT_TASK, or recursively commit a new event merely to report the commit's own SHA.
