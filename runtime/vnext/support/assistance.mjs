@@ -294,6 +294,117 @@ export function context(root, input) {
     records: find(root, { query: input.task_ref ?? '', roots: [`${STORE}/events`], max_results: input.max_results ?? 20 }),
     note: 'Current task state is computed from the whole task journal; sources/search hits are navigation only. Inspect management.issues and unassociated_records. A closed task is not verified completion.' };
 }
+// Presentation only: keep the complete reducer and the existing JS APIs unchanged.
+function queryOptions(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw failure('INVALID_QUERY', 'Expected a JSON object.');
+  if (input.task_id !== undefined || input.plan_ref !== undefined)
+    throw failure('INVALID_QUERY', 'Use task_ref for selection; step detail reads the adopted/legacy plan. Read historical plan refs with read.');
+  const detail = input.detail ?? 'summary';
+  if (!['summary', 'task', 'step', 'full'].includes(detail))
+    throw failure('INVALID_QUERY', 'detail must be summary, task, step or full.');
+  for (const key of ['task_ref', 'step_id', 'expected_view_revision']) {
+    if (input[key] !== undefined && (typeof input[key] !== 'string' || !input[key].trim()))
+      throw failure('INVALID_QUERY', `${key} must be a nonempty string when supplied.`);
+  }
+  if (detail === 'step' && !input.step_id)
+    throw failure('INVALID_QUERY', 'Step detail requires step_id; it reads the adopted/legacy plan only.');
+  if (input.step_id !== undefined && detail !== 'step')
+    throw failure('INVALID_QUERY', 'step_id requires detail=step; no selector is silently ignored.');
+  const offset = input.offset ?? 0, limit = input.limit ?? 20;
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+    throw failure('INVALID_QUERY', 'Summary offset must be nonnegative and limit must be 1..100.');
+  if (detail !== 'summary' && (input.offset !== undefined || input.limit !== undefined))
+    throw failure('INVALID_QUERY', 'offset/limit paginate task summaries only.');
+  if (offset > 0 && !input.expected_view_revision)
+    throw failure('INVALID_QUERY', 'Continue summaries with expected_view_revision from the preceding page.');
+  return { detail, offset, limit };
+}
+function stepSummary(step) {
+  return { id: step.id, title: step.title ?? null, state: step.state,
+    legacy_step_status: step.legacy_step_status, execution_ref: step.execution_ref,
+    execution_result: step.execution?.result ?? null, review_ref: step.review_ref,
+    review_status: step.review_status, review_choice: step.review_choice,
+    review_decision_ref: step.review_decision_ref, disposition_ref: step.disposition_ref,
+    finding_count: Array.isArray(step.findings) ? step.findings.length : 0, test_count: step.tests.length };
+}
+function taskSummary(task) {
+  const step = task.steps.find(s => s.id === task.current_step_id);
+  const disposition = task.dispositions.find(d => d.ref === task.lifecycle_ref);
+  return { task_id: task.task_id, display_id: task.display_id, title: task.title,
+    lifecycle: task.lifecycle, lifecycle_ref: task.lifecycle_ref,
+    plan_status: task.plan_status, adopted_plan_ref: task.adopted_plan_ref, adopted_by: task.adopted_by,
+    legacy_plan_ref: task.legacy_plan_ref, legacy_source: task.legacy_source,
+    current_step_id: task.current_step_id, current_step: step ? stepSummary(step) : null,
+    next_route: task.next_route, next_mode: task.next_mode, next_action: task.next_action,
+    recommendation_only: task.recommendation_only,
+    remaining_work: disposition?.remaining_work ?? null, gaps: disposition?.gaps ?? null,
+    counts: { steps: task.steps.length,
+      unfinished_steps: task.steps.filter(s => !['finished', 'skipped', 'closed'].includes(s.state)).length,
+      findings_in_current_plan: task.steps.reduce((n, s) => n + (Array.isArray(s.findings) ? s.findings.length : 0), 0),
+      plans: task.plans.length, executions: task.executions.length, tests: task.tests.length,
+      reviews: task.reviews.length, review_decisions: task.review_decisions.length, commits: task.commits.length },
+    detail_request: { detail: 'task', task_ref: task.task_id } };
+}
+function presentStatus(view, input, options) {
+  if (input.expected_view_revision && input.expected_view_revision !== view.view_revision)
+    throw failure('QUERY_VIEW_CHANGED', 'The live view changed; restart the query. This is not a workflow gate.');
+  if (options.detail === 'full') return view;
+  const selected = input.task_ref ? view.selected_task : view.current_task;
+  const counts = {};
+  for (const task of view.tasks) counts[task.lifecycle] = (counts[task.lifecycle] ?? 0) + 1;
+  const output = { ...base(), kind: 'task-query/v1', detail: options.detail, status: view.status,
+    source_revision: view.source_revision, view_revision: view.view_revision, workflow_home: view.workflow_home,
+    current_task_id: view.current_task_id,
+    selection: { requested_task_ref: input.task_ref ?? null, task_id: selected?.task_id ?? null,
+      status: selected ? 'resolved' : 'unresolved',
+      detail_request: selected ? { detail: 'task', task_ref: selected.task_id } : null },
+    health: view.health, state_completeness: view.state_completeness, records_scanned: view.records_scanned,
+    projection: view.projection, recovery_options: view.recovery_options,
+    // Diagnostics are deliberately NOT paged or filtered to the selected task.
+    issues: view.issues, unassociated_records: view.unassociated_records,
+    task_count: view.tasks.length, lifecycle_counts: counts,
+    coverage: { computation: 'full-journal-rebuild', diagnostics: 'all', history: 'not-expanded' },
+    note: 'Presentation of the complete live rebuild. Omitted detail is not absent history, clean review or permission. Read record refs with read; use detail=full for the compatibility view.' };
+  if (options.detail === 'summary') {
+    const tasks = input.task_ref ? (selected ? [selected] : []) : view.tasks;
+    const end = Math.min(options.offset + options.limit, tasks.length);
+    return { ...output, tasks: tasks.slice(options.offset, end).map(taskSummary),
+      pagination: { total: tasks.length, offset: options.offset, limit: options.limit,
+        next_offset: end < tasks.length ? end : null, view_revision: view.view_revision,
+        next_request: end < tasks.length ? { detail: 'summary', offset: end, limit: options.limit,
+          expected_view_revision: view.view_revision,
+          ...(input.task_ref ? { task_ref: input.task_ref } : {}),
+          ...(input.workflow_home ? { workflow_home: input.workflow_home } : {}) } : null } };
+  }
+  if (options.detail === 'task') return { ...output,
+    coverage: { ...output.coverage, history: 'selected-task' }, task: selected ?? null };
+  // Never reinterpret a historical plan, ambiguous selector or unknown step as the current one.
+  const matches = selected?.steps.filter(s => s.id === input.step_id) ?? [];
+  const step = matches.length === 1 ? matches[0] : null;
+  return { ...output,
+    selection: { ...output.selection, requested_step_id: input.step_id,
+      step_status: step ? 'resolved' : 'unresolved' },
+    task: selected ? { task_id: selected.task_id, display_id: selected.display_id, lifecycle: selected.lifecycle,
+      adopted_plan_ref: selected.adopted_plan_ref, legacy_plan_ref: selected.legacy_plan_ref } : null,
+    coverage: { ...output.coverage, history: 'selected-step-projection-only' },
+    step, review: step ? selected.reviews.find(r => r.ref === step.review_ref) ?? null : null,
+    detail_request: selected ? { detail: 'task', task_ref: selected.task_id } : null };
+}
+/** Agent-facing read APIs. The low-level taskStatus/context exports stay full for existing callers. */
+export function queryStatus(root, input = {}) {
+  const options = queryOptions(input);
+  return presentStatus(taskStatus(root, input), input, options);
+}
+export function queryContext(root, input = {}) {
+  const options = queryOptions(input), result = context(root, input);
+  const management = presentStatus(result.management, input, options);
+  if (options.detail === 'full') return result;
+  return { ...base(), status: result.status, workflow_home: result.workflow_home,
+    sources: result.sources, issues: result.issues, management,
+    note: 'Task data occurs once under management. Use its detail requests or explicit find/read for evidence; navigation is not task state.' };
+}
+
 export async function runAssistance(argv = process.argv.slice(2)) {
   let command = argv[0] ?? 'context', root = process.cwd();
   try {
@@ -307,7 +418,9 @@ export async function runAssistance(argv = process.argv.slice(2)) {
     let input;
     try { input = text.trim() ? JSON.parse(text) : {}; }
     catch (error) { if (command !== 'record') throw error; input = { kind: 'raw-observation', body: text }; }
-    const result = { context, record, snapshot, read, find, task, 'task-status': taskStatus }[command](root, input);
+    const statusQuery = command === 'task' && (input?.action ?? 'status') === 'status';
+    const result = statusQuery ? queryStatus(root, input)
+      : { context: queryContext, record, snapshot, read, find, task, 'task-status': queryStatus }[command](root, input);
     console.log(json(result)); return 0;
   } catch (error) {
     console.log(json({ ...base(), status: 'unavailable', recorded: false, command, ...issue(error),

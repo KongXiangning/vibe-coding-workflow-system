@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { record, read, find, context, snapshot } from '../runtime/vnext/support/assistance.mjs';
+import { record, read, find, context, snapshot, task, taskStatus, queryStatus, queryContext } from '../runtime/vnext/support/assistance.mjs';
 
 const runtime = fileURLToPath(new URL('../runtime/vnext/support/assistance.mjs', import.meta.url));
 function fixture(t) {
@@ -128,4 +128,200 @@ test('the installed native entry works without kernel/dependencies; concurrent r
   assert.equal(JSON.parse(badRead.stdout).recorded, false);
   assert.equal(JSON.parse(badRead.stdout).development_gate, false);
   assert.equal((await call({ kind: 'execution', body: 'independent next observation' })).recorded, true);
+});
+
+// Query projections exercise the real reducer and store, not a fabricated summary.
+function queryFixture(t) {
+  const root = fixture(t);
+  fs.writeFileSync(path.join(root, 'docs/workflow/CURRENT_TASK.md'), '<!-- vnext-task-view/v1 -->\n');
+  return root;
+}
+function addPlan(root, title = 'Query fixture') {
+  return task(root, { action: 'prepare', plan: { title, goal: 'Retain actual work',
+    acceptance: ['Read the original report'], design: 'original plan detail '.repeat(1000),
+    steps: [{ id: 'S1', title: 'First', environment: ['local Node'], validation: ['targeted test'] },
+      { id: 'S2', title: 'Second' }] } });
+}
+function treeState(root) {
+  const found = [];
+  function visit(dir) {
+    for (const name of fs.readdirSync(dir).sort()) {
+      const file = path.join(dir, name), stat = fs.statSync(file);
+      if (stat.isDirectory()) visit(file);
+      else found.push([path.relative(root, file), stat.mtimeMs,
+        createHash('sha256').update(fs.readFileSync(file)).digest('hex')]);
+    }
+  }
+  visit(root); return found;
+}
+function assertSameManagement(compact, full) {
+  for (const key of ['source_revision', 'view_revision', 'current_task_id', 'health', 'state_completeness',
+    'records_scanned', 'projection', 'issues', 'unassociated_records', 'recovery_options'])
+    assert.deepEqual(compact[key], full[key], key);
+  assert.equal(compact.development_gate, false);
+  assert.equal(compact.qualification, 'not-evaluated');
+  assert.equal(compact.task_count, full.tasks.length);
+}
+
+test('summary and context present all-fact state once; detail reads preserve failed work, decisions and bytes', t => {
+  const root = queryFixture(t), prepared = addPlan(root);
+  task(root, { action: 'adopt', task_id: prepared.task_id, plan_ref: prepared.ref, decision_text: 'use this plan' });
+  fs.writeFileSync(path.join(root, 'report.txt'), 'original failed report\r\n');
+  const run = task(root, { action: 'execution', result: 'failed', source_revision: 'actually-tested',
+    observations: 'full execution detail '.repeat(2000), files: ['report.txt'] });
+  task(root, { action: 'test', command: 'selected test', result: 'failed' });
+  const review = task(root, { action: 'review', stage: 'change', execution_ref: run.ref, verdict: 'findings',
+    provenance: 'self-review', findings: [{ id: 'F1', text: 'Still broken' }] });
+  const choice = task(root, { action: 'review-decision', review_ref: review.ref, choice: 'defer',
+    decision_text: 'Keep the finding and defer the repair' });
+  task(root, { action: 'step', state: 'in-progress', decision_ref: choice.ref, remaining_work: ['F1'] });
+  const other = addPlan(root, 'Closed work');
+  task(root, { action: 'close', task_id: other.task_id, remaining_work: ['Device check not run'], gaps: ['Separate recorded gap'] });
+  record(root, { kind: 'decision', body: 'Unassociated real user text' });
+  // A damaged persisted cache must not influence either summary or detail.
+  fs.writeFileSync(path.join(root, '.workflow-system/records/task-view.json'), '{bad cache');
+  const before = treeState(root), full = taskStatus(root), summary = queryStatus(root);
+  assertSameManagement(summary, full);
+  assert.equal(summary.projection.cache, 'unreadable');
+  const current = summary.tasks.find(x => x.task_id === prepared.task_id);
+  assert.equal(current.current_step.execution_result, 'failed');
+  assert.equal(current.current_step.review_status, 'findings');
+  assert.equal(current.current_step.review_choice, 'defer');
+  assert.equal(current.current_step.finding_count, 1);
+  assert.equal(current.current_step.test_count, 1);
+  assert.equal(current.current_step.review_decision_ref, choice.ref);
+  assert.equal(Object.hasOwn(current, 'plans'), false);
+  assert.equal(Object.hasOwn(current, 'executions'), false);
+  assert.deepEqual(summary.tasks.find(x => x.task_id === other.task_id).remaining_work, ['Device check not run']);
+  assert.deepEqual(summary.tasks.find(x => x.task_id === other.task_id).gaps, ['Separate recorded gap']);
+  assert.ok(JSON.stringify(summary).length < JSON.stringify(full).length / 4);
+  const detail = queryStatus(root, current.detail_request);
+  assert.deepEqual(detail.task, full.tasks.find(x => x.task_id === prepared.task_id));
+  assertSameManagement(detail, full);
+  const step = queryStatus(root, { detail: 'step', task_ref: prepared.task_id, step_id: 'S1' });
+  assert.deepEqual(step.step, detail.task.steps[0]);
+  assert.deepEqual(step.review, detail.task.reviews.find(x => x.ref === review.ref));
+  assert.equal(step.coverage.history, 'selected-step-projection-only');
+  const parts = []; let offset = 0;
+  do {
+    const page = read(root, { ref: step.step.execution_ref, offset });
+    parts.push(Buffer.from(page.data, 'base64')); offset = page.next_offset;
+  } while (offset !== null);
+  const raw = JSON.parse(Buffer.concat(parts));
+  assert.equal(raw.payload.task_event.data.result, 'failed');
+  const attachment = JSON.parse(contents(root, `.workflow-system/records/attachments/${path.basename(run.ref)}`));
+  assert.equal(Buffer.from(read(root, { sha256: attachment.attachments[0].sha256 }).data, 'base64').toString(), 'original failed report\r\n');
+  assert.deepEqual(queryStatus(root, { detail: 'full' }), full);
+  const compactContext = queryContext(root), legacyContext = context(root, {});
+  assert.deepEqual(compactContext.management, summary);
+  for (const field of ['tasks', 'current_task', 'current_task_id', 'records']) assert.equal(Object.hasOwn(compactContext, field), false);
+  assert.deepEqual(queryContext(root, { detail: 'full' }), legacyContext);
+  assert.ok(Object.hasOwn(legacyContext, 'current_task')); // Existing JS callers remain compatible.
+  assert.deepEqual(treeState(root), before);
+});
+
+test('summary retains global conflicts, unreadable and deferred unassociated records even when selecting another task', t => {
+  const root = queryFixture(t), first = addPlan(root, 'First'), second = addPlan(root, 'Second');
+  task(root, { action: 'adopt', task_id: first.task_id, plan_ref: first.ref, focus: false });
+  task(root, { action: 'adopt', task_id: second.task_id, plan_ref: second.ref, focus: false });
+  const ambiguous = queryStatus(root);
+  assert.equal(ambiguous.current_task_id, null);
+  assert.equal(ambiguous.lifecycle_counts.active, 2);
+  assert.ok(ambiguous.issues.some(x => x.code === 'FOCUS_CHOICE_REQUIRED'));
+  assert.equal(queryStatus(root, { detail: 'task' }).task, null);
+  const alternative = task(root, { action: 'prepare', task_id: second.task_id, parents: [second.ref],
+    plan: { title: 'Alternative', steps: [{ id: 'S1', title: 'Other work' }] } });
+  task(root, { action: 'adopt', task_id: second.task_id, plan_ref: alternative.ref, focus: false,
+    parents: [second.ref, alternative.ref] });
+  const unlinked = record(root, { kind: 'decision', body: 'A retained decision with no association' });
+  const issueId = taskStatus(root).issues.find(x => x.code === 'UNASSOCIATED_RECORD' && x.ref === unlinked.ref).id;
+  task(root, { action: 'defer', issue_ids: [issueId], reason: 'Keep the gap visible' });
+  fs.writeFileSync(path.join(root, '.workflow-system/records/events/unreadable.json'), '{broken');
+  const before = treeState(root), input = { task_ref: first.task_id, limit: 1 };
+  const full = taskStatus(root, input), summary = queryStatus(root, input);
+  assertSameManagement(summary, full);
+  assert.equal(summary.tasks.length, 1);
+  assert.equal(summary.tasks[0].task_id, first.task_id);
+  assert.ok(summary.issues.some(x => x.code === 'RECORD_CONFLICT'));
+  assert.ok(summary.issues.some(x => x.code === 'RECORD_UNREADABLE'));
+  assert.ok(summary.issues.find(x => x.id === issueId).deferred_by.length);
+  assert.equal(queryStatus(root, { detail: 'task', task_ref: 'missing-task' }).task, null);
+  const missingStep = queryStatus(root, { detail: 'step', task_ref: first.task_id, step_id: 'missing' });
+  assert.equal(missingStep.selection.step_status, 'unresolved');
+  assert.equal(missingStep.step, null);
+  assert.deepEqual(treeState(root), before);
+});
+
+test('summary pagination exposes complete task counts, requires a matching live revision and never truncates diagnostics', t => {
+  const root = queryFixture(t);
+  for (let i = 0; i < 23; i++) task(root, { action: 'prepare', plan: { title: `Task ${i}`, steps: [] } });
+  record(root, { kind: 'decision', body: 'Pending association across every page' });
+  const first = queryStatus(root), full = taskStatus(root), before = treeState(root);
+  assert.equal(first.tasks.length, 20);
+  assert.equal(first.pagination.total, 23);
+  const next = queryStatus(root, first.pagination.next_request);
+  assert.equal(next.pagination.next_offset, null);
+  assert.deepEqual([...first.tasks, ...next.tasks].map(x => x.task_id), full.tasks.map(x => x.task_id));
+  assert.deepEqual(next.issues, first.issues);
+  assert.deepEqual(next.unassociated_records, first.unassociated_records);
+  assert.deepEqual(treeState(root), before);
+  assert.throws(() => queryStatus(root, { offset: 20 }), { code: 'INVALID_QUERY' });
+  record(root, { kind: 'observation', body: 'Facts changed between reads' });
+  const changed = treeState(root);
+  assert.throws(() => queryStatus(root, { offset: 20, expected_view_revision: first.view_revision }), { code: 'QUERY_VIEW_CHANGED' });
+  assert.deepEqual(treeState(root), changed);
+});
+
+test('query selectors fail explicitly without writes; a closed task remains selectable and an empty store stays empty', t => {
+  const root = queryFixture(t), before = treeState(root), empty = queryStatus(root);
+  assert.equal(empty.task_count, 0);
+  assert.equal(empty.selection.status, 'unresolved');
+  for (const input of [null, [], { detail: 'unknown' }, { task_ref: '' }, { detail: 'step' },
+    { limit: 101 }, { offset: -1 }, { step_id: 'S1' }, { detail: 'task', limit: 1 },
+    { task_id: 'would-be-ignored' }, { detail: 'step', step_id: 'S1', plan_ref: 'old-plan' }])
+    assert.throws(() => queryStatus(root, input), { code: 'INVALID_QUERY' });
+  assert.deepEqual(treeState(root), before);
+  const prepared = addPlan(root);
+  task(root, { action: 'adopt', task_id: prepared.task_id, plan_ref: prepared.ref });
+  task(root, { action: 'close', task_id: prepared.task_id, remaining_work: ['S1 not run'] });
+  const stopped = treeState(root);
+  const selected = queryStatus(root, { detail: 'task', task_ref: prepared.task.display_id });
+  assert.equal(selected.current_task_id, null);
+  assert.equal(selected.task.task_id, prepared.task_id);
+  assert.equal(selected.task.lifecycle, 'closed');
+  assert.deepEqual(treeState(root), stopped);
+});
+
+test('installed CLI defaults to compact queries, supports full compatibility and keeps writes on the old result contract', t => {
+  const root = queryFixture(t), prepared = addPlan(root);
+  task(root, { action: 'adopt', task_id: prepared.task_id, plan_ref: prepared.ref });
+  const installed = path.join(root, '.workflow-system/runtime/support/assistance.mjs');
+  fs.mkdirSync(path.dirname(installed), { recursive: true });
+  fs.copyFileSync(runtime, installed);
+  fs.copyFileSync(path.join(path.dirname(runtime), 'task-management.mjs'), path.join(path.dirname(installed), 'task-management.mjs'));
+  const call = (command, input = {}, status = 0) => {
+    const result = spawnSync(process.execPath, [installed, command, '--root', root],
+      { input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    assert.equal(result.status, status, result.stderr || result.stdout);
+    return JSON.parse(result.stdout);
+  };
+  const before = treeState(root), expected = queryStatus(root);
+  assert.deepEqual(call('task-status'), expected);
+  assert.deepEqual(call('task', { action: 'status' }), expected);
+  assert.deepEqual(call('task'), expected);
+  assert.deepEqual(call('context').management, expected);
+  assert.deepEqual(call('task-status', { detail: 'full' }), JSON.parse(JSON.stringify(taskStatus(root))));
+  assert.deepEqual(call('context', { detail: 'full' }), JSON.parse(JSON.stringify(context(root, {}))));
+  assert.equal(call('task-status', { detail: 'step', task_ref: prepared.task_id, step_id: 'S1' }).step.id, 'S1');
+  const badQuery = call('task', { action: 'status', detail: 'bad' }, 1);
+  assert.equal(badQuery.code, 'INVALID_QUERY');
+  assert.equal(badQuery.recorded, false);
+  assert.equal(badQuery.development_gate, false);
+  assert.deepEqual(treeState(root), before);
+  const written = call('task', { action: 'execution', result: 'failed', detail: 'caller-owned arbitrary field' });
+  assert.equal(written.recorded, true);
+  assert.equal(written.association, 'applied');
+  assert.equal(written.task.steps[0].execution.result, 'failed');
+  assert.ok(Array.isArray(written.task.plans));
+  assert.equal(JSON.parse(contents(root, written.ref)).payload.request.detail, 'caller-owned arbitrary field');
 });
