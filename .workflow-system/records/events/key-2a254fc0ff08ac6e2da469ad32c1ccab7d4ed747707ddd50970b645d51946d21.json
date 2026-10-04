@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T14:24:52.732Z",
+  "payload_sha256": "cb22a75a2748be72674824fa0b868b7f4ebb643e5e25fc7bcdb05ce47d2b82f6",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-project-v1-adopt-20261004",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+      "decision_source": "本次用户实施指令",
+      "decision_text": "以这些文档为完整实施依据，实现 maintain-project 首版，覆盖 VPM-01～25；自主划分工作并准备近期任务；优先完成真实的需求维护、实施计划、任务绑定、讨论收存与关联，以及 E6 计划外修复闭环，随后完成分发、安装和相应验证。",
+      "idempotency_key": "maintain-project-v1-adopt-20261004"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "parents": [
+        ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+        "decision_source": "本次用户实施指令",
+        "decision_text": "以这些文档为完整实施依据，实现 maintain-project 首版，覆盖 VPM-01～25；自主划分工作并准备近期任务；优先完成真实的需求维护、实施计划、任务绑定、讨论收存与关联，以及 E6 计划外修复闭环，随后完成分发、安装和相应验证。",
+        "activate": true,
+        "focus": true
+      }
+    }
+  },
+  "issues": []
+}

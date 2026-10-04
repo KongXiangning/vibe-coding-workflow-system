@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:34:09.285Z",
+  "payload_sha256": "2f23e655fcf5a7894f6391e7a9aa090c2b661eccc773e8e0b2de345b12ed3e51",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-project-v1-test-B6-20261004",
+    "request": {
+      "action": "test",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+      "step_id": "B6",
+      "command": "bun run validate:freshness",
+      "result": "passed",
+      "report_ref": "docs/ops/project-maintenance-evidence/checks/freshness.json",
+      "selector": "Actual recorded command; scope and omissions retained in delivery document. Not an independent review.",
+      "idempotency_key": "maintain-project-v1-test-B6-20261004"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "parents": [
+        ".workflow-system/records/events/key-6be1dd3a2b4c4cc1509df1a1733c647c20ddd6bd82efc2af0e14a00ad34b50d4.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+        "step_id": "B6",
+        "command": "bun run validate:freshness",
+        "result": "passed",
+        "report_ref": "docs/ops/project-maintenance-evidence/checks/freshness.json",
+        "selector": "Actual recorded command; scope and omissions retained in delivery document. Not an independent review."
+      }
+    }
+  },
+  "issues": []
+}

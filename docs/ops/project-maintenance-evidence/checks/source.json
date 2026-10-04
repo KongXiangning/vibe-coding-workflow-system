@@ -1,0 +1,16 @@
+{
+  "kind": "actual-command-result/v1",
+  "command": [
+    "bun",
+    "run",
+    "test:workflow-vnext-source"
+  ],
+  "cwd": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system",
+  "started_at": "2026-10-04T15:29:04.372Z",
+  "ended_at": "2026-10-04T15:29:09.921Z",
+  "exit_code": 0,
+  "signal": null,
+  "error": null,
+  "stdout": "bun test v1.3.10 (30e609e0)\n",
+  "stderr": "$ bun test test/workflow-vnext-source.test.ts\n\ntest\\workflow-vnext-source.test.ts:\n(pass) vNext Phase 2 source contract > every public vNext entry declares a terminal boundary and advisory next route [2609.00ms]\n(pass) vNext Phase 2 source contract > rejects internal commands and user decisions as public next_route literals [500.00ms]\n(pass) vNext Phase 2 source contract > new unreviewed plans recommend draft review before implementation\n(pass) vNext Phase 2 source contract > accepts the daily entries including project maintenance and closed catalogs [47.00ms]\n(pass) vNext Phase 2 source contract > keeps validate-change and git-commit in the closed expert entry set [313.00ms]\n(pass) vNext Phase 2 source contract > keeps git-commit caller-authorized and independent from task transactions\n(pass) vNext Phase 2 source contract > rejects a review template with direct writes [109.00ms]\n(pass) vNext Phase 2 source contract > rejects prepare-task product writes and execute-step governance writes [219.00ms]\n(pass) vNext Phase 2 source contract > keeps public selection examples generalized and distinct from execution evidence\n(pass) vNext Phase 2 source contract > requires the execute-step scope guard [109.00ms]\n(pass) vNext Phase 2 source contract > requires evidence admission and resume-review capabilities for prepare-task [188.00ms]\n(pass) vNext Phase 2 source contract > requires review-draft read-only and decision authority boundaries [203.00ms]\n(pass) vNext Phase 2 source contract > rejects cycle phases promoted into a mode [78.00ms]\n(pass) vNext Phase 2 source contract > rejects a lifecycle mode outside its closed set [94.00ms]\n(pass) vNext Phase 2 source contract > rejects capture-work-item when its legacy-name collision is used as an executable target [93.00ms]\n(pass) vNext Phase 2 source contract > rejects missing capability references and public capability exposure [141.00ms]\n(pass) vNext Phase 2 source contract > rejects removing the Phase 2 Runtime binding [78.00ms]\n(pass) vNext Phase 2 source contract > rejects legacy frontmatter fields and old Skill executable targets [250.00ms]\n(pass) vNext Phase 2 source contract > rejects extra public vNext templates [63.00ms]\n\n 19 pass\n 0 fail\n 115 expect() calls\nRan 19 tests across 1 file. [5.18s]\n"
+}

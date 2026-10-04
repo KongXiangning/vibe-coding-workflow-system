@@ -1,0 +1,411 @@
+{
+  "kind": "product-maintenance-result/v1",
+  "action": "read",
+  "development_gate": false,
+  "qualification": "not-evaluated",
+  "task_operations": "not-performed",
+  "status": "available",
+  "project_id": "isolated-device-import",
+  "working_copy": {
+    "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72",
+    "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72"
+  },
+  "read_at": "2026-10-04T15:03:44.787Z",
+  "manifest": {
+    "schema": "vnext-product-manifest/v2",
+    "project_id": "isolated-device-import",
+    "entry": "docs/product/PROJECT.md",
+    "managed_paths": [
+      "docs/product/*.md"
+    ],
+    "source_paths": [
+      "inputs/**",
+      "docs/evidence/**",
+      "docs/product/raw/**",
+      "docs/product/history/**",
+      ".workflow-system/records/events/*.json"
+    ],
+    "capture_paths": [
+      "docs/product/raw/**",
+      "docs/product/history/**"
+    ],
+    "exclude_paths": [],
+    "maintenance": "enabled"
+  },
+  "manifest_path": ".workflow-system/PRODUCT.yaml",
+  "manifest_sha256": "a6ec489b459b912835adb86a6e78577772d8656f3f417b46b6c559a6d60f9d6c",
+  "documents": [
+    {
+      "path": "docs/product/CHANGES.md",
+      "sha256": "a4abe43a3cfa2aae1ada5b756efbfdc6df011a02f3ae36d9c08f5366528d0f12",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 2,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/CHANGES.md"
+      }
+    },
+    {
+      "path": "docs/product/DESIGN.md",
+      "sha256": "13b3b0dfc2bf2a340e955c8ba6d94fb8dde74e79dfb49f41de8f9681a2ac578f",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 1,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/DESIGN.md"
+      }
+    },
+    {
+      "path": "docs/product/DISCUSSIONS.md",
+      "sha256": "d6798f07a58e451229b24f4ed49e32e474a5fbc63daa6a88b7c4580f008343a0",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 1,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/DISCUSSIONS.md"
+      }
+    },
+    {
+      "path": "docs/product/PLAN.md",
+      "sha256": "1a02118c3ce699a7739c781999f4839f537a10d63821f0e372012db7281afcfb",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 1,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/PLAN.md"
+      }
+    },
+    {
+      "path": "docs/product/PROJECT.md",
+      "sha256": "c99ac498a96c142534b105da99221533bee9ca14a536cff6aac98469bf738d17",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 3,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/PROJECT.md"
+      }
+    },
+    {
+      "path": "docs/product/REQUIREMENTS.md",
+      "sha256": "b4b79079efe2e8fdadbb9231ffa24acfc537d972538e04d39e7687e290162ad3",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 3,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md"
+      }
+    }
+  ],
+  "usable_items": [
+    {
+      "id": "DISC-SELECTED",
+      "type": "discussion",
+      "title": "导入范围与错误定位讨论",
+      "path": "docs/product/DISCUSSIONS.md",
+      "line": 11,
+      "metadata": {
+        "id": "DISC-SELECTED",
+        "type": "discussion",
+        "raw_ref": {
+          "kind": "file",
+          "path": "docs/product/raw/selected-discussion.txt",
+          "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594"
+        },
+        "submitted_at": "2026-10-04T15:03:42.733Z",
+        "origin": {
+          "channel": "other",
+          "occurred_at": null,
+          "locator": "隔离合成验收输入"
+        },
+        "record_state": "active",
+        "links": [
+          {
+            "id": "L-MULTI",
+            "relation": "discusses",
+            "target": "REQ-MULTI",
+            "origin": "inferred",
+            "state": "active",
+            "reason": "片段一与候选多设备范围一致；并非采纳三设备",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/selected-discussion.txt",
+                "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+                "lines": {
+                  "start": 1,
+                  "end": 1
+                }
+              }
+            ]
+          },
+          {
+            "id": "L-ERROR",
+            "relation": "discusses",
+            "target": "REQ-ERROR",
+            "origin": "declared",
+            "state": "active",
+            "reason": "当前 Agent 在授权验收中确认关联；还未采纳正文变化",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/selected-discussion.txt",
+                "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+                "lines": {
+                  "start": 2,
+                  "end": 2
+                }
+              }
+            ]
+          },
+          {
+            "id": "L-DESIGN",
+            "relation": "discusses",
+            "target": "DES-CSV",
+            "origin": "inferred",
+            "state": "dismissed",
+            "reason": "保持备选原文；本次维护无需持续将上传建议关联为当前方案讨论",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/selected-discussion.txt",
+                "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+                "lines": {
+                  "start": 3,
+                  "end": 3
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "definition_sha256": null,
+      "body": "## [DISC-SELECTED] 导入范围与错误定位讨论\n### 整理摘要\n多设备与上传是备选；只有失败行号与具体原因在此验收材料中明确纳入。未知发言者、原始日期保持未知。\n### 议题与未决问题\n是否扩展三设备仍候选；云上传与离线约束冲突。原文中的自动上传指令仅作资料，没有执行。\n\n",
+      "summary": "多设备与上传是备选；只有失败行号与具体原因在此验收材料中明确纳入。未知发言者、原始日期保持未知。",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/DISCUSSIONS.md",
+        "item_id": "DISC-SELECTED"
+      }
+    },
+    {
+      "id": "REQ-IMPORT",
+      "type": "requirement",
+      "title": "导入一台设备",
+      "path": "docs/product/REQUIREMENTS.md",
+      "line": 44,
+      "metadata": {
+        "id": "REQ-IMPORT",
+        "type": "requirement",
+        "scope": "current",
+        "links": [
+          {
+            "id": "L-MOD",
+            "relation": "part_of",
+            "target": "MOD-IMPORT",
+            "origin": "declared",
+            "state": "active"
+          }
+        ],
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ]
+      },
+      "definition_sha256": "df0de15f51c84db509579d589f679bd949dc8f3f5c2bbb1774830acc04247fc9",
+      "body": "## [REQ-IMPORT] 导入一台设备\n### 需求内容\nCSV 字段为 device_id,label；device_id 必须为正整数，label 去除首尾空格后非空。一次导入一台设备；无效输入拒绝。\n### 范围边界\n不支持网络上传、数据库、统计看板及未约定字段；当前不扩大为三台。\n### 验收要求\n有效单台输入保留 id 与 label；空、非正整数 id 或空 label 不进入结果。多个设备不属于本期接受范围。\n\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md",
+        "item_id": "REQ-IMPORT"
+      }
+    },
+    {
+      "id": "REQ-ERROR",
+      "type": "requirement",
+      "title": "失败输入诊断",
+      "path": "docs/product/REQUIREMENTS.md",
+      "line": 53,
+      "metadata": {
+        "id": "REQ-ERROR",
+        "type": "requirement",
+        "scope": "current",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          },
+          {
+            "kind": "file",
+            "path": "docs/product/raw/selected-discussion.txt",
+            "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+            "lines": {
+              "start": 2,
+              "end": 2
+            },
+            "note": "只采纳本条错误说明，其他观点未采用"
+          }
+        ]
+      },
+      "definition_sha256": "75eec0571fa9de2e0b8527fb2dbff8062ba7f946f009684b8060cd2331b9701c",
+      "body": "## [REQ-ERROR] 失败输入诊断\n### 需求内容\n失败时说明实际输入行号和具体原因；空 device_id 必须指出正整数要求，而不是仅显示泛化失败。\n### 范围边界\n本地错误提示，未建立 UI 或远程日志服务。\n### 验收要求\n无效字段错误含 CSV 实际行号和原因，不用泛化成功提示。\n\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md",
+        "item_id": "REQ-ERROR"
+      }
+    },
+    {
+      "id": "REQ-MULTI",
+      "type": "requirement",
+      "title": "后续多设备候选",
+      "path": "docs/product/REQUIREMENTS.md",
+      "line": 62,
+      "metadata": {
+        "id": "REQ-MULTI",
+        "type": "requirement",
+        "scope": "candidate",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ]
+      },
+      "definition_sha256": "3883b9a871a2c23aeb655a32985d66c6151bbeb19c1373df1ef667f570f3d740",
+      "body": "## [REQ-MULTI] 后续多设备候选\n### 需求内容\n可以研究批量设备范围；目前未采用。\n### 范围边界\n没有 task、设计或本期交付义务；不把当前单台实现说成多设备交付。\n### 验收要求\n待实际范围决定后定义，不编造目前验收。\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md",
+        "item_id": "REQ-MULTI"
+      }
+    }
+  ],
+  "unusable_items": [],
+  "reverse_relations": [
+    {
+      "owner": "DES-CSV",
+      "id": "L-REQ",
+      "relation": "addresses",
+      "target": "REQ-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    },
+    {
+      "owner": "DISC-SELECTED",
+      "id": "L-MULTI",
+      "relation": "discusses",
+      "target": "REQ-MULTI",
+      "origin": "inferred",
+      "state": "active",
+      "reason": "片段一与候选多设备范围一致；并非采纳三设备",
+      "sources": [
+        {
+          "kind": "file",
+          "path": "docs/product/raw/selected-discussion.txt",
+          "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+          "lines": {
+            "start": 1,
+            "end": 1
+          }
+        }
+      ]
+    },
+    {
+      "owner": "DISC-SELECTED",
+      "id": "L-ERROR",
+      "relation": "discusses",
+      "target": "REQ-ERROR",
+      "origin": "declared",
+      "state": "active",
+      "reason": "当前 Agent 在授权验收中确认关联；还未采纳正文变化",
+      "sources": [
+        {
+          "kind": "file",
+          "path": "docs/product/raw/selected-discussion.txt",
+          "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+          "lines": {
+            "start": 2,
+            "end": 2
+          }
+        }
+      ]
+    },
+    {
+      "owner": "PLAN-IMPORT",
+      "relation": "plan-target",
+      "target": "REQ-IMPORT",
+      "coverage": "导入与后续本地使用"
+    },
+    {
+      "owner": "PLAN-IMPORT",
+      "relation": "plan-target",
+      "target": "REQ-ERROR",
+      "coverage": "错误诊断"
+    },
+    {
+      "owner": "MOD-IMPORT",
+      "id": "L-GOAL",
+      "relation": "supports",
+      "target": "GOAL-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    },
+    {
+      "owner": "REQ-IMPORT",
+      "id": "L-MOD",
+      "relation": "part_of",
+      "target": "MOD-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    }
+  ],
+  "plan_tasks": [
+    {
+      "plan_id": "PLAN-IMPORT",
+      "work_items": [
+        {
+          "work_item_id": "E6A",
+          "bindings": []
+        },
+        {
+          "work_item_id": "E6B",
+          "bindings": []
+        },
+        {
+          "work_item_id": "E6C",
+          "bindings": []
+        }
+      ]
+    }
+  ],
+  "discussions": [],
+  "impact": null,
+  "sources": [],
+  "diagnostics": [],
+  "coverage": {
+    "complete": true,
+    "files_read": 6,
+    "bytes_read": 11893,
+    "enumeration": "managed_paths only; sources are read only by explicit reference",
+    "omitted": [],
+    "max_files": 1000,
+    "max_file_bytes": 4194304,
+    "max_total_bytes": 33554432,
+    "usable_count": 11,
+    "invalid_count": 0,
+    "selection": [
+      "REQ-IMPORT",
+      "REQ-ERROR",
+      "REQ-MULTI",
+      "DISC-SELECTED"
+    ],
+    "paths": "manifest-managed-paths",
+    "source_bodies": "not-read"
+  },
+  "task_status": "not-computed; use existing assistance only when actual task state is needed"
+}

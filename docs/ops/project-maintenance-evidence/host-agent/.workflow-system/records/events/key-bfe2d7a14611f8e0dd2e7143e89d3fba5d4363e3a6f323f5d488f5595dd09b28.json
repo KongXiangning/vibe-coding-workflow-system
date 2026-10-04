@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:05:30.089Z",
+  "payload_sha256": "bcf3db5af219f6e8debed1d1732568bc3f1141eeeb453d2db33644ee447bc4ff",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-agent-E6A-first",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "host-agent-E6A-first",
+      "plan": {
+        "title": "E6A",
+        "goal": "导入脚本基础与有效单台样例",
+        "acceptance": [
+          "导入脚本基础与有效单台样例"
+        ],
+        "scope": [
+          "src/importer.mjs",
+          "checks/*.mjs",
+          "docs/evidence"
+        ],
+        "exclusions": [
+          "上传",
+          "统计",
+          "业务项目"
+        ],
+        "steps": [
+          {
+            "id": "S1",
+            "title": "导入脚本基础与有效单台样例",
+            "environment": [
+              "隔离 Node 项目"
+            ],
+            "validation": [
+              "导入脚本基础与有效单台样例"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+      "parents": [],
+      "data": {
+        "plan": {
+          "title": "E6A",
+          "goal": "导入脚本基础与有效单台样例",
+          "acceptance": [
+            "导入脚本基础与有效单台样例"
+          ],
+          "scope": [
+            "src/importer.mjs",
+            "checks/*.mjs",
+            "docs/evidence"
+          ],
+          "exclusions": [
+            "上传",
+            "统计",
+            "业务项目"
+          ],
+          "steps": [
+            {
+              "id": "S1",
+              "title": "导入脚本基础与有效单台样例",
+              "environment": [
+                "隔离 Node 项目"
+              ],
+              "validation": [
+                "导入脚本基础与有效单台样例"
+              ]
+            }
+          ]
+        },
+        "create": true,
+        "display_id": "TASK-001"
+      }
+    }
+  },
+  "issues": []
+}

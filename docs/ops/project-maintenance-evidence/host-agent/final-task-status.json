@@ -1,0 +1,177 @@
+{
+  "runtime_role": "assistance",
+  "development_gate": false,
+  "qualification": "not-evaluated",
+  "kind": "task-query/v1",
+  "detail": "summary",
+  "status": "available",
+  "source_revision": "2b1d70832d977cbf8f17be7c80b8dedb260001c3a13cb301fa5be72e6e28125a",
+  "view_revision": "a1f3df87de47a8756df0850b48db533da6d04ed648fab751553c727ef8c75c30",
+  "workflow_home": "docs/workflow",
+  "current_task_id": null,
+  "selection": {
+    "requested_task_ref": null,
+    "task_id": null,
+    "status": "unresolved",
+    "detail_request": null
+  },
+  "health": "consistent",
+  "state_completeness": "complete",
+  "records_scanned": 15,
+  "projection": {
+    "cache": "current",
+    "display": "current",
+    "read_only_rebuilt": true
+  },
+  "recovery_options": [
+    "rebuild",
+    "link",
+    "correct",
+    "resolve",
+    "defer",
+    "pause",
+    "close"
+  ],
+  "issues": [],
+  "unassociated_records": [],
+  "task_count": 3,
+  "lifecycle_counts": {
+    "closed": 3
+  },
+  "coverage": {
+    "computation": "full-journal-rebuild",
+    "diagnostics": "all",
+    "history": "not-expanded"
+  },
+  "note": "Presentation of the complete live rebuild. Omitted detail is not absent history, clean review or permission. Read record refs with read; use detail=full for the compatibility view.",
+  "tasks": [
+    {
+      "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+      "display_id": "TASK-003",
+      "title": "E6R 正整数验证修复",
+      "lifecycle": "closed",
+      "lifecycle_ref": ".workflow-system/records/events/key-03f7ae047f6800ad3719f0f83ca0139d82953456cb1fab55b3d7883bf455838d.json",
+      "plan_status": "adopted",
+      "adopted_plan_ref": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+      "adopted_by": ".workflow-system/records/events/key-e4b38576602574578a981740c74fbf2ea2f690e82cc3215f9e835e01e38ef311.json",
+      "legacy_plan_ref": null,
+      "legacy_source": null,
+      "current_step_id": null,
+      "current_step": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "remaining_work": [
+        "E6C 未创建/执行；额外字段/大数与其他业务未核对"
+      ],
+      "gaps": [
+        "检查只覆盖指定输入；没有独立审查"
+      ],
+      "counts": {
+        "steps": 1,
+        "unfinished_steps": 1,
+        "findings_in_current_plan": 0,
+        "plans": 1,
+        "executions": 1,
+        "tests": 1,
+        "reviews": 0,
+        "review_decisions": 0,
+        "commits": 0
+      },
+      "detail_request": {
+        "detail": "task",
+        "task_ref": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+        "workflow_home": "docs/workflow"
+      }
+    },
+    {
+      "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+      "display_id": "TASK-001",
+      "title": "E6A",
+      "lifecycle": "closed",
+      "lifecycle_ref": ".workflow-system/records/events/key-3c99ffa465c1a80ae59c42434f2fe5aafd7d8f3881fba8e9180d7676f62458bc.json",
+      "plan_status": "adopted",
+      "adopted_plan_ref": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+      "adopted_by": ".workflow-system/records/events/key-27b0a554934c9c9da668c9976172a107058e8396c35aa80ae7a1510f56af8c37.json",
+      "legacy_plan_ref": null,
+      "legacy_source": null,
+      "current_step_id": null,
+      "current_step": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "remaining_work": [
+        "空/零/小数 ID 未核对；并非完整需求 PASS"
+      ],
+      "gaps": [
+        "未进行独立审查，隔离基础操作记录"
+      ],
+      "counts": {
+        "steps": 1,
+        "unfinished_steps": 1,
+        "findings_in_current_plan": 0,
+        "plans": 1,
+        "executions": 1,
+        "tests": 1,
+        "reviews": 0,
+        "review_decisions": 0,
+        "commits": 0
+      },
+      "detail_request": {
+        "detail": "task",
+        "task_ref": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+        "workflow_home": "docs/workflow"
+      }
+    },
+    {
+      "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+      "display_id": "TASK-002",
+      "title": "E6B",
+      "lifecycle": "closed",
+      "lifecycle_ref": ".workflow-system/records/events/key-b22404600cf8f486d57d0ec2db6a3111783997f283afbf03a904bdb0f51e2dd6.json",
+      "plan_status": "adopted",
+      "adopted_plan_ref": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+      "adopted_by": ".workflow-system/records/events/key-6c19ee159a9ce972bdcdf189102b53db7733d0716c760ae983af1e89c965b1f2.json",
+      "legacy_plan_ref": null,
+      "legacy_source": null,
+      "current_step_id": null,
+      "current_step": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "remaining_work": [
+        "空/零/小数 ID 未核对；并非完整需求 PASS"
+      ],
+      "gaps": [
+        "未进行独立审查，隔离基础操作记录"
+      ],
+      "counts": {
+        "steps": 1,
+        "unfinished_steps": 1,
+        "findings_in_current_plan": 0,
+        "plans": 1,
+        "executions": 1,
+        "tests": 1,
+        "reviews": 0,
+        "review_decisions": 0,
+        "commits": 0
+      },
+      "detail_request": {
+        "detail": "task",
+        "task_ref": "task-b826bc13b6b2256830175acc5597a7be",
+        "workflow_home": "docs/workflow"
+      }
+    }
+  ],
+  "pagination": {
+    "total": 3,
+    "offset": 0,
+    "limit": 20,
+    "next_offset": null,
+    "view_revision": "a1f3df87de47a8756df0850b48db533da6d04ed648fab751553c727ef8c75c30",
+    "next_request": null
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vnext.local/schemas/product-maintenance-result-v1.json",
+  "type": "object",
+  "required": [
+    "kind",
+    "action",
+    "status",
+    "development_gate",
+    "qualification"
+  ],
+  "properties": {
+    "kind": {
+      "const": "product-maintenance-result/v1"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "read",
+        "check",
+        "apply",
+        "capture"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "available",
+        "not-enabled",
+        "unavailable",
+        "unsupported",
+        "valid",
+        "invalid",
+        "checked",
+        "saved",
+        "unchanged",
+        "partial",
+        "failed",
+        "reference-only"
+      ]
+    },
+    "development_gate": {
+      "const": false
+    },
+    "qualification": {
+      "const": "not-evaluated"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "status",
+          "saved"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "saved",
+              "unchanged",
+              "failed"
+            ]
+          },
+          "saved": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "path",
+          "message",
+          "severity"
+        ]
+      }
+    },
+    "coverage": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "actual-taskless-check",
+  "provenance": "Node subprocess launched by host Agent in isolated acceptance; not a user report",
+  "command": [
+    "node",
+    "checks/external-id.mjs"
+  ],
+  "exit_code": 1,
+  "stdout": "",
+  "stderr": "node:internal/modules/run_main:107\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nAssertionError [ERR_ASSERTION]: Missing expected exception.\r\n    at file:///C:/Users/kongx/AppData/Local/Temp/vnext-maintain-project-agent-QnIf72/checks/external-id.mjs:3:8\r\n    at ModuleJob.run (node:internal/modules/esm/module_job:413:25)\r\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:660:26)\r\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {\r\n  generatedMessage: false,\r\n  code: 'ERR_ASSERTION',\r\n  actual: undefined,\r\n  expected: /line 2: device_id must be a positive integer/,\r\n  operator: 'throws',\r\n  diff: 'simple'\r\n}\r\n\r\nNode.js v24.12.0\r\n",
+  "source_sha256": "d4a3fb855c8aa93a7cd404428fd747ea4dfc5bf11ef412d82d40d98ddeef7750"
+}

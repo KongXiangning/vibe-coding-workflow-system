@@ -1,10 +1,10 @@
 # vNext 项目目标与需求维护：实现方案
 
-状态：待实施。依据：[入口](../product/project-maintenance/README.md)、[需求](../product/project-maintenance/requirements.md)、[契约](../product/project-maintenance/document-contract.md)。勘察 main：`c40726fa54f5c88acf65a1a6266392829da916c9`，0.23.8。
+状态：首版已实施，本地候选 `0.24.0`。依据：[入口](../product/project-maintenance/README.md)、[需求](../product/project-maintenance/requirements.md)、[契约](../product/project-maintenance/document-contract.md)。原勘察 main：`c40726fa54f5c88acf65a1a6266392829da916c9`，0.23.8。实际基线、检查及限制见[交付记录](vnext-project-maintenance-delivery.md)。
 
 ## 1. 当前代码事实及接入位置
 
-以下是已核对的主线接口，不是要求照搬旧版严格内核。
+以下保留设计时已核对的主线接口及接入依据。首版复用这些接口，未复制任务状态机。
 
 | 当前文件 | 已有事实 | 本次接入方式 |
 |---|---|---|
@@ -16,14 +16,14 @@
 | [分发构建器](../../scripts/build-vibe-governance-distribution.ts) | bundleArtifactSpecs 有显式 Skill／支持文件清单，copyMigrationSource 单列部分资源 | 新 Skill、helper、Schema、references 必须进入实际 bundle 和安装；只新增源文件不算交付。 |
 | [package.json](../../package.json) | 源码使用 Bun；有 Node 原生 assistance 测试、build:vnext-runtime、分发构建及安装回归命令 | 按变更影响运行既有检查；新 helper 目标运行环境仍为已发布 Node，不要求业务项目安装 Bun。 |
 
-实施开始先核对本地 HEAD 与该基线差异，重读上述接口和作用范围。源码目录／函数名可以在不改变契约的前提下调整；不得把下文拟议文件或命令误当成已经存在。
+实施从 `project-goals-requirements` worktree 的 `445cee1f0eb01b2feede98e2addda209f418179c` 开始，核对后相对勘察基线仅有六份设计文档变更；既有接口有效。以下算法和边界保持设计语义，实际可调用接口以随软件安装的 `product-maintenance/API.md` 为准。
 
 ## 2. 模块结构
 
-新增一个独立的产品文档 helper，不在 assistance 每次启动时无条件加载它，不导入旧 kernel、任务资格检查或 CURRENT_TASK parser。推荐组织：
+新增独立产品文档 helper，不在 assistance 每次启动时无条件加载，不导入旧 kernel、任务资格检查或 CURRENT_TASK parser。实际组织：
 
 ```text
-runtime/vnext/src/product-maintenance/     # 拟新增
+runtime/vnext/src/product-maintenance/
   model.ts       # 契约类型；业务状态不是 Runtime 状态
   parser.ts      # YAML + Markdown AST、条目位置及局部降级
   catalog.ts     # 当前条目索引、反向引用、工作副本隔离
@@ -31,19 +31,22 @@ runtime/vnext/src/product-maintenance/     # 拟新增
   plans.ts       # 工作项／TaskBinding 的确定性检查
   writer.ts      # 已授权候选文件安全写入、capture、结果分项
   cli.ts         # read/check/apply/capture；不做模型推理
+  schemas.ts     # v1/v2 文档、入口及请求/结果结构定义
+  paths.ts       # 范围匹配、边界及有界枚举
+  offline-reader.ts # 无 Runtime 的只读消费者入口
 
-templates/vnext/skills/maintain-project.SKILL.md.tmpl  # 拟新增
-runtime/vnext/support/product-maintenance/           # 拟新增可安装参考资料
+templates/vnext/skills/maintain-project.SKILL.md.tmpl
+runtime/vnext/support/product-maintenance/
   contract.md    templates/    schemas/    references/
 ```
 
-用现有 YAML 依赖和真正的 Markdown AST 解析器；如新增 unified／remark-parse，明确源码及打包依赖，不能只装开发依赖后让目标项目缺模块。helper 编译成独立 Node 入口，建议源产物 `runtime/vnext/dist/product-maintenance.js`，安装到 `.workflow-system/runtime/support/product-maintenance.js`。具体构建脚本在实施时新增，当前 package.json 尚无对应命令。
+使用现有 `yaml` 和生产依赖 `unified`／`remark-parse` 的真正 Markdown AST。helper 与离线消费者均打包全部依赖，目标项目无需源码、Bun 或这些 npm 模块。源产物 `runtime/vnext/dist/product-maintenance.js` 安装到 `.workflow-system/runtime/support/product-maintenance.js`；`bun run build:product-maintenance` 生成 Schema、模板、契约副本和两份独立 Node 产物，已纳入 Runtime／分发构建。
 
 不先建立 monorepo SDK、数据库、事件溯源平台或公共全量图服务。目录、反向关系与 hash 检查先在内存生成；读取按范围／条目展开。原文分页与大文件读取采用有边界或流式方案，显示未覆盖范围，不用受限 exec 缓冲吞整个历史。
 
 ## 3. helper 的职责与建议调用面
 
-下面的命令是拟实现接口，不是现有接口：
+已实现接口：
 
 ```text
 node .workflow-system/runtime/support/product-maintenance.js <read|check|apply|capture> --root <project>
@@ -58,7 +61,7 @@ stdin JSON 承载具体选择；stdout JSON 表达实际结果。路径及内容
 | apply | 明确候选文件、新建或已读内容摘要、操作范围；逐文件报告保存／冲突／结构问题 | 不把 expected digest 当授权票据；不全量重写无关正文。 |
 | capture | 已取得且获授权的文本／文件及目标位置；保存原文并返回真实 SourceRef | 不自动抓取 URL，不把模型输出冒充用户原件。 |
 
-输入结果的具体 envelope 在 B1 固定并加入 Schema；不能另加 approve、force 或 completion token。失败使用真实失败／部分结果，不能以统一 success 隐藏未保存。产品对象 ID 可以由 helper 分配；task 身份只复用既有任务服务。
+请求／结果 envelope 已在 B1 固定并随分发提供 `request-v1.json`、`result-v1.json`。结果携带 `development_gate:false` 与 `qualification:not-evaluated`，失败使用实际失败／部分结果，不以统一 success 隐藏未保存；没有 approve、force 或 completion token。首版产品对象使用 Agent 在当前目录核对后指定的稳定 ID；task 身份只复用既有任务服务。
 
 ## 4. 大模型与 Skill
 

@@ -1,6 +1,6 @@
 {
   "name": "vibe-coding-workflow-system",
-  "version": "0.23.8",
+  "version": "0.24.0",
   "type": "module",
   "private": true,
   "description": "Portable workflow-system for Vibe Coding project governance.",
@@ -28,7 +28,10 @@
     "dogfood:fixflow:cleanup": "bun run scripts/fixflow-dogfood-cleanup.ts",
     "dogfood:fixflow:upgrade": "bun run scripts/fixflow-dogfood-upgrade.ts",
     "validate:vnext-source": "bun run scripts/vnext-source-contract.ts",
-    "build:vnext-runtime": "bun run check:toolchain && bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js",
+    "build:product-maintenance": "bun run scripts/build-product-maintenance.ts",
+    "test:product-maintenance": "bun run build:product-maintenance && bun test test/product-maintenance.test.ts",
+    "test:product-maintenance:install": "bun run build:vnext-runtime && bun run build:vibe-governance-distribution && bun test test/product-maintenance-install.test.ts",
+    "build:vnext-runtime": "bun run check:toolchain && bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js && bun run build:product-maintenance",
     "build:vibe-governance-distribution": "bun run scripts/build-vibe-governance-distribution.ts",
     "validate:vnext-runtime": "bun run build:vnext-runtime && bun run scripts/vnext-runtime.ts validate-contract --root .",
     "vnext:runtime": "bun run scripts/vnext-runtime.ts",
@@ -60,7 +63,9 @@
   "dependencies": {
     "diff": "9.0.0",
     "fflate": "0.8.2",
+    "remark-parse": "11",
     "tar-stream": "3.1.7",
+    "unified": "11",
     "yaml": "^2.8.3"
   }
 }

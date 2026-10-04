@@ -15,6 +15,7 @@ export const PHASE_1_ENTRIES = [
   'debug-task',
   'task-lifecycle',
   'capture-work-item',
+  'maintain-project',
   'close-task',
 ] as const;
 export type Phase1Entry = (typeof PHASE_1_ENTRIES)[number];
@@ -43,6 +44,7 @@ export const PHASE_1_MODES: Record<Phase1Entry, readonly string[]> = {
   'debug-task': ['investigate-only', 'resolve'],
   'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
   'capture-work-item': [],
+  'maintain-project': ['default', 'inventory', 'update', 'plan', 'discussion', 'reconcile'],
   'close-task': ['preview'],
 };
 
@@ -63,6 +65,7 @@ const EXPECTED_OUTPUT_KINDS: Record<Phase1Entry, string> = {
   'debug-task': 'debug-result',
   'task-lifecycle': 'lifecycle-result',
   'capture-work-item': 'capture-result',
+  'maintain-project': 'project-maintenance-result',
   'close-task': 'closure-result',
 };
 
@@ -74,6 +77,7 @@ const EXPECTED_AUTHORITY_OWNERS: Record<Phase1Entry, string> = {
   'debug-task': 'task',
   'task-lifecycle': 'task',
   'capture-work-item': 'none',
+  'maintain-project': 'user',
   'close-task': 'task',
 };
 
@@ -85,6 +89,7 @@ const EXPECTED_RUNTIME_OPERATIONS: Record<Phase1Entry, readonly string[]> = {
   'debug-task': ['task-state-transaction'],
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
+  'maintain-project': [],
   'close-task': [
     'project-status-transaction',
     'user-decision-transaction',
@@ -127,6 +132,7 @@ const REQUIRED_ENTRY_CAPABILITIES: Partial<Record<Phase1Entry, readonly string[]
   'debug-task': ['scope-guard', 'review-convergence-policy', 'evidence-admission-policy'],
   'task-lifecycle': ['scope-guard'],
   'capture-work-item': ['scope-guard'],
+  'maintain-project': ['project-context-resolver', 'source-authority-policy', 'scope-guard', 'product-document-maintenance'],
   'close-task': ['evidence-admission-policy'],
 };
 
@@ -759,12 +765,15 @@ function validateTemplate(
   const productFiles = expectStringArray(boundary.product_files, `${entry}.mutation_boundary.product_files`, true);
   const governanceSources = expectStringArray(boundary.governance_sources, `${entry}.mutation_boundary.governance_sources`, true);
   expectStringArray(boundary.forbidden_targets, `${entry}.mutation_boundary.forbidden_targets`);
-  if (entry !== 'execute-step' && productFiles.length > 0) {
+  if (entry !== 'execute-step' && entry !== 'maintain-project' && productFiles.length > 0) {
     fail(`${entry} must not directly write product files`);
   }
   if (governanceSources.length > 0) fail(`${entry} must not directly write governance sources`);
   if (entry === 'execute-step') {
     expectSetEqual(productFiles, ['admitted_scope'], `${entry}.mutation_boundary.product_files`);
+  }
+  if (entry === 'maintain-project') {
+    expectSetEqual(productFiles, ['authorized_product_documents'], `${entry}.mutation_boundary.product_files`);
   }
   if ((entry === 'review-change' || entry === 'review-draft') && productFiles.length !== 0) {
     fail(`${entry} must have an empty direct product write boundary`);

@@ -1,0 +1,464 @@
+{
+  "kind": "product-maintenance-result/v1",
+  "action": "read",
+  "development_gate": false,
+  "qualification": "not-evaluated",
+  "task_operations": "not-performed",
+  "status": "available",
+  "project_id": "isolated-device-import",
+  "working_copy": {
+    "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72",
+    "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72"
+  },
+  "read_at": "2026-10-04T15:02:04.237Z",
+  "manifest": {
+    "schema": "vnext-product-manifest/v2",
+    "project_id": "isolated-device-import",
+    "entry": "docs/product/PROJECT.md",
+    "managed_paths": [
+      "docs/product/*.md"
+    ],
+    "source_paths": [
+      "inputs/**",
+      "docs/evidence/**",
+      "docs/product/raw/**",
+      "docs/product/history/**",
+      ".workflow-system/records/events/*.json"
+    ],
+    "capture_paths": [
+      "docs/product/raw/**",
+      "docs/product/history/**"
+    ],
+    "exclude_paths": [],
+    "maintenance": "enabled"
+  },
+  "manifest_path": ".workflow-system/PRODUCT.yaml",
+  "manifest_sha256": "a6ec489b459b912835adb86a6e78577772d8656f3f417b46b6c559a6d60f9d6c",
+  "documents": [
+    {
+      "path": "docs/product/DESIGN.md",
+      "sha256": "13b3b0dfc2bf2a340e955c8ba6d94fb8dde74e79dfb49f41de8f9681a2ac578f",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 1,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/DESIGN.md"
+      }
+    },
+    {
+      "path": "docs/product/PLAN.md",
+      "sha256": "1a02118c3ce699a7739c781999f4839f537a10d63821f0e372012db7281afcfb",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 1,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/PLAN.md"
+      }
+    },
+    {
+      "path": "docs/product/PROJECT.md",
+      "sha256": "c99ac498a96c142534b105da99221533bee9ca14a536cff6aac98469bf738d17",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 3,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/PROJECT.md"
+      }
+    },
+    {
+      "path": "docs/product/REQUIREMENTS.md",
+      "sha256": "b0b46482278a9a7aa3a95603113985d568c6031362c33610b26caa8a34cb159e",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 3,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md"
+      }
+    }
+  ],
+  "usable_items": [
+    {
+      "id": "DES-CSV",
+      "type": "design",
+      "title": "本地 CSV 解析方案",
+      "path": "docs/product/DESIGN.md",
+      "line": 31,
+      "metadata": {
+        "id": "DES-CSV",
+        "type": "design",
+        "intent_state": "adopted",
+        "links": [
+          {
+            "id": "L-REQ",
+            "relation": "addresses",
+            "target": "REQ-IMPORT",
+            "origin": "declared",
+            "state": "active"
+          }
+        ],
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ]
+      },
+      "definition_sha256": null,
+      "body": "## [DES-CSV] 本地 CSV 解析方案\n### 设计方案\n使用小型 Node 解析函数；先解析字段，再校验本地记录。\n### 约束与取舍\n离线、仅两个已约定字段；不引入存储或额外服务。\n### 实际实现与差异\n此刻尚未创建实现文件；采用方案不是实现完成。\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/DESIGN.md",
+        "item_id": "DES-CSV"
+      }
+    },
+    {
+      "id": "PLAN-IMPORT",
+      "type": "plan",
+      "title": "导入分批安排",
+      "path": "docs/product/PLAN.md",
+      "line": 83,
+      "metadata": {
+        "id": "PLAN-IMPORT",
+        "type": "plan",
+        "intent_state": "adopted",
+        "targets": [
+          {
+            "target": "REQ-IMPORT",
+            "coverage": "导入与后续本地使用"
+          },
+          {
+            "target": "REQ-ERROR",
+            "coverage": "错误诊断"
+          }
+        ],
+        "work_items": [
+          {
+            "id": "E6A",
+            "title": "导入脚本基础",
+            "outcome": "提供可执行解析函数及最小有效输入检查",
+            "scope": "输入解析与局部错误，排除统计界面",
+            "targets": [
+              {
+                "target": "REQ-IMPORT",
+                "coverage": "导入脚本"
+              }
+            ],
+            "state": "included",
+            "origin": "initial"
+          },
+          {
+            "id": "E6B",
+            "title": "诊断范围",
+            "outcome": "整理并核对错误定位",
+            "scope": "错误原因及行号，排除上传",
+            "targets": [
+              {
+                "target": "REQ-ERROR",
+                "coverage": "本地诊断"
+              }
+            ],
+            "state": "included",
+            "origin": "initial",
+            "depends_on": [
+              {
+                "item_id": "E6A",
+                "kind": "order",
+                "reason": "先有导入函数再核对诊断"
+              }
+            ]
+          },
+          {
+            "id": "E6C",
+            "title": "后续本地使用",
+            "outcome": "使用有效导入数据",
+            "scope": "只消费约定可靠数据，当前不提前创建 task",
+            "targets": [
+              {
+                "target": "REQ-IMPORT",
+                "coverage": "后续数据使用"
+              }
+            ],
+            "state": "included",
+            "origin": "initial",
+            "depends_on": [
+              {
+                "item_id": "E6B",
+                "kind": "order",
+                "reason": "原分批安排"
+              }
+            ]
+          }
+        ]
+      },
+      "definition_sha256": null,
+      "body": "## [PLAN-IMPORT] 导入分批安排\n### 实施策略\n在合成验收授权下选择 A/B/C 三项；仍是原业务需求，不为工作项再制造需求。\n### 阶段与工作项说明\n原定 E6A、E6B、E6C；近期只准备 A/B 的真实 task，C 暂无 task。\n### 调整与未决事项\n其他业务未盘点；是否需要多设备仍候选。项目 plan 不属于 Runtime plan_ref。\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/PLAN.md",
+        "item_id": "PLAN-IMPORT"
+      }
+    },
+    {
+      "id": "PROJECT-DEVICES",
+      "type": "project",
+      "title": "离线设备导入验收项目",
+      "path": "docs/product/PROJECT.md",
+      "line": 64,
+      "metadata": {
+        "id": "PROJECT-DEVICES",
+        "type": "project",
+        "inventory": {
+          "state": "partial",
+          "checked_sources": [
+            {
+              "kind": "file",
+              "path": "inputs/brief.md",
+              "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+            }
+          ],
+          "unreviewed_sources": [
+            {
+              "kind": "file",
+              "path": "inputs/unreviewed.md",
+              "note": "此轮未读取，不宣称全项目盘点"
+            }
+          ]
+        }
+      },
+      "definition_sha256": null,
+      "body": "## [PROJECT-DEVICES] 离线设备导入验收项目\n### 项目定位\n隔离合成业务，用实际 CLI 操作和执行材料检查 maintain-project；不是用户业务项目。\n### 盘点范围与未核对项\n只读取 brief.md 的导入范围；其他业务未核对。\n\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/PROJECT.md",
+        "item_id": "PROJECT-DEVICES"
+      }
+    },
+    {
+      "id": "GOAL-IMPORT",
+      "type": "goal",
+      "title": "可靠离线导入",
+      "path": "docs/product/PROJECT.md",
+      "line": 71,
+      "metadata": {
+        "id": "GOAL-IMPORT",
+        "type": "goal",
+        "scope": "current",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ]
+      },
+      "definition_sha256": null,
+      "body": "## [GOAL-IMPORT] 可靠离线导入\n### 目标说明\n把受约定约束的设备记录导入为本地数据。\n### 范围边界\n保持离线；无网络上传、数据库或统计看板。\n\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/PROJECT.md",
+        "item_id": "GOAL-IMPORT"
+      }
+    },
+    {
+      "id": "MOD-IMPORT",
+      "type": "module",
+      "title": "设备清单处理",
+      "path": "docs/product/PROJECT.md",
+      "line": 78,
+      "metadata": {
+        "id": "MOD-IMPORT",
+        "type": "module",
+        "scope": "current",
+        "links": [
+          {
+            "id": "L-GOAL",
+            "relation": "supports",
+            "target": "GOAL-IMPORT",
+            "origin": "declared",
+            "state": "active"
+          }
+        ],
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ]
+      },
+      "definition_sha256": null,
+      "body": "## [MOD-IMPORT] 设备清单处理\n### 业务能力\n输入解析、错误定位和后续本地使用。\n### 范围边界\n只组织导入业务，不扩展上传或统计功能。\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/PROJECT.md",
+        "item_id": "MOD-IMPORT"
+      }
+    },
+    {
+      "id": "REQ-IMPORT",
+      "type": "requirement",
+      "title": "导入一台设备",
+      "path": "docs/product/REQUIREMENTS.md",
+      "line": 55,
+      "metadata": {
+        "id": "REQ-IMPORT",
+        "type": "requirement",
+        "scope": "current",
+        "links": [
+          {
+            "id": "L-MOD",
+            "relation": "part_of",
+            "target": "MOD-IMPORT",
+            "origin": "declared",
+            "state": "active"
+          }
+        ],
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ]
+      },
+      "definition_sha256": "df0de15f51c84db509579d589f679bd949dc8f3f5c2bbb1774830acc04247fc9",
+      "body": "## [REQ-IMPORT] 导入一台设备\n### 需求内容\nCSV 字段为 device_id,label；device_id 必须为正整数，label 去除首尾空格后非空。一次导入一台设备；无效输入拒绝。\n### 范围边界\n不支持网络上传、数据库、统计看板及未约定字段；当前不扩大为三台。\n### 验收要求\n有效单台输入保留 id 与 label；空、非正整数 id 或空 label 不进入结果。多个设备不属于本期接受范围。\n\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md",
+        "item_id": "REQ-IMPORT"
+      }
+    },
+    {
+      "id": "REQ-ERROR",
+      "type": "requirement",
+      "title": "失败输入诊断",
+      "path": "docs/product/REQUIREMENTS.md",
+      "line": 64,
+      "metadata": {
+        "id": "REQ-ERROR",
+        "type": "requirement",
+        "scope": "current",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ]
+      },
+      "definition_sha256": "6fa6d665aab7182f61ef5023c18562ff29887c699650f6500e5276c9b10a5fce",
+      "body": "## [REQ-ERROR] 失败输入诊断\n### 需求内容\n失败时说明实际输入行号和具体原因。\n### 范围边界\n本地错误提示，未建立 UI 或远程日志服务。\n### 验收要求\n无效字段错误含 CSV 实际行号和原因，不用泛化成功提示。\n\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md",
+        "item_id": "REQ-ERROR"
+      }
+    },
+    {
+      "id": "REQ-MULTI",
+      "type": "requirement",
+      "title": "后续多设备候选",
+      "path": "docs/product/REQUIREMENTS.md",
+      "line": 73,
+      "metadata": {
+        "id": "REQ-MULTI",
+        "type": "requirement",
+        "scope": "candidate",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ]
+      },
+      "definition_sha256": "3883b9a871a2c23aeb655a32985d66c6151bbeb19c1373df1ef667f570f3d740",
+      "body": "## [REQ-MULTI] 后续多设备候选\n### 需求内容\n可以研究批量设备范围；目前未采用。\n### 范围边界\n没有 task、设计或本期交付义务；不把当前单台实现说成多设备交付。\n### 验收要求\n待实际范围决定后定义，不编造目前验收。\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md",
+        "item_id": "REQ-MULTI"
+      }
+    }
+  ],
+  "unusable_items": [],
+  "reverse_relations": [
+    {
+      "owner": "DES-CSV",
+      "id": "L-REQ",
+      "relation": "addresses",
+      "target": "REQ-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    },
+    {
+      "owner": "PLAN-IMPORT",
+      "relation": "plan-target",
+      "target": "REQ-IMPORT",
+      "coverage": "导入与后续本地使用"
+    },
+    {
+      "owner": "PLAN-IMPORT",
+      "relation": "plan-target",
+      "target": "REQ-ERROR",
+      "coverage": "错误诊断"
+    },
+    {
+      "owner": "MOD-IMPORT",
+      "id": "L-GOAL",
+      "relation": "supports",
+      "target": "GOAL-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    },
+    {
+      "owner": "REQ-IMPORT",
+      "id": "L-MOD",
+      "relation": "part_of",
+      "target": "MOD-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    }
+  ],
+  "plan_tasks": [
+    {
+      "plan_id": "PLAN-IMPORT",
+      "work_items": [
+        {
+          "work_item_id": "E6A",
+          "bindings": []
+        },
+        {
+          "work_item_id": "E6B",
+          "bindings": []
+        },
+        {
+          "work_item_id": "E6C",
+          "bindings": []
+        }
+      ]
+    }
+  ],
+  "discussions": [],
+  "impact": null,
+  "sources": [],
+  "diagnostics": [],
+  "coverage": {
+    "complete": true,
+    "files_read": 4,
+    "bytes_read": 7580,
+    "enumeration": "managed_paths only; sources are read only by explicit reference",
+    "omitted": [],
+    "max_files": 1000,
+    "max_file_bytes": 4194304,
+    "max_total_bytes": 33554432,
+    "usable_count": 8,
+    "invalid_count": 0,
+    "selection": "all-enumerated-items",
+    "paths": "manifest-managed-paths",
+    "source_bodies": "not-read"
+  },
+  "task_status": "not-computed; use existing assistance only when actual task state is needed"
+}

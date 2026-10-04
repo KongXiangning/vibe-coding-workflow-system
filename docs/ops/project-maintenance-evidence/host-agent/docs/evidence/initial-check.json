@@ -1,0 +1,1 @@
+{"command":["node","checks/initial.mjs"],"exit_code":0,"stdout":"PASS: valid single device and blank-label diagnostics; positive-id edge cases not checked\n","stderr":"","source_sha256":"d4a3fb855c8aa93a7cd404428fd747ea4dfc5bf11ef412d82d40d98ddeef7750","coverage":"有效单台与空 label；未覆盖空/零/小数 ID"}

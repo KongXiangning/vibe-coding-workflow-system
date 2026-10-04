@@ -133,10 +133,26 @@ function copyDirectory(sourceRoot: string, targetRoot: string, relativePath: str
   fs.cpSync(source, target, { recursive: true });
 }
 
-function bundleArtifactSpecs(): Array<{ source_path: string; target_path: string; category: 'protocol' | 'schema' | 'skill' | 'runtime' | 'config' | 'generated' }> {
-  const skillEntries = ['bootstrap-project', 'prepare-task', 'review-draft', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'close-task', 'validate-change', 'git-commit'];
+function productSupportFiles(sourceRoot: string): string[] {
+  const files: string[] = [];
+  const walk = (relative: string) => {
+    for (const entry of fs.readdirSync(path.join(sourceRoot, relative), { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name))) {
+      const next = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) walk(next);
+      else if (entry.isFile()) files.push(next);
+      else throw new Error(`Product maintenance support must contain regular files: ${next}`);
+    }
+  };
+  walk('runtime/vnext/support/product-maintenance');
+  return files;
+}
+
+function bundleArtifactSpecs(sourceRoot: string): Array<{ source_path: string; target_path: string; category: 'protocol' | 'schema' | 'skill' | 'runtime' | 'config' | 'generated' }> {
+  const skillEntries = ['bootstrap-project', 'prepare-task', 'review-draft', 'review-change', 'execute-step', 'debug-task', 'task-lifecycle', 'capture-work-item', 'maintain-project', 'close-task', 'validate-change', 'git-commit'];
   const runtimeSources = ['project-documents.ts', 'file-context.ts', 'file-context-cli.ts', 'rg-tool.ts', 'install-tools.ts', 'install-tools-cli.ts', 'cli.ts', 'current-task.ts', 'task-context.ts', 'task-store.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'execution-admission.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'host-guidance.ts', 'migration-provenance.ts', 'migration-preservation.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
   return [
+    { source_path: 'runtime/vnext/dist/product-maintenance.js', target_path: '.workflow-system/runtime/support/product-maintenance.js', category: 'runtime' },
+    ...productSupportFiles(sourceRoot).map(file => ({ source_path: file, target_path: file.replace('runtime/vnext/support/', '.workflow-system/runtime/support/'), category: 'runtime' as const })),
     { source_path: 'runtime/vnext/dist/install-tools.js', target_path: RG_INSTALL_ENTRY, category: 'runtime' },
     { source_path: 'runtime/vnext/support/CONTEXT_API.md', target_path: '.workflow-system/runtime/support/CONTEXT_API.md', category: 'runtime' },
     { source_path: 'runtime/vnext/support/TASK_MANAGEMENT_API.md', target_path: '.workflow-system/runtime/support/TASK_MANAGEMENT_API.md', category: 'runtime' },
@@ -177,6 +193,7 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
   copyDirectory(sourceRoot, targetRoot, 'templates/skills');
   for (const relativePath of [
     'runtime/vnext/dist/install-tools.js',
+    'runtime/vnext/dist/product-maintenance.js',
     'runtime/vnext/support/CONTEXT_API.md',
     'runtime/vnext/support/assistance.mjs',
     'runtime/vnext/support/task-management.mjs',
@@ -188,6 +205,7 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
     'runtime/vnext/package-lock.json',
     'runtime/vnext/support/bootstrap/CURRENT_TASK.md.tmpl',
   ]) copyFile(sourceRoot, targetRoot, relativePath);
+  copyDirectory(sourceRoot, targetRoot, 'runtime/vnext/support/product-maintenance');
   copyDirectory(sourceRoot, targetRoot, 'runtime/vnext/src');
 }
 
@@ -246,7 +264,7 @@ export function buildVibeGovernanceDistribution(options: BuildDistributionOption
   const temporaryBundleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-governance-release-bundle-'));
   let bundle: VNextBundleManifest;
   try {
-    bundle = buildVNextBundle({ sourceRoot: migrationSourceRoot, bundleDir: temporaryBundleRoot, artifacts: bundleArtifactSpecs(), portable: true });
+    bundle = buildVNextBundle({ sourceRoot: migrationSourceRoot, bundleDir: temporaryBundleRoot, artifacts: bundleArtifactSpecs(migrationSourceRoot), portable: true });
     fs.cpSync(temporaryBundleRoot, bundleRoot, { recursive: true });
   } finally {
     fs.rmSync(temporaryBundleRoot, { recursive: true, force: true });

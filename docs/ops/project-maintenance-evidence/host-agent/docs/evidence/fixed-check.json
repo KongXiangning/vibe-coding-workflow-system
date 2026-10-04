@@ -1,0 +1,25 @@
+{
+  "provenance": "actual host Agent rerun in isolated acceptance",
+  "checks": [
+    {
+      "command": [
+        "node",
+        "checks/fixed.mjs"
+      ],
+      "exit_code": 0,
+      "stdout": "PASS: valid single device, empty/zero/negative/decimal/nonnumeric ID rejection and blank-label diagnostics\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "node",
+        "checks/external-id.mjs"
+      ],
+      "exit_code": 0,
+      "stdout": "PASS: empty device_id rejected with row and cause\n",
+      "stderr": ""
+    }
+  ],
+  "source_sha256": "2c599cfbcab66ea4d9aadf291ba6beb655f99563c3655fbeb0c536f3115b3599",
+  "coverage": "有效单台；空/零/负数/小数/非数字 ID；空 label。额外字段/大数与其他业务未核对"
+}

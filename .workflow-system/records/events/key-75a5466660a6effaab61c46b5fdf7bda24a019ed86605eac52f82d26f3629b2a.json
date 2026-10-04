@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:34:07.388Z",
+  "payload_sha256": "484e472a1e463b6e43912c8b5f60c2fa03ec226f9a7f4eefa640bcfd32702db9",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-project-v1-delivery-B3-20261004",
+    "request": {
+      "action": "execution",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+      "step_id": "B3",
+      "source_revision": "Uncommitted working copy based on 445cee1f0eb01b2feede98e2addda209f418179c; candidate 0.24.0; helper sha256:615657a417be0796c81145afec5c2f4379474f2ca5a86d6c79777cea2f6c7f8e. This is not a full-project snapshot.",
+      "result": "completed",
+      "summary": "计划/工作项/范围 TaskBinding 和 prepare 最小接入已实施；真实身份与冲突后仅重试绑定已验证，未复制 task reducer。",
+      "report_ref": "docs/ops/project-maintenance-evidence/host-agent/agent-state.json",
+      "idempotency_key": "maintain-project-v1-delivery-B3-20261004"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "parents": [
+        ".workflow-system/records/events/key-ede25676139886255bc456f2079a2302b19850264d4c0aa1dd7ea0afb7ce5b51.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+        "step_id": "B3",
+        "source_revision": "Uncommitted working copy based on 445cee1f0eb01b2feede98e2addda209f418179c; candidate 0.24.0; helper sha256:615657a417be0796c81145afec5c2f4379474f2ca5a86d6c79777cea2f6c7f8e. This is not a full-project snapshot.",
+        "result": "completed",
+        "summary": "计划/工作项/范围 TaskBinding 和 prepare 最小接入已实施；真实身份与冲突后仅重试绑定已验证，未复制 task reducer。",
+        "report_ref": "docs/ops/project-maintenance-evidence/host-agent/agent-state.json"
+      }
+    }
+  },
+  "issues": []
+}

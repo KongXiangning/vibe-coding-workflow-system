@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:05:32.382Z",
+  "payload_sha256": "b48c8e8bcf8326c77c77a8696d9de116111f647d882c07f31a6b1130bbbec4f8",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-execute-E6B",
+    "request": {
+      "action": "execution",
+      "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+      "plan_ref": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+      "step_id": "S1",
+      "source_revision": "src/importer.mjs sha256:d4a3fb855c8aa93a7cd404428fd747ea4dfc5bf11ef412d82d40d98ddeef7750",
+      "result": "completed",
+      "commands": [
+        [
+          "node",
+          "checks/initial.mjs"
+        ]
+      ],
+      "report_ref": "docs/evidence/initial-check.json",
+      "idempotency_key": "host-execute-E6B"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+      "parents": [
+        ".workflow-system/records/events/key-6c19ee159a9ce972bdcdf189102b53db7733d0716c760ae983af1e89c965b1f2.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+        "step_id": "S1",
+        "source_revision": "src/importer.mjs sha256:d4a3fb855c8aa93a7cd404428fd747ea4dfc5bf11ef412d82d40d98ddeef7750",
+        "result": "completed",
+        "commands": [
+          [
+            "node",
+            "checks/initial.mjs"
+          ]
+        ],
+        "report_ref": "docs/evidence/initial-check.json"
+      }
+    }
+  },
+  "issues": []
+}

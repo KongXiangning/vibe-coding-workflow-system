@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:05:30.290Z",
+  "payload_sha256": "61b9d8bfbc644bfde725a8863d5f4f4ad4b01bd1012fcc20eee22dbf944cbc41",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-agent-E6B-first",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "host-agent-E6B-first",
+      "plan": {
+        "title": "E6B",
+        "goal": "空 label 行号与原因核对",
+        "acceptance": [
+          "空 label 行号与原因核对"
+        ],
+        "scope": [
+          "src/importer.mjs",
+          "checks/*.mjs",
+          "docs/evidence"
+        ],
+        "exclusions": [
+          "上传",
+          "统计",
+          "业务项目"
+        ],
+        "steps": [
+          {
+            "id": "S1",
+            "title": "空 label 行号与原因核对",
+            "environment": [
+              "隔离 Node 项目"
+            ],
+            "validation": [
+              "空 label 行号与原因核对"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+      "parents": [
+        ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json"
+      ],
+      "data": {
+        "plan": {
+          "title": "E6B",
+          "goal": "空 label 行号与原因核对",
+          "acceptance": [
+            "空 label 行号与原因核对"
+          ],
+          "scope": [
+            "src/importer.mjs",
+            "checks/*.mjs",
+            "docs/evidence"
+          ],
+          "exclusions": [
+            "上传",
+            "统计",
+            "业务项目"
+          ],
+          "steps": [
+            {
+              "id": "S1",
+              "title": "空 label 行号与原因核对",
+              "environment": [
+                "隔离 Node 项目"
+              ],
+              "validation": [
+                "空 label 行号与原因核对"
+              ]
+            }
+          ]
+        },
+        "create": true,
+        "display_id": "TASK-002"
+      }
+    }
+  },
+  "issues": []
+}

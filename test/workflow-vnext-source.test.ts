@@ -97,7 +97,7 @@ describe('vNext Phase 2 source contract', () => {
     expect(prepare).toContain('do not require the legacy `confirm-draft` transaction or an approval token.');
   });
 
-  test('accepts exactly the eight daily entries and closed catalogs', () => {
+  test('accepts the daily entries including project maintenance and closed catalogs', () => {
     const result = validateVNextSource(ROOT);
 
     expect(result.phase).toBe('Phase 2');
@@ -109,11 +109,12 @@ describe('vNext Phase 2 source contract', () => {
       'debug-task',
       'task-lifecycle',
       'capture-work-item',
+      'maintain-project',
       'close-task',
     ]);
     expect(result.administrativeEntries).toEqual(['bootstrap-project']);
     expect(result.expertEntries).toEqual(['validate-change', 'git-commit']);
-    expect(result.capabilities).toHaveLength(27);
+    expect(result.capabilities).toHaveLength(28);
     expect(result.runtimeOperations).toEqual([
       'archive-transaction',
       'contract-candidate-commit',

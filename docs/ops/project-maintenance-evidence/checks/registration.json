@@ -1,0 +1,16 @@
+{
+  "kind": "actual-command-result/v1",
+  "command": [
+    "bun",
+    "run",
+    "validate:vnext-source"
+  ],
+  "cwd": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system",
+  "started_at": "2026-10-04T15:29:50.762Z",
+  "ended_at": "2026-10-04T15:29:51.288Z",
+  "exit_code": 0,
+  "signal": null,
+  "error": null,
+  "stdout": "vNext source contract: PASSED (Phase 2; 9 daily entries, 1 administrative entries, 2 expert entries, 28 capabilities, 11 Runtime operations)\n",
+  "stderr": "$ bun run scripts/vnext-source-contract.ts\n"
+}

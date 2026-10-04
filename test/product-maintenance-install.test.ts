@@ -1,0 +1,38 @@
+import { afterAll, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { installDistribution, upgradeDistribution } from '../scripts/vibe-governance-distribution';
+const roots: string[] = [];
+afterAll(() => { for (const root of roots) fs.rmSync(root, { recursive: true, force: true }); });
+const packageRoot = path.resolve(import.meta.dir, '../packages/vibe-governance');
+
+test('installed maintenance assets execute with Node and upgrade preserves all target-owned business bytes', { timeout: 45000 }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'product-installed-')); roots.push(root);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"isolated-product","private":true,"type":"module"}\n');
+  const installed = installDistribution({ targetRoot: root, packageRoot }); expect(installed.status).toBe('installed');
+  const support = path.join(root, '.workflow-system/runtime/support/product-maintenance');
+  const helper = path.join(root, '.workflow-system/runtime/support/product-maintenance.js');
+  expect(fs.existsSync(path.join(root, '.agents/skills/maintain-project/SKILL.md'))).toBe(true);
+  for (const asset of ['API.md', 'contract.md', 'references/inventory.md', 'references/update.md', 'references/plan.md', 'references/discussion.md', 'references/reconcile.md', 'references/recovery.md', 'templates/PRODUCT.yaml', 'templates/PROJECT.md', 'schemas/product-doc-v1.json', 'schemas/product-doc-v2.json', 'schemas/product-manifest-v1.json', 'schemas/product-manifest-v2.json', 'schemas/request-v1.json', 'offline-reader.js']) expect(fs.existsSync(path.join(support, asset))).toBe(true);
+  const invoke = (action: string, input: any = {}) => JSON.parse(execFileSync('node', [helper, action, '--root', root], { encoding: 'utf8', input: JSON.stringify(input) }));
+  expect(invoke('read').status).toBe('not-enabled'); expect(fs.existsSync(path.join(root, '.workflow-system/PRODUCT.yaml'))).toBe(false);
+  const example = path.join(support, 'examples/e6');
+  fs.cpSync(path.join(example, 'docs'), path.join(root, 'docs'), { recursive: true });
+  fs.copyFileSync(path.join(example, '.workflow-system/PRODUCT.yaml'), path.join(root, '.workflow-system/PRODUCT.yaml'));
+  fs.mkdirSync(path.join(root, 'docs/product/history'), { recursive: true }); fs.writeFileSync(path.join(root, 'docs/product/history/earlier.md'), '用户历史，不属于安装软件。\r\n');
+  const owned = ['.workflow-system/PRODUCT.yaml', 'docs/product/PROJECT.md', 'docs/product/REQUIREMENTS.md', 'docs/product/PLAN.md', 'docs/product/ASSESSMENTS.md', 'docs/product/DISCUSSIONS.md', 'docs/product/raw/selected.txt', 'docs/product/history/earlier.md'];
+  const before = owned.map(relative => fs.readFileSync(path.join(root, relative)));
+  const read = invoke('read', { detail: 'items', discussion_targets: ['REQ-IMPORT'] }); expect(read.usable_items.some((i: any) => i.type === 'plan')).toBe(true); expect(read.discussions).toHaveLength(1);
+  const statePath = path.join(root, '.workflow-system/vnext/DISTRIBUTION_STATE.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8')); state.distribution_version = '0.0.1'; fs.writeFileSync(statePath, JSON.stringify(state));
+  const upgraded = upgradeDistribution({ targetRoot: root, packageRoot }); expect(upgraded.status).toBe('upgraded');
+  owned.forEach((relative, i) => expect(fs.readFileSync(path.join(root, relative))).toEqual(before[i]!));
+  expect(invoke('check').development_gate).toBe(false);
+  const offline = fs.mkdtempSync(path.join(os.tmpdir(), 'product-offline-')); roots.push(offline);
+  fs.cpSync(example, offline, { recursive: true }); fs.copyFileSync(path.join(support, 'offline-reader.js'), path.join(offline, 'offline-reader.mjs'));
+  const result = JSON.parse(execFileSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' }));
+  expect(fs.existsSync(path.join(offline, '.workflow-system/runtime'))).toBe(false); expect(fs.existsSync(path.join(offline, 'node_modules'))).toBe(false);
+  expect(result.items.map((i: any) => i.type)).toContain('discussion'); expect(result.plan_tasks[0].work_items).toHaveLength(4); expect(result.task_states).toContain('not-computed');
+});

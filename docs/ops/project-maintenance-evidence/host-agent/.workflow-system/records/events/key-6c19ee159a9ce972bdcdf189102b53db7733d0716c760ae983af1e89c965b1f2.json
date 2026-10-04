@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:05:32.203Z",
+  "payload_sha256": "9eb791b5b6c4abc721a4361b7220f62b794b1fcdec4bb2a10d4c576859172033",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-adopt-E6B",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+      "plan_ref": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+      "decision_source": "用户授权的隔离宿主 Agent 验收，当前 Agent 划分近期工作",
+      "decision_text": "在合成验收内按 A/B 基础覆盖执行并保留未核对边界，不代表真实用户任务决定",
+      "focus": true,
+      "idempotency_key": "host-adopt-E6B"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+      "parents": [
+        ".workflow-system/records/events/key-3c99ffa465c1a80ae59c42434f2fe5aafd7d8f3881fba8e9180d7676f62458bc.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+        "decision_source": "用户授权的隔离宿主 Agent 验收，当前 Agent 划分近期工作",
+        "decision_text": "在合成验收内按 A/B 基础覆盖执行并保留未核对边界，不代表真实用户任务决定",
+        "focus": true,
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

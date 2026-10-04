@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:34:07.208Z",
+  "payload_sha256": "9e874f5ca0336173bc1cbcdb54913849466b8d82709e1fcdd83d6acad63a583e",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-project-v1-delivery-B2-20261004",
+    "request": {
+      "action": "execution",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+      "step_id": "B2",
+      "source_revision": "Uncommitted working copy based on 445cee1f0eb01b2feede98e2addda209f418179c; candidate 0.24.0; helper sha256:615657a417be0796c81145afec5c2f4379474f2ca5a86d6c79777cea2f6c7f8e. This is not a full-project snapshot.",
+      "result": "completed",
+      "summary": "局部安全写入、原文保存、五类宿主维护方法及讨论采纳分离已实施；当前 Agent 的隔离业务操作和原字节快照已保存。",
+      "report_ref": "docs/ops/project-maintenance-evidence/host-agent/agent-observations.jsonl",
+      "idempotency_key": "maintain-project-v1-delivery-B2-20261004"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "parents": [
+        ".workflow-system/records/events/key-dc5837ffab54ab817ca60663445d269ad28c5f771701b3c9b80aced0e5829cc8.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+        "step_id": "B2",
+        "source_revision": "Uncommitted working copy based on 445cee1f0eb01b2feede98e2addda209f418179c; candidate 0.24.0; helper sha256:615657a417be0796c81145afec5c2f4379474f2ca5a86d6c79777cea2f6c7f8e. This is not a full-project snapshot.",
+        "result": "completed",
+        "summary": "局部安全写入、原文保存、五类宿主维护方法及讨论采纳分离已实施；当前 Agent 的隔离业务操作和原字节快照已保存。",
+        "report_ref": "docs/ops/project-maintenance-evidence/host-agent/agent-observations.jsonl"
+      }
+    }
+  },
+  "issues": []
+}

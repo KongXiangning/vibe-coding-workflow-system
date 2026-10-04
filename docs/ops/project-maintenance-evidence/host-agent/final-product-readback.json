@@ -1,0 +1,1124 @@
+{
+  "kind": "product-maintenance-result/v1",
+  "action": "read",
+  "development_gate": false,
+  "qualification": "not-evaluated",
+  "task_operations": "not-performed",
+  "status": "available",
+  "project_id": "isolated-device-import",
+  "working_copy": {
+    "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72",
+    "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72"
+  },
+  "read_at": "2026-10-04T15:08:17.440Z",
+  "manifest": {
+    "schema": "vnext-product-manifest/v2",
+    "project_id": "isolated-device-import",
+    "entry": "docs/product/PROJECT.md",
+    "managed_paths": [
+      "docs/product/*.md"
+    ],
+    "source_paths": [
+      "inputs/**",
+      "docs/evidence/**",
+      "docs/product/raw/**",
+      "docs/product/history/**",
+      ".workflow-system/records/events/*.json"
+    ],
+    "capture_paths": [
+      "docs/product/raw/**",
+      "docs/product/history/**"
+    ],
+    "exclude_paths": [],
+    "maintenance": "enabled"
+  },
+  "manifest_path": ".workflow-system/PRODUCT.yaml",
+  "manifest_sha256": "a6ec489b459b912835adb86a6e78577772d8656f3f417b46b6c559a6d60f9d6c",
+  "documents": [
+    {
+      "path": "docs/product/ASSESSMENTS.md",
+      "sha256": "9edb8fdbd0d5680e3d604933336cb90ba8ae5167b6fef6d2d95e28ffecdf5923",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 2,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/ASSESSMENTS.md"
+      }
+    },
+    {
+      "path": "docs/product/CHANGES.md",
+      "sha256": "a4abe43a3cfa2aae1ada5b756efbfdc6df011a02f3ae36d9c08f5366528d0f12",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 2,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/CHANGES.md"
+      }
+    },
+    {
+      "path": "docs/product/DESIGN.md",
+      "sha256": "d501484c143389126dc4a18ea297651511c6886e07be7c3fb3282855d799c242",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 1,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/DESIGN.md"
+      }
+    },
+    {
+      "path": "docs/product/DISCUSSIONS.md",
+      "sha256": "d6798f07a58e451229b24f4ed49e32e474a5fbc63daa6a88b7c4580f008343a0",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 1,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/DISCUSSIONS.md"
+      }
+    },
+    {
+      "path": "docs/product/PLAN.md",
+      "sha256": "105529cc3bf4d8d5421c1cc1786cdad8de553f17e2dfc0c673f6404417a68948",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 1,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/PLAN.md"
+      }
+    },
+    {
+      "path": "docs/product/PROJECT.md",
+      "sha256": "c99ac498a96c142534b105da99221533bee9ca14a536cff6aac98469bf738d17",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 3,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/PROJECT.md"
+      }
+    },
+    {
+      "path": "docs/product/REQUIREMENTS.md",
+      "sha256": "19857c25b277bcbc594b4fbfb02692703b2e3827a8ba44147def51d7347038a1",
+      "schema": "vnext-product-doc/v2",
+      "usable_count": 3,
+      "raw_locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md"
+      }
+    }
+  ],
+  "usable_items": [
+    {
+      "id": "AS-BASE",
+      "type": "assessment",
+      "title": "基础输入检查",
+      "path": "docs/product/ASSESSMENTS.md",
+      "line": 9,
+      "metadata": {
+        "id": "AS-BASE",
+        "type": "assessment",
+        "target": "REQ-IMPORT",
+        "target_basis": {
+          "kind": "file",
+          "path": "docs/product/history/baseline-requirements.md",
+          "sha256": "a832de3c38fd0bb58fd34680569ae5d1ad891461ba77d4e2c67ca8a4684f0320",
+          "item_id": "REQ-IMPORT"
+        },
+        "target_definition_sha256": "df0de15f51c84db509579d589f679bd949dc8f3f5c2bbb1774830acc04247fc9",
+        "checked_at": "2026-10-04T15:05:33.291Z",
+        "subject": {
+          "kind": "working-copy",
+          "value": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72"
+        },
+        "implementation": "partial-reported",
+        "verification": "pass-reported",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/evidence/initial-check.json",
+            "sha256": "0a4d54c74d450f8fb76cf68cc16b4d67dba30eae188f5dfc874d4641f9c6d314"
+          }
+        ],
+        "pending_sources": [
+          {
+            "kind": "file",
+            "path": "docs/product/raw/external-empty-id.json",
+            "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+          }
+        ]
+      },
+      "definition_sha256": null,
+      "body": "## [AS-BASE] 基础输入检查\n### 覆盖范围\n只有有效单台与空 label 输入，工作副本标签不是整个代码快照。\n### 交付与验证依据\n初始 Node 检查实际通过；原文件带实际代码文件摘要。A/B 关闭不证明需求完整通过。\n### 剩余与待核对\n空、零、小数 ID 等未检查；原报告完整保留，后续新失败必须纳入。\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/ASSESSMENTS.md",
+        "item_id": "AS-BASE"
+      }
+    },
+    {
+      "id": "AS-FIXED",
+      "type": "assessment",
+      "title": "输入边界修复后的实际核对",
+      "path": "docs/product/ASSESSMENTS.md",
+      "line": 17,
+      "metadata": {
+        "id": "AS-FIXED",
+        "type": "assessment",
+        "target": "REQ-IMPORT",
+        "target_basis": {
+          "kind": "file",
+          "path": "docs/product/history/baseline-requirements.md",
+          "item_id": "REQ-IMPORT",
+          "sha256": "a832de3c38fd0bb58fd34680569ae5d1ad891461ba77d4e2c67ca8a4684f0320"
+        },
+        "target_definition_sha256": "df0de15f51c84db509579d589f679bd949dc8f3f5c2bbb1774830acc04247fc9",
+        "checked_at": "2026-10-04T15:08:16.603Z",
+        "subject": {
+          "kind": "working-copy",
+          "value": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72"
+        },
+        "implementation": "partial-reported",
+        "verification": "pass-reported",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/product/raw/external-empty-id.json",
+            "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+          },
+          {
+            "kind": "file",
+            "path": "docs/evidence/fixed-check.json",
+            "sha256": "061bfb90e631467673f0274c7107b95c994b97a946d7374a7b106917c214576c"
+          }
+        ],
+        "pending_sources": []
+      },
+      "definition_sha256": null,
+      "body": "## [AS-FIXED] 输入边界修复后的实际核对\n### 覆盖范围\n当前实际执行：有效单台，空/零/负数/小数/非数字 ID 拒绝，空 label；额外列、大数、其他业务仍未核对。工作副本不是全项目精确快照；报告带实际 importer 文件 SHA。\n### 交付与验证依据\n原 baseline 的有效输入 PASS 与新增反例失败均保留；修复后同一个空 ID 反例与扩展输入检查实际通过。不同代码文件摘要分别解释，原报告不删除。\n### 剩余与待核对\nE6C 未执行；额外列、大数与未盘点业务仍有范围缺口。AS-BASE 的历史 pending 保留，新入口说明该失败如何完成局部对账；关闭 task 不产生本摘要。\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/ASSESSMENTS.md",
+        "item_id": "AS-FIXED"
+      }
+    },
+    {
+      "id": "DISC-SELECTED",
+      "type": "discussion",
+      "title": "导入范围与错误定位讨论",
+      "path": "docs/product/DISCUSSIONS.md",
+      "line": 11,
+      "metadata": {
+        "id": "DISC-SELECTED",
+        "type": "discussion",
+        "raw_ref": {
+          "kind": "file",
+          "path": "docs/product/raw/selected-discussion.txt",
+          "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594"
+        },
+        "submitted_at": "2026-10-04T15:03:42.733Z",
+        "origin": {
+          "channel": "other",
+          "occurred_at": null,
+          "locator": "隔离合成验收输入"
+        },
+        "record_state": "active",
+        "links": [
+          {
+            "id": "L-MULTI",
+            "relation": "discusses",
+            "target": "REQ-MULTI",
+            "origin": "inferred",
+            "state": "active",
+            "reason": "片段一与候选多设备范围一致；并非采纳三设备",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/selected-discussion.txt",
+                "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+                "lines": {
+                  "start": 1,
+                  "end": 1
+                }
+              }
+            ]
+          },
+          {
+            "id": "L-ERROR",
+            "relation": "discusses",
+            "target": "REQ-ERROR",
+            "origin": "declared",
+            "state": "active",
+            "reason": "当前 Agent 在授权验收中确认关联；还未采纳正文变化",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/selected-discussion.txt",
+                "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+                "lines": {
+                  "start": 2,
+                  "end": 2
+                }
+              }
+            ]
+          },
+          {
+            "id": "L-DESIGN",
+            "relation": "discusses",
+            "target": "DES-CSV",
+            "origin": "inferred",
+            "state": "dismissed",
+            "reason": "保持备选原文；本次维护无需持续将上传建议关联为当前方案讨论",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/selected-discussion.txt",
+                "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+                "lines": {
+                  "start": 3,
+                  "end": 3
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "definition_sha256": null,
+      "body": "## [DISC-SELECTED] 导入范围与错误定位讨论\n### 整理摘要\n多设备与上传是备选；只有失败行号与具体原因在此验收材料中明确纳入。未知发言者、原始日期保持未知。\n### 议题与未决问题\n是否扩展三设备仍候选；云上传与离线约束冲突。原文中的自动上传指令仅作资料，没有执行。\n\n",
+      "summary": "多设备与上传是备选；只有失败行号与具体原因在此验收材料中明确纳入。未知发言者、原始日期保持未知。",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/DISCUSSIONS.md",
+        "item_id": "DISC-SELECTED"
+      }
+    },
+    {
+      "id": "PLAN-IMPORT",
+      "type": "plan",
+      "title": "导入分批安排",
+      "path": "docs/product/PLAN.md",
+      "line": 11,
+      "metadata": {
+        "id": "PLAN-IMPORT",
+        "type": "plan",
+        "intent_state": "adopted",
+        "targets": [
+          {
+            "target": "REQ-IMPORT",
+            "coverage": "导入与后续本地使用"
+          },
+          {
+            "target": "REQ-ERROR",
+            "coverage": "错误诊断"
+          }
+        ],
+        "work_items": [
+          {
+            "id": "E6A",
+            "title": "导入脚本基础",
+            "outcome": "提供可执行解析函数及最小有效输入检查",
+            "scope": "输入解析与局部错误，排除统计界面",
+            "targets": [
+              {
+                "target": "REQ-IMPORT",
+                "coverage": "导入脚本"
+              }
+            ],
+            "state": "included",
+            "origin": "initial"
+          },
+          {
+            "id": "E6B",
+            "title": "诊断范围",
+            "outcome": "整理并核对错误定位",
+            "scope": "错误原因及行号，排除上传",
+            "targets": [
+              {
+                "target": "REQ-ERROR",
+                "coverage": "本地诊断"
+              }
+            ],
+            "state": "included",
+            "origin": "initial",
+            "depends_on": [
+              {
+                "item_id": "E6A",
+                "kind": "order",
+                "reason": "先有导入函数再核对诊断"
+              }
+            ]
+          },
+          {
+            "id": "E6R",
+            "title": "修复正整数 ID 验证",
+            "outcome": "空/零/小数输入不导入且提供实际诊断",
+            "scope": "已有正整数要求的局部修复，排除多设备和上传",
+            "targets": [
+              {
+                "target": "REQ-IMPORT",
+                "coverage": "正整数输入边界"
+              },
+              {
+                "target": "REQ-ERROR",
+                "coverage": "空 ID 错误原因与行号"
+              }
+            ],
+            "state": "included",
+            "origin": "added",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/external-empty-id.json",
+                "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+              }
+            ]
+          },
+          {
+            "id": "E6C",
+            "title": "后续本地使用",
+            "outcome": "使用有效导入数据",
+            "scope": "只消费约定可靠数据，当前不提前创建 task",
+            "targets": [
+              {
+                "target": "REQ-IMPORT",
+                "coverage": "后续数据使用"
+              }
+            ],
+            "state": "included",
+            "origin": "initial",
+            "depends_on": [
+              {
+                "item_id": "E6B",
+                "kind": "order",
+                "reason": "原分批安排"
+              },
+              {
+                "item_id": "E6R",
+                "kind": "prerequisite",
+                "reason": "后续本地消费必须取得正整数 ID 的实际可靠结果，task close 本身不证明该前提"
+              }
+            ]
+          }
+        ]
+      },
+      "definition_sha256": null,
+      "body": "## [PLAN-IMPORT] 导入分批安排\n### 实施策略\n在合成验收授权下选择 A/B/C 三项；仍是原业务需求，不为工作项再制造需求。\n### 阶段与工作项说明\n原定 E6A、E6B、E6C；近期只准备 A/B 的真实 task，C 暂无 task。\n### 调整与未决事项\n依据实际无 task 检查失败，在 E6C 前加入 E6R；原 A/B 的历史关闭保留，其他业务未盘点、多设备仍候选。项目 plan 不属于 Runtime plan_ref。\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/PLAN.md",
+        "item_id": "PLAN-IMPORT"
+      }
+    },
+    {
+      "id": "REQ-IMPORT",
+      "type": "requirement",
+      "title": "导入一台设备",
+      "path": "docs/product/REQUIREMENTS.md",
+      "line": 24,
+      "metadata": {
+        "id": "REQ-IMPORT",
+        "type": "requirement",
+        "scope": "current",
+        "links": [
+          {
+            "id": "L-MOD",
+            "relation": "part_of",
+            "target": "MOD-IMPORT",
+            "origin": "declared",
+            "state": "active"
+          }
+        ],
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          }
+        ],
+        "task_bindings": [
+          {
+            "id": "B-E6A",
+            "task": {
+              "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+              "plan_ref": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+              "source": {
+                "kind": "file",
+                "path": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+                "sha256": "a8b034fc94266b4622cd53402185f712a9994791522d99f338a30a55412c917b"
+              },
+              "label": "E6A"
+            },
+            "role": "implementation",
+            "coverage": "导入脚本基础与有效单台样例",
+            "origin": "declared",
+            "state": "active",
+            "plan_items": [
+              {
+                "plan_id": "PLAN-IMPORT",
+                "work_item_id": "E6A"
+              }
+            ]
+          },
+          {
+            "id": "B-E6R",
+            "task": {
+              "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+              "plan_ref": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+              "source": {
+                "kind": "file",
+                "path": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+                "sha256": "26d1c863b2edcbcd6fc6527b7593d1b4572f4f746bf06bd16f1ad49dc535087c"
+              },
+              "label": "E6R"
+            },
+            "role": "repair",
+            "coverage": "当前正整数 ID 的失败范围",
+            "origin": "declared",
+            "state": "active",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/external-empty-id.json",
+                "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+              }
+            ],
+            "plan_items": [
+              {
+                "plan_id": "PLAN-IMPORT",
+                "work_item_id": "E6R"
+              }
+            ],
+            "repairs": [
+              {
+                "task": {
+                  "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+                  "plan_ref": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+                    "sha256": "a8b034fc94266b4622cd53402185f712a9994791522d99f338a30a55412c917b"
+                  },
+                  "label": "E6A"
+                },
+                "coverage": "E6A 导入脚本相关交付；此绑定本身不认证缺陷引入者",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/product/raw/external-empty-id.json",
+                    "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "assessment_id": "AS-FIXED"
+      },
+      "definition_sha256": "df0de15f51c84db509579d589f679bd949dc8f3f5c2bbb1774830acc04247fc9",
+      "body": "## [REQ-IMPORT] 导入一台设备\n### 需求内容\nCSV 字段为 device_id,label；device_id 必须为正整数，label 去除首尾空格后非空。一次导入一台设备；无效输入拒绝。\n### 范围边界\n不支持网络上传、数据库、统计看板及未约定字段；当前不扩大为三台。\n### 验收要求\n有效单台输入保留 id 与 label；空、非正整数 id 或空 label 不进入结果。多个设备不属于本期接受范围。\n\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md",
+        "item_id": "REQ-IMPORT"
+      }
+    },
+    {
+      "id": "REQ-ERROR",
+      "type": "requirement",
+      "title": "失败输入诊断",
+      "path": "docs/product/REQUIREMENTS.md",
+      "line": 33,
+      "metadata": {
+        "id": "REQ-ERROR",
+        "type": "requirement",
+        "scope": "current",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "inputs/brief.md",
+            "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+          },
+          {
+            "kind": "file",
+            "path": "docs/product/raw/selected-discussion.txt",
+            "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+            "lines": {
+              "start": 2,
+              "end": 2
+            },
+            "note": "只采纳本条错误说明，其他观点未采用"
+          }
+        ],
+        "task_bindings": [
+          {
+            "id": "B-E6B",
+            "task": {
+              "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+              "plan_ref": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+              "source": {
+                "kind": "file",
+                "path": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+                "sha256": "fd6130c80d606bb040833a7c823ec835a1abd14f515faf5eb4244ef29bc62637"
+              },
+              "label": "E6B"
+            },
+            "role": "implementation",
+            "coverage": "空 label 行号与原因核对",
+            "origin": "declared",
+            "state": "active",
+            "plan_items": [
+              {
+                "plan_id": "PLAN-IMPORT",
+                "work_item_id": "E6B"
+              }
+            ]
+          },
+          {
+            "id": "B-E6R",
+            "task": {
+              "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+              "plan_ref": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+              "source": {
+                "kind": "file",
+                "path": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+                "sha256": "26d1c863b2edcbcd6fc6527b7593d1b4572f4f746bf06bd16f1ad49dc535087c"
+              },
+              "label": "E6R"
+            },
+            "role": "repair",
+            "coverage": "空 ID 原因与 CSV 行号",
+            "origin": "declared",
+            "state": "active",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/product/raw/external-empty-id.json",
+                "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+              }
+            ],
+            "plan_items": [
+              {
+                "plan_id": "PLAN-IMPORT",
+                "work_item_id": "E6R"
+              }
+            ],
+            "repairs": [
+              {
+                "task": {
+                  "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+                  "plan_ref": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+                    "sha256": "a8b034fc94266b4622cd53402185f712a9994791522d99f338a30a55412c917b"
+                  },
+                  "label": "E6A"
+                },
+                "coverage": "E6A 导入脚本相关交付；此绑定本身不认证缺陷引入者",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/product/raw/external-empty-id.json",
+                    "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "definition_sha256": "75eec0571fa9de2e0b8527fb2dbff8062ba7f946f009684b8060cd2331b9701c",
+      "body": "## [REQ-ERROR] 失败输入诊断\n### 需求内容\n失败时说明实际输入行号和具体原因；空 device_id 必须指出正整数要求，而不是仅显示泛化失败。\n### 范围边界\n本地错误提示，未建立 UI 或远程日志服务。\n### 验收要求\n无效字段错误含 CSV 实际行号和原因，不用泛化成功提示。\n\n\n",
+      "locator": {
+        "kind": "file",
+        "path": "docs/product/REQUIREMENTS.md",
+        "item_id": "REQ-ERROR"
+      }
+    }
+  ],
+  "unusable_items": [],
+  "reverse_relations": [
+    {
+      "owner": "AS-BASE",
+      "relation": "assessment-target",
+      "target": "REQ-IMPORT"
+    },
+    {
+      "owner": "AS-FIXED",
+      "relation": "assessment-target",
+      "target": "REQ-IMPORT"
+    },
+    {
+      "owner": "DES-CSV",
+      "id": "L-REQ",
+      "relation": "addresses",
+      "target": "REQ-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    },
+    {
+      "owner": "DISC-SELECTED",
+      "id": "L-MULTI",
+      "relation": "discusses",
+      "target": "REQ-MULTI",
+      "origin": "inferred",
+      "state": "active",
+      "reason": "片段一与候选多设备范围一致；并非采纳三设备",
+      "sources": [
+        {
+          "kind": "file",
+          "path": "docs/product/raw/selected-discussion.txt",
+          "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+          "lines": {
+            "start": 1,
+            "end": 1
+          }
+        }
+      ]
+    },
+    {
+      "owner": "DISC-SELECTED",
+      "id": "L-ERROR",
+      "relation": "discusses",
+      "target": "REQ-ERROR",
+      "origin": "declared",
+      "state": "active",
+      "reason": "当前 Agent 在授权验收中确认关联；还未采纳正文变化",
+      "sources": [
+        {
+          "kind": "file",
+          "path": "docs/product/raw/selected-discussion.txt",
+          "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+          "lines": {
+            "start": 2,
+            "end": 2
+          }
+        }
+      ]
+    },
+    {
+      "owner": "PLAN-IMPORT",
+      "relation": "plan-target",
+      "target": "REQ-IMPORT",
+      "coverage": "导入与后续本地使用"
+    },
+    {
+      "owner": "PLAN-IMPORT",
+      "relation": "plan-target",
+      "target": "REQ-ERROR",
+      "coverage": "错误诊断"
+    },
+    {
+      "owner": "MOD-IMPORT",
+      "id": "L-GOAL",
+      "relation": "supports",
+      "target": "GOAL-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    },
+    {
+      "owner": "REQ-IMPORT",
+      "id": "L-MOD",
+      "relation": "part_of",
+      "target": "MOD-IMPORT",
+      "origin": "declared",
+      "state": "active"
+    }
+  ],
+  "plan_tasks": [
+    {
+      "plan_id": "PLAN-IMPORT",
+      "work_items": [
+        {
+          "work_item_id": "E6A",
+          "bindings": [
+            {
+              "owner": "REQ-IMPORT",
+              "binding_id": "B-E6A",
+              "task": {
+                "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+                "plan_ref": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+                  "sha256": "a8b034fc94266b4622cd53402185f712a9994791522d99f338a30a55412c917b"
+                },
+                "label": "E6A"
+              },
+              "role": "implementation",
+              "coverage": "导入脚本基础与有效单台样例"
+            }
+          ]
+        },
+        {
+          "work_item_id": "E6B",
+          "bindings": [
+            {
+              "owner": "REQ-ERROR",
+              "binding_id": "B-E6B",
+              "task": {
+                "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+                "plan_ref": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+                  "sha256": "fd6130c80d606bb040833a7c823ec835a1abd14f515faf5eb4244ef29bc62637"
+                },
+                "label": "E6B"
+              },
+              "role": "implementation",
+              "coverage": "空 label 行号与原因核对"
+            }
+          ]
+        },
+        {
+          "work_item_id": "E6R",
+          "bindings": [
+            {
+              "owner": "REQ-IMPORT",
+              "binding_id": "B-E6R",
+              "task": {
+                "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+                "plan_ref": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+                  "sha256": "26d1c863b2edcbcd6fc6527b7593d1b4572f4f746bf06bd16f1ad49dc535087c"
+                },
+                "label": "E6R"
+              },
+              "role": "repair",
+              "coverage": "当前正整数 ID 的失败范围"
+            },
+            {
+              "owner": "REQ-ERROR",
+              "binding_id": "B-E6R",
+              "task": {
+                "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+                "plan_ref": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+                  "sha256": "26d1c863b2edcbcd6fc6527b7593d1b4572f4f746bf06bd16f1ad49dc535087c"
+                },
+                "label": "E6R"
+              },
+              "role": "repair",
+              "coverage": "空 ID 原因与 CSV 行号"
+            }
+          ]
+        },
+        {
+          "work_item_id": "E6C",
+          "bindings": []
+        }
+      ]
+    }
+  ],
+  "discussions": [],
+  "impact": null,
+  "sources": [
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/product/history/baseline-requirements.md",
+        "sha256": "a832de3c38fd0bb58fd34680569ae5d1ad891461ba77d4e2c67ca8a4684f0320",
+        "item_id": "REQ-IMPORT"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "a832de3c38fd0bb58fd34680569ae5d1ad891461ba77d4e2c67ca8a4684f0320",
+      "size": 469,
+      "file_size": 3440,
+      "locator_start_byte": 2325,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/evidence/initial-check.json",
+        "sha256": "0a4d54c74d450f8fb76cf68cc16b4d67dba30eae188f5dfc874d4641f9c6d314"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "0a4d54c74d450f8fb76cf68cc16b4d67dba30eae188f5dfc874d4641f9c6d314",
+      "size": 320,
+      "file_size": 320,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/product/raw/external-empty-id.json",
+        "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b",
+      "size": 1065,
+      "file_size": 1065,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/product/history/baseline-requirements.md",
+        "item_id": "REQ-IMPORT",
+        "sha256": "a832de3c38fd0bb58fd34680569ae5d1ad891461ba77d4e2c67ca8a4684f0320"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "a832de3c38fd0bb58fd34680569ae5d1ad891461ba77d4e2c67ca8a4684f0320",
+      "size": 469,
+      "file_size": 3440,
+      "locator_start_byte": 2325,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/evidence/fixed-check.json",
+        "sha256": "061bfb90e631467673f0274c7107b95c994b97a946d7374a7b106917c214576c"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "061bfb90e631467673f0274c7107b95c994b97a946d7374a7b106917c214576c",
+      "size": 753,
+      "file_size": 753,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/product/raw/selected-discussion.txt",
+        "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+      "size": 431,
+      "file_size": 431,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/product/raw/selected-discussion.txt",
+        "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+        "lines": {
+          "start": 1,
+          "end": 1
+        }
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+      "size": 106,
+      "file_size": 431,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/product/raw/selected-discussion.txt",
+        "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+        "lines": {
+          "start": 2,
+          "end": 2
+        }
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+      "size": 131,
+      "file_size": 431,
+      "locator_start_byte": 106,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/product/raw/selected-discussion.txt",
+        "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+        "lines": {
+          "start": 3,
+          "end": 3
+        }
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+      "size": 94,
+      "file_size": 431,
+      "locator_start_byte": 237,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "inputs/brief.md",
+        "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207",
+      "size": 463,
+      "file_size": 463,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+        "sha256": "a8b034fc94266b4622cd53402185f712a9994791522d99f338a30a55412c917b"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "a8b034fc94266b4622cd53402185f712a9994791522d99f338a30a55412c917b",
+      "size": 2181,
+      "file_size": 2181,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+        "sha256": "26d1c863b2edcbcd6fc6527b7593d1b4572f4f746bf06bd16f1ad49dc535087c"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "26d1c863b2edcbcd6fc6527b7593d1b4572f4f746bf06bd16f1ad49dc535087c",
+      "size": 2562,
+      "file_size": 2562,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": "docs/product/raw/selected-discussion.txt",
+        "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+        "lines": {
+          "start": 2,
+          "end": 2
+        },
+        "note": "只采纳本条错误说明，其他观点未采用"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+      "size": 131,
+      "file_size": 431,
+      "locator_start_byte": 106,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    },
+    {
+      "source": {
+        "kind": "file",
+        "path": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+        "sha256": "fd6130c80d606bb040833a7c823ec835a1abd14f515faf5eb4244ef29bc62637"
+      },
+      "byte_status": "same-bytes",
+      "status": "available",
+      "diagnostics": [],
+      "fetched_remote": false,
+      "actual_sha256": "fd6130c80d606bb040833a7c823ec835a1abd14f515faf5eb4244ef29bc62637",
+      "size": 2240,
+      "file_size": 2240,
+      "locator_start_byte": 0,
+      "offset": 0,
+      "next_offset": 1,
+      "content_is_referenced_bytes": true
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "PENDING_SOURCES",
+      "path": "docs/product/ASSESSMENTS.md",
+      "message": "New material is pending reconciliation; existing PASS is not a current completeness claim",
+      "severity": "warning",
+      "item_id": "AS-BASE",
+      "line": 9
+    }
+  ],
+  "coverage": {
+    "complete": true,
+    "files_read": 7,
+    "bytes_read": 18778,
+    "enumeration": "managed_paths only; sources are read only by explicit reference",
+    "omitted": [],
+    "max_files": 1000,
+    "max_file_bytes": 4194304,
+    "max_total_bytes": 33554432,
+    "usable_count": 13,
+    "invalid_count": 0,
+    "selection": [
+      "REQ-IMPORT",
+      "REQ-ERROR",
+      "PLAN-IMPORT",
+      "AS-BASE",
+      "AS-FIXED",
+      "DISC-SELECTED"
+    ],
+    "paths": "manifest-managed-paths",
+    "source_bodies": "byte status only; fetch selected source explicitly"
+  },
+  "task_status": "not-computed; use existing assistance only when actual task state is needed"
+}

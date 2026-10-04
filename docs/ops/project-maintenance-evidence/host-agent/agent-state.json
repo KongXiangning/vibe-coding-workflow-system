@@ -1,0 +1,45 @@
+{
+  "prepared": {
+    "E6A": {
+      "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+      "plan_ref": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+      "source": {
+        "kind": "file",
+        "path": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+        "sha256": "a8b034fc94266b4622cd53402185f712a9994791522d99f338a30a55412c917b"
+      },
+      "label": "E6A"
+    },
+    "E6B": {
+      "task_id": "task-b826bc13b6b2256830175acc5597a7be",
+      "plan_ref": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+      "source": {
+        "kind": "file",
+        "path": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+        "sha256": "fd6130c80d606bb040833a7c823ec835a1abd14f515faf5eb4244ef29bc62637"
+      },
+      "label": "E6B"
+    }
+  },
+  "report": {
+    "kind": "file",
+    "path": "docs/evidence/initial-check.json",
+    "sha256": "0a4d54c74d450f8fb76cf68cc16b4d67dba30eae188f5dfc874d4641f9c6d314"
+  },
+  "definition": "df0de15f51c84db509579d589f679bd949dc8f3f5c2bbb1774830acc04247fc9",
+  "repairTask": {
+    "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+    "plan_ref": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+    "source": {
+      "kind": "file",
+      "path": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+      "sha256": "26d1c863b2edcbcd6fc6527b7593d1b4572f4f746bf06bd16f1ad49dc535087c"
+    },
+    "label": "E6R"
+  },
+  "observation": {
+    "kind": "file",
+    "path": "docs/product/raw/external-empty-id.json",
+    "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+  }
+}

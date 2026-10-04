@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T14:23:40.420Z",
+  "payload_sha256": "7234f2d276b975346c0b10206faf2cf22593a35d83cf6ab85c97566c3d9fefad",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-project-v1-implementation-20261004",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "maintain-project-v1-implementation-20261004",
+      "decision_source": "本次用户实施指令",
+      "plan": {
+        "title": "实现完整 maintain-project 首版 VPM-01～25",
+        "goal": "按 project-maintenance 四份权威文档完成真实产品维护、计划绑定、讨论关联、E6 闭环及分发安装",
+        "acceptance": [
+          "覆盖 VPM-01～25 与 A01～24 关键边界",
+          "不复制任务 reducer、不增加门槛、不覆盖用户改动",
+          "helper、Skill、模板、Schema、消费者样例实际安装与 Node 执行",
+          "真实宿主 Agent 整理、更新、讨论关联及 E6 验证"
+        ],
+        "scope": [
+          "runtime/vnext/src/product-maintenance",
+          "runtime/vnext/support/product-maintenance",
+          "templates/vnext/skills",
+          "scripts/vnext-source-contract.ts",
+          "scripts/build-vibe-governance-distribution.ts",
+          "必要分发/安装接入",
+          "package.json 与依赖锁",
+          "聚焦行为测试",
+          "docs/product/project-maintenance 与 docs/ops 的实际交付记录"
+        ],
+        "exclusions": [
+          "TraceLens 仓库写入",
+          "业务项目升级或部署",
+          "发布包或推送",
+          "复制任务状态机",
+          "缩减需求或放宽验收"
+        ],
+        "steps": [
+          {
+            "id": "B1",
+            "title": "契约读取、局部降级及离线索引",
+            "environment": [
+              "本 worktree",
+              "Node/Bun"
+            ],
+            "validation": [
+              "AST、YAML 安全、hash、路径边界聚焦行为"
+            ]
+          },
+          {
+            "id": "B2",
+            "title": "安全维护写入、原文保存和模型 Skill",
+            "environment": [
+              "本 worktree",
+              "授权隔离验收目录"
+            ],
+            "validation": [
+              "并发冲突、局部更新、幂等 capture",
+              "真实 Agent 业务整理、需求更新、讨论关联"
+            ]
+          },
+          {
+            "id": "B3",
+            "title": "项目计划、范围任务绑定和既有 prepare 接入",
+            "environment": [
+              "assistance 既有 API"
+            ],
+            "validation": [
+              "真实 task 身份与绑定重试",
+              "多对多、历史步骤、稳定工作项"
+            ]
+          },
+          {
+            "id": "B4",
+            "title": "外部观察和 E6 计划外修复对账",
+            "environment": [
+              "隔离业务验收目录"
+            ],
+            "validation": [
+              "实际失败、修复和复验",
+              "保持历史任务处置和原报告"
+            ]
+          },
+          {
+            "id": "B5",
+            "title": "分发、目标安装和升级资产保留",
+            "environment": [
+              "Node 安装目录"
+            ],
+            "validation": [
+              "源码契约与分发回归",
+              "无源码/Bun helper 可执行",
+              "已有业务资产升级保留"
+            ]
+          },
+          {
+            "id": "B6",
+            "title": "离线消费者、使用说明和交付证据",
+            "environment": [
+              "无 Runtime 独立目录"
+            ],
+            "validation": [
+              "离线契约读取",
+              "逐层证据与完整覆盖记录"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "parents": [],
+      "data": {
+        "decision_source": "本次用户实施指令",
+        "plan": {
+          "title": "实现完整 maintain-project 首版 VPM-01～25",
+          "goal": "按 project-maintenance 四份权威文档完成真实产品维护、计划绑定、讨论关联、E6 闭环及分发安装",
+          "acceptance": [
+            "覆盖 VPM-01～25 与 A01～24 关键边界",
+            "不复制任务 reducer、不增加门槛、不覆盖用户改动",
+            "helper、Skill、模板、Schema、消费者样例实际安装与 Node 执行",
+            "真实宿主 Agent 整理、更新、讨论关联及 E6 验证"
+          ],
+          "scope": [
+            "runtime/vnext/src/product-maintenance",
+            "runtime/vnext/support/product-maintenance",
+            "templates/vnext/skills",
+            "scripts/vnext-source-contract.ts",
+            "scripts/build-vibe-governance-distribution.ts",
+            "必要分发/安装接入",
+            "package.json 与依赖锁",
+            "聚焦行为测试",
+            "docs/product/project-maintenance 与 docs/ops 的实际交付记录"
+          ],
+          "exclusions": [
+            "TraceLens 仓库写入",
+            "业务项目升级或部署",
+            "发布包或推送",
+            "复制任务状态机",
+            "缩减需求或放宽验收"
+          ],
+          "steps": [
+            {
+              "id": "B1",
+              "title": "契约读取、局部降级及离线索引",
+              "environment": [
+                "本 worktree",
+                "Node/Bun"
+              ],
+              "validation": [
+                "AST、YAML 安全、hash、路径边界聚焦行为"
+              ]
+            },
+            {
+              "id": "B2",
+              "title": "安全维护写入、原文保存和模型 Skill",
+              "environment": [
+                "本 worktree",
+                "授权隔离验收目录"
+              ],
+              "validation": [
+                "并发冲突、局部更新、幂等 capture",
+                "真实 Agent 业务整理、需求更新、讨论关联"
+              ]
+            },
+            {
+              "id": "B3",
+              "title": "项目计划、范围任务绑定和既有 prepare 接入",
+              "environment": [
+                "assistance 既有 API"
+              ],
+              "validation": [
+                "真实 task 身份与绑定重试",
+                "多对多、历史步骤、稳定工作项"
+              ]
+            },
+            {
+              "id": "B4",
+              "title": "外部观察和 E6 计划外修复对账",
+              "environment": [
+                "隔离业务验收目录"
+              ],
+              "validation": [
+                "实际失败、修复和复验",
+                "保持历史任务处置和原报告"
+              ]
+            },
+            {
+              "id": "B5",
+              "title": "分发、目标安装和升级资产保留",
+              "environment": [
+                "Node 安装目录"
+              ],
+              "validation": [
+                "源码契约与分发回归",
+                "无源码/Bun helper 可执行",
+                "已有业务资产升级保留"
+              ]
+            },
+            {
+              "id": "B6",
+              "title": "离线消费者、使用说明和交付证据",
+              "environment": [
+                "无 Runtime 独立目录"
+              ],
+              "validation": [
+                "离线契约读取",
+                "逐层证据与完整覆盖记录"
+              ]
+            }
+          ]
+        },
+        "create": true,
+        "display_id": "TASK-010"
+      }
+    }
+  },
+  "issues": []
+}

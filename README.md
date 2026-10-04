@@ -81,6 +81,15 @@ node .workflow-system/runtime/dist/cli.js validate --root .
 Before invoking the `bootstrap-project` Agent Skill, that command returns
 `BOOTSTRAP_REQUIRED` rather than guessing project governance state.
 
+## Project goals and requirements maintenance
+
+The local `0.24.0` candidate includes `maintain-project` for goals, requirements,
+designs, implementation plans, task bindings, discussions, and delivery reconciliation.
+See [the usage guide](docs/guides/maintain-project.md) and
+[the implementation and delivery evidence](docs/ops/vnext-project-maintenance-delivery.md).
+The candidate has not been published; installation alone does not enable product
+maintenance or create business documents.
+
 ## Source-development and legacy tooling
 
 The following commands remain available to maintain this source repository and

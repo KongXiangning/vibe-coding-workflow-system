@@ -1,0 +1,21 @@
+{
+  "schema": "vnext-product-manifest/v2",
+  "project_id": "isolated-device-import",
+  "entry": "docs/product/PROJECT.md",
+  "managed_paths": [
+    "docs/product/*.md"
+  ],
+  "source_paths": [
+    "inputs/**",
+    "docs/evidence/**",
+    "docs/product/raw/**",
+    "docs/product/history/**",
+    ".workflow-system/records/events/*.json"
+  ],
+  "capture_paths": [
+    "docs/product/raw/**",
+    "docs/product/history/**"
+  ],
+  "exclude_paths": [],
+  "maintenance": "enabled"
+}

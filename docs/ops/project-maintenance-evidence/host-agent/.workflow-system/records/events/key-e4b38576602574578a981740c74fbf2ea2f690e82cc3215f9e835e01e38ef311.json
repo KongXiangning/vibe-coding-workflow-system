@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:08:15.409Z",
+  "payload_sha256": "79202e175c4a62882b8dbbbfd24b2e9c28982280f71199726e9707ea7ea18c72",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-adopt-E6R",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+      "plan_ref": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+      "decision_source": "当前宿主 Agent 在用户授权的 E6 隔离验收内选择局部修复",
+      "decision_text": "先修正已有正整数输入边界并取得实际检查；不重开 A/B，不扩大上传或多设备范围",
+      "focus": true,
+      "idempotency_key": "host-adopt-E6R"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+      "parents": [
+        ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+        "decision_source": "当前宿主 Agent 在用户授权的 E6 隔离验收内选择局部修复",
+        "decision_text": "先修正已有正整数输入边界并取得实际检查；不重开 A/B，不扩大上传或多设备范围",
+        "focus": true,
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

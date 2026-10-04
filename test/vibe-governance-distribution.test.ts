@@ -319,6 +319,7 @@ describe('Vibe Governance Distribution / Installer', () => {
       'debug-task',
       'execute-step',
       'git-commit',
+      'maintain-project',
       'prepare-task',
       'review-change',
       'review-draft',

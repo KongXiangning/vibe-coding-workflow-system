@@ -1,0 +1,16 @@
+{
+  "kind": "actual-command-result/v1",
+  "command": [
+    "bun",
+    "run",
+    "validate:protocol"
+  ],
+  "cwd": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system",
+  "started_at": "2026-10-04T15:29:50.763Z",
+  "ended_at": "2026-10-04T15:29:58.494Z",
+  "exit_code": 0,
+  "signal": null,
+  "error": null,
+  "stdout": "=== Protocol-level validation ===\n  ✓ workflow-skills-validation [blocks-generator] — passed\n  ✓ workflow-docs-validation [blocks-generator] — passed\n  ✓ registry-validation [blocks-generator] — passed\n  ✓ workflow-skills-tests [blocks-merge] — passed\n  ✓ workflow-docs-tests [blocks-merge] — passed\n  ✓ registry-tests [blocks-merge] — passed\n  ✓ bootstrap-tests [blocks-merge] — passed\n  ✓ task-identity-tests [blocks-merge] — passed\n  Protocol: PASSED\n\n=== Project-level validation ===\n  (no bound project-level entrypoints)\n\nNo gates blocked.\n",
+  "stderr": "$ bun run scripts/run-validation.ts --layer=protocol\n"
+}

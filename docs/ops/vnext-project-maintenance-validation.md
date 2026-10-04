@@ -1,6 +1,6 @@
 # 项目目标与需求维护：验收与交付检查
 
-状态：待执行的验收计划，不是测试通过记录。依据：[需求](../product/project-maintenance/requirements.md)、[契约](../product/project-maintenance/document-contract.md)、[实现方案](vnext-project-maintenance-implementation.md)。
+状态：首版已按本计划执行验收。本文保留验收要求；具体运行结果、四层证据及未验证范围见[交付记录](vnext-project-maintenance-delivery.md)。依据：[需求](../product/project-maintenance/requirements.md)、[契约](../product/project-maintenance/document-contract.md)、[实现方案](vnext-project-maintenance-implementation.md)。
 
 ## 1. 检查原则
 
@@ -47,7 +47,7 @@
 
 ## 4. 按实际改动选择命令
 
-下列命令已在勘察基线 package.json 中存在；这份文档没有执行它们。
+下列命令已在勘察基线 package.json 中存在；实际运行与结果单独记录，不由本节命令列表推断通过。
 
 ```sh
 node --test test/vnext-assistance.test.mjs test/vnext-task-management.test.mjs
@@ -58,7 +58,7 @@ bun run build:vibe-governance-distribution
 bun run test:workflow-distribution
 ```
 
-前两项原生测试用于相关回归而非每次文档修改必跑；Skill 注册和分发改变时必须有相应证据。若改迁移／bootstrap 路径，再选择当前相应聚焦测试。新产品 helper 测试命令在实施时建立，不能引用尚不存在的命令声称通过。
+前两项原生测试用于相关回归而非每次文档修改必跑；Skill 注册和分发改变时必须有相应证据。若改迁移／bootstrap 路径，再选择当前相应聚焦测试。首版新增 `bun run test:product-maintenance` 与 `bun run test:product-maintenance:install`，分别检查实际 helper 行为和分发后的安装能力；是否通过仍以实际运行记录为准。
 
 不要默认运行 test:workflow-all，也不要为文案改动新增 contains／标题快照测试。广泛核心改动确实需要更大回归时说明依据。构建会改变生成产物，应审查实际 diff，不手工修生成文件。
 
@@ -75,4 +75,4 @@ bun run test:workflow-distribution
 
 实现者记录实际 commit／工作区基线、改动范围、已完成 VPM、helper 与 Skill 使用方法、实际运行命令及结果、分发／安装证据、真实 Agent 观察，以及未执行检查和限制。未执行就是未执行；不得把权限不足、环境缺失、Schema 通过或虚构样例视为真实场景通过。
 
-本轮文档提交不修改 Runtime、不运行上述源码测试、不安装或升级业务项目、不发布任何软件版本。文档自身的检查与后续产品验收分开报告。
+原设计提交仅完成文档检查。首版实施的源码、分发、安装和真实宿主 Agent 证据分别记录；隔离验收使用合成业务材料和真实任务服务，不代表用户业务项目已升级，也不代表 TraceLens 页面已验收。软件尚未发布。

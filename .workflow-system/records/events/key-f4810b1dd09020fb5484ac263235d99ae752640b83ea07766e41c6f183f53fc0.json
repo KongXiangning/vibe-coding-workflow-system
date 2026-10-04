@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:34:08.014Z",
+  "payload_sha256": "18f28d4182d10d62689ce0bad379c7886536d314418478e11f394ae33a5d575b",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-project-v1-delivery-B6-20261004",
+    "request": {
+      "action": "execution",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+      "step_id": "B6",
+      "source_revision": "Uncommitted working copy based on 445cee1f0eb01b2feede98e2addda209f418179c; candidate 0.24.0; helper sha256:615657a417be0796c81145afec5c2f4379474f2ca5a86d6c79777cea2f6c7f8e. This is not a full-project snapshot.",
+      "result": "completed",
+      "summary": "指南、完整 VPM 覆盖与四层实际证据已保存；无 Runtime/node_modules 消费者读取九类对象和稳定 E6 工作项。未验 TraceLens UI。",
+      "report_ref": "docs/ops/project-maintenance-evidence/host-agent/final-install-evidence.json",
+      "idempotency_key": "maintain-project-v1-delivery-B6-20261004"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "parents": [
+        ".workflow-system/records/events/key-c0173857779696ec07dd2117a6754f43f81760f5a38a2058af3a1d27ea97739a.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+        "step_id": "B6",
+        "source_revision": "Uncommitted working copy based on 445cee1f0eb01b2feede98e2addda209f418179c; candidate 0.24.0; helper sha256:615657a417be0796c81145afec5c2f4379474f2ca5a86d6c79777cea2f6c7f8e. This is not a full-project snapshot.",
+        "result": "completed",
+        "summary": "指南、完整 VPM 覆盖与四层实际证据已保存；无 Runtime/node_modules 消费者读取九类对象和稳定 E6 工作项。未验 TraceLens UI。",
+        "report_ref": "docs/ops/project-maintenance-evidence/host-agent/final-install-evidence.json"
+      }
+    }
+  },
+  "issues": []
+}

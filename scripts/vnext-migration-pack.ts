@@ -2414,6 +2414,7 @@ const BUNDLE_ENTRY_MODES: Record<string, readonly string[]> = {
   'debug-task': ['investigate-only', 'resolve'],
   'task-lifecycle': ['pause', 'interrupt', 'resume-paused', 'resume-interrupted', 'supersede'],
   'capture-work-item': [],
+  'maintain-project': ['default', 'inventory', 'update', 'plan', 'discussion', 'reconcile'],
   'close-task': ['preview'],
   'bootstrap-project': ['design', 'greenfield', 'inventory', 'adopt', 'realign', 'maintain-domains'],
   'validate-change': [],
@@ -2427,6 +2428,7 @@ const BUNDLE_ENTRY_OUTPUT_KINDS: Record<string, string> = {
   'debug-task': 'debug-result',
   'task-lifecycle': 'lifecycle-result',
   'capture-work-item': 'capture-result',
+  'maintain-project': 'project-maintenance-result',
   'close-task': 'closure-result',
   'bootstrap-project': 'bootstrap-result',
   'validate-change': 'validation-result',
@@ -2440,6 +2442,7 @@ const BUNDLE_ENTRY_AUTHORITY_OWNERS: Record<string, string> = {
   'debug-task': 'task',
   'task-lifecycle': 'task',
   'capture-work-item': 'none',
+  'maintain-project': 'user',
   'close-task': 'task',
   'bootstrap-project': 'user',
   'validate-change': 'none',
@@ -2453,12 +2456,14 @@ const BUNDLE_ENTRY_RUNTIME_OPERATIONS: Record<string, readonly string[]> = {
   'debug-task': ['task-state-transaction'],
   'task-lifecycle': ['lifecycle-transaction'],
   'capture-work-item': ['inbox-record-transaction'],
+  'maintain-project': [],
   'close-task': ['project-status-transaction', 'user-decision-transaction', 'archive-transaction', 'lesson-record-transaction', 'contract-candidate-commit', 'decision-record-transaction'],
   'bootstrap-project': ['contract-candidate-commit', 'decision-record-transaction', 'project-status-transaction', 'host-guidance-transaction'],
   'validate-change': [],
   'git-commit': [],
 };
 const BUNDLE_REQUIRED_ENTRY_CAPABILITIES: Record<string, readonly string[]> = {
+  'maintain-project': ['project-context-resolver', 'source-authority-policy', 'scope-guard', 'product-document-maintenance'],
   'review-draft': ['project-context-resolver', 'source-authority-policy', 'decision-authority-gate', 'scope-guard', 'draft-consistency-challenge', 'evidence-admission-policy', 'read-only-review-guard'],
   'review-change': ['project-context-resolver', 'scope-guard', 'diff-target-resolver', 'read-only-review-guard'],
   'execute-step': ['scope-guard', 'task-identity-guard', 'resume-review-gate'],
@@ -2527,7 +2532,7 @@ function validateVNextSkillBundleContent(entry: string, content: string, locatio
   expectStringArray(boundary.forbidden_targets, `${location}.mutation_boundary.forbidden_targets`);
   const productFiles = boundary.product_files as string[];
   const governanceSources = boundary.governance_sources as string[];
-  const expectedProductFiles = entry === 'execute-step' ? ['admitted_scope'] : [];
+  const expectedProductFiles = entry === 'execute-step' ? ['admitted_scope'] : entry === 'maintain-project' ? ['authorized_product_documents'] : [];
   if (JSON.stringify([...productFiles].sort()) !== JSON.stringify(expectedProductFiles)) {
     throw new MigrationPackError('BUNDLE_INVALID', `${location}.mutation_boundary.product_files is not valid for ${entry}.`);
   }
@@ -2887,6 +2892,20 @@ function loadAndValidateBundle(
       .map(artifact => canonicalVNextSkillEntry(artifact.target_path)),
   );
   if (skillNames.size !== artifacts.filter(artifact => artifact.category === 'skill').length) throw new MigrationPackError('BUNDLE_INVALID', 'vNext bundle must not expose duplicate Skill entry IDs in the canonical surface.');
+  // Older bundles remain readable. A bundle advertising the new Skill must ship
+  // its actual executable and references, rather than an unusable entry alone.
+  if (skillNames.has('maintain-project')) {
+    const support = '.workflow-system/runtime/support/product-maintenance';
+    const required = [
+      `${support}.js`, `${support}/API.md`, `${support}/contract.md`, `${support}/offline-reader.js`,
+      ...['inventory', 'update', 'plan', 'discussion', 'reconcile', 'recovery'].map(name => `${support}/references/${name}.md`),
+      ...['product-doc-v1', 'product-doc-v2', 'product-manifest-v1', 'product-manifest-v2', 'request-v1', 'result-v1'].map(name => `${support}/schemas/${name}.json`),
+      `${support}/templates/PRODUCT.yaml`, `${support}/templates/PROJECT.md`, `${support}/templates/REQUIREMENTS.md`, `${support}/templates/PLAN.md`,
+    ];
+    for (const target of required) {
+      if (!artifacts.some(a => a.target_path === target && a.required)) throw new MigrationPackError('BUNDLE_INVALID', `Project maintenance bundle is missing required software asset ${target}.`);
+    }
+  }
   for (const entry of VNEXT_REQUIRED_DAILY_ENTRIES) {
     const skill = artifacts.find(artifact => artifact.category === 'skill' && artifact.target_path === canonicalVNextSkillTarget(entry));
     if (!skill || !skillNames.has(entry) || skill.required !== true) throw new MigrationPackError('BUNDLE_INVALID', `vNext bundle is missing required daily entry Skill ${entry}/SKILL.md.`);

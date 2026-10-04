@@ -49,6 +49,9 @@ entries:
   - id: close-task
     exposure: daily
     template: templates/vnext/skills/close-task.SKILL.md.tmpl
+  - id: maintain-project
+    exposure: daily
+    template: templates/vnext/skills/maintain-project.SKILL.md.tmpl
 
 administrative_entries:
   - id: bootstrap-project
@@ -64,6 +67,20 @@ expert_entries:
     template: templates/vnext/skills/git-commit.SKILL.md.tmpl
 
 capabilities:
+  - id: product-document-maintenance
+    exposure: internal
+    trigger:
+      - authorized business inventory, requirement/design update, project planning, discussion capture or delivery reconciliation
+    input_contract:
+      - explicit project root and selected authorized materials
+      - versioned PRODUCT manifest, managed items, exact read byte versions and real task references when needed
+    output_contract:
+      - separate original capture, managed save, task binding and reconciliation results with pending scope
+      - stable business/work-item identity and source-grounded host-model judgments without task lifecycle copies
+    stop_conditions:
+      - stop only the specific unsafe I/O, concurrent overwrite or genuinely unresolved material user choice
+      - document or association gaps never become development, task preparation, Git, closure or stop gates
+
   - id: project-context-resolver
     exposure: internal
     trigger:

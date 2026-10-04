@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:05:32.016Z",
+  "payload_sha256": "c5962b36686613d0acf926abc226e59b444ab19908a389eeb7f7d725039d9458",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-close-E6A",
+    "request": {
+      "action": "close",
+      "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+      "remaining_work": [
+        "空/零/小数 ID 未核对；并非完整需求 PASS"
+      ],
+      "gaps": [
+        "未进行独立审查，隔离基础操作记录"
+      ],
+      "decision_source": "当前 Agent 的授权验收安排",
+      "decision_text": "保留 A/B 历史处置，后续新观察另外核对",
+      "idempotency_key": "host-close-E6A"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-19a48ef12e4ed85aa3c8d751388b6bcc",
+      "parents": [
+        ".workflow-system/records/events/key-f46722007d94e0dbb011c09c70027f8ac291dad9eea720d6759eba07d77282e7.json"
+      ],
+      "data": {
+        "remaining_work": [
+          "空/零/小数 ID 未核对；并非完整需求 PASS"
+        ],
+        "gaps": [
+          "未进行独立审查，隔离基础操作记录"
+        ],
+        "decision_source": "当前 Agent 的授权验收安排",
+        "decision_text": "保留 A/B 历史处置，后续新观察另外核对"
+      }
+    }
+  },
+  "issues": []
+}

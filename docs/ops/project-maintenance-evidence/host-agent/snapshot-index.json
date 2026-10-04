@@ -1,0 +1,253 @@
+{
+  "kind": "host-agent-acceptance-byte-snapshot/v1",
+  "captured_at": "2026-10-04T15:28:30.817Z",
+  "original_root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72",
+  "provenance": "Actual current host Agent execution with isolated synthetic business materials. This is immutable evidence, not current source-project product data or a user report. Source readbacks retain original working-copy locations.",
+  "files": [
+    {
+      "path": ".workflow-system/PRODUCT.yaml",
+      "sha256": "a6ec489b459b912835adb86a6e78577772d8656f3f417b46b6c559a6d60f9d6c",
+      "bytes": 476
+    },
+    {
+      "path": ".workflow-system/records/events/key-03f7ae047f6800ad3719f0f83ca0139d82953456cb1fab55b3d7883bf455838d.json",
+      "sha256": "e457f1e57a51084812ead19f585e5efd74f83e4359c630225adc9f5c0b0ce619",
+      "bytes": 1594
+    },
+    {
+      "path": ".workflow-system/records/events/key-27b0a554934c9c9da668c9976172a107058e8396c35aa80ae7a1510f56af8c37.json",
+      "sha256": "420bf5f24869d2f360bcfec09b948d6eedb8380ebe6e64d22ff64cf331c8e414",
+      "bytes": 1578
+    },
+    {
+      "path": ".workflow-system/records/events/key-3c99ffa465c1a80ae59c42434f2fe5aafd7d8f3881fba8e9180d7676f62458bc.json",
+      "sha256": "d75a09db41c9deaf5be24785b3bc33f2b0530a9aa197f8052122ea6b907f9ee0",
+      "bytes": 1448
+    },
+    {
+      "path": ".workflow-system/records/events/key-4b1aff35fa5bc03027c013a542f80df184e74b101153c18d1561a5bcd8043fd4.json",
+      "sha256": "debf3c15289b82402c20ba164e724fec83610f9f96827d37a0fab5a5c5ad2530",
+      "bytes": 1392
+    },
+    {
+      "path": ".workflow-system/records/events/key-6c19ee159a9ce972bdcdf189102b53db7733d0716c760ae983af1e89c965b1f2.json",
+      "sha256": "0b6846c24b3c2c215e50c60985e49765673b5654a7e55925a1bcd41641262252",
+      "bytes": 1578
+    },
+    {
+      "path": ".workflow-system/records/events/key-a107ebbe937ec932b97334d580e8deec836cbfefb53d5ff97fafa43be31296a0.json",
+      "sha256": "26d1c863b2edcbcd6fc6527b7593d1b4572f4f746bf06bd16f1ad49dc535087c",
+      "bytes": 2562
+    },
+    {
+      "path": ".workflow-system/records/events/key-a408649687b580a76c5eed0e4c44fb8ca91789d66f5e325661527dd4221f8d34.json",
+      "sha256": "c332de83d5d0d4db2d2e425113e4de55aef474a98b433a3c8c5b5308aab4a54e",
+      "bytes": 1866
+    },
+    {
+      "path": ".workflow-system/records/events/key-aa5e583c4dee272fb4a1d7e926a3ee9f1024bc67995c5fd81ae4054bf22cfb29.json",
+      "sha256": "78edd67a9d65609f3d9716d6233214539b9216ad675f1c0b8948baa2726ea811",
+      "bytes": 1714
+    },
+    {
+      "path": ".workflow-system/records/events/key-b22404600cf8f486d57d0ec2db6a3111783997f283afbf03a904bdb0f51e2dd6.json",
+      "sha256": "d2cc7e873e74aa4dce70b9a6a5ef5014acfdec13f0f4b0ac86a93a50e3c6c21b",
+      "bytes": 1448
+    },
+    {
+      "path": ".workflow-system/records/events/key-bfe2d7a14611f8e0dd2e7143e89d3fba5d4363e3a6f323f5d488f5595dd09b28.json",
+      "sha256": "a8b034fc94266b4622cd53402185f712a9994791522d99f338a30a55412c917b",
+      "bytes": 2181
+    },
+    {
+      "path": ".workflow-system/records/events/key-ded72e0b9b02d304da0056d0f58555b1caf388cb6e3c5f7f6bccef4eae50b5c5.json",
+      "sha256": "895c4521283f187615606328b58f3c3e829db2340492cde4f03d6725580ff1ec",
+      "bytes": 1714
+    },
+    {
+      "path": ".workflow-system/records/events/key-e05fa042c53942e4d7a128d64d6a846d6736e59d65bb7f33e99ec57783d823a9.json",
+      "sha256": "fd168e28aff9238e06379f56eeb3ef27570ec736d4795f0ff87b138295258470",
+      "bytes": 1338
+    },
+    {
+      "path": ".workflow-system/records/events/key-e4b38576602574578a981740c74fbf2ea2f690e82cc3215f9e835e01e38ef311.json",
+      "sha256": "8ecd4b43016b9ae18fa11cf0a41c85fcb31ad4a01cf126fd22f4861831215d34",
+      "bytes": 1588
+    },
+    {
+      "path": ".workflow-system/records/events/key-f46722007d94e0dbb011c09c70027f8ac291dad9eea720d6759eba07d77282e7.json",
+      "sha256": "4188c5abdf10539b14a672eebf44dc145452d1601917ec63003c6b123f6a914c",
+      "bytes": 1338
+    },
+    {
+      "path": ".workflow-system/records/events/key-f8a9826b255a93d9aebea66b040d2d5c93303180249856b62c11eff1333a5d75.json",
+      "sha256": "fd6130c80d606bb040833a7c823ec835a1abd14f515faf5eb4244ef29bc62637",
+      "bytes": 2240
+    },
+    {
+      "path": "docs/product/ASSESSMENTS.md",
+      "sha256": "9edb8fdbd0d5680e3d604933336cb90ba8ae5167b6fef6d2d95e28ffecdf5923",
+      "bytes": 2943
+    },
+    {
+      "path": "docs/product/CHANGES.md",
+      "sha256": "a4abe43a3cfa2aae1ada5b756efbfdc6df011a02f3ae36d9c08f5366528d0f12",
+      "bytes": 2189
+    },
+    {
+      "path": "docs/product/DESIGN.md",
+      "sha256": "d501484c143389126dc4a18ea297651511c6886e07be7c3fb3282855d799c242",
+      "bytes": 1085
+    },
+    {
+      "path": "docs/product/DISCUSSIONS.md",
+      "sha256": "d6798f07a58e451229b24f4ed49e32e474a5fbc63daa6a88b7c4580f008343a0",
+      "bytes": 1914
+    },
+    {
+      "path": "docs/product/PLAN.md",
+      "sha256": "105529cc3bf4d8d5421c1cc1786cdad8de553f17e2dfc0c673f6404417a68948",
+      "bytes": 2338
+    },
+    {
+      "path": "docs/product/PROJECT.md",
+      "sha256": "c99ac498a96c142534b105da99221533bee9ca14a536cff6aac98469bf738d17",
+      "bytes": 2053
+    },
+    {
+      "path": "docs/product/REQUIREMENTS.md",
+      "sha256": "19857c25b277bcbc594b4fbfb02692703b2e3827a8ba44147def51d7347038a1",
+      "bytes": 6256
+    },
+    {
+      "path": "docs/product/history/baseline-requirements.md",
+      "sha256": "a832de3c38fd0bb58fd34680569ae5d1ad891461ba77d4e2c67ca8a4684f0320",
+      "bytes": 3440
+    },
+    {
+      "path": "docs/product/history/before-error-adoption.md",
+      "sha256": "b0b46482278a9a7aa3a95603113985d568c6031362c33610b26caa8a34cb159e",
+      "bytes": 2194
+    },
+    {
+      "path": "docs/product/history/expand-to-three-preimage.md",
+      "sha256": "b4b79079efe2e8fdadbb9231ffa24acfc537d972538e04d39e7687e290162ad3",
+      "bytes": 2404
+    },
+    {
+      "path": "docs/product/history/original-plan-before-E6R.md",
+      "sha256": "1a02118c3ce699a7739c781999f4839f537a10d63821f0e372012db7281afcfb",
+      "bytes": 2443
+    },
+    {
+      "path": "docs/product/history/return-to-one-preimage.md",
+      "sha256": "a48d7b446ad9cdb7e67a93d6950b73531e4f77e16eeca38e6d69d97059f122da",
+      "bytes": 2452
+    },
+    {
+      "path": "docs/product/raw/external-empty-id.json",
+      "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b",
+      "bytes": 1065
+    },
+    {
+      "path": "docs/product/raw/selected-discussion.txt",
+      "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+      "bytes": 431
+    },
+    {
+      "path": "docs/evidence/baseline-code.mjs",
+      "sha256": "d4a3fb855c8aa93a7cd404428fd747ea4dfc5bf11ef412d82d40d98ddeef7750",
+      "bytes": 670
+    },
+    {
+      "path": "docs/evidence/external-empty-id.json",
+      "sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b",
+      "bytes": 1065
+    },
+    {
+      "path": "docs/evidence/fixed-check.json",
+      "sha256": "061bfb90e631467673f0274c7107b95c994b97a946d7374a7b106917c214576c",
+      "bytes": 753
+    },
+    {
+      "path": "docs/evidence/fixed-code.mjs",
+      "sha256": "2c599cfbcab66ea4d9aadf291ba6beb655f99563c3655fbeb0c536f3115b3599",
+      "bytes": 705
+    },
+    {
+      "path": "docs/evidence/initial-check.json",
+      "sha256": "0a4d54c74d450f8fb76cf68cc16b4d67dba30eae188f5dfc874d4641f9c6d314",
+      "bytes": 320
+    },
+    {
+      "path": "inputs/brief.md",
+      "sha256": "31ce0b643e33cb528d7c4f288229056e18e2ee424cb6cb1cc8d9d6c58d429207",
+      "bytes": 463
+    },
+    {
+      "path": "inputs/selected-discussion.txt",
+      "sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+      "bytes": 431
+    },
+    {
+      "path": "inputs/unreviewed.md",
+      "sha256": "49a719a3b62ce04037444e5b6c82a35bb93634c2556087d4533b021a31c293d1",
+      "bytes": 82
+    },
+    {
+      "path": "checks/external-id.mjs",
+      "sha256": "88775cce6df75690a7fbfe07b480cebb412e6d334c69055a4ea4c1f30a6f694b",
+      "bytes": 267
+    },
+    {
+      "path": "checks/fixed.mjs",
+      "sha256": "1a69fd5a5e653f0dfc1b203c2c2816df5301998e4aa838217e33a72f46b46707",
+      "bytes": 554
+    },
+    {
+      "path": "checks/initial.mjs",
+      "sha256": "de8cb6733677b3822949354f5a57d832658ea3b6afe2bcc8bfd1c8c9097480cd",
+      "bytes": 378
+    },
+    {
+      "path": "src/importer.mjs",
+      "sha256": "2c599cfbcab66ea4d9aadf291ba6beb655f99563c3655fbeb0c536f3115b3599",
+      "bytes": 705
+    },
+    {
+      "path": "agent-observations.jsonl",
+      "sha256": "3c10a4a9585a4f6bedb3d745366fa3750a0a8a5396583e7790290795ebab93a3",
+      "bytes": 386259
+    },
+    {
+      "path": "agent-state.json",
+      "sha256": "4e81e53cd1806c5d69339bef983266edfd0102e89689065b4a84185ea579657e",
+      "bytes": 1902
+    },
+    {
+      "path": "inventory-readback.json",
+      "sha256": "657d685a8c10688a1b49df831cd57603659d32299481ae336f884613572acfa4",
+      "bytes": 14932
+    },
+    {
+      "path": "semantic-update-readback.json",
+      "sha256": "30731c513b0a2c4d7880eab5c1e8ed0557cf5dcf31849665f7b46f8436551250",
+      "bytes": 13409
+    },
+    {
+      "path": "final-product-readback.json",
+      "sha256": "846f77a3502780113d18986dcf4c6863d6c837b0f30240632a712854bc29db69",
+      "bytes": 40109
+    },
+    {
+      "path": "final-task-status.json",
+      "sha256": "50585e01e57baa49302b5e2bc4043b0f0e31623737744fd76cb2c51fd76a4870",
+      "bytes": 5790
+    },
+    {
+      "path": "final-install-evidence.json",
+      "sha256": "ed451f50756358109380492b0d07548a645c1087b35085fa717814ccd1668810",
+      "bytes": 4312
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-04T15:06:58.822Z",
+  "payload_sha256": "56b2be6e01a6b664e9c3a5aa9e46e00f20aa8d419476679b765a90b5b32e6ebf",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-agent-E6R",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "host-agent-E6R",
+      "plan": {
+        "title": "E6R 正整数验证修复",
+        "goal": "空/零/小数输入不导入且提供实际诊断",
+        "acceptance": [
+          "实际空/零/负数/小数/非数字 ID 拒绝",
+          "保留有效单台与 label 诊断"
+        ],
+        "scope": [
+          "src/importer.mjs",
+          "checks/fixed.mjs",
+          "docs/evidence"
+        ],
+        "exclusions": [
+          "扩大多设备范围",
+          "自动重开 E6A/B",
+          "执行 E6C"
+        ],
+        "steps": [
+          {
+            "id": "S1",
+            "title": "修复并复验输入边界",
+            "environment": [
+              "隔离 Node 项目"
+            ],
+            "validation": [
+              "node checks/fixed.mjs",
+              "node checks/external-id.mjs"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-01bf13d3a5e7727efd33f8c55c9d7a6a",
+      "parents": [
+        ".workflow-system/records/events/key-b22404600cf8f486d57d0ec2db6a3111783997f283afbf03a904bdb0f51e2dd6.json"
+      ],
+      "data": {
+        "plan": {
+          "title": "E6R 正整数验证修复",
+          "goal": "空/零/小数输入不导入且提供实际诊断",
+          "acceptance": [
+            "实际空/零/负数/小数/非数字 ID 拒绝",
+            "保留有效单台与 label 诊断"
+          ],
+          "scope": [
+            "src/importer.mjs",
+            "checks/fixed.mjs",
+            "docs/evidence"
+          ],
+          "exclusions": [
+            "扩大多设备范围",
+            "自动重开 E6A/B",
+            "执行 E6C"
+          ],
+          "steps": [
+            {
+              "id": "S1",
+              "title": "修复并复验输入边界",
+              "environment": [
+                "隔离 Node 项目"
+              ],
+              "validation": [
+                "node checks/fixed.mjs",
+                "node checks/external-id.mjs"
+              ]
+            }
+          ]
+        },
+        "create": true,
+        "display_id": "TASK-003"
+      }
+    }
+  },
+  "issues": []
+}

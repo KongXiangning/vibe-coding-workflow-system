@@ -1,0 +1,17 @@
+{
+  "kind": "actual-command-result/v1",
+  "command": [
+    "bun",
+    "test",
+    "test/product-maintenance.test.ts",
+    "test/product-maintenance-install.test.ts"
+  ],
+  "cwd": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system",
+  "started_at": "2026-10-04T15:30:19.105Z",
+  "ended_at": "2026-10-04T15:30:27.564Z",
+  "exit_code": 0,
+  "signal": null,
+  "error": null,
+  "stdout": "bun test v1.3.10 (30e609e0)\n",
+  "stderr": "\ntest\\product-maintenance-install.test.ts:\n(pass) installed maintenance assets execute with Node and upgrade preserves all target-owned business bytes [7188.00ms]\n\ntest\\product-maintenance.test.ts:\n(pass) inventory is partial, all scopes and delivered current requirements survive without tasks [16.00ms]\n(pass) AST ignores code, quotes and lists; a bad item does not hide its neighbors [15.00ms]\n(pass) unsafe YAML is locally rejected, including duplicates, aliases, custom tags and non-finite values\n(pass) duplicate global identity is ambiguous and byte limits reveal incomplete coverage [16.00ms]\n(pass) definition hash normalizes line endings and excludes task, plan, discussion and assessment metadata\n(pass) localized update retains malformed neighbor bytes and untouched business exceptions [15.00ms]\n(pass) append and v1 explicit migration preserve existing content and IDs [47.00ms]\n(pass) conflict and partial file failure never overwrite newer user bytes [16.00ms]\n(pass) capture retains original bytes once, conflict does not overwrite, URI remains unarchived [15.00ms]\n(pass) paged source bytes, changed historical digest and exact item/section locators are reported [31.00ms]\n(pass) path traversal, excluded files, symlinks and frozen targets stop only the specific I/O [16.00ms]\n(pass) E6 keeps one requirement and stable work items; task binding retry has no task operations [31.00ms]\n(pass) cyclic/withdrawn predecessors are visible diagnostics; retired targets stay retired\n(pass) new failure is visible with unchanged definition and original PASS; recall never adopts discussion [63.00ms]\n(pass) same project ID in distinct worktrees never merges bytes; paused and missing entry do not create gates [15.00ms]\n(pass) dismissed retry cannot reactivate without a new basis; newly introduced root heading is rejected [32.00ms]\n(pass) unknown prototype-looking fields, nonfinite request values and write size bounds are real diagnostics\n(pass) bundled Node helper coordinates racing writers and runs without source dependencies [453.00ms]\n\n 19 pass\n 0 fail\n 126 expect() calls\nRan 19 tests across 2 files. [8.34s]\n"
+}

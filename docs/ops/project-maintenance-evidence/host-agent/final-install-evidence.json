@@ -1,0 +1,115 @@
+{
+  "kind": "host-agent-product-maintenance-acceptance/v1",
+  "at": "2026-10-04T15:15:59.789Z",
+  "provenance": "Actual current host Agent, isolated synthetic business materials. No actual user project incident/report or TraceLens UI is claimed.",
+  "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-maintain-project-agent-QnIf72",
+  "offline_root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-agent-offline-cdag6Q",
+  "upgrade_status": "upgraded",
+  "read_back_verified": true,
+  "assets_preserved": [
+    {
+      "path": ".workflow-system/PRODUCT.yaml",
+      "before_sha256": "a6ec489b459b912835adb86a6e78577772d8656f3f417b46b6c559a6d60f9d6c",
+      "after_sha256": "a6ec489b459b912835adb86a6e78577772d8656f3f417b46b6c559a6d60f9d6c"
+    },
+    {
+      "path": "docs/product/PROJECT.md",
+      "before_sha256": "c99ac498a96c142534b105da99221533bee9ca14a536cff6aac98469bf738d17",
+      "after_sha256": "c99ac498a96c142534b105da99221533bee9ca14a536cff6aac98469bf738d17"
+    },
+    {
+      "path": "docs/product/REQUIREMENTS.md",
+      "before_sha256": "19857c25b277bcbc594b4fbfb02692703b2e3827a8ba44147def51d7347038a1",
+      "after_sha256": "19857c25b277bcbc594b4fbfb02692703b2e3827a8ba44147def51d7347038a1"
+    },
+    {
+      "path": "docs/product/PLAN.md",
+      "before_sha256": "105529cc3bf4d8d5421c1cc1786cdad8de553f17e2dfc0c673f6404417a68948",
+      "after_sha256": "105529cc3bf4d8d5421c1cc1786cdad8de553f17e2dfc0c673f6404417a68948"
+    },
+    {
+      "path": "docs/product/ASSESSMENTS.md",
+      "before_sha256": "9edb8fdbd0d5680e3d604933336cb90ba8ae5167b6fef6d2d95e28ffecdf5923",
+      "after_sha256": "9edb8fdbd0d5680e3d604933336cb90ba8ae5167b6fef6d2d95e28ffecdf5923"
+    },
+    {
+      "path": "docs/product/DISCUSSIONS.md",
+      "before_sha256": "d6798f07a58e451229b24f4ed49e32e474a5fbc63daa6a88b7c4580f008343a0",
+      "after_sha256": "d6798f07a58e451229b24f4ed49e32e474a5fbc63daa6a88b7c4580f008343a0"
+    },
+    {
+      "path": "docs/product/raw/selected-discussion.txt",
+      "before_sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594",
+      "after_sha256": "063c5a27f5fa22151f7b642086d24ce9beae000463eef6d51e1f4cbc18bb3594"
+    },
+    {
+      "path": "docs/product/raw/external-empty-id.json",
+      "before_sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b",
+      "after_sha256": "08d2cbdfca2eed8d98b631b6a9e99e7bb6c684c8c22fb6ea3e4ef201fd57ef1b"
+    },
+    {
+      "path": "docs/product/history/original-plan-before-E6R.md",
+      "before_sha256": "1a02118c3ce699a7739c781999f4839f537a10d63821f0e372012db7281afcfb",
+      "after_sha256": "1a02118c3ce699a7739c781999f4839f537a10d63821f0e372012db7281afcfb"
+    }
+  ],
+  "helper_sha256": "615657a417be0796c81145afec5c2f4379474f2ca5a86d6c79777cea2f6c7f8e",
+  "package_helper_sha256": "615657a417be0796c81145afec5c2f4379474f2ca5a86d6c79777cea2f6c7f8e",
+  "checks": [
+    {
+      "command": [
+        "node",
+        "checks/fixed.mjs"
+      ],
+      "stdout": "PASS: valid single device, empty/zero/negative/decimal/nonnumeric ID rejection and blank-label diagnostics\n",
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "checks/external-id.mjs"
+      ],
+      "stdout": "PASS: empty device_id rejected with row and cause\n",
+      "exit_code": 0
+    }
+  ],
+  "task_count": 3,
+  "C_has_task": false,
+  "selected_assessment": "AS-FIXED",
+  "product_item_count": 13,
+  "definition_sha256": "df0de15f51c84db509579d589f679bd949dc8f3f5c2bbb1774830acc04247fc9",
+  "diagnostics": [
+    {
+      "code": "PENDING_SOURCES",
+      "path": "docs/product/ASSESSMENTS.md",
+      "message": "New material is pending reconciliation; existing PASS is not a current completeness claim",
+      "severity": "warning",
+      "item_id": "AS-BASE",
+      "line": 9
+    }
+  ],
+  "source_diagnostics": [],
+  "offline": {
+    "no_runtime": true,
+    "no_node_modules": true,
+    "types": [
+      "assessment",
+      "change",
+      "design",
+      "discussion",
+      "plan",
+      "project",
+      "goal",
+      "module",
+      "requirement"
+    ],
+    "plan_item_ids": [
+      "E6A",
+      "E6B",
+      "E6R",
+      "E6C"
+    ],
+    "task_states": "not-computed; document reports only"
+  },
+  "observations_sha256": "3c10a4a9585a4f6bedb3d745366fa3750a0a8a5396583e7790290795ebab93a3"
+}
