@@ -101,6 +101,16 @@ full goal, acceptance, scope, step definitions, validation and per-step environm
 A candidate is not adopted and must not replace the current work focus by itself.
 Unknown raw drafts are retained and linked, not discarded or permanently unnumbered.
 
+For a separately scoped prerequisite discovered in another task's step, use prepare
+with explicit origin from TASK_MANAGEMENT_API: parent task/plan/step, reason, child scope,
+parent remaining scope, return policy and resume context. Preserve parent identity and
+unfinished work; coordinate scope changes so implementation is not assigned twice. Reuse
+the actual selected workflow decision. Do not infer a switch from candidate creation or
+next_route. In confirm, use focus=true only when the actual instruction selects entry into
+the child; otherwise state that focus remains on the parent. The return checkpoint is
+captured at real entry, not guessed from the preparation timestamp. Single-layer, single
+outstanding prerequisite limits must be reported, with proposals retained for manual handling.
+
 In confirm mode, read the latest candidate plan and applicable draft review. Make the
 adopted scope and any review conditions explicit. If the user's current or still-effective
 instruction already adopts that plan, use `task` action `adopt` with the actual task_id,

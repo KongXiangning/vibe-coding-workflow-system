@@ -98,6 +98,32 @@ required token fields or Runtime authorization. A recording failure does not rev
 a choice still available in the conversation: report it and use another authorized
 recording method. Never claim the journal or legacy projection was updated when not.
 
+## Derived prerequisite tasks
+
+When an interrupted step needs a separately scoped prerequisite, retain the parent task,
+its unfinished step and all work/review facts. Use prepare with explicit origin (parent
+task/plan/step, reason, scope handoff, return policy and resume context); an ordinary repair
+or same-task revision does not need another identity. Coordinate the adopted parent scope
+with the handoff so both plans do not claim the same implementation. Apply the shared
+one-time rule only to a still-unresolved material scope/order choice.
+
+Read TASK_MANAGEMENT_API.md for the derived-task fields. A candidate or next_route does
+not switch focus. Explicitly focus/adopt the child with focus=true when that is the actual
+choice; report actual current task and step after read-back. Entry from the parent captures
+the real work checkpoint. Do not finish the interrupted step merely to enable a switch.
+
+Assess the child delivery against the actual prerequisite and record dependency outcome
+(satisfied/unresolved/cancelled) separately from close. Closure alone is not fulfillment.
+Auto policy restores only focus, under unchanged parent work and child-owned focus; it does
+not start work or certify review/tests. Honor an already selected return policy without
+asking again. Report suppression reasons, retained gaps and the exact returned position.
+Nested/multiple outstanding prerequisites require explicit manual handling in this version.
+
+Always distinguish affected task from actual next_task_id/next_step_id/next_route. On return,
+read continuation and original step facts, continue the remaining work within authorization,
+and reassess evidence affected by the prerequisite. No automatic finish, old-code restoration,
+finding deletion, repeated business execution or assumed PASS.
+
 ## Unified task management
 
 Non-blocking does not mean unmanaged. Use assistance `task` actions for task

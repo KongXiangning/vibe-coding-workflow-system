@@ -105,6 +105,14 @@ the user's confirmation; use an already sufficient confirmation rather than aski
 for a new internal receipt. The user can stop incomplete, blocked, superseded or
 paused work without first completing it, clearing findings or restoring active state.
 
+For a derived prerequisite, assess whether its actual delivery satisfies the parent need.
+Record dependency state and result summary/evidence with close (or the separate dependency
+action); never infer satisfied from closed, clean review or all steps finished. Retain gaps
+and cancellations. Honor the previously selected return policy: the same event may restore
+parent focus, or report why it cannot. Read back both the child's closure and actual current
+task/step. Use the returned next_task_id/next_step_id/next_route, not the closed child's null
+route or an earlier suggestion. Returning does not finish or execute the parent step.
+
 Use `task` action `close` with the stable task_id, actual decision, remaining_work,
 evidence limits and plan/review/result references. Then read task-status: the task
 must show closed and must no longer be the active work focus. This is disposition,
