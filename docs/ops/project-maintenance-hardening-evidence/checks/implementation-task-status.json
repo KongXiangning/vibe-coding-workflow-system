@@ -1,0 +1,159 @@
+{
+  "input": {},
+  "exit": 0,
+  "result": {
+    "runtime_role": "assistance",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "kind": "task-query/v1",
+    "detail": "summary",
+    "status": "available",
+    "source_revision": "1ba1bee399dd217d83c6f536ff4bbad2d46d2b75c95e8dbd002abd4e958aaaf6",
+    "view_revision": "156dcdca51d63ad347ec5ddb34b4b3b00310f277de66aaa6dc84ef0547e444a1",
+    "workflow_home": "docs/workflow",
+    "current_task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+    "selection": {
+      "requested_task_ref": null,
+      "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+      "status": "resolved",
+      "detail_request": {
+        "detail": "task",
+        "task_ref": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+        "workflow_home": "docs/workflow"
+      }
+    },
+    "health": "needs-attention",
+    "state_completeness": "partial",
+    "records_scanned": 16,
+    "projection": {
+      "cache": "current",
+      "display": "legacy",
+      "read_only_rebuilt": true
+    },
+    "recovery_options": [
+      "rebuild",
+      "link",
+      "correct",
+      "resolve",
+      "defer",
+      "pause",
+      "close"
+    ],
+    "issues": [
+      {
+        "id": "issue-7ef165e16850439ae98fed15",
+        "code": "LEGACY_ASSOCIATION_REQUIRED",
+        "ref": ".workflow-system/records/legacy/current-48b9be7f0af3a5eeeeea790fe7f2bdc2ea53ae30f1353cdff74239a2cfde77d8.md",
+        "message": "Old content preserved but no unambiguous hot-field identity could be read. Use link/import; do not assume no prior task exists."
+      }
+    ],
+    "unassociated_records": [],
+    "task_count": 2,
+    "lifecycle_counts": {
+      "draft": 1,
+      "active": 1
+    },
+    "coverage": {
+      "computation": "full-journal-rebuild",
+      "diagnostics": "all",
+      "history": "not-expanded"
+    },
+    "note": "Presentation of the complete live rebuild. Omitted detail is not absent history, clean review or permission. Read record refs with read; use detail=full for the compatibility view.",
+    "tasks": [
+      {
+        "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+        "display_id": "TASK-011",
+        "title": "maintain-project v1 可靠性修复与业务场景闭环",
+        "lifecycle": "draft",
+        "lifecycle_ref": null,
+        "plan_status": "candidate",
+        "adopted_plan_ref": null,
+        "adopted_by": null,
+        "legacy_plan_ref": null,
+        "legacy_source": null,
+        "current_step_id": null,
+        "current_step": null,
+        "next_route": "review-draft",
+        "next_mode": null,
+        "next_action": null,
+        "recommendation_only": true,
+        "remaining_work": null,
+        "gaps": null,
+        "counts": {
+          "steps": 0,
+          "unfinished_steps": 0,
+          "findings_in_current_plan": 0,
+          "plans": 1,
+          "executions": 3,
+          "tests": 0,
+          "reviews": 0,
+          "review_decisions": 0,
+          "commits": 0
+        },
+        "detail_request": {
+          "detail": "task",
+          "task_ref": "task-05b880c9a4288ad327c5302992c6eb7c",
+          "workflow_home": "docs/workflow"
+        }
+      },
+      {
+        "task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+        "display_id": "TASK-010",
+        "title": "实现完整 maintain-project 首版 VPM-01～25",
+        "lifecycle": "active",
+        "lifecycle_ref": ".workflow-system/records/events/key-2a254fc0ff08ac6e2da469ad32c1ccab7d4ed747707ddd50970b645d51946d21.json",
+        "plan_status": "adopted",
+        "adopted_plan_ref": ".workflow-system/records/events/key-e5a1cb259a6a8725014c51df172d466cec2d43779bea25ee8f3f5904dd60e9be.json",
+        "adopted_by": ".workflow-system/records/events/key-2a254fc0ff08ac6e2da469ad32c1ccab7d4ed747707ddd50970b645d51946d21.json",
+        "legacy_plan_ref": null,
+        "legacy_source": null,
+        "current_step_id": "B1",
+        "current_step": {
+          "id": "B1",
+          "title": "契约读取、局部降级及离线索引",
+          "state": "executed",
+          "legacy_step_status": null,
+          "execution_ref": ".workflow-system/records/events/key-dc5837ffab54ab817ca60663445d269ad28c5f771701b3c9b80aced0e5829cc8.json",
+          "execution_result": "completed",
+          "review_ref": null,
+          "review_status": "not-reviewed",
+          "review_choice": null,
+          "review_decision_ref": null,
+          "disposition_ref": null,
+          "finding_count": 0,
+          "test_count": 1
+        },
+        "next_route": "review-change",
+        "next_mode": null,
+        "next_action": "review-step",
+        "recommendation_only": true,
+        "remaining_work": null,
+        "gaps": null,
+        "counts": {
+          "steps": 6,
+          "unfinished_steps": 6,
+          "findings_in_current_plan": 0,
+          "plans": 1,
+          "executions": 6,
+          "tests": 4,
+          "reviews": 0,
+          "review_decisions": 0,
+          "commits": 0
+        },
+        "detail_request": {
+          "detail": "task",
+          "task_ref": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+          "workflow_home": "docs/workflow"
+        }
+      }
+    ],
+    "pagination": {
+      "total": 2,
+      "offset": 0,
+      "limit": 20,
+      "next_offset": null,
+      "view_revision": "156dcdca51d63ad347ec5ddb34b4b3b00310f277de66aaa6dc84ef0547e444a1",
+      "next_request": null
+    }
+  }
+}

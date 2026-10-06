@@ -1,0 +1,46 @@
+{
+  "offline": {
+    "complete": false,
+    "files_read": 8,
+    "bytes_read": 23097,
+    "enumeration": "managed_paths only; sources are read only by explicit reference",
+    "omitted": [
+      "docs/product/linked",
+      "docs/product/PROJECT.md"
+    ],
+    "paths": [
+      "docs/product/*.md",
+      "docs/product/linked/**/*.md"
+    ],
+    "excluded_paths": [],
+    "max_files": 1000,
+    "max_file_bytes": 4194304,
+    "max_total_bytes": 33554432,
+    "usable_count": 26,
+    "invalid_count": 1
+  },
+  "cli": {
+    "complete": false,
+    "files_read": 8,
+    "bytes_read": 23097,
+    "enumeration": "managed_paths only; sources are read only by explicit reference",
+    "omitted": [
+      "docs/product/linked",
+      "docs/product/PROJECT.md"
+    ],
+    "paths": [
+      "docs/product/*.md",
+      "docs/product/linked/**/*.md"
+    ],
+    "excluded_paths": [],
+    "max_files": 1000,
+    "max_file_bytes": 4194304,
+    "max_total_bytes": 33554432,
+    "usable_count": 26,
+    "invalid_count": 1,
+    "selection": "all-enumerated-items",
+    "source_bodies": "not-read"
+  },
+  "offline_exit": 1,
+  "cli_exit": 1
+}

@@ -1,0 +1,31 @@
+{
+  "request": {
+    "files": [
+      {
+        "path": "docs/product/D-REPAIR.md",
+        "expected_sha256": "96041c5ce07a71ff25e8945022d6c71c163b139ec00eff15d6e2c9ff92978e1b",
+        "updates": [
+          {
+            "id": "REQ-D-ORIGINAL",
+            "metadata": {
+              "scope": "planned"
+            }
+          }
+        ],
+        "append": [
+          {
+            "metadata": {
+              "id": "REQ-D-ADDED",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-D-ADDED] 当前新增\n### 需求内容\n按当前明确范围维护。\n### 范围边界\n原排除项保留，其他范围未验收。\n### 验收要求\n按实际证据核对。\n"
+          }
+        ]
+      }
+    ]
+  },
+  "original_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFt7ImlkIjoiUkVRLUQtT1JJR0lOQUwiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtT1JERVJTIiwib3JpZ2luIjoiaW5mZXJyZWQiLCJzdGF0ZSI6ImRpc21pc3NlZCIsInJlYXNvbiI6IuWOn+WQpuWumuS/neeVmSIsInNvdXJjZXMiOlt7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWQiOaIkOWkueWFt+S4reeahOaXp+S+neaNriIsImxhYmVsIjoi5aS55YW35p2l5rqQIn1dfSx7ImlkIjoiTC1DVVJSRU5UIiwicmVsYXRpb24iOiJyZWZlcmVuY2VzIiwidGFyZ2V0IjoiUFJPSkVDVC1PUkRFUlMiLCJvcmlnaW4iOiJkZWNsYXJlZCIsInN0YXRlIjoiYWN0aXZlIiwicmVhc29uIjoi5bey5a2Y5Zyo55qE5b2T5YmN5YWz6IGUIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5ZCI5oiQ5aS55YW35Lit55qE5pen5L6d5o2uIiwibGFiZWwiOiLlpLnlhbfmnaXmupAifV19LHsiaWQiOiJMLUNVUlJFTlQiLCJyZWxhdGlvbiI6InJlZmVyZW5jZXMiLCJ0YXJnZXQiOiJQUk9KRUNULU9SREVSUyIsIm9yaWdpbiI6ImRlY2xhcmVkIiwic3RhdGUiOiJhY3RpdmUiLCJyZWFzb24iOiLlt7LlrZjlnKjnmoTlvZPliY3lhbPogZQiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLlkIjmiJDlpLnlhbfkuK3nmoTml6fkvp3mja4iLCJsYWJlbCI6IuWkueWFt+adpea6kCJ9XX1dfV0KLS0tCiMjIFtSRVEtRC1PUklHSU5BTF0g5Y6f6ZyA5rGCCiMjIyDpnIDmsYLlhoXlrrkK5oyJ5b2T5YmN5piO56Gu6IyD5Zu057u05oqk44CCCiMjIyDojIPlm7TovrnnlYwK5Y6f5o6S6Zmk6aG55L+d55WZ77yM5YW25LuW6IyD5Zu05pyq6aqM5pS244CCCiMjIyDpqozmlLbopoHmsYIK5oyJ5a6e6ZmF6K+B5o2u5qC45a+544CCCjx0YWJsZT4KPHRyPjx0ZD7ljp/kuJrliqHnuqbmnZ88L3RkPjwvdHI+CjwvdGFibGU+Cg==",
+  "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFt7ImlkIjoiUkVRLUQtT1JJR0lOQUwiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6InBsYW5uZWQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtT1JERVJTIiwib3JpZ2luIjoiaW5mZXJyZWQiLCJzdGF0ZSI6ImRpc21pc3NlZCIsInJlYXNvbiI6IuWOn+WQpuWumuS/neeVmSIsInNvdXJjZXMiOlt7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWQiOaIkOWkueWFt+S4reeahOaXp+S+neaNriIsImxhYmVsIjoi5aS55YW35p2l5rqQIn1dfSx7ImlkIjoiTC1DVVJSRU5UIiwicmVsYXRpb24iOiJyZWZlcmVuY2VzIiwidGFyZ2V0IjoiUFJPSkVDVC1PUkRFUlMiLCJvcmlnaW4iOiJkZWNsYXJlZCIsInN0YXRlIjoiYWN0aXZlIiwicmVhc29uIjoi5bey5a2Y5Zyo55qE5b2T5YmN5YWz6IGUIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5ZCI5oiQ5aS55YW35Lit55qE5pen5L6d5o2uIiwibGFiZWwiOiLlpLnlhbfmnaXmupAifV19LHsiaWQiOiJMLUNVUlJFTlQiLCJyZWxhdGlvbiI6InJlZmVyZW5jZXMiLCJ0YXJnZXQiOiJQUk9KRUNULU9SREVSUyIsIm9yaWdpbiI6ImRlY2xhcmVkIiwic3RhdGUiOiJhY3RpdmUiLCJyZWFzb24iOiLlt7LlrZjlnKjnmoTlvZPliY3lhbPogZQiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLlkIjmiJDlpLnlhbfkuK3nmoTml6fkvp3mja4iLCJsYWJlbCI6IuWkueWFt+adpea6kCJ9XX1dfSwgeyJpZCI6IlJFUS1ELUFEREVEIiwidHlwZSI6InJlcXVpcmVtZW50Iiwic2NvcGUiOiJjdXJyZW50In1dCi0tLQojIyBbUkVRLUQtT1JJR0lOQUxdIOWOn+mcgOaxggojIyMg6ZyA5rGC5YaF5a65CuaMieW9k+WJjeaYjuehruiMg+WbtOe7tOaKpOOAggojIyMg6IyD5Zu06L6555WMCuWOn+aOkumZpOmhueS/neeVme+8jOWFtuS7luiMg+WbtOacqumqjOaUtuOAggojIyMg6aqM5pS26KaB5rGCCuaMieWunumZheivgeaNruaguOWvueOAggo8dGFibGU+Cjx0cj48dGQ+5Y6f5Lia5Yqh57qm5p2fPC90ZD48L3RyPgo8L3RhYmxlPgoKIyMgW1JFUS1ELUFEREVEXSDlvZPliY3mlrDlop4KIyMjIOmcgOaxguWGheWuuQrmjInlvZPliY3mmI7noa7ojIPlm7Tnu7TmiqTjgIIKIyMjIOiMg+WbtOi+ueeVjArljp/mjpLpmaTpobnkv53nlZnvvIzlhbbku5bojIPlm7TmnKrpqozmlLbjgIIKIyMjIOmqjOaUtuimgeaxggrmjInlrp7pmYXor4Hmja7moLjlr7njgIIK",
+  "synthetic_fixture_only": true
+}

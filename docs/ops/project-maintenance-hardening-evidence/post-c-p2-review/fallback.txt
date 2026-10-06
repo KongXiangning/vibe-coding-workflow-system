@@ -1,0 +1,1 @@
+{"fallback":"ordinary-editor","helper_apply_saved":false,"source_preserved":true,"scope":"planned","links_and_body_preserved":true,"duplicate_warnings":1}

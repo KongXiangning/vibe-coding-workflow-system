@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-05",
+  "bundle": "bundle-b042ead6ae11e4c8c8ebc125",
+  "installed_helper_sha256": "d97298d9bf0ee91ad20caca9e74689d8f7b422ed213c8a3b159d48d1eb0a8397",
+  "bootstrap_selection": {
+    "fail": 0,
+    "pass": 2
+  },
+  "unique_tests": 53,
+  "source_commit_performed": false,
+  "helper_sha256": "d97298d9bf0ee91ad20caca9e74689d8f7b422ed213c8a3b159d48d1eb0a8397",
+  "installation": {
+    "fail": 0,
+    "pass": 1,
+    "assertions": 66
+  },
+  "bun": "1.3.10",
+  "distribution_selection": {
+    "fail": 0,
+    "pass": 7
+  },
+  "published": false,
+  "source": {
+    "fail": 0,
+    "pass": 19
+  },
+  "branch": "codex/maintain-project-v1",
+  "candidate": "0.24.1",
+  "baseline": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+  "node": "v24.12.0",
+  "manifest_digest": "4b41de749787c9a106709c165bf903c52644694179084a29283b70eb3182f364",
+  "diff_check_exit": 0,
+  "offline_sha256": "12b753da0e79a7bdf68a8c9ef59c5225371cad1595d42b4530a38367df19b9c9",
+  "product": {
+    "fail": 0,
+    "pass": 24,
+    "assertions": 195
+  }
+}

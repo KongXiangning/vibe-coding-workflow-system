@@ -1,0 +1,7 @@
+$ bun run scripts/build-vibe-governance-distribution.ts
+{
+  "package_root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\packages\\vibe-governance",
+  "manifest_digest": "aebb8ef2f66aea304fefbd896ce92ef63f071dc685814c07d2345f825de5d990",
+  "distribution_version": "0.24.1",
+  "bundle_id": "bundle-4ea664a2b9816ded1bb42556"
+}

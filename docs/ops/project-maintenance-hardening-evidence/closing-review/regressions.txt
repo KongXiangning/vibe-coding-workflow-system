@@ -1,0 +1,60 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance-install.test.ts:
+(pass) installed maintenance assets execute with Node and upgrade preserves all target-owned business bytes [14641.00ms]
+
+test\product-maintenance.test.ts:
+(pass) F01 whole candidates protect identity and v1 migration while explicit deletion and ordinary edits work [125.00ms]
+(pass) F01 F02 dismissed links and bindings resist content, reordered/repeated sources and equivalent IDs [391.00ms]
+(pass) F03 remove_fields alone removes optional selection, is idempotent, and cannot remove required identity [78.00ms]
+(pass) F04 missing registered/selected paths and Windows junctions retain omissions without stopping independent reads [47.00ms]
+(pass) F05 whole candidate repairs only changed malformed item and keeps another malformed item exact [78.00ms]
+(pass) F06 localized bodies reject root boundaries and swallowed neighbors while AST pseudo headings and file appendices work [78.00ms]
+(pass) R01 inline double-star globs preserve recursive matching without visiting unrelated junctions [78.00ms]
+(pass) R02 malformed old sources allow explicit reassociation but cannot supply a new basis themselves [281.00ms]
+(pass) R03 explicit relation removal repairs null members while preserving valid relations and raw history [266.00ms]
+(pass) R04 directories at explicit file paths are omitted while glob directory prefixes remain readable [31.00ms]
+(pass) inventory is partial, all scopes and delivered current requirements survive without tasks
+(pass) AST ignores code, quotes and lists; a bad item does not hide its neighbors [16.00ms]
+(pass) unsafe YAML is locally rejected, including duplicates, aliases, custom tags and non-finite values
+(pass) duplicate global identity is ambiguous and byte limits reveal incomplete coverage [15.00ms]
+(pass) definition hash normalizes line endings and excludes task, plan, discussion and assessment metadata [16.00ms]
+(pass) localized update retains malformed neighbor bytes and untouched business exceptions [31.00ms]
+(pass) append and v1 explicit migration preserve existing content and IDs [63.00ms]
+(pass) conflict and partial file failure never overwrite newer user bytes [47.00ms]
+(pass) capture retains original bytes once, conflict does not overwrite, URI remains unarchived [31.00ms]
+(pass) paged source bytes, changed historical digest and exact item/section locators are reported [47.00ms]
+(pass) path traversal, excluded files, symlinks and frozen targets stop only the specific I/O [47.00ms]
+(pass) E6 keeps one requirement and stable work items; task binding retry has no task operations [47.00ms]
+(pass) cyclic/withdrawn predecessors are visible diagnostics; retired targets stay retired [15.00ms]
+(pass) new failure is visible with unchanged definition and original PASS; recall never adopts discussion [78.00ms]
+(pass) same project ID in distinct worktrees never merges bytes; paused and missing entry do not create gates [47.00ms]
+(pass) dismissed retry cannot reactivate without a new basis; newly introduced root heading is rejected [47.00ms]
+(pass) unknown prototype-looking fields, nonfinite request values and write size bounds are real diagnostics [16.00ms]
+(pass) bundled Node helper coordinates racing writers and runs without source dependencies [547.00ms]
+
+test\workflow-vnext-source.test.ts:
+(pass) vNext Phase 2 source contract > every public vNext entry declares a terminal boundary and advisory next route [3812.00ms]
+(pass) vNext Phase 2 source contract > rejects internal commands and user decisions as public next_route literals [719.00ms]
+(pass) vNext Phase 2 source contract > new unreviewed plans recommend draft review before implementation
+(pass) vNext Phase 2 source contract > accepts the daily entries including project maintenance and closed catalogs [94.00ms]
+(pass) vNext Phase 2 source contract > keeps validate-change and git-commit in the closed expert entry set [437.00ms]
+(pass) vNext Phase 2 source contract > keeps git-commit caller-authorized and independent from task transactions
+(pass) vNext Phase 2 source contract > rejects a review template with direct writes [172.00ms]
+(pass) vNext Phase 2 source contract > rejects prepare-task product writes and execute-step governance writes [297.00ms]
+(pass) vNext Phase 2 source contract > keeps public selection examples generalized and distinct from execution evidence
+(pass) vNext Phase 2 source contract > requires the execute-step scope guard [172.00ms]
+(pass) vNext Phase 2 source contract > requires evidence admission and resume-review capabilities for prepare-task [312.00ms]
+(pass) vNext Phase 2 source contract > requires review-draft read-only and decision authority boundaries [281.00ms]
+(pass) vNext Phase 2 source contract > rejects cycle phases promoted into a mode [141.00ms]
+(pass) vNext Phase 2 source contract > rejects a lifecycle mode outside its closed set [172.00ms]
+(pass) vNext Phase 2 source contract > rejects capture-work-item when its legacy-name collision is used as an executable target [156.00ms]
+(pass) vNext Phase 2 source contract > rejects missing capability references and public capability exposure [234.00ms]
+(pass) vNext Phase 2 source contract > rejects removing the Phase 2 Runtime binding [94.00ms]
+(pass) vNext Phase 2 source contract > rejects legacy frontmatter fields and old Skill executable targets [453.00ms]
+(pass) vNext Phase 2 source contract > rejects extra public vNext templates [125.00ms]
+
+ 48 pass
+ 0 fail
+ 517 expect() calls
+Ran 48 tests across 3 files. [25.40s]

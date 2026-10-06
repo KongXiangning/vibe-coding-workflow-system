@@ -35,3 +35,19 @@ Deduplicate matching raw bytes and semantic topics without discarding distinct
 context; duplicate discussions can be archived/referenced, not silently merged.
 Authorized deletion/sharing/redaction uses normal host tools after locating the
 precise scope; helper does not invent a history-deletion guarantee.
+
+For a multi-topic interview keep per-fragment cloud sync, error messages and device
+count separate. Unadopted alternatives stay alternatives, uncertain associations
+stay inferred/pending, and explicit rejection stays dismissed. Adopting only the
+error-message fragment changes only that requirement. Unknown authors/dates remain
+unknown; discussion organization is never a prerequisite for ordinary development.
+
+On a dismissed retry compare actual fragment/object/relation, not just link ID.
+Reordering/repeating the same sources, changing object keys, display notes or the
+reason is not a new basis. A current explicit reversal such as “this cloud discussion
+does describe the optional sync goal” can itself be a text SourceRef. Read the current
+target body, explain the exact scope, retain the original rejection/source and the
+new decision (authorized preimage/change if needed), then reassociate. Do not demand
+an external document or an extra approval. New bytes alone are not semantic proof.
+An explicit deletion/correction may remove the precise relation via remove_relations
+or an entire field via remove_fields; this is not default retry behavior.

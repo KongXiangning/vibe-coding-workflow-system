@@ -25,3 +25,12 @@ content with source-grounded bodies. Check/apply with the actual read byte diges
 read back all affected entries and report unread scope. Pure inventory never
 prepares/adopts a task or executes product code. Return the actual known business
 picture and missing scope, not a schema-success completion claim.
+
+Separate requested-path byte coverage, usable/invalid structure, inventory of the
+listed business sources and scoped delivery results. An absent registered/selected
+file, inaccessible relevant directory or skipped junction is unread coverage;
+report its known path/pattern without guessing contents. Continue other readable
+selected paths. A successful empty glob is an empty scope, not evidence that no
+requirements exist elsewhere. source_paths grants reference reading only.
+For a moved file use stable identity only within already authorized known paths,
+or update the explicitly known manifest path; unknown location remains unknown.

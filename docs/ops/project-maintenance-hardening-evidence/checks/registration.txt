@@ -1,0 +1,2 @@
+$ bun run scripts/vnext-source-contract.ts
+vNext source contract: PASSED (Phase 2; 9 daily entries, 1 administrative entries, 2 expert entries, 28 capabilities, 11 Runtime operations)

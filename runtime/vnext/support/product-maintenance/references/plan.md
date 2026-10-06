@@ -43,3 +43,18 @@ adopt, close, resume or supersede any task. Revise an existing task only when it
 own scope truly changes, using existing prepare(task_id, base_plan_ref)/adopt.
 Check persistence, association and view separately, and read back both requested
 task state and business binding. No maintenance receipt is a preparation prerequisite.
+
+An exploration result that rules out a design may satisfy the exploration objective
+while leaving product requirements undelivered. Retain the actual observations,
+update proposed/adopted design differences and refine only the affected work.
+Do not create future task identities or impose an exploration stage on clear work.
+One permission task may implement endpoint checks and supply actor fields for audit;
+bind those two exact coverages, leaving audit query/export unresolved. Task count,
+close and adopted plan do not compute completion percentages.
+
+For urgent added export ahead of report optimization, preserve stable IDs, origin,
+prior order and deferred scope. Customer urgency is an order reason; reliable event
+records are an engineering prerequisite requiring real evidence. Array order alone
+creates neither dependency nor execution. Existing in-progress task plans are revised
+only if their own scope actually changes and the current instruction covers it.
+Retiring historical CSV work does not reopen it when repairing current Excel parsing.

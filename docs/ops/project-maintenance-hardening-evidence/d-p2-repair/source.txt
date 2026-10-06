@@ -1,0 +1,27 @@
+bun test v1.3.10 (30e609e0)
+
+test\workflow-vnext-source.test.ts:
+(pass) vNext Phase 2 source contract > every public vNext entry declares a terminal boundary and advisory next route [3516.00ms]
+(pass) vNext Phase 2 source contract > rejects internal commands and user decisions as public next_route literals [828.00ms]
+(pass) vNext Phase 2 source contract > new unreviewed plans recommend draft review before implementation
+(pass) vNext Phase 2 source contract > accepts the daily entries including project maintenance and closed catalogs [94.00ms]
+(pass) vNext Phase 2 source contract > keeps validate-change and git-commit in the closed expert entry set [547.00ms]
+(pass) vNext Phase 2 source contract > keeps git-commit caller-authorized and independent from task transactions
+(pass) vNext Phase 2 source contract > rejects a review template with direct writes [187.00ms]
+(pass) vNext Phase 2 source contract > rejects prepare-task product writes and execute-step governance writes [313.00ms]
+(pass) vNext Phase 2 source contract > keeps public selection examples generalized and distinct from execution evidence
+(pass) vNext Phase 2 source contract > requires the execute-step scope guard [172.00ms]
+(pass) vNext Phase 2 source contract > requires evidence admission and resume-review capabilities for prepare-task [297.00ms]
+(pass) vNext Phase 2 source contract > requires review-draft read-only and decision authority boundaries [484.00ms]
+(pass) vNext Phase 2 source contract > rejects cycle phases promoted into a mode [141.00ms]
+(pass) vNext Phase 2 source contract > rejects a lifecycle mode outside its closed set [156.00ms]
+(pass) vNext Phase 2 source contract > rejects capture-work-item when its legacy-name collision is used as an executable target [156.00ms]
+(pass) vNext Phase 2 source contract > rejects missing capability references and public capability exposure [250.00ms]
+(pass) vNext Phase 2 source contract > rejects removing the Phase 2 Runtime binding [94.00ms]
+(pass) vNext Phase 2 source contract > rejects legacy frontmatter fields and old Skill executable targets [469.00ms]
+(pass) vNext Phase 2 source contract > rejects extra public vNext templates [125.00ms]
+
+ 19 pass
+ 0 fail
+ 115 expect() calls
+Ran 19 tests across 1 file. [7.92s]

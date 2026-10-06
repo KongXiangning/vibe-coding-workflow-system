@@ -1,0 +1,152 @@
+{
+  "input": {
+    "action": "prepare",
+    "idempotency_key": "maintain-project-hardening-20261005",
+    "plan": {
+      "title": "maintain-project v1 可靠性修复与业务场景闭环",
+      "goal": "按已授权 hardening-plan 修复 F01～F06 并完成 S01～S13 分层证据",
+      "scope": [
+        "product-maintenance 共同写入链、请求读取覆盖、六类 references、原权威文档、定向回归、本地分发和隔离宿主验收"
+      ],
+      "exclusions": [
+        "不处置旧 task，不切换焦点，不发布或推送，不修改真实业务项目"
+      ],
+      "steps": [
+        {
+          "id": "A",
+          "title": "核对复现与可靠性底座",
+          "validation": [
+            "六项基线 bundled Node 复现、稳定正反回归"
+          ]
+        },
+        {
+          "id": "B",
+          "title": "业务语义与十三场景映射",
+          "validation": [
+            "保留既有 VPM，补 references 和原权威语义"
+          ]
+        },
+        {
+          "id": "C",
+          "title": "分发安装与宿主、离线消费验收",
+          "validation": [
+            "源码构建、隔离安装和资产保留、实际宿主工具调用与回读"
+          ]
+        }
+      ]
+    },
+    "decision_source": "本会话 2026-10-05 用户实施指令",
+    "decision_text": "按实际规模组织 task／步骤，不为 13 场景机械创建 13 个 task。"
+  },
+  "exit": 0,
+  "result": {
+    "runtime_role": "assistance",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "status": "recorded-pending-view",
+    "recorded": true,
+    "ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+    "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+    "task": {
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "display_id": "TASK-011",
+      "title": "maintain-project v1 可靠性修复与业务场景闭环",
+      "lifecycle": "draft",
+      "lifecycle_ref": null,
+      "adopted_plan_ref": null,
+      "plan_status": "candidate",
+      "plan": null,
+      "plans": [
+        {
+          "title": "maintain-project v1 可靠性修复与业务场景闭环",
+          "goal": "按已授权 hardening-plan 修复 F01～F06 并完成 S01～S13 分层证据",
+          "scope": [
+            "product-maintenance 共同写入链、请求读取覆盖、六类 references、原权威文档、定向回归、本地分发和隔离宿主验收"
+          ],
+          "exclusions": [
+            "不处置旧 task，不切换焦点，不发布或推送，不修改真实业务项目"
+          ],
+          "steps": [
+            {
+              "id": "A",
+              "title": "核对复现与可靠性底座",
+              "validation": [
+                "六项基线 bundled Node 复现、稳定正反回归"
+              ]
+            },
+            {
+              "id": "B",
+              "title": "业务语义与十三场景映射",
+              "validation": [
+                "保留既有 VPM，补 references 和原权威语义"
+              ]
+            },
+            {
+              "id": "C",
+              "title": "分发安装与宿主、离线消费验收",
+              "validation": [
+                "源码构建、隔离安装和资产保留、实际宿主工具调用与回读"
+              ]
+            }
+          ],
+          "ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+          "parent_plan_ref": null
+        }
+      ],
+      "adopted_by": null,
+      "adoption": null,
+      "candidate_plan_refs": [
+        ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json"
+      ],
+      "current_step_id": null,
+      "steps": [],
+      "reviews": [],
+      "executions": [],
+      "tests": [],
+      "review_decisions": [],
+      "commits": [],
+      "dispositions": [],
+      "next_route": "review-draft",
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "legacy_source": null,
+      "legacy_plan_ref": null,
+      "heads": [
+        ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json"
+      ]
+    },
+    "association": "applied",
+    "projection": {
+      "status": "partial",
+      "cache_ref": ".workflow-system/records/task-view.json",
+      "display": "drift",
+      "issues": [
+        {
+          "id": "issue-72f0ee56c6ebec76c3dfff25",
+          "code": "CURRENT_TASK_DRIFT",
+          "ref": "docs/workflow/CURRENT_TASK.md",
+          "message": "Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it."
+        }
+      ]
+    },
+    "current_task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+    "issues": [
+      {
+        "id": "issue-7ef165e16850439ae98fed15",
+        "code": "LEGACY_ASSOCIATION_REQUIRED",
+        "ref": ".workflow-system/records/legacy/current-48b9be7f0af3a5eeeeea790fe7f2bdc2ea53ae30f1353cdff74239a2cfde77d8.md",
+        "message": "Old content preserved but no unambiguous hot-field identity could be read. Use link/import; do not assume no prior task exists."
+      }
+    ],
+    "recovery_options": [
+      "rebuild",
+      "link",
+      "correct",
+      "resolve",
+      "defer",
+      "pause",
+      "close"
+    ]
+  }
+}

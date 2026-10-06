@@ -1,0 +1,93 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+28 | const wholeOp = (root: string, content: string, extra: ObjectValue = {}) => ({ path: 'docs/product/REQUIREMENTS.md', expected_sha256: sha256(get(root)), content, ...extra });
+29 | 
+30 | test('F01 whole candidates protect identity and v1 migration while explicit deletion and ordinary edits work', () => {
+31 |   const root = fixture(), original = get(root);
+32 |   for (const content of [newDocument([{ metadata: { id: 'REQ-A', type: 'goal', scope: 'current' }, body: body('REQ-A', 'goal') }]), newDocument([req('REQ-RENAMED')])]) {
+33 |     expect(run('apply', root, { files: [wholeOp(root, content)] }).status).toBe('failed'); expect(get(root)).toEqual(original);
+                                                                                ^
+error: expect(received).toBe(expected)
+
+Expected: "failed"
+Received: "saved"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:33:76)
+(fail) F01 whole candidates protect identity and v1 migration while explicit deletion and ordinary edits work [32.00ms]
+52 |   for (const [field, relation] of [['links', link], ['task_bindings', binding]] as const) {
+53 |     const root = fixture([req('REQ-A', { [field]: [relation] })]), original = get(root);
+54 |     for (const whole of [false, true]) for (const candidateSources of [[...sources].reverse(), [...sources, sources[0]], [{ label: 'A', text: '原材料 A', kind: 'text' }, { section: '依据', path: 'docs/evidence/b.md', kind: 'file' }], [sources[0]]]) {
+55 |       const metadata = { [field]: [{ ...relation, state: 'active', reason: '改写理由不足以成为新依据', sources: candidateSources }] };
+56 |       const op = whole ? wholeOp(root, newDocument([req('REQ-A', metadata)])) : fileOp(root, [{ id: 'REQ-A', metadata }]);
+57 |       expect(run('apply', root, { files: [op] }).status).toBe('failed'); expect(get(root)).toEqual(original);
+                                                              ^
+error: expect(received).toBe(expected)
+
+Expected: "failed"
+Received: "saved"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:57:58)
+(fail) F01 F02 dismissed links and bindings resist content, reordered/repeated sources and equivalent IDs [31.00ms]
+69 |   }
+70 | });
+71 | test('F03 remove_fields alone removes optional selection, is idempotent, and cannot remove required identity', () => {
+72 |   const root = fixture([req('REQ-A', { assessment_id: 'AS-A' })]); put(root, 'docs/evidence/old-assessment.txt', '历史 assessment 原文');
+73 |   const operation = () => fileOp(root, [{ id: 'REQ-A', remove_fields: ['assessment_id'] }]);
+74 |   expect(run('apply', root, { files: [operation()] }).files[0].status).toBe('saved');
+                                                                            ^
+error: expect(received).toBe(expected)
+
+Expected: "saved"
+Received: "unchanged"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:74:72)
+(fail) F03 remove_fields alone removes optional selection, is idempotent, and cannot remove required identity [16.00ms]
+82 | });
+83 | test('F04 missing registered/selected paths and Windows junctions retain omissions without stopping independent reads', () => {
+84 |   const root = fixture();
+85 |   const missing = 'docs/product/MISSING.md';
+86 |   let read = run('read', root, { paths: [missing, 'docs/product/REQUIREMENTS.md'] });
+87 |   expect(read.coverage.complete).toBe(false); expect(read.coverage.omitted).toContain(missing); expect(read.usable_items.map((i: any) => i.id)).toContain('REQ-A');
+                                      ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:87:34)
+(fail) F04 missing registered/selected paths and Windows junctions retain omissions without stopping independent reads
+100 | });
+101 | test('F05 whole candidate repairs only changed malformed item and keeps another malformed item exact', () => {
+102 |   const root = fixture([req('REQ-A', { unknown: true }), req('REQ-B', { another_unknown: true }), req('REQ-C')]);
+103 |   const original = get(root).toString(), prior = parseProduct(original, 'r.md');
+104 |   const content = original.replace('    unknown: true\n', '');
+105 |   const result = run('apply', root, { files: [wholeOp(root, content)] }); expect(result.status).toBe('saved');
+                                                                                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "saved"
+Received: "failed"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:105:97)
+(fail) F05 whole candidate repairs only changed malformed item and keeps another malformed item exact [15.00ms]
+110 |   expect(run('apply', root, { files: [wholeOp(root, before.toString().replace('id: REQ-A\n    type: requirement', 'id: REQ-A\n    type: goal'))] }).status).toBe('failed'); expect(get(root)).toEqual(before);
+111 | });
+112 | test('F06 localized bodies reject root boundaries and swallowed neighbors while AST pseudo headings and file appendices work', () => {
+113 |   const root = fixture([req(), req('REQ-B')]), original = get(root);
+114 |   for (const text of [body('REQ-A', 'requirement') + '\n## 普通约束\n不得上传原始数据。\n', body('REQ-A', 'requirement') + '\n```md\n未闭合代码块\n', body('REQ-OTHER', 'requirement')]) {
+115 |     expect(run('apply', root, { files: [fileOp(root, [{ id: 'REQ-A', body: text }])] }).status).toBe('failed'); expect(get(root)).toEqual(original);
+                                                                                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "failed"
+Received: "saved"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:115:97)
+(fail) F06 localized bodies reject root boundaries and swallowed neighbors while AST pseudo headings and file appendices work [16.00ms]
+
+ 0 pass
+ 18 filtered out
+ 6 fail
+ 6 expect() calls
+Ran 6 tests across 1 file. [254.00ms]

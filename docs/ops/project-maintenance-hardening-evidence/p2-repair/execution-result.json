@@ -1,0 +1,743 @@
+{
+  "runtime_role": "assistance",
+  "development_gate": false,
+  "qualification": "not-evaluated",
+  "status": "recorded-pending-view",
+  "recorded": true,
+  "ref": ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "task": {
+    "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+    "display_id": "TASK-011",
+    "title": "maintain-project v1 可靠性修复与业务场景闭环",
+    "lifecycle": "draft",
+    "lifecycle_ref": null,
+    "adopted_plan_ref": null,
+    "plan_status": "candidate",
+    "plan": null,
+    "plans": [
+      {
+        "title": "maintain-project v1 可靠性修复与业务场景闭环",
+        "goal": "按已授权 hardening-plan 修复 F01～F06 并完成 S01～S13 分层证据",
+        "scope": [
+          "product-maintenance 共同写入链、请求读取覆盖、六类 references、原权威文档、定向回归、本地分发和隔离宿主验收"
+        ],
+        "exclusions": [
+          "不处置旧 task，不切换焦点，不发布或推送，不修改真实业务项目"
+        ],
+        "steps": [
+          {
+            "id": "A",
+            "title": "核对复现与可靠性底座",
+            "validation": [
+              "六项基线 bundled Node 复现、稳定正反回归"
+            ]
+          },
+          {
+            "id": "B",
+            "title": "业务语义与十三场景映射",
+            "validation": [
+              "保留既有 VPM，补 references 和原权威语义"
+            ]
+          },
+          {
+            "id": "C",
+            "title": "分发安装与宿主、离线消费验收",
+            "validation": [
+              "源码构建、隔离安装和资产保留、实际宿主工具调用与回读"
+            ]
+          }
+        ],
+        "ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "parent_plan_ref": null
+      }
+    ],
+    "adopted_by": null,
+    "adoption": null,
+    "candidate_plan_refs": [
+      ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json"
+    ],
+    "current_step_id": null,
+    "steps": [],
+    "reviews": [
+      {
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-d871c43e69db42b78ddc4f5d93b23857e3838a314472ee23619d60928299dded.json",
+        "verdict": "findings",
+        "findings": [
+          {
+            "id": "R01",
+            "severity": "P2",
+            "file": "runtime/vnext/src/product-maintenance/paths.ts",
+            "line": 85,
+            "category": "introduced-regression",
+            "text": "mayContainMatch 仅将独立 ** 段视为递归，与既有 matchPattern 的 **.md 跨目录语义不一致。managed_paths=[docs/product/**.md] 时，基线 Node 读到 nested/DEEP.md，当前 Node 静默漏读该要求且 complete=true、omitted=[]、exit=0。目录裁剪应与公开 matcher 的全部受支持 glob 语义一致。",
+            "probe": "recursive-glob-with-inline-double-star"
+          },
+          {
+            "id": "R02",
+            "severity": "P2",
+            "file": "runtime/vnext/src/product-maintenance/writer.ts",
+            "line": 159,
+            "category": "introduced-regression",
+            "text": "hasNewBasis 对原始坏条目的 sources 不做可比较性检查。旧 dismissed sources=[null]，本次提供明确当前用户反转来源并将条目修成合法 active 时，基线局部更新 saved，当前 helper 因 sourceKey 解构 null 而 failed。应保留原文并稳健处理旧坏来源，合法重新关联不能依赖先执行额外修复。保留 dismissed 的单独修复对照可 saved。",
+            "probe": "local-repair-and-authorized-reassociation-of-malformed-source"
+          },
+          {
+            "id": "R03",
+            "severity": "P2",
+            "file": "runtime/vnext/src/product-maintenance/writer.ts",
+            "line": 188,
+            "category": "new-capability-gap",
+            "text": "remove_relations 查找 old/next 关系时使用 r.id 而无空值保护。旧 links=[null,L-OLD,L-KEEP]，明确删除 dismissed L-OLD 并修掉空成员、保留另一有效 L-KEEP 时，合法候选因读取 null.id 失败，原字节不变。去掉旧数组空成员的同操作对照 saved；该声明在基线没有支持，因此不算原功能回归。",
+            "probe": "explicit-removal-and-repair-of-null-neighbor-relation"
+          },
+          {
+            "id": "R04",
+            "severity": "P2",
+            "file": "runtime/vnext/src/product-maintenance/paths.ts",
+            "line": 94,
+            "category": "inherited-hardening-gap",
+            "text": "显式登记文件（尤其 entry=docs/product/PROJECT.md）实际为目录时，enumerate 将其当遍历目录而未记 omitted。当前与基线均返回 complete=true、files_read=1、exit=0，只见 PROJECT_ENTRY warning。本轮 F04 请求文件字节完整性仍有缺口；应区分具体文件选择与用于遍历的 glob 前缀。",
+            "probe": "directory-at-explicit-entry-file"
+          }
+        ],
+        "coverage": {
+          "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+          "branch": "codex/maintain-project-v1",
+          "target": "current uncommitted implementation",
+          "reviewed": [
+            "six reliability fixes and common call chain",
+            "S01-S13 mapping and six references",
+            "generated Node helper and installed assets",
+            "existing assistance/task management regression"
+          ],
+          "source_digests": {
+            "writer.ts": "1b2f8aa9279d6cb0e897473fee430db5796284f1cde07481313767bcffa1b630",
+            "paths.ts": "31d934b91ef150ded5b8f95e1cedd0a95cab23f00e91b3419c671a79702bd4f4",
+            "catalog.ts": "ce25b5e52c808451b94f969cb75a4a0449e80ed88d24e4a8fe0c83b320494042",
+            "cli.ts": "e42f951acced550228f35fc658fda0d4cf15e08b55b4bfabbf49772845c007cf",
+            "schemas.ts": "7f901792f84b4664c4f2731529ace132df1fd7ca8dba148c4c668195d06e3804",
+            "offline-reader.ts": "e98bd9d3b655d0443e58580cd1c0d0bfe2f7574ec0fb202dc9f23e556ef10845"
+          },
+          "helper_sha256": "d97298d9bf0ee91ad20caca9e74689d8f7b422ed213c8a3b159d48d1eb0a8397",
+          "baseline_helper_sha256": "83a3d293aa8007b25c4bbd1b4e98dae77eed00fc856cd17a919c10ec96f2bbe4",
+          "commands": [
+            {
+              "command": "bun test test/product-maintenance.test.ts test/product-maintenance-install.test.ts test/workflow-vnext-source.test.ts",
+              "result": "44 pass / 0 fail / 376 expectations"
+            },
+            {
+              "command": "node --test test/vnext-assistance.test.mjs test/vnext-task-management.test.mjs",
+              "result": "28 pass / 0 fail"
+            },
+            {
+              "command": "bun .tmp/review-maintain/probes.ts",
+              "result": "7 paired isolated Node probes; actual counterexamples plus controls, no production writes"
+            }
+          ],
+          "observations": [
+            {
+              "name": "recursive-glob-with-inline-double-star",
+              "version": "baseline",
+              "request": {
+                "detail": "items"
+              },
+              "exit": 0,
+              "status": "available",
+              "complete": true,
+              "omitted": [],
+              "ids": [
+                "PROJECT-A",
+                "REQ-A",
+                "REQ-DEEP"
+              ],
+              "diagnostics": []
+            },
+            {
+              "name": "recursive-glob-with-inline-double-star",
+              "version": "current",
+              "request": {
+                "detail": "items"
+              },
+              "exit": 0,
+              "status": "available",
+              "complete": true,
+              "omitted": [],
+              "ids": [
+                "PROJECT-A",
+                "REQ-A"
+              ],
+              "diagnostics": []
+            },
+            {
+              "name": "directory-at-explicit-entry-file",
+              "version": "baseline",
+              "request": {
+                "detail": "items"
+              },
+              "exit": 0,
+              "status": "available",
+              "complete": true,
+              "omitted": [],
+              "ids": [
+                "REQ-A"
+              ],
+              "diagnostics": [
+                "PROJECT_ENTRY"
+              ]
+            },
+            {
+              "name": "directory-at-explicit-entry-file",
+              "version": "current",
+              "request": {
+                "detail": "items"
+              },
+              "exit": 0,
+              "status": "available",
+              "complete": true,
+              "omitted": [],
+              "ids": [
+                "REQ-A"
+              ],
+              "diagnostics": [
+                "PROJECT_ENTRY"
+              ]
+            },
+            {
+              "name": "local-repair-and-authorized-reassociation-of-malformed-source",
+              "version": "baseline",
+              "request": {
+                "files": [
+                  {
+                    "path": "docs/product/REQ.md",
+                    "expected_sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+                    "updates": [
+                      {
+                        "id": "REQ-A",
+                        "metadata": {
+                          "links": [
+                            {
+                              "id": "L-OLD",
+                              "relation": "references",
+                              "target": "PROJECT-A",
+                              "origin": "inferred",
+                              "state": "active",
+                              "reason": "当前用户明确改变原决定，同意该范围重新关联",
+                              "sources": [
+                                {
+                                  "kind": "text",
+                                  "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                                  "label": "当前用户决定"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "exit": 0,
+              "status": "saved",
+              "error": [
+                null
+              ]
+            },
+            {
+              "name": "local-repair-and-authorized-reassociation-of-malformed-source",
+              "version": "current",
+              "request": {
+                "files": [
+                  {
+                    "path": "docs/product/REQ.md",
+                    "expected_sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+                    "updates": [
+                      {
+                        "id": "REQ-A",
+                        "metadata": {
+                          "links": [
+                            {
+                              "id": "L-OLD",
+                              "relation": "references",
+                              "target": "PROJECT-A",
+                              "origin": "inferred",
+                              "state": "active",
+                              "reason": "当前用户明确改变原决定，同意该范围重新关联",
+                              "sources": [
+                                {
+                                  "kind": "text",
+                                  "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                                  "label": "当前用户决定"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "exit": 1,
+              "status": "failed",
+              "error": [
+                "Cannot destructure property 'note' of 'source2' as it is null."
+              ]
+            },
+            {
+              "name": "local-repair-malformed-source-with-dismissal-retained-control",
+              "version": "baseline",
+              "request": {
+                "files": [
+                  {
+                    "path": "docs/product/REQ.md",
+                    "expected_sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+                    "updates": [
+                      {
+                        "id": "REQ-A",
+                        "metadata": {
+                          "links": [
+                            {
+                              "id": "L-OLD",
+                              "relation": "references",
+                              "target": "PROJECT-A",
+                              "origin": "inferred",
+                              "state": "dismissed",
+                              "reason": "当前用户明确改变原决定，同意该范围重新关联",
+                              "sources": [
+                                {
+                                  "kind": "text",
+                                  "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                                  "label": "当前用户决定"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "exit": 0,
+              "status": "saved",
+              "error": [
+                null
+              ]
+            },
+            {
+              "name": "local-repair-malformed-source-with-dismissal-retained-control",
+              "version": "current",
+              "request": {
+                "files": [
+                  {
+                    "path": "docs/product/REQ.md",
+                    "expected_sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+                    "updates": [
+                      {
+                        "id": "REQ-A",
+                        "metadata": {
+                          "links": [
+                            {
+                              "id": "L-OLD",
+                              "relation": "references",
+                              "target": "PROJECT-A",
+                              "origin": "inferred",
+                              "state": "dismissed",
+                              "reason": "当前用户明确改变原决定，同意该范围重新关联",
+                              "sources": [
+                                {
+                                  "kind": "text",
+                                  "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                                  "label": "当前用户决定"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "exit": 0,
+              "status": "saved",
+              "error": [
+                null
+              ]
+            },
+            {
+              "name": "explicit-removal-and-repair-of-null-neighbor-relation",
+              "version": "baseline",
+              "request": {
+                "files": [
+                  {
+                    "path": "docs/product/REQ.md",
+                    "expected_sha256": "8b97f308aa7cb0ce299c7e923c10e79bdb252980e9ae01c8e781c7b7be8682d5",
+                    "updates": [
+                      {
+                        "id": "REQ-A",
+                        "metadata": {
+                          "links": [
+                            {
+                              "id": "L-KEEP",
+                              "relation": "references",
+                              "target": "REQ-A",
+                              "origin": "inferred",
+                              "state": "active",
+                              "reason": "原用户否定",
+                              "sources": [
+                                {
+                                  "kind": "text",
+                                  "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                                  "label": "当前用户决定"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "remove_relations": [
+                      {
+                        "item_id": "REQ-A",
+                        "field": "links",
+                        "id": "L-OLD"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "exit": 1,
+              "status": "failed",
+              "diagnostics": [
+                "REQUEST_INVALID"
+              ]
+            },
+            {
+              "name": "explicit-removal-and-repair-of-null-neighbor-relation",
+              "version": "current",
+              "request": {
+                "files": [
+                  {
+                    "path": "docs/product/REQ.md",
+                    "expected_sha256": "8b97f308aa7cb0ce299c7e923c10e79bdb252980e9ae01c8e781c7b7be8682d5",
+                    "updates": [
+                      {
+                        "id": "REQ-A",
+                        "metadata": {
+                          "links": [
+                            {
+                              "id": "L-KEEP",
+                              "relation": "references",
+                              "target": "REQ-A",
+                              "origin": "inferred",
+                              "state": "active",
+                              "reason": "原用户否定",
+                              "sources": [
+                                {
+                                  "kind": "text",
+                                  "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                                  "label": "当前用户决定"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "remove_relations": [
+                      {
+                        "item_id": "REQ-A",
+                        "field": "links",
+                        "id": "L-OLD"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "exit": 1,
+              "status": "failed",
+              "error": [
+                "Cannot read properties of null (reading 'id')"
+              ]
+            },
+            {
+              "name": "explicit-removal-clean-history-control",
+              "version": "baseline",
+              "request": {
+                "files": [
+                  {
+                    "path": "docs/product/REQ.md",
+                    "expected_sha256": "c391ede0b73fcf87af6c974b0cf8d6be0ddab23e9a3ac69ab2d4c4556a28cb6e",
+                    "updates": [
+                      {
+                        "id": "REQ-A",
+                        "metadata": {
+                          "links": [
+                            {
+                              "id": "L-KEEP",
+                              "relation": "references",
+                              "target": "REQ-A",
+                              "origin": "inferred",
+                              "state": "active",
+                              "reason": "原用户否定",
+                              "sources": [
+                                {
+                                  "kind": "text",
+                                  "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                                  "label": "当前用户决定"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "remove_relations": [
+                      {
+                        "item_id": "REQ-A",
+                        "field": "links",
+                        "id": "L-OLD"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "exit": 1,
+              "status": "failed",
+              "diagnostics": [
+                "REQUEST_INVALID"
+              ]
+            },
+            {
+              "name": "explicit-removal-clean-history-control",
+              "version": "current",
+              "request": {
+                "files": [
+                  {
+                    "path": "docs/product/REQ.md",
+                    "expected_sha256": "c391ede0b73fcf87af6c974b0cf8d6be0ddab23e9a3ac69ab2d4c4556a28cb6e",
+                    "updates": [
+                      {
+                        "id": "REQ-A",
+                        "metadata": {
+                          "links": [
+                            {
+                              "id": "L-KEEP",
+                              "relation": "references",
+                              "target": "REQ-A",
+                              "origin": "inferred",
+                              "state": "active",
+                              "reason": "原用户否定",
+                              "sources": [
+                                {
+                                  "kind": "text",
+                                  "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                                  "label": "当前用户决定"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "remove_relations": [
+                      {
+                        "item_id": "REQ-A",
+                        "field": "links",
+                        "id": "L-OLD"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "exit": 0,
+              "status": "saved",
+              "error": [
+                null
+              ]
+            },
+            {
+              "name": "ordinary-recursive-glob-control",
+              "version": "baseline",
+              "request": {},
+              "exit": 0,
+              "status": "available",
+              "complete": true,
+              "omitted": [],
+              "ids": [
+                "PROJECT-A",
+                "REQ-A",
+                "REQ-DEEP"
+              ],
+              "diagnostics": []
+            },
+            {
+              "name": "ordinary-recursive-glob-control",
+              "version": "current",
+              "request": {},
+              "exit": 0,
+              "status": "available",
+              "complete": true,
+              "omitted": [],
+              "ids": [
+                "PROJECT-A",
+                "REQ-A",
+                "REQ-DEEP"
+              ],
+              "diagnostics": []
+            }
+          ],
+          "limits": [
+            "same host self-review; no independent reviewer/model",
+            "no full workflow-all",
+            "no real product/hardware/TraceLens UI or cross-model business validation",
+            "no Linux/minimum Node20 or npm package install verification"
+          ]
+        },
+        "provenance": "self-review",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + current uncommitted working tree",
+        "ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+        "interpretation_ref": null
+      }
+    ],
+    "executions": [
+      {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "C",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+        "result": "implemented within recorded scope; no independent review or release",
+        "summary": "最终本地分发、安装升级、实际宿主合成场景和离线消费者；局限分别保留",
+        "commands": [
+          "bun run test:product-maintenance:install",
+          "既有 distribution 定向7项、bootstrap 定向2项",
+          "真实 task/讨论/约束/交付回读"
+        ],
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/host-agent/observations.jsonl",
+        "gaps": [
+          "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+          "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+        ],
+        "ref": ".workflow-system/records/events/key-7534d170928808bd544e9d9ff2d44652f932fee4559b054a0b65c4efd1bd96f4.json",
+        "interpretation_ref": null
+      },
+      {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "B",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+        "result": "implemented within recorded scope; no independent review or release",
+        "summary": "原权威文档、六类 references 和主 Skill 共用规则；S01～S13 逐项映射",
+        "commands": [
+          "bun run validate:vnext-source",
+          "bun run test:workflow-vnext-source（19 pass）"
+        ],
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/README.md",
+        "gaps": [
+          "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+          "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+        ],
+        "ref": ".workflow-system/records/events/key-c26103e17369437671b27371483d97e265287fff50ca4991d82268c2bc272a49.json",
+        "interpretation_ref": null
+      },
+      {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "A",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+        "result": "implemented within recorded scope; no independent review or release",
+        "summary": "F01～F06 共同写入链及读取覆盖修复；含 null 历史 TaskRef 等价保护",
+        "commands": [
+          "bun run test:product-maintenance（24 pass）",
+          "旧 bundled Node 9 组探针与修后对照"
+        ],
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/checks/product.txt",
+        "gaps": [
+          "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+          "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+        ],
+        "ref": ".workflow-system/records/events/key-d871c43e69db42b78ddc4f5d93b23857e3838a314472ee23619d60928299dded.json",
+        "interpretation_ref": null
+      },
+      {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "A",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + current uncommitted four-P2 fix",
+        "result": "implemented and verified for R01-R04; no release",
+        "summary": "修复 glob 前缀裁剪、坏来源重新关联、null 关系精确删除和文件路径为目录的遗漏；原正反回归保留",
+        "commands": [
+          "bun run test:product-maintenance: 28 pass / 316 assertions",
+          "bun run test:product-maintenance:install: 1 pass / 86 assertions",
+          "bun test test/workflow-vnext-source.test.ts: 19 pass",
+          "validate:protocol / validate:freshness: passed",
+          "28 bounded glob comparisons; Node before/after probes; authentic 0.24.0 to final 0.24.1 fixture upgrade; standalone offline read"
+        ],
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/README.md#后续四项-p2-修复",
+        "repairs_review_ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+        "gaps": [
+          "same host only; no independent review or production/cross-model/hardware/TraceLens verification",
+          "source CURRENT_TASK legacy display remains; no adopt/focus/close",
+          "no full workflow, Linux/minimum Node20 or npm/tgz verification; no push/publish/deploy"
+        ],
+        "ref": ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json",
+        "interpretation_ref": null
+      }
+    ],
+    "tests": [],
+    "review_decisions": [
+      {
+        "review_ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+        "choice": "repair",
+        "decision_source": "current user message",
+        "decision_text": "继续修复这4项P2",
+        "ref": ".workflow-system/records/events/key-93222787609aa5d1779f8c57bce003f297af67222872cfb6e3fefd77d089c388.json",
+        "interpretation_ref": null
+      }
+    ],
+    "commits": [],
+    "dispositions": [],
+    "next_route": "review-draft",
+    "next_mode": null,
+    "next_action": null,
+    "recommendation_only": true,
+    "legacy_source": null,
+    "legacy_plan_ref": null,
+    "heads": [
+      ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json"
+    ]
+  },
+  "association": "applied",
+  "projection": {
+    "status": "partial",
+    "cache_ref": ".workflow-system/records/task-view.json",
+    "display": "drift",
+    "issues": [
+      {
+        "id": "issue-72f0ee56c6ebec76c3dfff25",
+        "code": "CURRENT_TASK_DRIFT",
+        "ref": "docs/workflow/CURRENT_TASK.md",
+        "message": "Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it."
+      }
+    ]
+  },
+  "current_task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+  "issues": [
+    {
+      "id": "issue-7ef165e16850439ae98fed15",
+      "code": "LEGACY_ASSOCIATION_REQUIRED",
+      "ref": ".workflow-system/records/legacy/current-48b9be7f0af3a5eeeeea790fe7f2bdc2ea53ae30f1353cdff74239a2cfde77d8.md",
+      "message": "Old content preserved but no unambiguous hot-field identity could be read. Use link/import; do not assume no prior task exists."
+    }
+  ],
+  "recovery_options": [
+    "rebuild",
+    "link",
+    "correct",
+    "resolve",
+    "defer",
+    "pause",
+    "close"
+  ]
+}
+

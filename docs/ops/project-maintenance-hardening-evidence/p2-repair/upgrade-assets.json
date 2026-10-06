@@ -1,0 +1,73 @@
+{
+  "dataset": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\maintain-hardening\\host-complete",
+  "target": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-fix\\host-final",
+  "fixture_snapshot_only": true,
+  "assets": [
+    {
+      "path": ".workflow-system/PRODUCT.yaml",
+      "before": "bdd422daf36a3291d9754be311972ae50e988f6996bf32333223e899333c883c",
+      "after": "bdd422daf36a3291d9754be311972ae50e988f6996bf32333223e899333c883c",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/PROJECT.md",
+      "before": "a52c77569f8957a0ad4753c4c29fb600911e2e5e3b9a25475d50ba6c13d7104c",
+      "after": "a52c77569f8957a0ad4753c4c29fb600911e2e5e3b9a25475d50ba6c13d7104c",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/REQUIREMENTS.md",
+      "before": "05fe1370e761407d9d0012c20560294b1e8c6cfde4ceea4b17ef81e10b10e7ae",
+      "after": "05fe1370e761407d9d0012c20560294b1e8c6cfde4ceea4b17ef81e10b10e7ae",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/PLAN.md",
+      "before": "37ed0bae771477a69e1fc35a81ce6f95210c3986d60a236ea38d4e3863b6b368",
+      "after": "37ed0bae771477a69e1fc35a81ce6f95210c3986d60a236ea38d4e3863b6b368",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/ASSESSMENTS.md",
+      "before": "52d366e67f819d8cc0707626226fa0d2277d384969ee55345c1a469d10ce52ee",
+      "after": "52d366e67f819d8cc0707626226fa0d2277d384969ee55345c1a469d10ce52ee",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/DISCUSSIONS.md",
+      "before": "dc6c19c95d67a0dcfb396b474506937c71ac817dd1a1dca598d390a6cb415f14",
+      "after": "dc6c19c95d67a0dcfb396b474506937c71ac817dd1a1dca598d390a6cb415f14",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/raw/interview.txt",
+      "before": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+      "after": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/history/plan-before.md",
+      "before": "d211413274173390fe94cd8b842dff19c39c34f493527b4ca601afd3e463a910",
+      "after": "d211413274173390fe94cd8b842dff19c39c34f493527b4ca601afd3e463a910",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/history/discussion-before.md",
+      "before": "6dec2878d56d63cce8122399a22e2604ae50ae21dc7ba0991dc78191e6ca8bc3",
+      "after": "6dec2878d56d63cce8122399a22e2604ae50ae21dc7ba0991dc78191e6ca8bc3",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/history/legacy-before.md",
+      "before": "18df16ec081452591afe9088245d1602ac8137fe02ef79dd2424b024afb51d41",
+      "after": "18df16ec081452591afe9088245d1602ac8137fe02ef79dd2424b024afb51d41",
+      "unchanged": true
+    },
+    {
+      "path": "docs/product/history/prior.txt",
+      "before": "900f6fd1c741a1d024f4bb3b2d14ae0ce121ca8448f7cac56424e24876cf4dd1",
+      "after": "900f6fd1c741a1d024f4bb3b2d14ae0ce121ca8448f7cac56424e24876cf4dd1",
+      "unchanged": true
+    }
+  ]
+}

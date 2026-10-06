@@ -1,0 +1,11 @@
+bun test v1.3.10 (30e609e0)
+
+test\vnext-bootstrap-project.test.ts:
+(pass) vNext bootstrap-project > preserves an existing CLAUDE.md without including it in vNext bootstrap writes [4953.00ms]
+(pass) vNext bootstrap-project > promotes a disposable project, proves the target Runtime, and replays as a no-op [26391.00ms]
+
+ 2 pass
+ 11 filtered out
+ 0 fail
+ 194 expect() calls
+Ran 2 tests across 1 file. [32.44s]

@@ -1,0 +1,37 @@
+$ bun run build:vnext-runtime && bun run build:vibe-governance-distribution && bun test test/product-maintenance-install.test.ts
+$ bun run check:toolchain && bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js && bun run build:product-maintenance
+$ bun run scripts/check-toolchain.ts
+Bun toolchain verified: 1.3.10
+Bundled 43 modules in 109ms
+
+  cli.js  2.15 MB  (entry point)
+
+Bundled 17 modules in 85ms
+
+  install-tools.js  97.66 KB  (entry point)
+
+$ bun run scripts/build-product-maintenance.ts
+Bundled 175 modules in 31ms
+
+  product-maintenance.js  0.56 MB  (entry point)
+
+Bundled 173 modules in 30ms
+
+  offline-reader.js  0.52 MB  (entry point)
+
+$ bun run scripts/build-vibe-governance-distribution.ts
+{
+  "package_root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\packages\\vibe-governance",
+  "manifest_digest": "d043a00b55fd92514eaf94213c90ebfaf0853f2531787a2dbabb565b70b39341",
+  "distribution_version": "0.24.1",
+  "bundle_id": "bundle-bf1a6bc60deeafbf611a13f9"
+}
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance-install.test.ts:
+(pass) installed maintenance assets execute with Node and upgrade preserves all target-owned business bytes [13015.00ms]
+
+ 1 pass
+ 0 fail
+ 86 expect() calls
+Ran 1 test across 1 file. [13.34s]

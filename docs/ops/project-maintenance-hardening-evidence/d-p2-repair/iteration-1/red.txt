@@ -1,0 +1,37 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+279 |     const root = fixture([item]); put(root, 'docs/product/REQUIREMENTS.md', original);
+280 |     const old = parseProduct(original, 'r.md').items[0]!;
+281 |     expect(old.usable).toBe(!malformed);
+282 |     const appended = req('REQ-NEW'); appended.body += '<div>新需求说明。</div>';
+283 |     const result = run('apply', root, { files: [{ path: 'docs/product/REQUIREMENTS.md', expected_sha256: sha256(get(root)), append: [appended, req('REQ-NEXT')] }] });
+284 |     expect(result.status).toBe('saved'); expect(result.files[0].preimage.data_base64).toBe(Buffer.from(original).toString('base64'));
+                                ^
+error: expect(received).toBe(expected)
+
+Expected: "saved"
+Received: "failed"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:284:27)
+(fail) D01 append supplies Markdown boundaries while preserving original body bytes and malformed neighbors [47.00ms]
+304 |     const active = { ...dismissed, id: 'REL-CURRENT', origin: 'declared', state: 'active', reason: '已存在的当前关联' };
+305 |     const root = fixture([req('REQ-A', { [field]: [dismissed, active, { ...active }] })]);
+306 |     const update = (metadata: ObjectValue) => whole ? wholeOp(root, newDocument([req('REQ-A', { ...parseProduct(get(root).toString(), 'r.md').items[0]!.metadata, ...metadata })])) : fileOp(root, [{ id: 'REQ-A', metadata }]);
+307 |     const original = parseProduct(get(root).toString(), 'r.md').items[0]!;
+308 |     expect(original.usable).toBe(true);
+309 |     expect(run('apply', root, { files: [update({ scope: 'planned' })] }).status).toBe('saved');
+                                                                                       ^
+error: expect(received).toBe(expected)
+
+Expected: "saved"
+Received: "failed"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:309:82)
+(fail) D02 duplicate active history permits unrelated edits without exempting actual reactivation [15.00ms]
+
+ 0 pass
+ 31 filtered out
+ 2 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [205.00ms]

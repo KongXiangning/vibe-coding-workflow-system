@@ -1,0 +1,9 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance-install.test.ts:
+(pass) installed maintenance assets execute with Node and upgrade preserves all target-owned business bytes [24063.00ms]
+
+ 1 pass
+ 0 fail
+ 125 expect() calls
+Ran 1 test across 1 file. [24.33s]

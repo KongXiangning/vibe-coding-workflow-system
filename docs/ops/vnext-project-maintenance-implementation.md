@@ -1,8 +1,18 @@
 # vNext 项目目标与需求维护：实现方案
 
-状态：首版已实施，本地候选 `0.24.0`。依据：[入口](../product/project-maintenance/README.md)、[需求](../product/project-maintenance/requirements.md)、[契约](../product/project-maintenance/document-contract.md)。原勘察 main：`c40726fa54f5c88acf65a1a6266392829da916c9`，0.23.8。实际基线、检查及限制见[交付记录](vnext-project-maintenance-delivery.md)。
+状态：首版已实施；本轮可靠性修复候选 `0.24.1`，未发布。依据：[入口](../product/project-maintenance/README.md)、[需求](../product/project-maintenance/requirements.md)、[契约](../product/project-maintenance/document-contract.md)。原勘察 main：`c40726fa54f5c88acf65a1a6266392829da916c9`，0.23.8。实际基线、检查及限制见[交付记录](vnext-project-maintenance-delivery.md)。
+
+## 本轮可靠性收敛（2026-10-05）
+
+工作计划见 [hardening-plan](vnext-project-maintenance-hardening-plan.md)，不替代既有需求／契约。写入先检查原格式及显式迁移，再生成候选，统一比较实际受影响身份、dismissed 历史和正文 AST 落点；仅 remove_fields 也执行删除。合法整文件修复选中未知字段可保存，无关坏条目保留原 YAML／正文。remove_items 和 remove_relations 补足原请求无法明确表达的精确删除，不是批准或 force；原文定位根级损坏仍使用既有授权的原文修复途径。
+
+覆盖将遗漏和硬预算停止分开。保留权限、排除和联接跳过策略，登记／选定文件及 entry 的缺失进入 omitted；读取继续处理独立路径，不扫描全部 sources。CLI 与离线输出携带实际路径、排除范围、结构可用数及诊断；盘点和交付语义仍由宿主按来源判断。版本仅按既有 Distribution／Runtime 同步规则升为未发布 `0.24.1`，task reducer 无逻辑改动。
 
 ## 1. 当前代码事实及接入位置
+
+2026-10-06，C01～C03 在同一 writer 继续收敛：只比较已知来源依据、只保护真实新激活，append 仅插入 AST 序列与正文边界。合法无关字段维护和同文件新增／拆分无需先修无关坏条目。实现、原行为及正反证据见 [本次交付](project-maintenance-hardening-evidence/c-p2-repair/README.md)；不新增状态、审批或维护 gate。
+
+同日 D01／D02 修复统一正文分隔和实际激活比较：分隔行由共同写入器生成，旧正文所有原始字节保留；仅局部追加在原 EOF 后的确定性分隔行免于被算作无关坏条目修改。未改关系字段直接保留，字段变化则逐份匹配旧 active 记录，重复 ID 不再误挡普通维护，也不能掩盖实际恢复。实现及分层证据见 [D01／D02 交付](project-maintenance-hardening-evidence/d-p2-repair/README.md)。
 
 以下保留设计时已核对的主线接口及接入依据。首版复用这些接口，未复制任务状态机。
 

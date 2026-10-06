@@ -1,0 +1,18 @@
+{
+  "action": "test",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+  "step_id": "A",
+  "execution_ref": ".workflow-system/records/events/key-aaa4c9375d909bea0c8142a46daf5906a6750f66343303b0fa66d1f6bd9132b6.json",
+  "command": "bun test test/workflow-vnext-source.test.ts",
+  "selector": "source",
+  "result": "passed",
+  "counts": {
+    "pass": 19,
+    "fail": 0,
+    "assertions": 115
+  },
+  "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + helper 43184d80b42a80f3852e8933ad3b6a808dc79ab32191556fcc7a78b8930dcb0e",
+  "report_ref": "docs/ops/project-maintenance-hardening-evidence/d-p2-repair/source.txt",
+  "idempotency_key": "maintain-hardening-d-p2-test-source-1"
+}

@@ -1,0 +1,7 @@
+$ bun run gen:workflow-skills && bun run gen:workflow-docs && bun run gen:registry
+$ bun run scripts/gen-workflow-skills.ts
+Generated 37 workflow skills to C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\docs\workflow\generated\workflow-skills
+$ bun run scripts/gen-workflow-docs.ts
+Generated 11 workflow docs to C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\docs\workflow\generated\workflow-docs
+$ bun run scripts/gen-registry.ts
+Generated workflow skill registry to C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\docs\workflow\SKILL_REGISTRY.md

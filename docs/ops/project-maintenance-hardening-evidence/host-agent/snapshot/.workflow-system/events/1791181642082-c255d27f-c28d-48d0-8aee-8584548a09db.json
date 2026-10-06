@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T06:27:22.082Z",
+  "payload_sha256": "83cdc8ca482ac9c543f9dac42fc66c02e24c206125b64d1f6f60c66160292cee",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "request": {
+      "action": "close",
+      "task_id": "task-3d3d473c824d8b1d2c12ea2a9773b683",
+      "remaining_work": [
+        "外部报告版本未知；E6C 导出、支付退货及其他金额格式未验证"
+      ],
+      "gaps": [
+        "结束本轮样本修复，不认证整个需求；交付摘要另行维护"
+      ],
+      "decision_source": "隔离合成验收",
+      "decision_text": "在明确局部范围及缺口下关闭修复，随后单独对账"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-3d3d473c824d8b1d2c12ea2a9773b683",
+      "parents": [
+        ".workflow-system/records/events/1791181641688-8c7f1b88-aab0-4ebe-bf5f-5fd7fa31e628.json"
+      ],
+      "data": {
+        "remaining_work": [
+          "外部报告版本未知；E6C 导出、支付退货及其他金额格式未验证"
+        ],
+        "gaps": [
+          "结束本轮样本修复，不认证整个需求；交付摘要另行维护"
+        ],
+        "decision_source": "隔离合成验收",
+        "decision_text": "在明确局部范围及缺口下关闭修复，随后单独对账"
+      }
+    }
+  },
+  "issues": []
+}

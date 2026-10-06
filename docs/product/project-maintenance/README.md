@@ -1,6 +1,6 @@
 # vNext 项目目标、需求与实施规划维护
 
-设计版本：0.2。状态：首版已实施，本地分发候选 `0.24.0`；未发布。使用方式见[指南](../../guides/maintain-project.md)，实际验证及限制见[交付记录](../../ops/vnext-project-maintenance-delivery.md)。
+设计版本：0.2。状态：首版已实施；可靠性修复的本地候选 `0.24.1`，未发布。使用方式见[指南](../../guides/maintain-project.md)，本轮与历史验证分别见[交付记录](../../ops/vnext-project-maintenance-delivery.md)。
 
 仓库勘察基线：`main@c40726fa54f5c88acf65a1a6266392829da916c9`（0.23.8）。本目录整合此前设计 0.1 及后续六项能力修订；实施不需要查找聊天、外部压缩包或旧版设计。公开文档格式按本版 `vnext-product-*/v2` 实施；旧 v1 资料的读取与显式迁移规则见契约。
 

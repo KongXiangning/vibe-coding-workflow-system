@@ -1,0 +1,72 @@
+{
+  "action": "review",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "stage": "change",
+  "execution_ref": ".workflow-system/records/events/key-3f8a49f15884df63f79a13e5bef1cfe31144c617383d1007ebc6276c810dec05.json",
+  "verdict": "findings",
+  "provenance": "self-review",
+  "previous_review_ref": ".workflow-system/records/events/key-35dabd12aeb82c9cdea26b4b7b229e4d3d40f93ae092ad3a0aad7eedaea34506.json",
+  "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + unchanged uncommitted C01-C03 repair; helper cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+  "findings": [
+    {
+      "id": "D01",
+      "severity": "P2",
+      "file": "runtime/vnext/src/product-maintenance/writer.ts",
+      "line": 151,
+      "category": "introduced-append-regression",
+      "text": "合法需求末尾为闭合 HTML table，仅一个末尾 LF，原文 read usable 且无诊断；20ba 和 C 修前 append saved，当前 append failed/BODY_BOUNDARY。新候选只复用 EOF 行尾，没有 Markdown 所需分隔空行，后续新根标题被归入旧 HTML 块。须保留合法根边界，不能禁用原 HTML 支持或削弱正文边界/坏邻项字节保护；合法完整候选补空行路径本次 saved，失败不是用户不能新增。",
+      "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/post-c-p2-review/results.json",
+      "probes": [
+        "append-after-valid-closed-html-block-one-final-newline",
+        "append-after-valid-closed-html-block-blank-line-control",
+        "append-after-plain-body-one-final-newline-control",
+        "authorized-whole-candidate-adds-html-separator-fallback"
+      ]
+    },
+    {
+      "id": "D02",
+      "severity": "P2",
+      "file": "runtime/vnext/src/product-maintenance/writer.ts",
+      "line": 201,
+      "end_line": 202,
+      "category": "remaining-C02-false-rejection",
+      "text": "既有 active ID 重复且同身份有 dismissed 历史时，只改 scope 而不改关联，activatesRelation 的 matches.length!=1 仍判为激活。原文条目 usable，重复只为 warning；20ba saved，修前和当前局部/整文件均 failed/DISMISSED_RELATION，对 bindings 同样复现。应只检查实际字段/关系变化，保留未改重复值和诊断，不要求先清无关关联或伪造新依据；本次保留原文后普通编辑可保存 planned 且原 links/body 不变，不代表 helper 已修复。",
+      "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/post-c-p2-review/results.json",
+      "probes": [
+        "unchanged-duplicate-active-links-scope-edit-local",
+        "unchanged-duplicate-active-links-scope-edit-whole",
+        "unchanged-active-links-distinct-ids-control",
+        "unchanged-duplicate-active-bindings-scope-edit"
+      ]
+    }
+  ],
+  "coverage": {
+    "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+    "branch": "codex/maintain-project-v1",
+    "scope": "latest writer diff, C01-C03 closure and compatibility boundaries; no source changes",
+    "helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+    "commands": [
+      {
+        "command": "bun test test/product-maintenance.test.ts test/product-maintenance-install.test.ts test/workflow-vnext-source.test.ts",
+        "result": "51 pass / 0 fail / 775 assertions; fresh review run"
+      },
+      {
+        "command": "bun .tmp/post-c-p2-review/probes.ts",
+        "result": "8 scenario types x 3 Node binaries; 24 before/apply/after observations; two counterexamples with controls"
+      },
+      {
+        "command": "node .tmp/post-c-p2-review/fallback.cjs",
+        "result": "original captured; ordinary-editor scope update preserves links/body and duplicate warning"
+      }
+    ],
+    "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/post-c-p2-review/README.md",
+    "product_code_unchanged": true,
+    "artifact_consistency": "current helper matches previous actual install; offline reader digest matches delivered offline copy",
+    "limits": [
+      "same-host self-review, not independent review",
+      "synthetic deterministic fixtures, not production or cross-model/host-agent compliance",
+      "no new build, version upgrade, full workflow/task suite, S01-S13 replay, Linux/min Node20 or npm/tgz verification"
+    ]
+  },
+  "idempotency_key": "maintain-hardening-post-c-p2-review-1"
+}

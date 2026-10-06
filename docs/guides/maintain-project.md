@@ -1,6 +1,6 @@
 # 使用 maintain-project 维护项目目标与需求
 
-首版在本地分发候选 `0.24.0` 中提供，尚未发布。安装后在目标项目调用 `$maintain-project`；其他宿主使用其原生 Skill 调用方式。Agent 负责理解业务、判断影响和整理观点，独立 Node helper 负责格式、定位、摘要和安全文件写入。实际交付与验证见[交付记录](../ops/vnext-project-maintenance-delivery.md)，字段语义见[契约](../product/project-maintenance/document-contract.md)。
+首版从本地候选 `0.24.0` 提供；本轮可靠性候选为 `0.24.1`，尚未发布。安装后在目标项目调用 `$maintain-project`；其他宿主使用其原生 Skill 调用方式。Agent 负责理解业务、判断影响和整理观点，独立 Node helper 负责格式、定位、摘要和安全文件写入。实际交付与验证见[交付记录](../ops/vnext-project-maintenance-delivery.md)，字段语义见[契约](../product/project-maintenance/document-contract.md)。
 
 ## 1. 安装和启用
 

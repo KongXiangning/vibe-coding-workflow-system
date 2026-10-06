@@ -1,0 +1,34 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+const directory = __dirname, repo = path.resolve(directory, '../..');
+const resultsPath = path.join(directory, 'results.json');
+const evidence = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+const original = evidence.observations.find(o => o.version === 'current' && o.name === 'unchanged-duplicate-active-links-scope-edit-local');
+const root = original.root, file = path.join(root, 'docs/product/REQ.md');
+const before = Buffer.from(original.before_base64, 'base64');
+if (!fs.readFileSync(file).equals(before)) throw new Error('Do not overwrite changed fixture bytes');
+const helper = path.join(repo, 'runtime/vnext/dist/product-maintenance.js');
+function call(action, request) {
+  const response = spawnSync('node', [helper, action, '--root', root], { input: JSON.stringify(request), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  return { action, request, exit: response.status, result: JSON.parse(response.stdout), stderr: response.stderr };
+}
+const captured = call('capture', { path: 'docs/evidence/history/REQ.duplicates-before.md', base64: before.toString('base64') });
+if (!captured.result.saved) throw new Error('Original fixture capture failed');
+const item = original.beforeRead.result.usable_items.find(i => i.id === 'REQ-A');
+const text = before.toString('utf8'), closing = text.indexOf('\n---\n', 4) + 1;
+if (closing <= 0 || item.metadata.scope !== 'current') throw new Error('Fixture shape is not the expected selected requirement');
+const candidate = '---\nschema: vnext-product-doc/v2\nitems:\n  - ' + JSON.stringify({ ...item.metadata, scope: 'planned' }) + '\n' + text.slice(closing);
+const checked = call('check', { path: 'docs/product/REQ.md', content: candidate });
+if (checked.result.status !== 'valid') throw new Error('Ordinary-editor candidate is not structurally valid');
+if (!fs.readFileSync(file).equals(before)) throw new Error('Fixture read version changed before editor write');
+fs.writeFileSync(file, candidate);
+const readback = call('read', { detail: 'items' });
+const next = readback.result.usable_items.find(i => i.id === 'REQ-A');
+if (next.metadata.scope !== 'planned' || JSON.stringify(next.metadata.links) !== JSON.stringify(item.metadata.links) || next.body !== item.body) throw new Error('Requested field/history preservation mismatch');
+const hash = file => crypto.createHash('sha256').update(fs.readFileSync(path.join(repo,file))).digest('hex');
+if (!Object.entries(evidence.beforeHashes).every(([file,digest]) => hash(file) === digest)) throw new Error('Review changed product source');
+evidence.duplicate_scope_editor_fallback = { root, captured, checked, readback, before_base64: before.toString('base64'), after_base64: Buffer.from(candidate).toString('base64'), helper_apply_saved: false, method: 'ordinary authorized editor in isolated fixture after original capture and version check', scope_saved: 'planned', original_links_and_body_preserved: true, automated_agent_recovery: 'not-verified' };
+fs.writeFileSync(resultsPath, JSON.stringify(evidence, null, 2));
+console.log(JSON.stringify({ fallback: 'ordinary-editor', helper_apply_saved: false, source_preserved: captured.result.saved, scope: next.metadata.scope, links_and_body_preserved: true, duplicate_warnings: readback.result.diagnostics.filter(d => d.code === 'DUPLICATE_LINK_ID').length }));

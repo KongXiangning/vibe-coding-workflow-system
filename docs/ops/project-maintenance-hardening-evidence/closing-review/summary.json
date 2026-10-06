@@ -1,0 +1,62 @@
+{
+  "ref": ".workflow-system/records/events/key-8bef2065e14b259c8ff3119d918aadf0f01089dd07a1a928ae0a4526bb0c7ea8.json",
+  "recorded": true,
+  "association": "applied",
+  "projection": {
+    "status": "partial",
+    "cache_ref": ".workflow-system/records/task-view.json",
+    "display": "drift",
+    "issues": [
+      {
+        "id": "issue-72f0ee56c6ebec76c3dfff25",
+        "code": "CURRENT_TASK_DRIFT",
+        "ref": "docs/workflow/CURRENT_TASK.md",
+        "message": "Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it."
+      }
+    ]
+  },
+  "live_review_verdict": "findings",
+  "live_findings_count": 3,
+  "previous_scoped_review_verdict": "clean",
+  "lifecycle": "draft",
+  "current_task_bytes_unchanged": true,
+  "coverage": {
+    "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+    "branch": "codex/maintain-project-v1",
+    "target": "unchanged uncommitted implementation, final local 0.24.1 candidate",
+    "original_four_findings_regression": "R01-R04 pass in 28-item product suite and installed Node test",
+    "commands": [
+      {
+        "command": "bun test test/product-maintenance.test.ts test/product-maintenance-install.test.ts test/workflow-vnext-source.test.ts",
+        "result": "48 pass / 0 fail / 517 assertions"
+      },
+      {
+        "command": "bun .tmp/closing-review/probes.ts",
+        "result": "9 scenarios across baseline, reviewed and current Node artifacts; three counterexamples with controls; script exit0 is not an overall PASS"
+      }
+    ],
+    "artifacts": {
+      "baseline": "83a3d293aa8007b25c4bbd1b4e98dae77eed00fc856cd17a919c10ec96f2bbe4",
+      "reviewed": "d97298d9bf0ee91ad20caca9e74689d8f7b422ed213c8a3b159d48d1eb0a8397",
+      "current": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4"
+    },
+    "source_digests": {
+      "writer.ts": "617635ecec81dc344289650372265871c77d385ef2a00b263a4dd200d5f164fb",
+      "paths.ts": "8eb328e81b615914ce76c7a1c93d8aa1db3b5cebd84dbc81ceb4a8c5f534a151"
+    },
+    "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/closing-review/results.json",
+    "artifact_consistency": {
+      "helper_matches_installed": true,
+      "offline_matches_delivered": true,
+      "distribution_digest": "d043a00b55fd92514eaf94213c90ebfaf0853f2531787a2dbabb565b70b39341"
+    },
+    "original_review_ref": ".workflow-system/records/events/key-da2455adb8204ccedc8e83a097ba585015868dcd9dadd5ae5e18c7db5386ac74.json",
+    "limits": [
+      "same-host self-review; no independent reviewer or cross-model semantic validation",
+      "no new source build; checked current built/install artifact digests",
+      "no full workflow/runtime suite, Linux/minimum Node20 or npm/tgz verification",
+      "synthetic fixtures only; no real product/hardware/TraceLens checks or S01-S13 business replay"
+    ],
+    "no_product_code_edit": true
+  }
+}

@@ -1,0 +1,24 @@
+{"label":"C01-defect-format-only-wrongly-revives","exit":0,"status":"saved","saved":[true],"development_gate":false,"association":"not-evaluated"}
+{"label":"C01-format-repair-retains-dismissed","exit":0,"status":"saved","saved":[true],"development_gate":false,"association":"not-evaluated"}
+{"label":"C01-same-basis-candidate-is-protected","exit":1,"status":"failed","saved":[false],"error":"DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation","development_gate":false,"association":"not-evaluated"}
+{"label":"C01-explicit-user-reversal-no-external-material","exit":0,"status":"saved","saved":[true],"development_gate":false,"association":"not-evaluated"}
+{"label":"C01-readback-explicit-reversal","exit":0,"status":"available","development_gate":false}
+{"label":"C02-defect-unrelated-scope-change-rejected","exit":1,"status":"failed","saved":[false],"error":"DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation","development_gate":false,"association":"not-evaluated"}
+{"label":"C02-save-original-after-helper-failure","exit":0,"status":"saved","saved":true,"development_gate":false}
+{"label":"C02-authorized-editor-candidate-structure","exit":0,"status":"valid","development_gate":false}
+{"label":"C02-readback-editor-result","exit":0,"status":"available","development_gate":false}
+{"label":"C03-defect-append-single-final-newline","exit":1,"status":"failed","saved":[false],"error":"INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes","development_gate":false,"association":"not-evaluated"}
+{"label":"C03-exact-whole-candidate-add-single-final-newline","exit":0,"status":"saved","saved":[true],"development_gate":false,"association":"not-evaluated"}
+{"label":"C03-readback-new-item-single-final-newline","exit":0,"status":"available","development_gate":false}
+{"label":"C03-defect-append-flow-map","exit":1,"status":"failed","saved":[false],"error":"INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes","development_gate":false,"association":"not-evaluated"}
+{"label":"C03-exact-whole-candidate-add-flow-map","exit":0,"status":"saved","saved":[true],"development_gate":false,"association":"not-evaluated"}
+{"label":"C03-readback-new-item-flow-map","exit":0,"status":"available","development_gate":false}
+{"label":"C03-defect-split-same-file-with-malformed-neighbor","exit":1,"status":"failed","saved":[false],"error":"INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes","development_gate":false,"association":"not-evaluated"}
+{"label":"C03-split-existing-authorized-file-paths","exit":0,"status":"saved","saved":[true,true],"development_gate":false,"association":"not-evaluated"}
+{"label":"C03-readback-split-identities-and-history","exit":0,"status":"available","development_gate":false}
+{"label":"independent-goal-and-design-after-maintenance-failure","exit":0,"status":"saved","saved":[true],"development_gate":false,"association":"not-evaluated"}
+{"label":"assistance-record-after-maintenance-failure","exit":0,"status":"recorded","development_gate":false,"recorded":true}
+{"label":"assistance-prepare-after-maintenance-failure","exit":0,"status":"applied","development_gate":false,"recorded":true,"association":"applied"}
+{"label":"assistance-readback-no-product-gate","exit":0,"status":"available","development_gate":false}
+{"label":"final-readback-goal-design-split","exit":0,"status":"available","development_gate":false}
+{"observed_calls":24,"known_defects_reproduced":["C01","C02","C03"],"verified_routes":["explicit-current-user-reversal","ordinary-editor-scope-repair-with-history","exact-whole-candidate-append","authorized-split-separate-file","new-goal-design","assistance-record-and-prepare"],"no_product_code_edit":true,"result":"review-evidence-collected; known defects remain"}

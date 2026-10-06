@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T07:29:23.077Z",
+  "payload_sha256": "ec961443d15fea408fd43520425b7ac5a3957b6aacac63553e1e222523eae78b",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-execution-A-20261005",
+    "request": {
+      "action": "execution",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+      "step_id": "A",
+      "idempotency_key": "maintain-hardening-execution-A-20261005",
+      "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+      "result": "implemented within recorded scope; no independent review or release",
+      "summary": "F01～F06 共同写入链及读取覆盖修复；含 null 历史 TaskRef 等价保护",
+      "commands": [
+        "bun run test:product-maintenance（24 pass）",
+        "旧 bundled Node 9 组探针与修后对照"
+      ],
+      "report_ref": "docs/ops/project-maintenance-hardening-evidence/checks/product.txt",
+      "gaps": [
+        "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+        "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "A",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+        "result": "implemented within recorded scope; no independent review or release",
+        "summary": "F01～F06 共同写入链及读取覆盖修复；含 null 历史 TaskRef 等价保护",
+        "commands": [
+          "bun run test:product-maintenance（24 pass）",
+          "旧 bundled Node 9 组探针与修后对照"
+        ],
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/checks/product.txt",
+        "gaps": [
+          "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+          "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

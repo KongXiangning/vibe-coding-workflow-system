@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T16:36:10.329Z",
+  "payload_sha256": "b9cbd2e6593f5b32a7347934bc2729e7bdad835eaa71c1c3ad873b1f54795341",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-explicit-intent-baseline-review-1",
+    "request": {
+      "action": "review",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "stage": "change",
+      "execution_ref": ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json",
+      "verdict": "findings",
+      "provenance": "self-review",
+      "previous_review_ref": ".workflow-system/records/events/key-8bef2065e14b259c8ff3119d918aadf0f01089dd07a1a928ae0a4526bb0c7ea8.json",
+      "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + unchanged uncommitted local 0.24.1 implementation",
+      "findings": [
+        {
+          "id": "C01",
+          "severity": "P2",
+          "file": "runtime/vnext/src/product-maintenance/writer.ts",
+          "line": 161,
+          "category": "user-decision-history-protection",
+          "text": "仅清理相同来源的未知字段被当作新依据，Agent 若未获得当前用户反转却带入 active，可错误恢复否定。此项是历史/归属错误，非流程阻塞；明确用户重新关联本身可作为 text 来源，本次实际 Node 保存与回读成功，不需要外部材料或再次审批。",
+          "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/intent-baseline-review/results.json"
+        },
+        {
+          "id": "C02",
+          "severity": "P2",
+          "file": "runtime/vnext/src/product-maintenance/writer.ts",
+          "line": 216,
+          "category": "legitimate-write-false-rejection",
+          "text": "未改 links 时，无关 scope/assessment_id 更新仍被既有 dismissed/active 等价关系误拒绝。属于共同 helper 的兼容回归和实际维护失败，非全项目门禁。本次保留原文、结构核对、精确普通编辑和回读完成 scope 更新且 links 全保留；这是既有宿主编辑恢复能力，不代表 helper 已修复。不得要求用户先处置无关关联状态。",
+          "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/intent-baseline-review/results.json"
+        },
+        {
+          "id": "C03",
+          "severity": "P2",
+          "file": "runtime/vnext/src/product-maintenance/writer.ts",
+          "line": 129,
+          "related_line": 137,
+          "category": "legitimate-append-split-capability-gap",
+          "text": "append 自己改变无关坏邻项的 flow YAML 或末尾 LF 字节而失败，实际影响同文件新增/拆分。保留原 YAML/body 的完整候选及已授权独立文件配合旧项局部更新，本次实际保存并回读新增/拆分成功；坏项原字节保留，旧身份和替代去向保留。保留 P2 而不将其解释为不能添加/拆分，更不新增状态或迁移/修坏项前置。",
+          "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/intent-baseline-review/results.json"
+        }
+      ],
+      "coverage": {
+        "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+        "branch": "codex/maintain-project-v1",
+        "user_baseline": "不允许拒绝用户的明确操作；不得因为维护阻塞造成不能添加需求、不能拆分需求、不能设计。已明确决定不重复确认；通过授权内转换、记录和恢复实际完成目标。",
+        "scope": "重新审查原 C01-C03 的业务影响、合法恢复路径和是否形成准入；不修产品代码",
+        "artifact_sha256": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4",
+        "commands": [
+          {
+            "command": "bun .tmp/intent-review/probes.ts",
+            "result": "23 actual Node calls + 1 isolated ordinary-editor observation; defects reproduced and lawful routes observed; not overall delivery PASS"
+          }
+        ],
+        "historical_regressions_not_rerun": "Previous closing review recorded 48 pass / 517 assertions; not counted as this review PASS",
+        "no_added_business_enum_state": "schemas diff only adds exact deletion request inputs; no new task state or maintenance gate",
+        "no_product_code_edit": true,
+        "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/intent-baseline-review/README.md",
+        "verified_routes": [
+          "current explicit reversal as text basis",
+          "scope correction using authorized ordinary editor with raw original retained",
+          "exact whole-file append preserving bad neighbor bytes",
+          "split through existing authorized managed file paths",
+          "new goal/design save",
+          "assistance record/prepare/task-status after maintenance failure"
+        ],
+        "limits": [
+          "same-host self-review",
+          "synthetic deterministic probes only, not host-agent compliance or production/cross-model proof",
+          "no new build/install/distribution tests or full regression run",
+          "existing helper defects remain; source task stays draft; no release/push/deploy"
+        ]
+      },
+      "idempotency_key": "maintain-hardening-explicit-intent-baseline-review-1"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-8bef2065e14b259c8ff3119d918aadf0f01089dd07a1a928ae0a4526bb0c7ea8.json"
+      ],
+      "data": {
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json",
+        "verdict": "findings",
+        "provenance": "self-review",
+        "previous_review_ref": ".workflow-system/records/events/key-8bef2065e14b259c8ff3119d918aadf0f01089dd07a1a928ae0a4526bb0c7ea8.json",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + unchanged uncommitted local 0.24.1 implementation",
+        "findings": [
+          {
+            "id": "C01",
+            "severity": "P2",
+            "file": "runtime/vnext/src/product-maintenance/writer.ts",
+            "line": 161,
+            "category": "user-decision-history-protection",
+            "text": "仅清理相同来源的未知字段被当作新依据，Agent 若未获得当前用户反转却带入 active，可错误恢复否定。此项是历史/归属错误，非流程阻塞；明确用户重新关联本身可作为 text 来源，本次实际 Node 保存与回读成功，不需要外部材料或再次审批。",
+            "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/intent-baseline-review/results.json"
+          },
+          {
+            "id": "C02",
+            "severity": "P2",
+            "file": "runtime/vnext/src/product-maintenance/writer.ts",
+            "line": 216,
+            "category": "legitimate-write-false-rejection",
+            "text": "未改 links 时，无关 scope/assessment_id 更新仍被既有 dismissed/active 等价关系误拒绝。属于共同 helper 的兼容回归和实际维护失败，非全项目门禁。本次保留原文、结构核对、精确普通编辑和回读完成 scope 更新且 links 全保留；这是既有宿主编辑恢复能力，不代表 helper 已修复。不得要求用户先处置无关关联状态。",
+            "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/intent-baseline-review/results.json"
+          },
+          {
+            "id": "C03",
+            "severity": "P2",
+            "file": "runtime/vnext/src/product-maintenance/writer.ts",
+            "line": 129,
+            "related_line": 137,
+            "category": "legitimate-append-split-capability-gap",
+            "text": "append 自己改变无关坏邻项的 flow YAML 或末尾 LF 字节而失败，实际影响同文件新增/拆分。保留原 YAML/body 的完整候选及已授权独立文件配合旧项局部更新，本次实际保存并回读新增/拆分成功；坏项原字节保留，旧身份和替代去向保留。保留 P2 而不将其解释为不能添加/拆分，更不新增状态或迁移/修坏项前置。",
+            "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/intent-baseline-review/results.json"
+          }
+        ],
+        "coverage": {
+          "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+          "branch": "codex/maintain-project-v1",
+          "user_baseline": "不允许拒绝用户的明确操作；不得因为维护阻塞造成不能添加需求、不能拆分需求、不能设计。已明确决定不重复确认；通过授权内转换、记录和恢复实际完成目标。",
+          "scope": "重新审查原 C01-C03 的业务影响、合法恢复路径和是否形成准入；不修产品代码",
+          "artifact_sha256": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4",
+          "commands": [
+            {
+              "command": "bun .tmp/intent-review/probes.ts",
+              "result": "23 actual Node calls + 1 isolated ordinary-editor observation; defects reproduced and lawful routes observed; not overall delivery PASS"
+            }
+          ],
+          "historical_regressions_not_rerun": "Previous closing review recorded 48 pass / 517 assertions; not counted as this review PASS",
+          "no_added_business_enum_state": "schemas diff only adds exact deletion request inputs; no new task state or maintenance gate",
+          "no_product_code_edit": true,
+          "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/intent-baseline-review/README.md",
+          "verified_routes": [
+            "current explicit reversal as text basis",
+            "scope correction using authorized ordinary editor with raw original retained",
+            "exact whole-file append preserving bad neighbor bytes",
+            "split through existing authorized managed file paths",
+            "new goal/design save",
+            "assistance record/prepare/task-status after maintenance failure"
+          ],
+          "limits": [
+            "same-host self-review",
+            "synthetic deterministic probes only, not host-agent compliance or production/cross-model proof",
+            "no new build/install/distribution tests or full regression run",
+            "existing helper defects remain; source task stays draft; no release/push/deploy"
+          ]
+        }
+      }
+    }
+  },
+  "issues": []
+}

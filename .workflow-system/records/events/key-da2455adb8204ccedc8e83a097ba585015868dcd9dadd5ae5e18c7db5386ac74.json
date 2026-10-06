@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T11:35:56.734Z",
+  "payload_sha256": "7c45f6c3752bddd8bb31291305e2416cd385019a1c996db84719a607acc2804e",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-four-p2-recheck-20261005",
+    "request": {
+      "action": "review",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "stage": "change",
+      "execution_ref": ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json",
+      "source_revision": "20ba0275 + uncommitted four-P2 fix",
+      "verdict": "clean",
+      "findings": [],
+      "coverage": {
+        "scope": "R01-R04 fixed implementation and existing focused regressions",
+        "original_review_ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+        "original_findings_retained": true,
+        "checked_findings": [
+          "R01",
+          "R02",
+          "R03",
+          "R04"
+        ],
+        "helper_sha256": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4",
+        "offline_sha256": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a",
+        "source_digests": {
+          "paths.ts": "8eb328e81b615914ce76c7a1c93d8aa1db3b5cebd84dbc81ceb4a8c5f534a151",
+          "writer.ts": "617635ecec81dc344289650372265871c77d385ef2a00b263a4dd200d5f164fb"
+        },
+        "evidence": "docs/ops/project-maintenance-hardening-evidence/p2-repair/",
+        "tests": "48 distinct tests passed; 28 product + 1 install + 19 source",
+        "semantic_business_replay": false,
+        "limits": [
+          "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+          "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+        ]
+      },
+      "provenance": "self-review",
+      "idempotency_key": "maintain-hardening-four-p2-recheck-20261005"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json"
+      ],
+      "data": {
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json",
+        "source_revision": "20ba0275 + uncommitted four-P2 fix",
+        "verdict": "clean",
+        "findings": [],
+        "coverage": {
+          "scope": "R01-R04 fixed implementation and existing focused regressions",
+          "original_review_ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+          "original_findings_retained": true,
+          "checked_findings": [
+            "R01",
+            "R02",
+            "R03",
+            "R04"
+          ],
+          "helper_sha256": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4",
+          "offline_sha256": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a",
+          "source_digests": {
+            "paths.ts": "8eb328e81b615914ce76c7a1c93d8aa1db3b5cebd84dbc81ceb4a8c5f534a151",
+            "writer.ts": "617635ecec81dc344289650372265871c77d385ef2a00b263a4dd200d5f164fb"
+          },
+          "evidence": "docs/ops/project-maintenance-hardening-evidence/p2-repair/",
+          "tests": "48 distinct tests passed; 28 product + 1 install + 19 source",
+          "semantic_business_replay": false,
+          "limits": [
+            "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+            "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+          ]
+        },
+        "provenance": "self-review"
+      }
+    }
+  },
+  "issues": []
+}

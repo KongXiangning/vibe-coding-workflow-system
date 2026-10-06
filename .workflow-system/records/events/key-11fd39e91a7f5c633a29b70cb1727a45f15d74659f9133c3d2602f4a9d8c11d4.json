@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T06:05:31.214Z",
+  "payload_sha256": "e2534e630586c26c0291da057cc17a491c3e0331345bd115fe446ae3429538cc",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-project-hardening-20261005",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "maintain-project-hardening-20261005",
+      "plan": {
+        "title": "maintain-project v1 可靠性修复与业务场景闭环",
+        "goal": "按已授权 hardening-plan 修复 F01～F06 并完成 S01～S13 分层证据",
+        "scope": [
+          "product-maintenance 共同写入链、请求读取覆盖、六类 references、原权威文档、定向回归、本地分发和隔离宿主验收"
+        ],
+        "exclusions": [
+          "不处置旧 task，不切换焦点，不发布或推送，不修改真实业务项目"
+        ],
+        "steps": [
+          {
+            "id": "A",
+            "title": "核对复现与可靠性底座",
+            "validation": [
+              "六项基线 bundled Node 复现、稳定正反回归"
+            ]
+          },
+          {
+            "id": "B",
+            "title": "业务语义与十三场景映射",
+            "validation": [
+              "保留既有 VPM，补 references 和原权威语义"
+            ]
+          },
+          {
+            "id": "C",
+            "title": "分发安装与宿主、离线消费验收",
+            "validation": [
+              "源码构建、隔离安装和资产保留、实际宿主工具调用与回读"
+            ]
+          }
+        ]
+      },
+      "decision_source": "本会话 2026-10-05 用户实施指令",
+      "decision_text": "按实际规模组织 task／步骤，不为 13 场景机械创建 13 个 task。"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-2033ac8022af0fb2985e69b674c02875e7dbd4bb58f583db09b45b5733695830.json"
+      ],
+      "data": {
+        "plan": {
+          "title": "maintain-project v1 可靠性修复与业务场景闭环",
+          "goal": "按已授权 hardening-plan 修复 F01～F06 并完成 S01～S13 分层证据",
+          "scope": [
+            "product-maintenance 共同写入链、请求读取覆盖、六类 references、原权威文档、定向回归、本地分发和隔离宿主验收"
+          ],
+          "exclusions": [
+            "不处置旧 task，不切换焦点，不发布或推送，不修改真实业务项目"
+          ],
+          "steps": [
+            {
+              "id": "A",
+              "title": "核对复现与可靠性底座",
+              "validation": [
+                "六项基线 bundled Node 复现、稳定正反回归"
+              ]
+            },
+            {
+              "id": "B",
+              "title": "业务语义与十三场景映射",
+              "validation": [
+                "保留既有 VPM，补 references 和原权威语义"
+              ]
+            },
+            {
+              "id": "C",
+              "title": "分发安装与宿主、离线消费验收",
+              "validation": [
+                "源码构建、隔离安装和资产保留、实际宿主工具调用与回读"
+              ]
+            }
+          ]
+        },
+        "decision_source": "本会话 2026-10-05 用户实施指令",
+        "decision_text": "按实际规模组织 task／步骤，不为 13 场景机械创建 13 个 task。",
+        "create": true,
+        "display_id": "TASK-011"
+      }
+    }
+  },
+  "issues": []
+}

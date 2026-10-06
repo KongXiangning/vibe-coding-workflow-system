@@ -1,0 +1,9 @@
+{
+  "action": "review-decision",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "review_ref": ".workflow-system/records/events/key-22f170d89797f1ac7b06578da1c679a2eb0886d39944b160cd169b1dd0bccd8d.json",
+  "choice": "repair",
+  "decision_source": "current human user message",
+  "decision_text": "修复三项P2",
+  "idempotency_key": "maintain-hardening-c-p2-repair-decision-1"
+}

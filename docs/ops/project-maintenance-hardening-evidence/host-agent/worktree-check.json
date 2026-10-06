@@ -1,0 +1,8 @@
+{
+  "same_project_id": true,
+  "helper_location": "A installed Node artifact, root explicitly B",
+  "A_requirement": "ce620df7436d3a0b7eee1dd06f14b4a41f765a88808c3b2d87eb6542bcf52be3",
+  "initial_probe": "B had no helper; unavailable retained in observations, then reused installed artifact without installing B",
+  "B_requirement": "8ba5777ec1a822f1301e9c3bad23a83003f242b5a84fa21fb0fce11fb5ccb60b",
+  "roots_differ": true
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T06:23:37.252Z",
+  "payload_sha256": "fe26db69b47c2468ba6dbc6ebfb76f0a8493a0157d9216d90c5e78873ddc46d3",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "request": {
+      "action": "close",
+      "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+      "remaining_work": [
+        "合成整数范围已有检查；小数新失败和 E6C 导出仍未完成"
+      ],
+      "gaps": [
+        "此关闭仅记录合成历史处置，不认证完整需求或当前反例通过"
+      ],
+      "decision_source": "隔离合成验收场景",
+      "decision_text": "结束原 E6A/B task 并保留新反证，不自动重开"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+      "parents": [
+        ".workflow-system/records/events/key-1ba90847b5eec631d22bd103c72836251d6b7400a928fc808ede143a37b779f2.json"
+      ],
+      "data": {
+        "remaining_work": [
+          "合成整数范围已有检查；小数新失败和 E6C 导出仍未完成"
+        ],
+        "gaps": [
+          "此关闭仅记录合成历史处置，不认证完整需求或当前反例通过"
+        ],
+        "decision_source": "隔离合成验收场景",
+        "decision_text": "结束原 E6A/B task 并保留新反证，不自动重开"
+      }
+    }
+  },
+  "issues": []
+}

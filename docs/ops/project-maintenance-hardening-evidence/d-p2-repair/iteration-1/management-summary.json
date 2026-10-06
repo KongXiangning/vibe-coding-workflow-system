@@ -1,0 +1,40 @@
+{
+  "decision_ref": ".workflow-system/records/events/key-206f6d5171b3f68b38b691942bd7097d3a86e263c2ad3478a15a305669563669.json",
+  "execution_ref": ".workflow-system/records/events/key-aaa4c9375d909bea0c8142a46daf5906a6750f66343303b0fa66d1f6bd9132b6.json",
+  "test_refs": [
+    ".workflow-system/records/events/key-8ae3e1a32bf16640e2fe390401d12698b4b37972ae899f530eab8535df09f6b2.json",
+    ".workflow-system/records/events/key-d4ef4e1be862055e9c5eb3db051154a3f064407c6a643835bcebc4f92808790e.json",
+    ".workflow-system/records/events/key-6704c7e9f622969e3e4fb9922e9ab419fd934f466be6de53e5f994354c0e5dd2.json"
+  ],
+  "recorded": true,
+  "association": [
+    "applied",
+    "applied",
+    "applied",
+    "applied",
+    "applied"
+  ],
+  "projection": {
+    "status": "partial",
+    "cache_ref": ".workflow-system/records/task-view.json",
+    "display": "drift",
+    "issues": [
+      {
+        "id": "issue-72f0ee56c6ebec76c3dfff25",
+        "code": "CURRENT_TASK_DRIFT",
+        "ref": "docs/workflow/CURRENT_TASK.md",
+        "message": "Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it."
+      }
+    ]
+  },
+  "execution_present": true,
+  "old_review_verdict": "findings",
+  "old_findings": [
+    "D01",
+    "D02"
+  ],
+  "formal_review_created": false,
+  "lifecycle": "draft",
+  "current_task_bytes_unchanged": true,
+  "old_review_bytes_unchanged": true
+}

@@ -1,0 +1,19 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+336 |     const mixed = [dismissed, { ...active, id: dismissed.id }];
+337 |     put(root, 'docs/product/REQUIREMENTS.md', newDocument([req('REQ-A', { [field]: mixed })]));
+338 |     const mixedBefore = get(root);
+339 |     expect(run('apply', root, { files: [update({ [field]: mixed.map(r => ({ ...r, state: 'active' })) })] }).files[0].error).toContain('DISMISSED_RELATION');
+340 |     expect(get(root)).toEqual(mixedBefore);
+341 |     expect(run('apply', root, { files: [update({ [field]: [mixed[1]] })] }).files[0].error).toContain('DISMISSED_REMOVAL');
+                                                                                                  ^
+error: Received value must be an array type, or both received and expected values must be strings.
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:341:93)
+(fail) D02 duplicate active history permits unrelated edits without exempting actual reactivation [141.00ms]
+
+ 0 pass
+ 32 filtered out
+ 1 fail
+ 14 expect() calls
+Ran 1 test across 1 file. [263.00ms]

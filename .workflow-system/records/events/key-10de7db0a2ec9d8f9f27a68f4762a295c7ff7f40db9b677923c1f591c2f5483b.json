@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T17:23:13.212Z",
+  "payload_sha256": "56e833ac3f7172edf217fefac39ff13a74d11dcaaa384375593953ae741e3e56",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-c-p2-repair-decision-1",
+    "request": {
+      "action": "review-decision",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "review_ref": ".workflow-system/records/events/key-22f170d89797f1ac7b06578da1c679a2eb0886d39944b160cd169b1dd0bccd8d.json",
+      "choice": "repair",
+      "decision_source": "current human user message",
+      "decision_text": "修复三项P2",
+      "idempotency_key": "maintain-hardening-c-p2-repair-decision-1"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review-decision",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-22f170d89797f1ac7b06578da1c679a2eb0886d39944b160cd169b1dd0bccd8d.json"
+      ],
+      "data": {
+        "review_ref": ".workflow-system/records/events/key-22f170d89797f1ac7b06578da1c679a2eb0886d39944b160cd169b1dd0bccd8d.json",
+        "choice": "repair",
+        "decision_source": "current human user message",
+        "decision_text": "修复三项P2"
+      }
+    }
+  },
+  "issues": []
+}

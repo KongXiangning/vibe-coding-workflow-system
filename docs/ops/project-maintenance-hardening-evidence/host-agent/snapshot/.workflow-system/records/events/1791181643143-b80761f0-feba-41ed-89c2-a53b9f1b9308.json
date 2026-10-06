@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T06:27:23.143Z",
+  "payload_sha256": "707dd46d8233ffd181b8bb560dcdb1e7dfbcb6153c1bbf198542e810b45d1605",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "request": {
+      "action": "close",
+      "task_id": "task-cfd8fc8e0c81467f9e0812390b66241c",
+      "remaining_work": [
+        "权限和操作人字段尚未执行；全部审计未交付"
+      ],
+      "gaps": [
+        "合成停止处置，不声明完成或 PASS"
+      ],
+      "decision_source": "隔离合成停止场景",
+      "decision_text": "记录合法停止和延期，不要求先清理维护资料"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-cfd8fc8e0c81467f9e0812390b66241c",
+      "parents": [
+        ".workflow-system/records/events/1791181642082-c255d27f-c28d-48d0-8aee-8584548a09db.json"
+      ],
+      "data": {
+        "remaining_work": [
+          "权限和操作人字段尚未执行；全部审计未交付"
+        ],
+        "gaps": [
+          "合成停止处置，不声明完成或 PASS"
+        ],
+        "decision_source": "隔离合成停止场景",
+        "decision_text": "记录合法停止和延期，不要求先清理维护资料"
+      }
+    }
+  },
+  "issues": []
+}

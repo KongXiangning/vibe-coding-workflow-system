@@ -1,0 +1,189 @@
+{
+  "input": {
+    "action": "execution",
+    "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+    "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+    "step_id": "C",
+    "idempotency_key": "maintain-hardening-execution-C-20261005",
+    "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+    "result": "implemented within recorded scope; no independent review or release",
+    "summary": "最终本地分发、安装升级、实际宿主合成场景和离线消费者；局限分别保留",
+    "commands": [
+      "bun run test:product-maintenance:install",
+      "既有 distribution 定向7项、bootstrap 定向2项",
+      "真实 task/讨论/约束/交付回读"
+    ],
+    "report_ref": "docs/ops/project-maintenance-hardening-evidence/host-agent/observations.jsonl",
+    "gaps": [
+      "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+      "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+    ]
+  },
+  "exit": 0,
+  "result": {
+    "runtime_role": "assistance",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "status": "recorded-pending-view",
+    "recorded": true,
+    "ref": ".workflow-system/records/events/key-7534d170928808bd544e9d9ff2d44652f932fee4559b054a0b65c4efd1bd96f4.json",
+    "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+    "task": {
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "display_id": "TASK-011",
+      "title": "maintain-project v1 可靠性修复与业务场景闭环",
+      "lifecycle": "draft",
+      "lifecycle_ref": null,
+      "adopted_plan_ref": null,
+      "plan_status": "candidate",
+      "plan": null,
+      "plans": [
+        {
+          "title": "maintain-project v1 可靠性修复与业务场景闭环",
+          "goal": "按已授权 hardening-plan 修复 F01～F06 并完成 S01～S13 分层证据",
+          "scope": [
+            "product-maintenance 共同写入链、请求读取覆盖、六类 references、原权威文档、定向回归、本地分发和隔离宿主验收"
+          ],
+          "exclusions": [
+            "不处置旧 task，不切换焦点，不发布或推送，不修改真实业务项目"
+          ],
+          "steps": [
+            {
+              "id": "A",
+              "title": "核对复现与可靠性底座",
+              "validation": [
+                "六项基线 bundled Node 复现、稳定正反回归"
+              ]
+            },
+            {
+              "id": "B",
+              "title": "业务语义与十三场景映射",
+              "validation": [
+                "保留既有 VPM，补 references 和原权威语义"
+              ]
+            },
+            {
+              "id": "C",
+              "title": "分发安装与宿主、离线消费验收",
+              "validation": [
+                "源码构建、隔离安装和资产保留、实际宿主工具调用与回读"
+              ]
+            }
+          ],
+          "ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+          "parent_plan_ref": null
+        }
+      ],
+      "adopted_by": null,
+      "adoption": null,
+      "candidate_plan_refs": [
+        ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json"
+      ],
+      "current_step_id": null,
+      "steps": [],
+      "reviews": [],
+      "executions": [
+        {
+          "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+          "step_id": "C",
+          "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+          "result": "implemented within recorded scope; no independent review or release",
+          "summary": "最终本地分发、安装升级、实际宿主合成场景和离线消费者；局限分别保留",
+          "commands": [
+            "bun run test:product-maintenance:install",
+            "既有 distribution 定向7项、bootstrap 定向2项",
+            "真实 task/讨论/约束/交付回读"
+          ],
+          "report_ref": "docs/ops/project-maintenance-hardening-evidence/host-agent/observations.jsonl",
+          "gaps": [
+            "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+            "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+          ],
+          "ref": ".workflow-system/records/events/key-7534d170928808bd544e9d9ff2d44652f932fee4559b054a0b65c4efd1bd96f4.json",
+          "interpretation_ref": null
+        },
+        {
+          "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+          "step_id": "B",
+          "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+          "result": "implemented within recorded scope; no independent review or release",
+          "summary": "原权威文档、六类 references 和主 Skill 共用规则；S01～S13 逐项映射",
+          "commands": [
+            "bun run validate:vnext-source",
+            "bun run test:workflow-vnext-source（19 pass）"
+          ],
+          "report_ref": "docs/ops/project-maintenance-hardening-evidence/README.md",
+          "gaps": [
+            "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+            "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+          ],
+          "ref": ".workflow-system/records/events/key-c26103e17369437671b27371483d97e265287fff50ca4991d82268c2bc272a49.json",
+          "interpretation_ref": null
+        },
+        {
+          "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+          "step_id": "A",
+          "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+          "result": "implemented within recorded scope; no independent review or release",
+          "summary": "F01～F06 共同写入链及读取覆盖修复；含 null 历史 TaskRef 等价保护",
+          "commands": [
+            "bun run test:product-maintenance（24 pass）",
+            "旧 bundled Node 9 组探针与修后对照"
+          ],
+          "report_ref": "docs/ops/project-maintenance-hardening-evidence/checks/product.txt",
+          "gaps": [
+            "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+            "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+          ],
+          "ref": ".workflow-system/records/events/key-d871c43e69db42b78ddc4f5d93b23857e3838a314472ee23619d60928299dded.json",
+          "interpretation_ref": null
+        }
+      ],
+      "tests": [],
+      "review_decisions": [],
+      "commits": [],
+      "dispositions": [],
+      "next_route": "review-draft",
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "legacy_source": null,
+      "legacy_plan_ref": null,
+      "heads": [
+        ".workflow-system/records/events/key-7534d170928808bd544e9d9ff2d44652f932fee4559b054a0b65c4efd1bd96f4.json"
+      ]
+    },
+    "association": "applied",
+    "projection": {
+      "status": "partial",
+      "cache_ref": ".workflow-system/records/task-view.json",
+      "display": "drift",
+      "issues": [
+        {
+          "id": "issue-72f0ee56c6ebec76c3dfff25",
+          "code": "CURRENT_TASK_DRIFT",
+          "ref": "docs/workflow/CURRENT_TASK.md",
+          "message": "Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it."
+        }
+      ]
+    },
+    "current_task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+    "issues": [
+      {
+        "id": "issue-7ef165e16850439ae98fed15",
+        "code": "LEGACY_ASSOCIATION_REQUIRED",
+        "ref": ".workflow-system/records/legacy/current-48b9be7f0af3a5eeeeea790fe7f2bdc2ea53ae30f1353cdff74239a2cfde77d8.md",
+        "message": "Old content preserved but no unambiguous hot-field identity could be read. Use link/import; do not assume no prior task exists."
+      }
+    ],
+    "recovery_options": [
+      "rebuild",
+      "link",
+      "correct",
+      "resolve",
+      "defer",
+      "pause",
+      "close"
+    ]
+  }
+}

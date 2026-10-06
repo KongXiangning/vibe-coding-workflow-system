@@ -1,0 +1,12 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+(pass) C01 repairing unknown source fields preserves dismissal while current explicit reversal remains legal [469.00ms]
+(pass) C02 existing active relations do not block unrelated maintenance but new equivalent activation still needs its basis [328.00ms]
+(pass) C03 append preserves malformed neighbors in block and flow YAML including comments and exact final newline [250.00ms]
+
+ 3 pass
+ 28 filtered out
+ 0 fail
+ 232 expect() calls
+Ran 3 tests across 1 file. [1165.00ms]

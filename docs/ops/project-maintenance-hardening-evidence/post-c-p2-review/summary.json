@@ -1,0 +1,28 @@
+{
+  "ref": ".workflow-system/records/events/key-bc1faf91d3630c0bd56c500c93e4652c006f3ea5dd09c9b265f4f4c5610c1900.json",
+  "recorded": true,
+  "association": "applied",
+  "projection": {
+    "status": "partial",
+    "cache_ref": ".workflow-system/records/task-view.json",
+    "display": "drift",
+    "issues": [
+      {
+        "id": "issue-72f0ee56c6ebec76c3dfff25",
+        "code": "CURRENT_TASK_DRIFT",
+        "ref": "docs/workflow/CURRENT_TASK.md",
+        "message": "Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it."
+      }
+    ]
+  },
+  "live_review_verdict": "findings",
+  "findings": [
+    "D01",
+    "D02"
+  ],
+  "previous_scoped_verdict": "clean",
+  "lifecycle": "draft",
+  "current_task_bytes_unchanged": true,
+  "previous_review_bytes_unchanged": true,
+  "product_source_unchanged": true
+}

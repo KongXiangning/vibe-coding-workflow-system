@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T11:35:56.530Z",
+  "payload_sha256": "8dc82f8e45c9d1f9dc5def42e665be56864cd52be7ae062069d3536a7c29dcbb",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-four-p2-execution-20261005",
+    "request": {
+      "action": "execution",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+      "step_id": "A",
+      "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + current uncommitted four-P2 fix",
+      "result": "implemented and verified for R01-R04; no release",
+      "summary": "修复 glob 前缀裁剪、坏来源重新关联、null 关系精确删除和文件路径为目录的遗漏；原正反回归保留",
+      "commands": [
+        "bun run test:product-maintenance: 28 pass / 316 assertions",
+        "bun run test:product-maintenance:install: 1 pass / 86 assertions",
+        "bun test test/workflow-vnext-source.test.ts: 19 pass",
+        "validate:protocol / validate:freshness: passed",
+        "28 bounded glob comparisons; Node before/after probes; authentic 0.24.0 to final 0.24.1 fixture upgrade; standalone offline read"
+      ],
+      "report_ref": "docs/ops/project-maintenance-hardening-evidence/README.md#后续四项-p2-修复",
+      "repairs_review_ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+      "gaps": [
+        "same host only; no independent review or production/cross-model/hardware/TraceLens verification",
+        "source CURRENT_TASK legacy display remains; no adopt/focus/close",
+        "no full workflow, Linux/minimum Node20 or npm/tgz verification; no push/publish/deploy"
+      ],
+      "idempotency_key": "maintain-hardening-four-p2-execution-20261005"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-93222787609aa5d1779f8c57bce003f297af67222872cfb6e3fefd77d089c388.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "A",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + current uncommitted four-P2 fix",
+        "result": "implemented and verified for R01-R04; no release",
+        "summary": "修复 glob 前缀裁剪、坏来源重新关联、null 关系精确删除和文件路径为目录的遗漏；原正反回归保留",
+        "commands": [
+          "bun run test:product-maintenance: 28 pass / 316 assertions",
+          "bun run test:product-maintenance:install: 1 pass / 86 assertions",
+          "bun test test/workflow-vnext-source.test.ts: 19 pass",
+          "validate:protocol / validate:freshness: passed",
+          "28 bounded glob comparisons; Node before/after probes; authentic 0.24.0 to final 0.24.1 fixture upgrade; standalone offline read"
+        ],
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/README.md#后续四项-p2-修复",
+        "repairs_review_ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+        "gaps": [
+          "same host only; no independent review or production/cross-model/hardware/TraceLens verification",
+          "source CURRENT_TASK legacy display remains; no adopt/focus/close",
+          "no full workflow, Linux/minimum Node20 or npm/tgz verification; no push/publish/deploy"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

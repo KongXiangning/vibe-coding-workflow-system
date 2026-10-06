@@ -1,0 +1,18 @@
+bun test v1.3.10 (30e609e0)
+
+test\vibe-governance-distribution.test.ts:
+warning: in the working copy of '.gitattributes', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/workflow/.gitattributes', CRLF will be replaced by LF the next time Git touches it
+(pass) Vibe Governance Distribution / Installer > fresh Node install promotes complete software and leaves governance unbootstrapped [4609.00ms]
+(pass) Vibe Governance Distribution / Installer > same-version install is a read-back no-op and managed drift fails closed [8125.00ms]
+(pass) Vibe Governance Distribution / Installer > valid idle legacy migrate invokes the Pack and promotes canonical .agents skills [5656.00ms]
+(pass) Vibe Governance Distribution / Installer > vNext upgrade preserves a confirmed active task byte-for-byte [6375.00ms]
+(pass) Vibe Governance Distribution / Installer > vNext upgrade preserves a completed task blocked by replan byte-for-byte [6422.00ms]
+(pass) Vibe Governance Distribution / Installer > vNext upgrade preserves an unconfirmed or unreadable task (legacy) [6500.00ms]
+(pass) Vibe Governance Distribution / Installer > vNext upgrade preserves an unconfirmed or unreadable task (summary) [6766.00ms]
+
+ 7 pass
+ 19 filtered out
+ 0 fail
+ 179 expect() calls
+Ran 7 tests across 1 file. [46.30s]

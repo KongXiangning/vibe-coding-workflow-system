@@ -1,0 +1,11 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+(pass) D01 append supplies Markdown boundaries while preserving original body bytes and malformed neighbors [437.00ms]
+(pass) D02 duplicate active history permits unrelated edits without exempting actual reactivation [313.00ms]
+
+ 2 pass
+ 31 filtered out
+ 0 fail
+ 205 expect() calls
+Ran 2 tests across 1 file. [884.00ms]

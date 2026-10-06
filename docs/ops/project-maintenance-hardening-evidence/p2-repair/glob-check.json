@@ -1,0 +1,485 @@
+{
+  "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-glob-check-gb81rx",
+  "cases": [
+    {
+      "pattern": "docs/product/**.md",
+      "expected": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/**/*.md",
+      "expected": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/a**/*.md",
+      "expected": [
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md"
+      ],
+      "actual": [
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/a**.md",
+      "expected": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md"
+      ],
+      "actual": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/**?/*.md",
+      "expected": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/*?/*.md",
+      "expected": [
+        "docs/product/a/ONE.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/a/ONE.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/**/?.md",
+      "expected": [
+        "docs/product/aa/b/Z.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/aa/b/Z.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/**/ONE.md",
+      "expected": [
+        "docs/product/a/ONE.md"
+      ],
+      "actual": [
+        "docs/product/a/ONE.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/a*/**.md",
+      "expected": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md"
+      ],
+      "actual": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/a***/**/*.md",
+      "expected": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md"
+      ],
+      "actual": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/****.md",
+      "expected": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/???*/**/*.md",
+      "expected": [
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md"
+      ],
+      "actual": [
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/中/**.md",
+      "expected": [
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/emoji??/**.md",
+      "expected": [
+        "docs/product/emoji😊/😀.md"
+      ],
+      "actual": [
+        "docs/product/emoji😊/😀.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/**END.md",
+      "expected": [
+        "docs/product/x.md/y/END.md"
+      ],
+      "actual": [
+        "docs/product/x.md/y/END.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/*/*.md",
+      "expected": [
+        "docs/product/a/ONE.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/a/ONE.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/*.md",
+      "expected": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md"
+      ],
+      "actual": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/**/*.txt",
+      "expected": [
+        "docs/product/ba/TAIL.txt"
+      ],
+      "actual": [
+        "docs/product/ba/TAIL.txt"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/*/*/*.md",
+      "expected": [
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/x.md/y/END.md"
+      ],
+      "actual": [
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/x.md/y/END.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/**a/**.md",
+      "expected": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md"
+      ],
+      "actual": [
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/ab**/LEAF.md",
+      "expected": [],
+      "actual": [],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/**.md/**.md",
+      "expected": [
+        "docs/product/x.md/y/END.md"
+      ],
+      "actual": [
+        "docs/product/x.md/y/END.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/NO-MATCH-*.md",
+      "expected": [],
+      "actual": [],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/product/a**/Z.md",
+      "expected": [
+        "docs/product/aa/b/Z.md"
+      ],
+      "actual": [
+        "docs/product/aa/b/Z.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/**.md",
+      "expected": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/prod**/**.md",
+      "expected": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/**uct/*.md",
+      "expected": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md"
+      ],
+      "actual": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md"
+      ],
+      "omitted": [],
+      "matched": true
+    },
+    {
+      "pattern": "docs/**/product/**.md",
+      "expected": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "actual": [
+        "docs/product/PROJECT.md",
+        "docs/product/ROOT.md",
+        "docs/product/a/ONE.md",
+        "docs/product/a/b/TWO.md",
+        "docs/product/aa/b/Z.md",
+        "docs/product/ab/THREE.md",
+        "docs/product/ab/b/LEAF.md",
+        "docs/product/emoji😊/😀.md",
+        "docs/product/x.md/y/END.md",
+        "docs/product/中/文.md"
+      ],
+      "omitted": [],
+      "matched": true
+    }
+  ]
+}

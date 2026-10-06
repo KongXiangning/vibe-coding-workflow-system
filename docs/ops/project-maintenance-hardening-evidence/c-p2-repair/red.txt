@@ -1,0 +1,47 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+219 |     const root = fixture([req('REQ-A', { [field]: [dismissed] })]), original = get(root);
+220 |     const operation = (relation: ObjectValue) => whole ? wholeOp(root, newDocument([req('REQ-A', { [field]: [relation] })]))
+221 |       : fileOp(root, [{ id: 'REQ-A', metadata: { [field]: [relation] } }]);
+222 |     const cleaned = { ...dismissed, sources: [source] };
+223 |     const wrongRevival = run('apply', root, { files: [operation({ ...cleaned, state: 'active', reason: '仅清理未知字段，原用户决定不变' })] });
+224 |     expect(wrongRevival.files[0].error).toContain('DISMISSED_RELATION'); expect(get(root)).toEqual(original);
+                                              ^
+error: Received value must be an array type, or both received and expected values must be strings.
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:224:41)
+(fail) C01 repairing unknown source fields preserves dismissal while current explicit reversal remains legal [46.00ms]
+249 |       const previous = parseProduct(get(root).toString(), 'r.md').items[0]!.metadata;
+250 |       const next = { ...previous, ...metadata }; for (const key of remove_fields) delete next[key];
+251 |       return wholeOp(root, newDocument([req('REQ-A', next)]));
+252 |     };
+253 |     for (const [metadata, removed] of [[{ scope: 'planned' }, []], [{ assessment_id: null }, []], [{}, ['assessment_id']]] as [ObjectValue, string[]][]) {
+254 |       expect(run('apply', root, { files: [update(metadata, removed)] }).status).toBe('saved');
+                                                                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "saved"
+Received: "failed"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:254:81)
+(fail) C02 existing active relations do not block unrelated maintenance but new equivalent activation still needs its basis [16.00ms]
+281 |   for (const original of originals) {
+282 |     const root = fixture([bad]); put(root, 'docs/product/REQUIREMENTS.md', original);
+283 |     const old = parseProduct(original, 'r.md').items[0]!;
+284 |     const operation = { path: 'docs/product/REQUIREMENTS.md', expected_sha256: sha256(get(root)), append: [req('REQ-NEW'), req('REQ-NEXT')] };
+285 |     const appended = run('apply', root, { files: [operation] });
+286 |     expect(appended.status).toBe('saved'); expect(appended.files[0].preimage.data_base64).toBe(Buffer.from(original).toString('base64'));
+                                  ^
+error: expect(received).toBe(expected)
+
+Expected: "saved"
+Received: "failed"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:286:29)
+(fail) C03 append preserves malformed neighbors in block and flow YAML including comments and exact final newline [16.00ms]
+
+ 0 pass
+ 28 filtered out
+ 3 fail
+ 3 expect() calls
+Ran 3 tests across 1 file. [238.00ms]

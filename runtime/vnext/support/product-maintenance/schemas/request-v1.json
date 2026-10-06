@@ -699,6 +699,44 @@
             "type": "string",
             "minLength": 1,
             "pattern": "\\S"
+          },
+          "remove_items": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+            },
+            "minItems": 0
+          },
+          "remove_relations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+                },
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "links",
+                    "task_bindings"
+                  ]
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+                }
+              },
+              "required": [
+                "item_id",
+                "field",
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 0
           }
         },
         "required": [

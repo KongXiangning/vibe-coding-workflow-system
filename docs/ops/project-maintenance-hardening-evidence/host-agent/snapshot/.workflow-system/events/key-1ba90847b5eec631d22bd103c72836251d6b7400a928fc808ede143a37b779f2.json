@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T06:21:05.825Z",
+  "payload_sha256": "7fcd073bb30d3161d68f180a262bd5d6652877f050f325a30b172ac0976c9ec9",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:synthetic-LOG",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "synthetic-LOG",
+      "plan": {
+        "title": "合成断电恢复探索",
+        "goal": "接纳已取得观察并调整方案；不认证产品交付",
+        "steps": [
+          {
+            "id": "PROBE",
+            "title": "受限探索"
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-790e97b72cd9ca627fa33a63d805a8eb",
+      "parents": [
+        ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+      ],
+      "data": {
+        "plan": {
+          "title": "合成断电恢复探索",
+          "goal": "接纳已取得观察并调整方案；不认证产品交付",
+          "steps": [
+            {
+              "id": "PROBE",
+              "title": "受限探索"
+            }
+          ]
+        },
+        "create": true,
+        "display_id": "TASK-003"
+      }
+    }
+  },
+  "issues": []
+}

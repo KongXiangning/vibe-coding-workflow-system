@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T11:18:43.699Z",
+  "payload_sha256": "88b8734ab80742774c2249f4c69652059e4634dc01c4b2bc2a0caf25dca56190",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-four-p2-repair-decision-20261005",
+    "request": {
+      "action": "review-decision",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "review_ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+      "choice": "repair",
+      "decision_source": "current user message",
+      "decision_text": "继续修复这4项P2",
+      "idempotency_key": "maintain-hardening-four-p2-repair-decision-20261005"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review-decision",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json"
+      ],
+      "data": {
+        "review_ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+        "choice": "repair",
+        "decision_source": "current user message",
+        "decision_text": "继续修复这4项P2"
+      }
+    }
+  },
+  "issues": []
+}

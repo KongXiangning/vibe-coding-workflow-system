@@ -1,0 +1,76 @@
+{
+  "action": "execution",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+  "step_id": "A",
+  "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + uncommitted D01/D02 repair; helper 43184d80b42a80f3852e8933ad3b6a808dc79ab32191556fcc7a78b8930dcb0e",
+  "result": "D01/D02 implemented and self-checked within listed scope; no formal new review or release",
+  "summary": "共同写入器补 Markdown 分隔且保留每个旧正文原始字节；未改重复 active 关联不再误拒绝，实际新增激活逐份比较仍保护否定历史；无新增状态或维护 gate。",
+  "commands": [
+    "bun test test/product-maintenance.test.ts: 33 pass / 753 assertions",
+    "bun test test/product-maintenance-install.test.ts: 1 pass / 125 assertions",
+    "bun test test/workflow-vnext-source.test.ts: 19 pass / 115 assertions",
+    "build:vnext-runtime and build:vibe-governance-distribution: passed",
+    "validate:protocol and validate:freshness: passed",
+    "13 deterministic Node scenarios x baseline/pre-fix/current binaries: 39 observations, current expected positive/negative results matched",
+    "actual isolated 0.24.0 -> 0.24.1 upgrade: 11 original business assets unchanged; installed D01/D02 apply and standalone offline readback matched"
+  ],
+  "report_ref": "docs/ops/project-maintenance-hardening-evidence/d-p2-repair/README.md",
+  "repairs_review_ref": ".workflow-system/records/events/key-bc1faf91d3630c0bd56c500c93e4652c006f3ea5dd09c9b265f4f4c5610c1900.json",
+  "decision_ref": ".workflow-system/records/events/key-206f6d5171b3f68b38b691942bd7097d3a86e263c2ad3478a15a305669563669.json",
+  "evidence": {
+    "tests": {
+      "product": {
+        "pass": 33,
+        "fail": 0,
+        "assertions": 753
+      },
+      "install": {
+        "pass": 1,
+        "fail": 0,
+        "assertions": 125
+      },
+      "source": {
+        "pass": 19,
+        "fail": 0,
+        "assertions": 115
+      },
+      "distinct_total": 53,
+      "assertion_total": 993
+    },
+    "artifacts": {
+      "baseline": "83a3d293aa8007b25c4bbd1b4e98dae77eed00fc856cd17a919c10ec96f2bbe4",
+      "before_d_fix": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+      "current": "43184d80b42a80f3852e8933ad3b6a808dc79ab32191556fcc7a78b8930dcb0e"
+    },
+    "source_contract_equals_generated": true,
+    "distribution_digest": "aebb8ef2f66aea304fefbd896ce92ef63f071dc685814c07d2345f825de5d990",
+    "delivery": {
+      "helper_sha256": "43184d80b42a80f3852e8933ad3b6a808dc79ab32191556fcc7a78b8930dcb0e",
+      "source_helper_sha256": "43184d80b42a80f3852e8933ad3b6a808dc79ab32191556fcc7a78b8930dcb0e",
+      "offline_sha256": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a",
+      "upgrade_assets_unchanged": 11,
+      "asset_count": 11,
+      "managed_files": 10,
+      "usable": 29,
+      "invalid": 1,
+      "byte_coverage_complete": true,
+      "offline_matches_ids": true,
+      "offline_d01_new_item": true,
+      "offline_d02_duplicates_preserved": true,
+      "offline_duplicate_warning": true,
+      "task_lifecycle_counts": {
+        "closed": 4
+      },
+      "offline_has_runtime": false,
+      "offline_has_node_modules": false,
+      "business_semantics_replayed": false
+    }
+  },
+  "gaps": [
+    "implementation self-check, not a newly requested formal/independent review; original findings unchanged",
+    "no full workflow/task suite, S01-S13 semantic replay, production/cross-model/hardware/TraceLens/Linux/min Node20/npm/tgz verification",
+    "source task stays draft and CURRENT_TASK projection drift retained; no adoption/focus/finish/close/push/publish/deploy"
+  ],
+  "idempotency_key": "maintain-hardening-d-p2-repair-execution-1"
+}

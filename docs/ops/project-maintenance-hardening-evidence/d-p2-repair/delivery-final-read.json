@@ -1,0 +1,1941 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "read",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "available",
+    "project_id": "hardening-synthetic-orders",
+    "working_copy": {
+      "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\d-p2\\host-verified",
+      "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\d-p2\\host-verified"
+    },
+    "read_at": "2026-10-05T18:55:51.930Z",
+    "manifest": {
+      "schema": "vnext-product-manifest/v2",
+      "project_id": "hardening-synthetic-orders",
+      "entry": "docs/product/PROJECT.md",
+      "managed_paths": [
+        "docs/product/*.md"
+      ],
+      "source_paths": [
+        "docs/evidence/**",
+        "docs/product/raw/**",
+        "docs/product/history/**",
+        ".workflow-system/records/**"
+      ],
+      "capture_paths": [
+        "docs/product/raw/**",
+        "docs/product/history/**"
+      ],
+      "exclude_paths": [],
+      "maintenance": "enabled"
+    },
+    "manifest_path": ".workflow-system/PRODUCT.yaml",
+    "manifest_sha256": "bdd422daf36a3291d9754be311972ae50e988f6996bf32333223e899333c883c",
+    "documents": [
+      {
+        "path": "docs/product/ASSESSMENTS.md",
+        "sha256": "52d366e67f819d8cc0707626226fa0d2277d384969ee55345c1a469d10ce52ee",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 2,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/ASSESSMENTS.md"
+        }
+      },
+      {
+        "path": "docs/product/CHANGE.md",
+        "sha256": "3f747208bd4d9c361d79b15f2e0592f78ec180aff0a7f7f4111ee5650ce67963",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/CHANGE.md"
+        }
+      },
+      {
+        "path": "docs/product/D-REPAIR.md",
+        "sha256": "442735eb5207e643ccec9a48e0c35c448cc02d619ef6e87fa0c9df8c69179766",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 2,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/D-REPAIR.md"
+        }
+      },
+      {
+        "path": "docs/product/DESIGN.md",
+        "sha256": "355be702fa028267af30ef5d57a9dc03a72ca64aa43ec789fd374a226f1d6e1e",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/DESIGN.md"
+        }
+      },
+      {
+        "path": "docs/product/DISCUSSIONS.md",
+        "sha256": "dc6c19c95d67a0dcfb396b474506937c71ac817dd1a1dca598d390a6cb415f14",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/DISCUSSIONS.md"
+        }
+      },
+      {
+        "path": "docs/product/GOALS.md",
+        "sha256": "7bf0064b8ba34cf01df09d21cff0d67377c7add84904a60e118909dfb779d4d8",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 4,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/GOALS.md"
+        }
+      },
+      {
+        "path": "docs/product/LEGACY.md",
+        "sha256": "933493f6e2c1db585b6149182305c05836e659b9b2259121c9b9949acad37614",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 2,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/LEGACY.md"
+        }
+      },
+      {
+        "path": "docs/product/PLAN.md",
+        "sha256": "37ed0bae771477a69e1fc35a81ce6f95210c3986d60a236ea38d4e3863b6b368",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/PLAN.md"
+        }
+      },
+      {
+        "path": "docs/product/PROJECT.md",
+        "sha256": "a52c77569f8957a0ad4753c4c29fb600911e2e5e3b9a25475d50ba6c13d7104c",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/PROJECT.md"
+        }
+      },
+      {
+        "path": "docs/product/REQUIREMENTS.md",
+        "sha256": "05fe1370e761407d9d0012c20560294b1e8c6cfde4ceea4b17ef81e10b10e7ae",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 14,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md"
+        }
+      }
+    ],
+    "usable_items": [
+      {
+        "id": "AS-INTEGER",
+        "type": "assessment",
+        "title": "原整数检查与新待核对材料",
+        "path": "docs/product/ASSESSMENTS.md",
+        "line": 8,
+        "metadata": {
+          "id": "AS-INTEGER",
+          "type": "assessment",
+          "target": "REQ-EXCEL",
+          "target_basis": {
+            "kind": "file",
+            "path": "docs/product/REQUIREMENTS.md",
+            "item_id": "REQ-EXCEL"
+          },
+          "target_definition_sha256": "ce620df7436d3a0b7eee1dd06f14b4a41f765a88808c3b2d87eb6542bcf52be3",
+          "checked_at": "2026-10-05",
+          "subject": {
+            "kind": "working-copy",
+            "value": "合成 amount.mjs 初始函数，具体字节随检查快照保存"
+          },
+          "implementation": "partial-reported",
+          "verification": "pass-reported",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/integer-pass.txt"
+            }
+          ],
+          "pending_sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/external-failure.txt"
+            },
+            {
+              "kind": "file",
+              "path": "docs/evidence/decimal-before.txt"
+            }
+          ]
+        },
+        "definition_sha256": null,
+        "body": "## [AS-INTEGER] 原整数检查与新待核对材料\n### 覆盖范围\n只检查合成函数 [1,2] 金额合计，不覆盖小数输入、支付退货、导出或整个需求。\n### 交付与验证依据\n本轮 Node 整数检查实际 exit 0；外部材料是合成用户报告，decimal-before 是 Agent 本地夹具复现 exit 1，两者区别保留。\n### 剩余与待核对\n新失败已进入 pending_sources。需求定义未变不代表当前完整通过，旧整数 PASS 保留为历史。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/ASSESSMENTS.md",
+          "item_id": "AS-INTEGER"
+        }
+      },
+      {
+        "id": "AS-DECIMAL",
+        "type": "assessment",
+        "title": "本轮局部金额复验",
+        "path": "docs/product/ASSESSMENTS.md",
+        "line": 16,
+        "metadata": {
+          "id": "AS-DECIMAL",
+          "type": "assessment",
+          "target": "REQ-EXCEL",
+          "target_basis": {
+            "kind": "file",
+            "path": "docs/product/REQUIREMENTS.md",
+            "item_id": "REQ-EXCEL"
+          },
+          "target_definition_sha256": "ce620df7436d3a0b7eee1dd06f14b4a41f765a88808c3b2d87eb6542bcf52be3",
+          "checked_at": "2026-10-05",
+          "subject": {
+            "kind": "working-copy",
+            "value": "合成 src/amount.mjs sha256 e382a794680286e006a91d5017450bea4a4a817478783ea656c7bd1033f853dd；不是全项目快照"
+          },
+          "implementation": "partial-reported",
+          "verification": "pass-reported",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/actual-checks.json"
+            },
+            {
+              "kind": "file",
+              "path": "docs/evidence/decimal-after.txt"
+            },
+            {
+              "kind": "file",
+              "path": "docs/evidence/integer-after.txt"
+            },
+            {
+              "kind": "file",
+              "path": "docs/evidence/decimal-before.txt"
+            }
+          ],
+          "pending_sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/external-failure.txt",
+              "note": "外部对象版本未知，不能用局部样本 PASS 清除"
+            }
+          ]
+        },
+        "definition_sha256": null,
+        "body": "## [AS-DECIMAL] 本轮局部金额复验\n### 覆盖范围\n仅本轮受控函数整数 [1,2] 与小数 [0.1,0.2]，具体新字节摘要记录在 actual-checks；未验证导出、生产数据或所有金额格式。\n### 交付与验证依据\nAgent 本地复现 before exit 1，实际修复后两命令 exit 0。原整数报告、原失败、原 assessment 保留；合成外部报告与本地复现分别解释。\n### 剩余与待核对\n外部用户报告对象版本未知仍 pending；支付退货共享风险及 E6C 实际可靠输入前提仍待核对。修复 task close 本身没有改变任何结论。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/ASSESSMENTS.md",
+          "item_id": "AS-DECIMAL"
+        }
+      },
+      {
+        "id": "CHG-HARDENING-HOST",
+        "type": "change",
+        "title": "目标和计划演进",
+        "path": "docs/product/CHANGE.md",
+        "line": 7,
+        "metadata": {
+          "id": "CHG-HARDENING-HOST",
+          "type": "change",
+          "recorded_at": "2026-10-05",
+          "basis": {
+            "kind": "delegated",
+            "text": "仅隔离合成验收中按 brief/decisions 作本轮范围化整理",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "docs/evidence/brief.txt"
+              },
+              {
+                "kind": "file",
+                "path": "docs/evidence/decisions.txt"
+              }
+            ]
+          },
+          "deltas": [
+            {
+              "target": "G-REGISTER",
+              "before": "扩大注册（来源 brief，旧规范原文不可得）",
+              "after": "retired，目标去向 G-TRIAL",
+              "note": "注册简化仍保留，代码是否删除未知"
+            },
+            {
+              "target": "G-TRIAL",
+              "before": null,
+              "after": "提升试用转付费，结果材料口径未知",
+              "note": "新增目标不是 KPI 计算或达成声明"
+            },
+            {
+              "target": "REQ-COUPON",
+              "before": null,
+              "after": "退出首发，历史失败保留",
+              "note": "旧规范未取得；共享支付退货风险仍 current"
+            },
+            {
+              "target": "PLAN-ORDERS",
+              "before": "E6A/B/C 与原报表安排，见 plan-before.md",
+              "after": "E6R 插到 C 前；审计导出优先，报表延期",
+              "note": "先修过排序方向，当前 REPORT-OPT 在 AUDIT-EXPORT 后；工程前提需真实检查"
+            }
+          ],
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/product/history/plan-before.md"
+            }
+          ]
+        },
+        "definition_sha256": null,
+        "body": "## [CHG-HARDENING-HOST] 目标和计划演进\n### 变更说明\n保留原决定、未改要求和去向。只采纳错误议题，云目标重新关联不代表观点采纳。\n### 影响与未同步项\n营销未取得；支付退货、完整审计、导出以及生产对象未验证。延期维护和停止不要求先清除历史失败。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/CHANGE.md",
+          "item_id": "CHG-HARDENING-HOST"
+        }
+      },
+      {
+        "id": "REQ-D-ORIGINAL",
+        "type": "requirement",
+        "title": "原需求",
+        "path": "docs/product/D-REPAIR.md",
+        "line": 5,
+        "metadata": {
+          "id": "REQ-D-ORIGINAL",
+          "type": "requirement",
+          "scope": "planned",
+          "links": [
+            {
+              "id": "L-OLD",
+              "relation": "references",
+              "target": "PROJECT-ORDERS",
+              "origin": "inferred",
+              "state": "dismissed",
+              "reason": "原否定保留",
+              "sources": [
+                {
+                  "kind": "text",
+                  "text": "合成夹具中的旧依据",
+                  "label": "夹具来源"
+                }
+              ]
+            },
+            {
+              "id": "L-CURRENT",
+              "relation": "references",
+              "target": "PROJECT-ORDERS",
+              "origin": "declared",
+              "state": "active",
+              "reason": "已存在的当前关联",
+              "sources": [
+                {
+                  "kind": "text",
+                  "text": "合成夹具中的旧依据",
+                  "label": "夹具来源"
+                }
+              ]
+            },
+            {
+              "id": "L-CURRENT",
+              "relation": "references",
+              "target": "PROJECT-ORDERS",
+              "origin": "declared",
+              "state": "active",
+              "reason": "已存在的当前关联",
+              "sources": [
+                {
+                  "kind": "text",
+                  "text": "合成夹具中的旧依据",
+                  "label": "夹具来源"
+                }
+              ]
+            }
+          ]
+        },
+        "definition_sha256": "2d2f6b5a9212da57608e3fc8962ee9fe769383593f2474c637573694bc063cad",
+        "body": "## [REQ-D-ORIGINAL] 原需求\n### 需求内容\n按当前明确范围维护。\n### 范围边界\n原排除项保留，其他范围未验收。\n### 验收要求\n按实际证据核对。\n<table>\n<tr><td>原业务约束</td></tr>\n</table>\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/D-REPAIR.md",
+          "item_id": "REQ-D-ORIGINAL"
+        }
+      },
+      {
+        "id": "REQ-D-ADDED",
+        "type": "requirement",
+        "title": "当前新增",
+        "path": "docs/product/D-REPAIR.md",
+        "line": 16,
+        "metadata": {
+          "id": "REQ-D-ADDED",
+          "type": "requirement",
+          "scope": "current"
+        },
+        "definition_sha256": "79979f990cc7ca17f324cb04b2ef1fff35cd94f7294ed59ae56112ab6d76c288",
+        "body": "## [REQ-D-ADDED] 当前新增\n### 需求内容\n按当前明确范围维护。\n### 范围边界\n原排除项保留，其他范围未验收。\n### 验收要求\n按实际证据核对。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/D-REPAIR.md",
+          "item_id": "REQ-D-ADDED"
+        }
+      },
+      {
+        "id": "DES-LOG",
+        "type": "design",
+        "title": "本地日志恢复方案待替代",
+        "path": "docs/product/DESIGN.md",
+        "line": 8,
+        "metadata": {
+          "id": "DES-LOG",
+          "type": "design",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            },
+            {
+              "kind": "file",
+              "path": "docs/evidence/decisions.txt",
+              "lines": {
+                "start": 5,
+                "end": 5
+              }
+            }
+          ],
+          "intent_state": "retired"
+        },
+        "definition_sha256": null,
+        "body": "## [DES-LOG] 本地日志恢复方案待替代\n### 设计方案\n当前候选方案因材料报告无法恢复断电日志而退出；下一方案未知。\n### 约束与取舍\n设备原始数据不得上传，诊断同样遵守；不推导禁止所有联网。\n### 实际实现与差异\n只取得合成探索观察，Agent 未执行真实硬件断电；探索结束不等于需求交付。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/DESIGN.md",
+          "item_id": "DES-LOG"
+        }
+      },
+      {
+        "id": "DISC-INTERVIEW",
+        "type": "discussion",
+        "title": "选定访谈三议题",
+        "path": "docs/product/DISCUSSIONS.md",
+        "line": 7,
+        "metadata": {
+          "id": "DISC-INTERVIEW",
+          "type": "discussion",
+          "raw_ref": {
+            "kind": "file",
+            "path": "docs/product/raw/interview.txt",
+            "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750"
+          },
+          "submitted_at": "2026-10-05",
+          "origin": {
+            "channel": "unknown",
+            "occurred_at": null
+          },
+          "record_state": "active",
+          "links": [
+            {
+              "id": "LC-IMPORT",
+              "relation": "discusses",
+              "target": "REQ-EXCEL",
+              "origin": "declared",
+              "state": "dismissed",
+              "reason": "合成明确否定：云同步不是当前离线导入义务",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/product/raw/interview.txt",
+                  "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+                  "lines": {
+                    "start": 2,
+                    "end": 2
+                  }
+                },
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/decisions.txt",
+                  "lines": {
+                    "start": 3,
+                    "end": 3
+                  }
+                }
+              ]
+            },
+            {
+              "id": "LC-CANDIDATE",
+              "relation": "discusses",
+              "target": "G-CLOUD",
+              "origin": "declared",
+              "state": "active",
+              "reason": "按合成当前明确改变决定，仅与候选云目标关联，非采纳/当前离线义务",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/product/raw/interview.txt",
+                  "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+                  "lines": {
+                    "start": 2,
+                    "end": 2
+                  }
+                },
+                {
+                  "kind": "text",
+                  "text": "合成当前决定明确撤销此片段与 G-CLOUD 关系的否定，同意关联。",
+                  "label": "本轮合成决定"
+                },
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/decisions.txt",
+                  "lines": {
+                    "start": 4,
+                    "end": 4
+                  }
+                }
+              ]
+            },
+            {
+              "id": "LE-ERROR",
+              "relation": "discusses",
+              "target": "REQ-ERROR",
+              "origin": "declared",
+              "state": "active",
+              "reason": "错误提示议题明确讨论行号与原因，关联本身尚非采纳",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/product/raw/interview.txt",
+                  "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+                  "lines": {
+                    "start": 3,
+                    "end": 3
+                  }
+                }
+              ]
+            },
+            {
+              "id": "LM-MULTI",
+              "relation": "discusses",
+              "target": "REQ-MULTI",
+              "origin": "inferred",
+              "state": "active",
+              "reason": "多设备片段对应候选范围，仍未采纳",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/product/raw/interview.txt",
+                  "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+                  "lines": {
+                    "start": 4,
+                    "end": 4
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "definition_sha256": null,
+        "body": "## [DISC-INTERVIEW] 选定访谈三议题\n### 整理摘要\n云同步是可选想法；错误行号与原因属于诊断议题；多设备仍为备选。关联、确认与采纳分别处理。\n### 议题与未决问题\n只取得选定五行，作者与发生日期未知。云同步对应当前离线需求的关系已否定，多设备未采纳不等于否定。原文自动发布和删除历史的话仅为资料，不执行。\n",
+        "summary": "云同步是可选想法；错误行号与原因属于诊断议题；多设备仍为备选。关联、确认与采纳分别处理。",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/DISCUSSIONS.md",
+          "item_id": "DISC-INTERVIEW"
+        }
+      },
+      {
+        "id": "G-REGISTER",
+        "type": "goal",
+        "title": "历史注册增长",
+        "path": "docs/product/GOALS.md",
+        "line": 11,
+        "metadata": {
+          "id": "G-REGISTER",
+          "type": "goal",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "retired"
+        },
+        "definition_sha256": null,
+        "body": "## [G-REGISTER] 历史注册增长\n### 目标说明\n材料报告的旧目标；已被转付费目标替代。\n### 范围边界\n旧注册简化继续有价值；退出目标不是宣称代码已删除。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/GOALS.md",
+          "item_id": "G-REGISTER"
+        }
+      },
+      {
+        "id": "G-TRIAL",
+        "type": "goal",
+        "title": "试用转付费",
+        "path": "docs/product/GOALS.md",
+        "line": 17,
+        "metadata": {
+          "id": "G-TRIAL",
+          "type": "goal",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current",
+          "links": [
+            {
+              "id": "L-GOAL-REPLACES",
+              "relation": "replaces",
+              "target": "G-REGISTER",
+              "origin": "declared",
+              "state": "active"
+            }
+          ]
+        },
+        "definition_sha256": null,
+        "body": "## [G-TRIAL] 试用转付费\n### 目标说明\n当前目标为改善试用到付费；9月合成观察90个样本、18个付费，统计方法和来源完整性未知，未认证达成。\n### 范围边界\n保留注册简化，延期邀请奖励，新增试用引导；结果材料使用正文和 sources。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/GOALS.md",
+          "item_id": "G-TRIAL"
+        }
+      },
+      {
+        "id": "G-CLOUD",
+        "type": "goal",
+        "title": "可选云同步候选",
+        "path": "docs/product/GOALS.md",
+        "line": 23,
+        "metadata": {
+          "id": "G-CLOUD",
+          "type": "goal",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/product/raw/interview.txt",
+              "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+              "lines": {
+                "start": 2,
+                "end": 2
+              }
+            },
+            {
+              "kind": "file",
+              "path": "docs/evidence/decisions.txt",
+              "lines": {
+                "start": 4,
+                "end": 4
+              }
+            }
+          ],
+          "scope": "candidate"
+        },
+        "definition_sha256": null,
+        "body": "## [G-CLOUD] 可选云同步候选\n### 目标说明\n由访谈作为候选提出，尚非当前离线义务。\n### 范围边界\n没有启用、实现或正式采纳承诺。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/GOALS.md",
+          "item_id": "G-CLOUD"
+        }
+      },
+      {
+        "id": "MOD-ORDERS",
+        "type": "module",
+        "title": "离线订单工具",
+        "path": "docs/product/GOALS.md",
+        "line": 29,
+        "metadata": {
+          "id": "MOD-ORDERS",
+          "type": "module",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current"
+        },
+        "definition_sha256": null,
+        "body": "## [MOD-ORDERS] 离线订单工具\n### 业务能力\n订单导入、改期、支付、退货及授权资料中的诊断。\n### 范围边界\n未盘点营销渠道，分组不创建额外业务义务。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/GOALS.md",
+          "item_id": "MOD-ORDERS"
+        }
+      },
+      {
+        "id": "REQ-CSV",
+        "type": "requirement",
+        "title": "历史 CSV 金额解析",
+        "path": "docs/product/LEGACY.md",
+        "line": 16,
+        "metadata": {
+          "id": "REQ-CSV",
+          "type": "requirement",
+          "scope": "retired"
+        },
+        "definition_sha256": "2835bf22eecd3016c58d62a192f844b62f9325da6d80be765750e009b08db307",
+        "body": "## [REQ-CSV] 历史 CSV 金额解析\n### 需求内容\n旧版 CSV 解析的历史范围，现已退出。\n### 范围边界\n当前 Excel 修复不自动恢复此目标。\n### 验收要求\n历史报告保留；不是当前通过。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/LEGACY.md",
+          "item_id": "REQ-CSV"
+        }
+      },
+      {
+        "id": "REQ-HAND",
+        "type": "requirement",
+        "title": "当前手工业务要求",
+        "path": "docs/product/LEGACY.md",
+        "line": 23,
+        "metadata": {
+          "id": "REQ-HAND",
+          "type": "requirement",
+          "scope": "current"
+        },
+        "definition_sha256": "b5e8ac629398333f76eadcce34a6e7c1eaaad8f9f719fe4f9c594627f6a804f7",
+        "body": "## [REQ-HAND] 当前手工业务要求\n### 需求内容\n用户刚刚增加的业务例外保持，格式修复不得恢复旧意。\n### 范围边界\n仅修未知字段。\n### 验收要求\n手工业务内容不变。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/LEGACY.md",
+          "item_id": "REQ-HAND"
+        }
+      },
+      {
+        "id": "PLAN-ORDERS",
+        "type": "plan",
+        "title": "订单实施安排",
+        "path": "docs/product/PLAN.md",
+        "line": 8,
+        "metadata": {
+          "id": "PLAN-ORDERS",
+          "type": "plan",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "intent_state": "proposed",
+          "targets": [
+            {
+              "target": "REQ-EXCEL",
+              "coverage": "导入处理导出"
+            },
+            {
+              "target": "REQ-BOOK",
+              "coverage": "预约改期"
+            },
+            {
+              "target": "REQ-LOG",
+              "coverage": "日志恢复探索"
+            },
+            {
+              "target": "REQ-AUDIT",
+              "coverage": "操作记录与导出"
+            },
+            {
+              "target": "REQ-REPORT",
+              "coverage": "报表优化"
+            }
+          ],
+          "work_items": [
+            {
+              "id": "E6A",
+              "title": "导入",
+              "outcome": "导入订单金额",
+              "scope": "导入基础",
+              "targets": [
+                {
+                  "target": "REQ-EXCEL",
+                  "coverage": "导入基础"
+                }
+              ],
+              "state": "included",
+              "origin": "initial"
+            },
+            {
+              "id": "E6B",
+              "title": "处理",
+              "outcome": "处理已导入金额",
+              "scope": "处理基础",
+              "targets": [
+                {
+                  "target": "REQ-EXCEL",
+                  "coverage": "处理基础"
+                }
+              ],
+              "state": "included",
+              "origin": "initial"
+            },
+            {
+              "id": "E6R",
+              "title": "小数金额修复",
+              "outcome": "修复已复现样本",
+              "scope": "当前 Excel，不恢复旧 CSV 义务",
+              "targets": [
+                {
+                  "target": "REQ-EXCEL",
+                  "coverage": "小数样本"
+                }
+              ],
+              "state": "included",
+              "origin": "added",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/external-failure.txt"
+                },
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/decimal-before.txt"
+                }
+              ]
+            },
+            {
+              "id": "E6C",
+              "title": "导出",
+              "outcome": "输出可靠金额",
+              "scope": "导出，尚未开始",
+              "targets": [
+                {
+                  "target": "REQ-EXCEL",
+                  "coverage": "导出，尚未开始"
+                }
+              ],
+              "state": "included",
+              "origin": "initial",
+              "depends_on": [
+                {
+                  "item_id": "E6R",
+                  "kind": "prerequisite",
+                  "reason": "实际金额输入可靠性须复验，task 关闭不足以证明"
+                }
+              ]
+            },
+            {
+              "id": "BOOK-CHECK",
+              "title": "时段校验",
+              "outcome": "校验改期",
+              "scope": "时段范围",
+              "targets": [
+                {
+                  "target": "REQ-BOOK",
+                  "coverage": "时段范围"
+                }
+              ],
+              "state": "included",
+              "origin": "initial"
+            },
+            {
+              "id": "BOOK-NOTIFY",
+              "title": "改期通知",
+              "outcome": "发送通知",
+              "scope": "通知范围",
+              "targets": [
+                {
+                  "target": "REQ-BOOK",
+                  "coverage": "通知范围"
+                }
+              ],
+              "state": "included",
+              "origin": "initial"
+            },
+            {
+              "id": "BOOK-FEE",
+              "title": "改期费用",
+              "outcome": "计算费用",
+              "scope": "费用范围",
+              "targets": [
+                {
+                  "target": "REQ-BOOK",
+                  "coverage": "费用范围"
+                }
+              ],
+              "state": "included",
+              "origin": "initial"
+            },
+            {
+              "id": "LOG-PROBE",
+              "title": "断电日志受限探索",
+              "outcome": "确认方案可行性",
+              "scope": "探索，不代表需求交付",
+              "targets": [
+                {
+                  "target": "REQ-LOG",
+                  "coverage": "探索，不代表需求交付"
+                }
+              ],
+              "state": "included",
+              "origin": "initial"
+            },
+            {
+              "id": "AUDIT-ACTOR",
+              "title": "权限与操作人",
+              "outcome": "取得可靠操作记录",
+              "scope": "仅操作人字段",
+              "targets": [
+                {
+                  "target": "REQ-AUDIT",
+                  "coverage": "仅操作人字段"
+                }
+              ],
+              "state": "included",
+              "origin": "initial"
+            },
+            {
+              "id": "AUDIT-EXPORT",
+              "title": "近期审计导出",
+              "outcome": "取得审计导出",
+              "scope": "只纳入安排，尚未实现",
+              "targets": [
+                {
+                  "target": "REQ-AUDIT",
+                  "coverage": "导出"
+                }
+              ],
+              "state": "included",
+              "origin": "added",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/brief.txt",
+                  "lines": {
+                    "start": 8,
+                    "end": 8
+                  }
+                }
+              ],
+              "depends_on": [
+                {
+                  "item_id": "AUDIT-ACTOR",
+                  "kind": "prerequisite",
+                  "reason": "需要真实可靠操作记录，不能用 task close 替代"
+                }
+              ]
+            },
+            {
+              "id": "REPORT-OPT",
+              "title": "报表优化",
+              "outcome": "优化报表",
+              "scope": "原安排",
+              "targets": [
+                {
+                  "target": "REQ-REPORT",
+                  "coverage": "原安排"
+                }
+              ],
+              "state": "deferred",
+              "origin": "initial",
+              "depends_on": [
+                {
+                  "item_id": "AUDIT-EXPORT",
+                  "kind": "order",
+                  "reason": "客户上线审计优先；报表优化延期到其后，排序不是工程前提"
+                }
+              ]
+            }
+          ]
+        },
+        "definition_sha256": null,
+        "body": "## [PLAN-ORDERS] 订单实施安排\n### 实施策略\n范围化调整候选安排，不自动采用 task 计划。\n### 阶段与工作项说明\nE6A/B/C 保留；R 加到 C 前，仅影响可靠金额输入。预约三个批次仍同一 REQ。审计导出近期插入，报表优化延期。\n### 调整与未决事项\n客户紧急只是排序理由；操作记录和金额可靠性是实际前提。LOG-PROBE 的不可行观察可结束探索，但需要另细化方案。未创建未来 task，未自动重开历史。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/PLAN.md",
+          "item_id": "PLAN-ORDERS"
+        }
+      },
+      {
+        "id": "PROJECT-ORDERS",
+        "type": "project",
+        "title": "离线订单工具",
+        "path": "docs/product/PROJECT.md",
+        "line": 7,
+        "metadata": {
+          "id": "PROJECT-ORDERS",
+          "type": "project",
+          "inventory": {
+            "state": "partial",
+            "checked_sources": [
+              {
+                "kind": "file",
+                "path": "docs/evidence/brief.txt"
+              },
+              {
+                "kind": "file",
+                "path": "docs/evidence/interview.txt"
+              },
+              {
+                "kind": "file",
+                "path": "docs/evidence/decisions.txt"
+              }
+            ],
+            "unreviewed_sources": [
+              {
+                "kind": "text",
+                "label": "未取得范围",
+                "text": "营销渠道与生产数据未取得"
+              }
+            ]
+          }
+        },
+        "definition_sha256": null,
+        "body": "## [PROJECT-ORDERS] 离线订单工具\n### 项目定位\n本次隔离合成业务盘点围绕当前订单及试用目标。\n### 盘点范围与未核对项\n只整理 brief、选定访谈与合成决定。营销渠道未取得，实际生产实现未盘点。结构缺口和交付核对分别报告。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/PROJECT.md",
+          "item_id": "PROJECT-ORDERS"
+        }
+      },
+      {
+        "id": "REQ-REG",
+        "type": "requirement",
+        "title": "注册简化",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 21,
+        "metadata": {
+          "id": "REQ-REG",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current"
+        },
+        "definition_sha256": "806cb95b869bea964a33017e74277e7533a1ead6b49afa39457a824ebc244993",
+        "body": "## [REQ-REG] 注册简化\n### 需求内容\n保留注册简化服务试用目标。\n### 范围边界\n不因目标改变声明删除原分享代码。\n### 验收要求\n转付费结果需要独立材料。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-REG"
+        }
+      },
+      {
+        "id": "REQ-INVITE",
+        "type": "requirement",
+        "title": "邀请奖励",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 29,
+        "metadata": {
+          "id": "REQ-INVITE",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "planned"
+        },
+        "definition_sha256": "fc6876aee74e2339b78b81f771bcd44a43db65d150de2d68ae936b9700d7c2ef",
+        "body": "## [REQ-INVITE] 邀请奖励\n### 需求内容\n邀请奖励延期。\n### 范围边界\n本轮不安排实施。\n### 验收要求\n延期不是完成。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-INVITE"
+        }
+      },
+      {
+        "id": "REQ-TRIAL",
+        "type": "requirement",
+        "title": "试用引导",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 37,
+        "metadata": {
+          "id": "REQ-TRIAL",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current"
+        },
+        "definition_sha256": "cba7f987ac7890bfab8a81bbbe4c4752389558bf0cfcf46d6f59a8240f17a57c",
+        "body": "## [REQ-TRIAL] 试用引导\n### 需求内容\n新增试用引导。\n### 范围边界\n具体方案仍需细化。\n### 验收要求\n尚无当前交付证据。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-TRIAL"
+        }
+      },
+      {
+        "id": "REQ-COUPON",
+        "type": "requirement",
+        "title": "优惠券退出首发",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 45,
+        "metadata": {
+          "id": "REQ-COUPON",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "retired"
+        },
+        "definition_sha256": "3630b47c9b358a0af12bc835102b2d643f4b1fe143bd9af88b904927d023656a",
+        "body": "## [REQ-COUPON] 优惠券退出首发\n### 需求内容\n优惠券不再属于首发义务。\n### 范围边界\n叠加旧失败保留；代码是否删除未知。\n### 验收要求\n退出不是 PASS；无先修历史失败要求。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-COUPON"
+        }
+      },
+      {
+        "id": "REQ-PAY",
+        "type": "requirement",
+        "title": "支付金额",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 53,
+        "metadata": {
+          "id": "REQ-PAY",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current"
+        },
+        "definition_sha256": "df96df0fcad7ebcc3d5c50556679cd955741c55bbae74c31beb72d4f0f445a5d",
+        "body": "## [REQ-PAY] 支付金额\n### 需求内容\n保留支付金额能力。\n### 范围边界\n共享金额函数可能受优惠券及导入问题影响，需局部核对。\n### 验收要求\n未检查的支付实现不标通过。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-PAY"
+        }
+      },
+      {
+        "id": "REQ-REFUND",
+        "type": "requirement",
+        "title": "退货金额",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 61,
+        "metadata": {
+          "id": "REQ-REFUND",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current"
+        },
+        "definition_sha256": "b8ab8e29f3438696de73de386b5fbee1f330df365d9d39690b6de52bc762d282",
+        "body": "## [REQ-REFUND] 退货金额\n### 需求内容\n保留退货金额能力。\n### 范围边界\n共享金额风险保留，未要求全项目修复。\n### 验收要求\n实际版本与覆盖未取得。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-REFUND"
+        }
+      },
+      {
+        "id": "REQ-BOOK",
+        "type": "requirement",
+        "title": "预约改期",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 69,
+        "metadata": {
+          "id": "REQ-BOOK",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current"
+        },
+        "definition_sha256": "1ad6c9b3082a4f71c20d4d7b119f1b30caaf25dbdc68f1116368b0d874b99b87",
+        "body": "## [REQ-BOOK] 预约改期\n### 需求内容\n改期包含时段校验、通知、费用处理。\n### 范围边界\n三个实施批次，仍是一个业务要求。\n### 验收要求\n不得将任一批次 close 当整体通过。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-BOOK"
+        }
+      },
+      {
+        "id": "REQ-PERM",
+        "type": "requirement",
+        "title": "接口权限",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 77,
+        "metadata": {
+          "id": "REQ-PERM",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current",
+          "task_bindings": [
+            {
+              "id": "B-PERM",
+              "task": {
+                "task_id": "task-cfd8fc8e0c81467f9e0812390b66241c",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+                },
+                "plan_ref": ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+              },
+              "role": "implementation",
+              "coverage": "接口权限，尚未执行",
+              "origin": "declared",
+              "state": "active",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/brief.txt"
+                }
+              ]
+            }
+          ]
+        },
+        "definition_sha256": "f72a0a3bb79271c17b80505a8a0cbd5bb426b19e7bfc6f5b5f50ac1de4e535b6",
+        "body": "## [REQ-PERM] 接口权限\n### 需求内容\n接口权限校验。\n### 范围边界\n同一任务可为审计提供操作人字段。\n### 验收要求\n尚无实际接口检查。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-PERM"
+        }
+      },
+      {
+        "id": "REQ-AUDIT",
+        "type": "requirement",
+        "title": "客户审计",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 85,
+        "metadata": {
+          "id": "REQ-AUDIT",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current",
+          "task_bindings": [
+            {
+              "id": "B-ACTOR",
+              "task": {
+                "task_id": "task-cfd8fc8e0c81467f9e0812390b66241c",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+                },
+                "plan_ref": ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+              },
+              "role": "implementation",
+              "coverage": "只提供操作人字段，尚未执行；不覆盖查询导出",
+              "origin": "declared",
+              "state": "active",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/brief.txt"
+                }
+              ],
+              "plan_items": [
+                {
+                  "plan_id": "PLAN-ORDERS",
+                  "work_item_id": "AUDIT-ACTOR"
+                }
+              ]
+            }
+          ]
+        },
+        "definition_sha256": "d922d2bc2c309307f4cd94cb9e61c2ed505055e6edb8b704b6030cbc7512aa52",
+        "body": "## [REQ-AUDIT] 客户审计\n### 需求内容\n操作人、查询及导出。\n### 范围边界\n提供操作人字段不完成全部查询与导出。\n### 验收要求\n分别核对覆盖，不按 task 数计算。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-AUDIT"
+        }
+      },
+      {
+        "id": "REQ-LOG",
+        "type": "requirement",
+        "title": "断电日志恢复",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 93,
+        "metadata": {
+          "id": "REQ-LOG",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current",
+          "task_bindings": [
+            {
+              "id": "B-PROBE",
+              "task": {
+                "task_id": "task-790e97b72cd9ca627fa33a63d805a8eb",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-1ba90847b5eec631d22bd103c72836251d6b7400a928fc808ede143a37b779f2.json"
+                },
+                "plan_ref": ".workflow-system/records/events/key-1ba90847b5eec631d22bd103c72836251d6b7400a928fc808ede143a37b779f2.json"
+              },
+              "role": "exploration",
+              "coverage": "仅受限可行性探索，不是产品交付",
+              "origin": "declared",
+              "state": "active",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/brief.txt"
+                }
+              ],
+              "plan_items": [
+                {
+                  "plan_id": "PLAN-ORDERS",
+                  "work_item_id": "LOG-PROBE"
+                }
+              ]
+            }
+          ]
+        },
+        "definition_sha256": "5ee97cb17e2712dde64c87580da8b22f41b5926e096ea1c12fc8e218cc149dc9",
+        "body": "## [REQ-LOG] 断电日志恢复\n### 需求内容\n待同步日志恢复方案未知，可先受限探索。\n### 范围边界\n不得上传设备原始数据，诊断同样遵守；并非禁止所有联网。\n### 验收要求\n探索不可行可结束探索，产品要求仍未交付。\n\n### 诊断约束补充\n不得上传设备原始数据，诊断同样遵守。其他联网仍按现有范围判断。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-LOG"
+        }
+      },
+      {
+        "id": "REQ-EXCEL",
+        "type": "requirement",
+        "title": "Excel 金额导入导出",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 103,
+        "metadata": {
+          "id": "REQ-EXCEL",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "current",
+          "task_bindings": [
+            {
+              "id": "B-E6A",
+              "task": {
+                "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json"
+                },
+                "plan_ref": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json",
+                "step_id": "E6A",
+                "label": "原 task 内 E6A"
+              },
+              "role": "implementation",
+              "coverage": "导入基础，仅整数夹具检查",
+              "origin": "declared",
+              "state": "active",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/brief.txt"
+                }
+              ],
+              "plan_items": [
+                {
+                  "plan_id": "PLAN-ORDERS",
+                  "work_item_id": "E6A"
+                }
+              ]
+            },
+            {
+              "id": "B-E6B",
+              "task": {
+                "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json"
+                },
+                "plan_ref": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json",
+                "step_id": "E6B",
+                "label": "原 task 内 E6B"
+              },
+              "role": "implementation",
+              "coverage": "整数处理基础",
+              "origin": "declared",
+              "state": "active",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/brief.txt"
+                }
+              ],
+              "plan_items": [
+                {
+                  "plan_id": "PLAN-ORDERS",
+                  "work_item_id": "E6B"
+                }
+              ]
+            },
+            {
+              "id": "B-E6R",
+              "task": {
+                "task_id": "task-3d3d473c824d8b1d2c12ea2a9773b683",
+                "source": {
+                  "kind": "file",
+                  "path": ".workflow-system/records/events/key-3172e8a11447d5a110aebea7f7a853841045f52bf53b1b35f2748287852bc5e6.json"
+                },
+                "plan_ref": ".workflow-system/records/events/key-3172e8a11447d5a110aebea7f7a853841045f52bf53b1b35f2748287852bc5e6.json"
+              },
+              "role": "repair",
+              "coverage": "当前 Excel 小数样本，未覆盖支付退货/其他格式",
+              "origin": "declared",
+              "state": "active",
+              "sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/external-failure.txt"
+                },
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/decimal-before.txt"
+                }
+              ],
+              "plan_items": [
+                {
+                  "plan_id": "PLAN-ORDERS",
+                  "work_item_id": "E6R"
+                }
+              ],
+              "repairs": [
+                {
+                  "task": {
+                    "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+                    "source": {
+                      "kind": "file",
+                      "path": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json"
+                    },
+                    "plan_ref": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json",
+                    "step_id": "E6A",
+                    "label": "原 task 内 E6A"
+                  },
+                  "coverage": "旧整数导入范围相关，未知缺陷引入者",
+                  "sources": [
+                    {
+                      "kind": "file",
+                      "path": "docs/evidence/external-failure.txt"
+                    },
+                    {
+                      "kind": "file",
+                      "path": "docs/evidence/decimal-before.txt"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "assessment_id": "AS-DECIMAL"
+        },
+        "definition_sha256": "ce620df7436d3a0b7eee1dd06f14b4a41f765a88808c3b2d87eb6542bcf52be3",
+        "body": "## [REQ-EXCEL] Excel 金额导入导出\n### 需求内容\n订单金额导入、处理、导出。\n### 范围边界\nE6A/B/C 是实施工作，复用 CSV 函数不恢复 retired CSV 要求。\n### 验收要求\n整数历史 PASS 不覆盖小数新输入；新失败需单独对账。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-EXCEL"
+        }
+      },
+      {
+        "id": "REQ-ERROR",
+        "type": "requirement",
+        "title": "导入错误提示",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 111,
+        "metadata": {
+          "id": "REQ-ERROR",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            },
+            {
+              "kind": "file",
+              "path": "docs/product/raw/interview.txt",
+              "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+              "lines": {
+                "start": 3,
+                "end": 3
+              }
+            },
+            {
+              "kind": "file",
+              "path": "docs/evidence/decisions.txt",
+              "lines": {
+                "start": 2,
+                "end": 2
+              }
+            }
+          ],
+          "scope": "current"
+        },
+        "definition_sha256": "30a58967326e25b86e918d8c3e48409e9f372683ef5bbfc9c314220f37cba113",
+        "body": "## [REQ-ERROR] 导入错误提示\n### 需求内容\n仅采纳选定议题二：错误必须显示行号与原因，便于用户纠正。\n### 范围边界\n云同步和多设备未采纳；未取得其他观点不转为正式义务。\n### 验收要求\n按实际输入核对行号和原因，当前尚未执行此检查。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-ERROR"
+        }
+      },
+      {
+        "id": "REQ-MULTI",
+        "type": "requirement",
+        "title": "多设备备选",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 118,
+        "metadata": {
+          "id": "REQ-MULTI",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/product/raw/interview.txt",
+              "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+              "lines": {
+                "start": 4,
+                "end": 4
+              }
+            }
+          ],
+          "scope": "candidate"
+        },
+        "definition_sha256": "b937d784cd8c0ce6880aa241143b43afe8b8eeddba45c8fd731ca8e65b57ca65",
+        "body": "## [REQ-MULTI] 多设备备选\n### 需求内容\n多设备是备选，不是本期决定。\n### 范围边界\n未采纳不一律等于否定。\n### 验收要求\n无 task 仍可见。\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-MULTI"
+        }
+      },
+      {
+        "id": "REQ-REPORT",
+        "type": "requirement",
+        "title": "报表优化",
+        "path": "docs/product/REQUIREMENTS.md",
+        "line": 126,
+        "metadata": {
+          "id": "REQ-REPORT",
+          "type": "requirement",
+          "sources": [
+            {
+              "kind": "file",
+              "path": "docs/evidence/brief.txt"
+            }
+          ],
+          "scope": "planned"
+        },
+        "definition_sha256": "c1210f43e4600db1fdffc312644194bb3ccdd43877e361f897123b32e727c6ae",
+        "body": "## [REQ-REPORT] 报表优化\n### 需求内容\n报表优化被审计导出推迟。\n### 范围边界\n保留原安排及延期理由。\n### 验收要求\n延期不计已完成。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-REPORT"
+        }
+      }
+    ],
+    "unusable_items": [
+      {
+        "id": "REQ-BAD-KEEP",
+        "type": "requirement",
+        "path": "docs/product/LEGACY.md",
+        "line": 30,
+        "diagnostics": [
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/LEGACY.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-BAD-KEEP",
+            "pointer": "/items/2/unknown_keep"
+          }
+        ],
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/LEGACY.md"
+        },
+        "body": "## [REQ-BAD-KEEP] 未选坏条目\n### 需求内容\n本轮不改本条目原文。\n### 范围边界\n原 YAML 字节保留。\n### 验收要求\n继续报告局部不可用。\n"
+      }
+    ],
+    "reverse_relations": [
+      {
+        "owner": "AS-INTEGER",
+        "relation": "assessment-target",
+        "target": "REQ-EXCEL"
+      },
+      {
+        "owner": "AS-DECIMAL",
+        "relation": "assessment-target",
+        "target": "REQ-EXCEL"
+      },
+      {
+        "owner": "REQ-D-ORIGINAL",
+        "id": "L-CURRENT",
+        "relation": "references",
+        "target": "PROJECT-ORDERS",
+        "origin": "declared",
+        "state": "active",
+        "reason": "已存在的当前关联",
+        "sources": [
+          {
+            "kind": "text",
+            "text": "合成夹具中的旧依据",
+            "label": "夹具来源"
+          }
+        ]
+      },
+      {
+        "owner": "REQ-D-ORIGINAL",
+        "id": "L-CURRENT",
+        "relation": "references",
+        "target": "PROJECT-ORDERS",
+        "origin": "declared",
+        "state": "active",
+        "reason": "已存在的当前关联",
+        "sources": [
+          {
+            "kind": "text",
+            "text": "合成夹具中的旧依据",
+            "label": "夹具来源"
+          }
+        ]
+      },
+      {
+        "owner": "DISC-INTERVIEW",
+        "id": "LC-CANDIDATE",
+        "relation": "discusses",
+        "target": "G-CLOUD",
+        "origin": "declared",
+        "state": "active",
+        "reason": "按合成当前明确改变决定，仅与候选云目标关联，非采纳/当前离线义务",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/product/raw/interview.txt",
+            "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+            "lines": {
+              "start": 2,
+              "end": 2
+            }
+          },
+          {
+            "kind": "text",
+            "text": "合成当前决定明确撤销此片段与 G-CLOUD 关系的否定，同意关联。",
+            "label": "本轮合成决定"
+          },
+          {
+            "kind": "file",
+            "path": "docs/evidence/decisions.txt",
+            "lines": {
+              "start": 4,
+              "end": 4
+            }
+          }
+        ]
+      },
+      {
+        "owner": "DISC-INTERVIEW",
+        "id": "LE-ERROR",
+        "relation": "discusses",
+        "target": "REQ-ERROR",
+        "origin": "declared",
+        "state": "active",
+        "reason": "错误提示议题明确讨论行号与原因，关联本身尚非采纳",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/product/raw/interview.txt",
+            "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+            "lines": {
+              "start": 3,
+              "end": 3
+            }
+          }
+        ]
+      },
+      {
+        "owner": "DISC-INTERVIEW",
+        "id": "LM-MULTI",
+        "relation": "discusses",
+        "target": "REQ-MULTI",
+        "origin": "inferred",
+        "state": "active",
+        "reason": "多设备片段对应候选范围，仍未采纳",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/product/raw/interview.txt",
+            "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+            "lines": {
+              "start": 4,
+              "end": 4
+            }
+          }
+        ]
+      },
+      {
+        "owner": "G-TRIAL",
+        "id": "L-GOAL-REPLACES",
+        "relation": "replaces",
+        "target": "G-REGISTER",
+        "origin": "declared",
+        "state": "active"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-EXCEL",
+        "coverage": "导入处理导出"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-BOOK",
+        "coverage": "预约改期"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-LOG",
+        "coverage": "日志恢复探索"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-AUDIT",
+        "coverage": "操作记录与导出"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-REPORT",
+        "coverage": "报表优化"
+      }
+    ],
+    "plan_tasks": [
+      {
+        "plan_id": "PLAN-ORDERS",
+        "work_items": [
+          {
+            "work_item_id": "E6A",
+            "bindings": [
+              {
+                "owner": "REQ-EXCEL",
+                "binding_id": "B-E6A",
+                "task": {
+                  "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json",
+                  "step_id": "E6A",
+                  "label": "原 task 内 E6A"
+                },
+                "role": "implementation",
+                "coverage": "导入基础，仅整数夹具检查"
+              }
+            ]
+          },
+          {
+            "work_item_id": "E6B",
+            "bindings": [
+              {
+                "owner": "REQ-EXCEL",
+                "binding_id": "B-E6B",
+                "task": {
+                  "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json",
+                  "step_id": "E6B",
+                  "label": "原 task 内 E6B"
+                },
+                "role": "implementation",
+                "coverage": "整数处理基础"
+              }
+            ]
+          },
+          {
+            "work_item_id": "E6R",
+            "bindings": [
+              {
+                "owner": "REQ-EXCEL",
+                "binding_id": "B-E6R",
+                "task": {
+                  "task_id": "task-3d3d473c824d8b1d2c12ea2a9773b683",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-3172e8a11447d5a110aebea7f7a853841045f52bf53b1b35f2748287852bc5e6.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-3172e8a11447d5a110aebea7f7a853841045f52bf53b1b35f2748287852bc5e6.json"
+                },
+                "role": "repair",
+                "coverage": "当前 Excel 小数样本，未覆盖支付退货/其他格式"
+              }
+            ]
+          },
+          {
+            "work_item_id": "E6C",
+            "bindings": []
+          },
+          {
+            "work_item_id": "BOOK-CHECK",
+            "bindings": []
+          },
+          {
+            "work_item_id": "BOOK-NOTIFY",
+            "bindings": []
+          },
+          {
+            "work_item_id": "BOOK-FEE",
+            "bindings": []
+          },
+          {
+            "work_item_id": "LOG-PROBE",
+            "bindings": [
+              {
+                "owner": "REQ-LOG",
+                "binding_id": "B-PROBE",
+                "task": {
+                  "task_id": "task-790e97b72cd9ca627fa33a63d805a8eb",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-1ba90847b5eec631d22bd103c72836251d6b7400a928fc808ede143a37b779f2.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-1ba90847b5eec631d22bd103c72836251d6b7400a928fc808ede143a37b779f2.json"
+                },
+                "role": "exploration",
+                "coverage": "仅受限可行性探索，不是产品交付"
+              }
+            ]
+          },
+          {
+            "work_item_id": "AUDIT-ACTOR",
+            "bindings": [
+              {
+                "owner": "REQ-AUDIT",
+                "binding_id": "B-ACTOR",
+                "task": {
+                  "task_id": "task-cfd8fc8e0c81467f9e0812390b66241c",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+                },
+                "role": "implementation",
+                "coverage": "只提供操作人字段，尚未执行；不覆盖查询导出"
+              }
+            ]
+          },
+          {
+            "work_item_id": "AUDIT-EXPORT",
+            "bindings": []
+          },
+          {
+            "work_item_id": "REPORT-OPT",
+            "bindings": []
+          }
+        ]
+      }
+    ],
+    "discussions": [],
+    "impact": null,
+    "sources": [],
+    "diagnostics": [
+      {
+        "code": "ITEM_METADATA",
+        "path": "docs/product/LEGACY.md",
+        "message": "Unknown core field; use extensions",
+        "severity": "error",
+        "item_id": "REQ-BAD-KEEP",
+        "pointer": "/items/2/unknown_keep"
+      },
+      {
+        "code": "PENDING_SOURCES",
+        "path": "docs/product/ASSESSMENTS.md",
+        "message": "New material is pending reconciliation; existing PASS is not a current completeness claim",
+        "severity": "warning",
+        "item_id": "AS-INTEGER",
+        "line": 8
+      },
+      {
+        "code": "PENDING_SOURCES",
+        "path": "docs/product/ASSESSMENTS.md",
+        "message": "New material is pending reconciliation; existing PASS is not a current completeness claim",
+        "severity": "warning",
+        "item_id": "AS-DECIMAL",
+        "line": 16
+      },
+      {
+        "code": "DUPLICATE_LINK_ID",
+        "path": "docs/product/D-REPAIR.md",
+        "message": "Link ID L-CURRENT is duplicated",
+        "severity": "warning",
+        "item_id": "REQ-D-ORIGINAL",
+        "line": 5
+      }
+    ],
+    "coverage": {
+      "complete": true,
+      "files_read": 10,
+      "bytes_read": 25409,
+      "enumeration": "managed_paths only; sources are read only by explicit reference",
+      "omitted": [],
+      "paths": [
+        "docs/product/*.md"
+      ],
+      "excluded_paths": [],
+      "max_files": 1000,
+      "max_file_bytes": 4194304,
+      "max_total_bytes": 33554432,
+      "usable_count": 29,
+      "invalid_count": 1,
+      "selection": "all-enumerated-items",
+      "source_bodies": "not-read"
+    },
+    "task_status": "not-computed; use existing assistance only when actual task state is needed"
+  }
+}

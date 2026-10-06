@@ -15830,7 +15830,17 @@ function manifestSchema(version) {
     ...object({ schema: { const: `vnext-product-manifest/v${version}` }, project_id: string3, entry: string3, managed_paths: array(string3, 1), source_paths: array(string3), ...version === 2 ? { capture_paths: array(string3) } : {}, exclude_paths: array(string3), maintenance: choice("enabled", "paused"), extensions }, ["schema", "project_id", "entry", "managed_paths", "source_paths", "exclude_paths", "maintenance"])
   };
 }
-var fileOperation = object({ path: string3, expected_sha256: nullable(digest), content: { type: "string" }, updates: array(object({ id, metadata: { type: "object" }, body: { type: "string" }, remove_fields: array(string3) }, ["id"])), append: array(object({ metadata: { type: "object" }, body: string3 })), migrate: { const: "v2" }, preimage_path: string3 }, ["path", "expected_sha256"]);
+var fileOperation = object({
+  path: string3,
+  expected_sha256: nullable(digest),
+  content: { type: "string" },
+  updates: array(object({ id, metadata: { type: "object" }, body: { type: "string" }, remove_fields: array(string3) }, ["id"])),
+  append: array(object({ metadata: { type: "object" }, body: string3 })),
+  migrate: { const: "v2" },
+  preimage_path: string3,
+  remove_items: array(id),
+  remove_relations: array(object({ item_id: id, field: choice("links", "task_bindings"), id }))
+}, ["path", "expected_sha256"]);
 var requestSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $defs: definitions,
@@ -16156,26 +16166,63 @@ function allowed(manifest, relative2, kind) {
     return matches(relative2, [...manifest.managed_paths, ...manifest.source_paths]);
   return matches(relative2, manifest.capture_paths) && matches(relative2, manifest.source_paths) && !matches(relative2, manifest.managed_paths);
 }
+function mayContainMatch(directory, pattern) {
+  const prefix = directory ? `${directory}/` : "";
+  const memo = new Map;
+  function extend2(patternOffset, offset) {
+    if (offset === prefix.length)
+      return true;
+    if (patternOffset === pattern.length)
+      return false;
+    const key = `${patternOffset}:${offset}`;
+    if (memo.has(key))
+      return memo.get(key);
+    const char = pattern[patternOffset];
+    let result;
+    if (char === "*" && pattern[patternOffset + 1] === "*") {
+      if (pattern[patternOffset + 2] === "/") {
+        const slash = prefix.indexOf("/", offset);
+        result = extend2(patternOffset + 3, offset) || slash > offset && extend2(patternOffset, slash + 1);
+      } else
+        result = extend2(patternOffset + 2, offset) || extend2(patternOffset, offset + 1);
+    } else if (char === "*") {
+      result = extend2(patternOffset + 1, offset) || prefix[offset] !== "/" && extend2(patternOffset, offset + 1);
+    } else {
+      result = (char === "?" ? prefix[offset] !== "/" : char === prefix[offset]) && extend2(patternOffset + 1, offset + 1);
+    }
+    memo.set(key, result);
+    return result;
+  }
+  return extend2(0, 0);
+}
 function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
   const paths = [];
-  let incomplete = false;
+  const omitted = new Set;
+  let stopped = false;
   const prefixes = patterns.map((p) => {
     relativePath(p, true);
     const wildcard = p.search(/[*?\[\]]/);
     return wildcard < 0 ? p : p.slice(0, p.lastIndexOf("/", wildcard) + 1).replace(/\/$/, "");
   });
   const visited = new Set;
+  const explicitFiles = new Set(patterns.filter((p) => !/[*?]/.test(p)));
   const skip = (p) => p.split("/").some((s) => [".git", "node_modules", ".next", "dist", "build"].includes(s)) || p.startsWith(".workflow-system/runtime/") || p.startsWith(".workflow-system/records/");
   let visitedCount = 0;
+  function omit(relative2, code, message) {
+    omitted.add(relative2);
+    diagnostics.push(diagnostic(code, relative2, message));
+  }
   function visit2(relative2) {
-    if (visited.has(relative2) || incomplete || relative2 && (skip(relative2) || matches(relative2, excludes)))
+    if (visited.has(relative2) || stopped || relative2 && (skip(relative2) || matches(relative2, excludes)))
       return;
     visited.add(relative2);
     if (++visitedCount > Math.max(1e4, maxFiles * 100)) {
-      incomplete = true;
-      diagnostics.push(diagnostic("ENUMERATION_LIMIT", relative2, "Directory entry limit reached; remaining paths were not scanned"));
+      stopped = true;
+      omit(relative2, "ENUMERATION_LIMIT", "Directory entry limit reached; remaining paths were not scanned");
       return;
     }
+    if (relative2 && !patterns.some((pattern) => matchPattern(relative2, pattern) || mayContainMatch(relative2, pattern)))
+      return;
     let stat;
     const absolute = relative2 ? path.join(root, ...relative2.split("/")) : root;
     try {
@@ -16183,33 +16230,40 @@ function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
         safePath(root, relative2);
       stat = fs.lstatSync(absolute);
     } catch (error) {
-      if (error.code !== "ENOENT")
-        diagnostics.push(diagnostic(error.message.startsWith("SYMLINK_SKIPPED") ? "SYMLINK_SKIPPED" : "PATH_UNAVAILABLE", relative2, error.message));
+      omit(relative2, error.message.startsWith("SYMLINK_SKIPPED") ? "SYMLINK_SKIPPED" : "PATH_UNAVAILABLE", error.message);
       return;
     }
     if (stat.isSymbolicLink()) {
-      diagnostics.push(diagnostic("SYMLINK_SKIPPED", relative2, "Symbolic link/junction not scanned"));
+      omit(relative2, "SYMLINK_SKIPPED", "Symbolic link/junction not scanned");
       return;
     }
     if (stat.isDirectory()) {
+      if (explicitFiles.has(relative2))
+        omit(relative2, "PATH_UNAVAILABLE", "Selected file path is a directory, not a regular file");
+      if (!patterns.some((pattern) => mayContainMatch(relative2, pattern)))
+        return;
       try {
         for (const name of fs.readdirSync(absolute).sort())
           visit2(relative2 ? `${relative2}/${name}` : name);
       } catch (error) {
-        diagnostics.push(diagnostic("DIRECTORY_UNAVAILABLE", relative2, error.message));
+        omit(relative2, "DIRECTORY_UNAVAILABLE", error.message);
       }
     } else if (stat.isFile() && matches(relative2, patterns)) {
       if (paths.length >= maxFiles) {
-        incomplete = true;
-        diagnostics.push(diagnostic("FILE_LIMIT", relative2, "File limit reached; remaining files were not read"));
+        stopped = true;
+        omit(relative2, "FILE_LIMIT", "File limit reached; remaining files were not read");
         return;
       }
       paths.push(relative2);
-    }
+    } else if (matches(relative2, patterns))
+      omit(relative2, "PATH_UNAVAILABLE", "Selected path is not a regular file");
   }
   for (const prefix of prefixes)
     visit2(prefix);
-  return { paths: paths.sort(), incomplete };
+  if (stopped)
+    for (const pattern of patterns)
+      omitted.add(pattern);
+  return { paths: paths.sort(), incomplete: omitted.size > 0, omitted: [...omitted] };
 }
 
 // runtime/vnext/src/product-maintenance/plans.ts
@@ -16435,10 +16489,15 @@ function readCatalog(rootInput, input = {}) {
   catalog.manifest = manifest;
   catalog.status = "available";
   const selected = input.paths ?? manifest.managed_paths;
-  const enumeration = enumerate(root, selected, manifest.exclude_paths, maxFiles, catalog.diagnostics);
+  catalog.coverage.paths = selected;
+  catalog.coverage.excluded_paths = manifest.exclude_paths;
+  const patterns = matches(manifest.entry, selected) ? [...new Set([...selected, manifest.entry])] : selected;
+  const enumeration = enumerate(root, patterns, manifest.exclude_paths, maxFiles, catalog.diagnostics);
+  catalog.coverage.omitted.push(...enumeration.omitted);
   let bytesRead = 0;
   for (const relative2 of enumeration.paths) {
     if (!allowed(manifest, relative2, "managed")) {
+      catalog.coverage.omitted.push(relative2);
       catalog.diagnostics.push(diagnostic("NOT_MANAGED", relative2, "Selected file is not managed"));
       continue;
     }
@@ -16482,7 +16541,7 @@ function readCatalog(rootInput, input = {}) {
   if (projects.length !== 1 || projects[0]?.path !== manifest.entry)
     catalog.diagnostics.push(diagnostic("PROJECT_ENTRY", manifestPath, "Expected a unique project entry in the manifest entry document"));
   analyze(catalog);
-  catalog.coverage = { ...catalog.coverage, complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter((i) => i.usable).length, invalid_count: catalog.items.filter((i) => !i.usable).length };
+  catalog.coverage = { ...catalog.coverage, omitted: [...new Set(catalog.coverage.omitted)], complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter((i) => i.usable).length, invalid_count: catalog.items.filter((i) => !i.usable).length };
   return catalog;
 }
 
@@ -16494,4 +16553,6 @@ if (!root) {
 } else {
   const catalog = readCatalog(root);
   console.log(JSON.stringify({ contract: "vnext-product-doc/v2", project_id: catalog.manifest?.project_id ?? null, root: catalog.root, status: catalog.status, items: catalog.items.filter((i) => i.usable).map((i) => ({ id: i.id, type: i.type, title: i.title, metadata: i.metadata, body: i.body, path: i.path, line: i.line, definition_sha256: i.definition_sha256 ?? null })), reverse_relations: reverseRelations(catalog), plan_tasks: planTasks(catalog), diagnostics: catalog.diagnostics, coverage: catalog.coverage, task_states: "not-computed; document reports only" }, null, 2));
+  if (catalog.status === "available" && catalog.coverage.complete === false || catalog.status === "unavailable" || catalog.status === "unsupported")
+    process.exitCode = 1;
 }

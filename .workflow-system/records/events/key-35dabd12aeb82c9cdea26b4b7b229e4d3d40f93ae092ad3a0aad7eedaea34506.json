@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T17:23:13.659Z",
+  "payload_sha256": "761764c57c6dbee008b52794dcecb9e1fda2317ab0b6deb0f957e8773259c600",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-c-p2-repair-self-recheck-1",
+    "request": {
+      "action": "review",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "stage": "change",
+      "execution_ref": ".workflow-system/records/events/key-3f8a49f15884df63f79a13e5bef1cfe31144c617383d1007ebc6276c810dec05.json",
+      "verdict": "clean",
+      "findings": [],
+      "provenance": "self-review",
+      "previous_review_ref": ".workflow-system/records/events/key-22f170d89797f1ac7b06578da1c679a2eb0886d39944b160cd169b1dd0bccd8d.json",
+      "source_revision": "20ba0275 + current uncommitted C01-C03 repair; helper cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+      "coverage": {
+        "scope": "C01-C03 fix and listed original F01-F06/R01-R04/product/install/source regressions only",
+        "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+        "tests": {
+          "product": 31,
+          "install": 1,
+          "source": 19,
+          "distinct_total": 51,
+          "assertions": 775
+        },
+        "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/c-p2-repair/README.md",
+        "helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+        "source_contract_sha256": "dbaa7ad47e86018a3ad6da0942ea27c659f8e766fcf3c0596b27d2e6491845da",
+        "generated_contract_sha256": "dbaa7ad47e86018a3ad6da0942ea27c659f8e766fcf3c0596b27d2e6491845da",
+        "distribution_digest": "a59816e08e913843321841c0d3b2969235dba087371dd2e0e77e0e6ed0a30013",
+        "delivery": {
+          "helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+          "source_helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+          "offline_sha256": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a",
+          "upgrade_assets_unchanged": 11,
+          "asset_count": 11,
+          "managed_files": 9,
+          "usable": 27,
+          "invalid": 1,
+          "byte_coverage_complete": true,
+          "offline_matches_ids": true,
+          "task_lifecycle_counts": {
+            "closed": 4
+          },
+          "offline_has_runtime": false,
+          "offline_has_node_modules": false,
+          "business_semantics_replayed": false
+        },
+        "no_new_task_or_business_state": true,
+        "overall_requirement_delivery": "not-certified",
+        "limits": [
+          "synthetic deterministic fixtures only; not proof of host-agent recovery compliance",
+          "no S01-S13 semantic replay, production/hardware/TraceLens or cross-model acceptance",
+          "original read/identity/migration/history/path constraints and per-file publication limits remain"
+        ]
+      },
+      "idempotency_key": "maintain-hardening-c-p2-repair-self-recheck-1"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-3f8a49f15884df63f79a13e5bef1cfe31144c617383d1007ebc6276c810dec05.json"
+      ],
+      "data": {
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-3f8a49f15884df63f79a13e5bef1cfe31144c617383d1007ebc6276c810dec05.json",
+        "verdict": "clean",
+        "findings": [],
+        "provenance": "self-review",
+        "previous_review_ref": ".workflow-system/records/events/key-22f170d89797f1ac7b06578da1c679a2eb0886d39944b160cd169b1dd0bccd8d.json",
+        "source_revision": "20ba0275 + current uncommitted C01-C03 repair; helper cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+        "coverage": {
+          "scope": "C01-C03 fix and listed original F01-F06/R01-R04/product/install/source regressions only",
+          "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+          "tests": {
+            "product": 31,
+            "install": 1,
+            "source": 19,
+            "distinct_total": 51,
+            "assertions": 775
+          },
+          "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/c-p2-repair/README.md",
+          "helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+          "source_contract_sha256": "dbaa7ad47e86018a3ad6da0942ea27c659f8e766fcf3c0596b27d2e6491845da",
+          "generated_contract_sha256": "dbaa7ad47e86018a3ad6da0942ea27c659f8e766fcf3c0596b27d2e6491845da",
+          "distribution_digest": "a59816e08e913843321841c0d3b2969235dba087371dd2e0e77e0e6ed0a30013",
+          "delivery": {
+            "helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+            "source_helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+            "offline_sha256": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a",
+            "upgrade_assets_unchanged": 11,
+            "asset_count": 11,
+            "managed_files": 9,
+            "usable": 27,
+            "invalid": 1,
+            "byte_coverage_complete": true,
+            "offline_matches_ids": true,
+            "task_lifecycle_counts": {
+              "closed": 4
+            },
+            "offline_has_runtime": false,
+            "offline_has_node_modules": false,
+            "business_semantics_replayed": false
+          },
+          "no_new_task_or_business_state": true,
+          "overall_requirement_delivery": "not-certified",
+          "limits": [
+            "synthetic deterministic fixtures only; not proof of host-agent recovery compliance",
+            "no S01-S13 semantic replay, production/hardware/TraceLens or cross-model acceptance",
+            "original read/identity/migration/history/path constraints and per-file publication limits remain"
+          ]
+        }
+      }
+    }
+  },
+  "issues": []
+}

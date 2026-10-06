@@ -1,0 +1,9 @@
+{
+  "action": "review-decision",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "review_ref": ".workflow-system/records/events/key-bc1faf91d3630c0bd56c500c93e4652c006f3ea5dd09c9b265f4f4c5610c1900.json",
+  "choice": "repair",
+  "decision_source": "current human user instruction",
+  "decision_text": "用户明确要求修复 D01、D02。",
+  "idempotency_key": "maintain-hardening-d-p2-repair-decision-1"
+}

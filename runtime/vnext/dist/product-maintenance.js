@@ -15833,7 +15833,17 @@ function manifestSchema(version) {
     ...object({ schema: { const: `vnext-product-manifest/v${version}` }, project_id: string3, entry: string3, managed_paths: array(string3, 1), source_paths: array(string3), ...version === 2 ? { capture_paths: array(string3) } : {}, exclude_paths: array(string3), maintenance: choice("enabled", "paused"), extensions }, ["schema", "project_id", "entry", "managed_paths", "source_paths", "exclude_paths", "maintenance"])
   };
 }
-var fileOperation = object({ path: string3, expected_sha256: nullable(digest), content: { type: "string" }, updates: array(object({ id, metadata: { type: "object" }, body: { type: "string" }, remove_fields: array(string3) }, ["id"])), append: array(object({ metadata: { type: "object" }, body: string3 })), migrate: { const: "v2" }, preimage_path: string3 }, ["path", "expected_sha256"]);
+var fileOperation = object({
+  path: string3,
+  expected_sha256: nullable(digest),
+  content: { type: "string" },
+  updates: array(object({ id, metadata: { type: "object" }, body: { type: "string" }, remove_fields: array(string3) }, ["id"])),
+  append: array(object({ metadata: { type: "object" }, body: string3 })),
+  migrate: { const: "v2" },
+  preimage_path: string3,
+  remove_items: array(id),
+  remove_relations: array(object({ item_id: id, field: choice("links", "task_bindings"), id }))
+}, ["path", "expected_sha256"]);
 var requestSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $defs: definitions,
@@ -16159,26 +16169,63 @@ function allowed(manifest, relative2, kind) {
     return matches(relative2, [...manifest.managed_paths, ...manifest.source_paths]);
   return matches(relative2, manifest.capture_paths) && matches(relative2, manifest.source_paths) && !matches(relative2, manifest.managed_paths);
 }
+function mayContainMatch(directory, pattern) {
+  const prefix = directory ? `${directory}/` : "";
+  const memo = new Map;
+  function extend2(patternOffset, offset) {
+    if (offset === prefix.length)
+      return true;
+    if (patternOffset === pattern.length)
+      return false;
+    const key = `${patternOffset}:${offset}`;
+    if (memo.has(key))
+      return memo.get(key);
+    const char = pattern[patternOffset];
+    let result;
+    if (char === "*" && pattern[patternOffset + 1] === "*") {
+      if (pattern[patternOffset + 2] === "/") {
+        const slash = prefix.indexOf("/", offset);
+        result = extend2(patternOffset + 3, offset) || slash > offset && extend2(patternOffset, slash + 1);
+      } else
+        result = extend2(patternOffset + 2, offset) || extend2(patternOffset, offset + 1);
+    } else if (char === "*") {
+      result = extend2(patternOffset + 1, offset) || prefix[offset] !== "/" && extend2(patternOffset, offset + 1);
+    } else {
+      result = (char === "?" ? prefix[offset] !== "/" : char === prefix[offset]) && extend2(patternOffset + 1, offset + 1);
+    }
+    memo.set(key, result);
+    return result;
+  }
+  return extend2(0, 0);
+}
 function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
   const paths = [];
-  let incomplete = false;
+  const omitted = new Set;
+  let stopped = false;
   const prefixes = patterns.map((p) => {
     relativePath(p, true);
     const wildcard = p.search(/[*?\[\]]/);
     return wildcard < 0 ? p : p.slice(0, p.lastIndexOf("/", wildcard) + 1).replace(/\/$/, "");
   });
   const visited = new Set;
+  const explicitFiles = new Set(patterns.filter((p) => !/[*?]/.test(p)));
   const skip = (p) => p.split("/").some((s) => [".git", "node_modules", ".next", "dist", "build"].includes(s)) || p.startsWith(".workflow-system/runtime/") || p.startsWith(".workflow-system/records/");
   let visitedCount = 0;
+  function omit(relative2, code, message) {
+    omitted.add(relative2);
+    diagnostics.push(diagnostic(code, relative2, message));
+  }
   function visit2(relative2) {
-    if (visited.has(relative2) || incomplete || relative2 && (skip(relative2) || matches(relative2, excludes)))
+    if (visited.has(relative2) || stopped || relative2 && (skip(relative2) || matches(relative2, excludes)))
       return;
     visited.add(relative2);
     if (++visitedCount > Math.max(1e4, maxFiles * 100)) {
-      incomplete = true;
-      diagnostics.push(diagnostic("ENUMERATION_LIMIT", relative2, "Directory entry limit reached; remaining paths were not scanned"));
+      stopped = true;
+      omit(relative2, "ENUMERATION_LIMIT", "Directory entry limit reached; remaining paths were not scanned");
       return;
     }
+    if (relative2 && !patterns.some((pattern) => matchPattern(relative2, pattern) || mayContainMatch(relative2, pattern)))
+      return;
     let stat;
     const absolute = relative2 ? path.join(root, ...relative2.split("/")) : root;
     try {
@@ -16186,33 +16233,40 @@ function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
         safePath(root, relative2);
       stat = fs.lstatSync(absolute);
     } catch (error) {
-      if (error.code !== "ENOENT")
-        diagnostics.push(diagnostic(error.message.startsWith("SYMLINK_SKIPPED") ? "SYMLINK_SKIPPED" : "PATH_UNAVAILABLE", relative2, error.message));
+      omit(relative2, error.message.startsWith("SYMLINK_SKIPPED") ? "SYMLINK_SKIPPED" : "PATH_UNAVAILABLE", error.message);
       return;
     }
     if (stat.isSymbolicLink()) {
-      diagnostics.push(diagnostic("SYMLINK_SKIPPED", relative2, "Symbolic link/junction not scanned"));
+      omit(relative2, "SYMLINK_SKIPPED", "Symbolic link/junction not scanned");
       return;
     }
     if (stat.isDirectory()) {
+      if (explicitFiles.has(relative2))
+        omit(relative2, "PATH_UNAVAILABLE", "Selected file path is a directory, not a regular file");
+      if (!patterns.some((pattern) => mayContainMatch(relative2, pattern)))
+        return;
       try {
         for (const name of fs.readdirSync(absolute).sort())
           visit2(relative2 ? `${relative2}/${name}` : name);
       } catch (error) {
-        diagnostics.push(diagnostic("DIRECTORY_UNAVAILABLE", relative2, error.message));
+        omit(relative2, "DIRECTORY_UNAVAILABLE", error.message);
       }
     } else if (stat.isFile() && matches(relative2, patterns)) {
       if (paths.length >= maxFiles) {
-        incomplete = true;
-        diagnostics.push(diagnostic("FILE_LIMIT", relative2, "File limit reached; remaining files were not read"));
+        stopped = true;
+        omit(relative2, "FILE_LIMIT", "File limit reached; remaining files were not read");
         return;
       }
       paths.push(relative2);
-    }
+    } else if (matches(relative2, patterns))
+      omit(relative2, "PATH_UNAVAILABLE", "Selected path is not a regular file");
   }
   for (const prefix of prefixes)
     visit2(prefix);
-  return { paths: paths.sort(), incomplete };
+  if (stopped)
+    for (const pattern of patterns)
+      omitted.add(pattern);
+  return { paths: paths.sort(), incomplete: omitted.size > 0, omitted: [...omitted] };
 }
 
 // runtime/vnext/src/product-maintenance/plans.ts
@@ -16445,10 +16499,15 @@ function readCatalog(rootInput, input = {}) {
   catalog.manifest = manifest;
   catalog.status = "available";
   const selected = input.paths ?? manifest.managed_paths;
-  const enumeration = enumerate(root, selected, manifest.exclude_paths, maxFiles, catalog.diagnostics);
+  catalog.coverage.paths = selected;
+  catalog.coverage.excluded_paths = manifest.exclude_paths;
+  const patterns = matches(manifest.entry, selected) ? [...new Set([...selected, manifest.entry])] : selected;
+  const enumeration = enumerate(root, patterns, manifest.exclude_paths, maxFiles, catalog.diagnostics);
+  catalog.coverage.omitted.push(...enumeration.omitted);
   let bytesRead = 0;
   for (const relative2 of enumeration.paths) {
     if (!allowed(manifest, relative2, "managed")) {
+      catalog.coverage.omitted.push(relative2);
       catalog.diagnostics.push(diagnostic("NOT_MANAGED", relative2, "Selected file is not managed"));
       continue;
     }
@@ -16492,7 +16551,7 @@ function readCatalog(rootInput, input = {}) {
   if (projects.length !== 1 || projects[0]?.path !== manifest.entry)
     catalog.diagnostics.push(diagnostic("PROJECT_ENTRY", manifestPath, "Expected a unique project entry in the manifest entry document"));
   analyze(catalog);
-  catalog.coverage = { ...catalog.coverage, complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter((i) => i.usable).length, invalid_count: catalog.items.filter((i) => !i.usable).length };
+  catalog.coverage = { ...catalog.coverage, omitted: [...new Set(catalog.coverage.omitted)], complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter((i) => i.usable).length, invalid_count: catalog.items.filter((i) => !i.usable).length };
   return catalog;
 }
 
@@ -16724,7 +16783,22 @@ function applyPatches(text3, patches) {
   }
   return text3;
 }
-function candidate(original, operation) {
+function lineEnding2(text3) {
+  return /\r\n|\n|\r/.exec(text3)?.[0] ?? `
+`;
+}
+function bodySeparator(text3, eol) {
+  const lastLine = text3.slice(Math.max(text3.lastIndexOf(`
+`), text3.lastIndexOf("\r")) + 1);
+  if (lastLine)
+    return /^[ \t]*$/.test(lastLine) ? eol : eol + eol;
+  const end = text3.length - (text3.endsWith(`\r
+`) ? 2 : 1);
+  const start = Math.max(text3.lastIndexOf(`
+`, end - 1), text3.lastIndexOf("\r", end - 1)) + 1;
+  return /^[ \t]*$/.test(text3.slice(start, end)) ? "" : eol;
+}
+function candidate(original, operation, parsed) {
   if ("content" in operation) {
     if (operation.updates || operation.append)
       throw new Error("AMBIGUOUS_INPUT: content and item updates cannot be combined");
@@ -16732,11 +16806,9 @@ function candidate(original, operation) {
   }
   if (!original)
     throw new Error("CONTENT_REQUIRED: a new document requires content");
-  const text3 = decode2(original), parsed = parseProduct(text3, operation.path);
-  if (!parsed.version)
-    throw new Error("UNSUPPORTED_VERSION: edit raw source with ordinary authorized tools; no guessed migration");
-  if (parsed.version === 1 && operation.migrate !== "v2")
-    throw new Error("V1_READ_ONLY: explicitly migrate this file to v2 before writing");
+  const text3 = decode2(original);
+  if (!parsed)
+    throw new Error("CONTENT_REQUIRED: manifest updates require content");
   const patches = [];
   const affected = [];
   for (const update of operation.updates ?? []) {
@@ -16747,17 +16819,10 @@ function candidate(original, operation) {
     if (affected.includes(item.id))
       throw new Error("DUPLICATE_UPDATE: update each item once");
     affected.push(item.id);
-    if (update.metadata) {
-      if (update.metadata.id !== undefined && update.metadata.id !== item.id || update.metadata.type !== undefined && update.metadata.type !== item.type)
+    if (update.metadata || update.remove_fields?.length) {
+      if (update.metadata?.id !== undefined && update.metadata.id !== item.id || update.metadata?.type !== undefined && update.metadata.type !== item.type)
         throw new Error("IDENTITY_CHANGE: stable ID/type cannot be repurposed in an update; append replacements and retain old items");
       const metadata = { ...item.metadata, ...update.metadata };
-      for (const field of ["links", "task_bindings"]) {
-        for (const old of item.metadata[field] ?? []) {
-          const replacement = metadata[field]?.find((r) => r.id === old.id);
-          if (old.state === "dismissed" && replacement?.state === "active" && !(replacement.reason && replacement.sources?.length && JSON.stringify(replacement.sources) !== JSON.stringify(old.sources)))
-            throw new Error("DISMISSED_RELATION: reassociation requires a new explicit basis; a retry must not revive a dismissed relation");
-        }
-      }
       for (const key of update.remove_fields ?? []) {
         if (["id", "type"].includes(key))
           throw new Error("IDENTITY_CHANGE: cannot remove identity");
@@ -16772,8 +16837,10 @@ function candidate(original, operation) {
 ` : "") });
       }
     }
-    if (update.body !== undefined && update.body !== item.body)
-      patches.push({ start: item.start, end: item.end, text: update.body });
+    if (update.body !== undefined && update.body !== item.body) {
+      const separator = item.end < text3.length ? bodySeparator(update.body, lineEnding2(text3)) : "";
+      patches.push({ start: item.start, end: item.end, text: update.body + separator });
+    }
   }
   if (operation.migrate === "v2" && parsed.version === 1) {
     const yaml = strictYaml(text3.slice(parsed.frontmatter_start, parsed.frontmatter_end), operation.path);
@@ -16785,34 +16852,174 @@ function candidate(original, operation) {
     const current = parseProduct(next, operation.path);
     const yaml = strictYaml(next.slice(current.frontmatter_start, current.frontmatter_end), operation.path);
     const sequence = yaml.doc.get("items", true);
-    if (!sequence || yaml.problems.length)
+    if (!$isSeq(sequence) || !sequence.range || yaml.problems.length)
       throw new Error("APPEND_UNSAFE: items structure cannot be safely extended");
     if (sequence.flow) {
-      const values2 = yaml.value.items.concat(operation.append.map((a) => a.metadata));
-      next = applyPatches(next, [{ start: current.frontmatter_start + sequence.range[0], end: current.frontmatter_start + sequence.range[1], text: JSON.stringify(values2) + (next[current.frontmatter_start + sequence.range[1] - 1] === `
-` ? `
-` : "") }]);
+      const closing = current.frontmatter_start + sequence.range[1] - 1;
+      if (next[closing] !== "]")
+        throw new Error("APPEND_UNSAFE: flow sequence closing location is unavailable");
+      let separator = "";
+      const last = sequence.items.at(-1);
+      if (last) {
+        const tail = next.slice(current.frontmatter_start + last.range[1], closing);
+        const trailingComma = tail.replace(/#[^\r\n]*/g, "").includes(",");
+        separator = trailingComma ? " " : ", ";
+      }
+      const additions = operation.append.map((a) => JSON.stringify(a.metadata)).join(", ");
+      next = next.slice(0, closing) + separator + additions + next.slice(closing);
     } else {
       const insertion = current.frontmatter_start + sequence.range[1];
-      const eol = next.includes(`\r
-`) ? `\r
-` : `
-`;
-      next = next.slice(0, insertion) + (next[insertion - 1] === `
-` ? "" : eol) + operation.append.map((a) => `  - ${JSON.stringify(a.metadata)}${eol}`).join("") + next.slice(insertion);
+      const start = current.frontmatter_start + sequence.range[0];
+      const lineStart = Math.max(next.lastIndexOf(`
+`, start - 1), next.lastIndexOf("\r", start - 1)) + 1;
+      const indent = next.slice(lineStart, start);
+      const eol2 = lineEnding2(next);
+      next = next.slice(0, insertion) + (/[\r\n]/.test(next[insertion - 1] ?? "") ? "" : eol2) + operation.append.map((a) => `${indent}- ${JSON.stringify(a.metadata)}${eol2}`).join("") + next.slice(insertion);
     }
-    next += (/\r?\n\r?\n$/.test(next) ? "" : next.endsWith(`
-`) ? `
-` : `
-
-`) + operation.append.map((a) => a.body).join(`
-
-`);
+    const eol = lineEnding2(next);
+    for (const addition of operation.append)
+      next += bodySeparator(next, eol) + addition.body;
     affected.push(...operation.append.map((a) => a.metadata.id));
   }
   if (!operation.updates && !operation.append && !operation.migrate)
     throw new Error("CONTENT_REQUIRED: provide content, updates or explicit migration");
   return { text: next, affected };
+}
+function canonical(value) {
+  function ordered(input) {
+    if (Array.isArray(input))
+      return input.map(ordered);
+    if (input && typeof input === "object")
+      return Object.fromEntries(Object.keys(input).sort().map((key) => [key, ordered(input[key])]));
+    return input;
+  }
+  return JSON.stringify(ordered(value));
+}
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function relationList(value) {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+function sourceKey(source2) {
+  if (!isRecord(source2))
+    return null;
+  if (source2.kind === "text" && typeof source2.text === "string")
+    return canonical({ kind: "text", text: source2.text.replace(/\r\n|\r/g, `
+`).trim() });
+  if (source2.kind === "uri" && typeof source2.uri === "string")
+    return canonical({ kind: "uri", uri: source2.uri });
+  if (source2.kind === "file" && typeof source2.path === "string") {
+    const lines = isRecord(source2.lines) ? { start: source2.lines.start, end: source2.lines.end } : undefined;
+    return canonical({ kind: "file", path: source2.path, item_id: source2.item_id, section: source2.section, lines, sha256: source2.sha256 });
+  }
+  return null;
+}
+function hasNewBasis(old, next) {
+  const previous2 = new Set((Array.isArray(old.sources) ? old.sources : []).map(sourceKey).filter((key) => key !== null));
+  return typeof next.reason === "string" && !!next.reason.trim() && Array.isArray(next.sources) && next.sources.some((source2) => {
+    const key = sourceKey(source2);
+    return key !== null && !previous2.has(key);
+  });
+}
+function relationIdentity(relation, field) {
+  if (field === "links")
+    return canonical([relation.relation, relation.target]);
+  const task = relation.task ?? {};
+  const locator = { ...task.source };
+  if (locator.kind === "file")
+    delete locator.sha256;
+  const identity2 = task.task_id ? [task.task_id, task.step_id ?? null] : [sourceKey(locator), task.step_id ?? null];
+  return canonical([identity2, relation.role, relation.coverage]);
+}
+function activatedRelations(previous2, next, field) {
+  const remaining = previous2.filter((relation) => relation.state === "active");
+  const additions = next.filter((relation) => relation.state === "active");
+  for (const exact of [true, false]) {
+    for (let index2 = remaining.length - 1;index2 >= 0; index2--) {
+      const old = remaining[index2];
+      const match = additions.findIndex((relation) => relation.id === old.id && (exact ? canonical(relation) === canonical(old) : relationIdentity(relation, field) === relationIdentity(old, field)));
+      if (match >= 0) {
+        remaining.splice(index2, 1);
+        additions.splice(match, 1);
+      }
+    }
+  }
+  return new Set(additions);
+}
+function normalizedBody(body) {
+  return body.replace(/\r\n|\r/g, `
+`).replace(/\n+$/, "");
+}
+function changedItem(old, next) {
+  return !old || old.body !== next.body || canonical(old.metadata) !== canonical(next.metadata);
+}
+function validateProductCandidate(previous2, next, operation, selectedIds, catalog) {
+  const oldItems = previous2?.items ?? [];
+  const affected = selectedIds ?? next.items.filter((item) => changedItem(oldItems.find((old) => old.id === item.id), item)).map((item) => item.id);
+  for (const item of next.items) {
+    if (!oldItems.some((old) => old.id === item.id) && catalog.items.some((other) => other.id === item.id && other.path !== operation.path))
+      throw new Error(`DUPLICATE_ID: ${item.id} already has a known current definition in another registered file`);
+  }
+  const removed = operation.remove_items ?? [];
+  if (removed.length && !("content" in operation))
+    throw new Error("REMOVAL_INPUT: remove_items only declares removals in a whole-file candidate");
+  for (const id2 of removed)
+    if (!oldItems.some((item) => item.id === id2) || next.items.some((item) => item.id === id2))
+      throw new Error(`REMOVAL_INPUT: ${id2} must be an existing item actually removed by this candidate`);
+  for (const removal of operation.remove_relations ?? []) {
+    const old = oldItems.find((item) => item.id === removal.item_id);
+    const kept = next.items.find((item) => item.id === removal.item_id);
+    if (!relationList(old?.metadata[removal.field]).some((r) => r.id === removal.id) || relationList(kept?.metadata[removal.field]).some((r) => r.id === removal.id))
+      throw new Error("REMOVAL_INPUT: remove_relations must name an existing relation actually removed");
+  }
+  for (const old of oldItems) {
+    const kept = next.items.find((item) => item.id === old.id);
+    if (!kept) {
+      if (!removed.includes(old.id))
+        throw new Error(`ITEM_REMOVAL_REQUIRED: explicitly declare removal of ${old.id}; IDs cannot be silently renamed`);
+      affected.push(old.id);
+      continue;
+    }
+    if (kept.type !== old.type)
+      throw new Error("IDENTITY_CHANGE: stable ID/type cannot be repurposed; keep prior identity and append replacements");
+    if (selectedIds && !affected.includes(old.id) && normalizedBody(kept.body) !== normalizedBody(old.body))
+      throw new Error(`BODY_BOUNDARY: a local edit changed the body boundary of ${old.id}`);
+    const separator = selectedIds && operation.append?.length && old.end === previous2.text.length ? bodySeparator(previous2.text, lineEnding2(previous2.text)) : "";
+    if (!old.usable && !affected.includes(old.id) && (kept.body !== old.body + separator || next.text.slice(kept.metadata_start, kept.metadata_end) !== previous2.text.slice(old.metadata_start, old.metadata_end)))
+      throw new Error("INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes");
+    if (canonical(kept.metadata) === canonical(old.metadata))
+      continue;
+    for (const field of ["links", "task_bindings"]) {
+      if (canonical(kept.metadata[field]) === canonical(old.metadata[field]))
+        continue;
+      const oldRelations = relationList(old.metadata[field]);
+      const nextRelations = relationList(kept.metadata[field]);
+      const activated = activatedRelations(oldRelations, nextRelations, field);
+      for (const relation of oldRelations.filter((r) => r.state === "dismissed")) {
+        const replacements = nextRelations.filter((r) => r.id === relation.id || relationIdentity(r, field) === relationIdentity(relation, field));
+        if (replacements.some((r) => activated.has(r) && !hasNewBasis(relation, r)))
+          throw new Error("DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation");
+        const explicitlyRemoved = operation.remove_relations?.some((r) => r.item_id === old.id && r.field === field && r.id === relation.id) || operation.updates?.some((u) => u.id === old.id && u.remove_fields?.includes(field) && kept.metadata[field] === undefined);
+        const retained = nextRelations.some((r) => r.id === relation.id && (r.state === "dismissed" || activated.has(r)));
+        if (!retained && !explicitlyRemoved)
+          throw new Error("DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested");
+      }
+    }
+  }
+  for (const fragment of [...operation.updates ?? [], ...(operation.append ?? []).map((a) => ({ id: a.metadata.id, body: a.body }))]) {
+    if (fragment.body === undefined)
+      continue;
+    const item = next.items.find((item2) => item2.id === fragment.id);
+    if (!item || normalizedBody(item.body) !== normalizedBody(fragment.body))
+      throw new Error(`BODY_BOUNDARY: body must remain entirely inside ## [${fragment.id}], with no extra root heading or swallowed neighbor`);
+  }
+  const newRootErrors = next.diagnostics.filter((d) => d.severity === "error" && !d.item_id && !previous2?.diagnostics.some((old) => old.code === d.code && old.message === d.message && old.pointer === d.pointer));
+  const selected = next.items.filter((item) => affected.includes(item.id));
+  const errors2 = [...newRootErrors, ...selected.flatMap((item) => item.diagnostics.filter((d) => d.severity === "error"))];
+  if (errors2.length)
+    throw new Error(`STRUCTURE_INVALID: ${errors2.map((e) => `${e.item_id ?? ""} ${e.pointer ?? ""} ${e.message}`).join("; ")}`);
+  return [...new Set(affected)];
 }
 function validateManifestCandidate(text3, file) {
   const yaml = strictYaml(text3, file);
@@ -16838,7 +17045,25 @@ function apply(root, input) {
       const original = readExisting(catalog.root, operation.path, input.max_file_bytes ?? 4 * 1024 * 1024);
       checkVersion(original, operation.expected_sha256);
       frozen(catalog.root, operation.path, original ?? undefined);
-      const next = candidate(original, operation);
+      let previous2;
+      if (original) {
+        const text3 = decode2(original);
+        let version;
+        if (isManifest) {
+          const schema = strictYaml(text3, operation.path).value?.schema;
+          version = schema === "vnext-product-manifest/v1" ? 1 : schema === "vnext-product-manifest/v2" ? 2 : null;
+        } else {
+          previous2 = parseProduct(text3, operation.path);
+          version = previous2.version;
+          if (previous2.diagnostics.some((d) => d.severity === "error" && (!d.item_id || ["DUPLICATE_ID", "ITEM_HEADING"].includes(d.code))))
+            throw new Error("ORIGINAL_UNRESOLVED: original identities/AST locations are ambiguous; preserve raw bytes and use an authorized raw repair");
+        }
+        if (!version)
+          throw new Error("UNSUPPORTED_VERSION: edit raw source with ordinary authorized tools; no guessed migration");
+        if (version === 1 && operation.migrate !== "v2")
+          throw new Error("V1_READ_ONLY: explicitly migrate this file to v2 before writing");
+      }
+      const next = candidate(original, operation, previous2);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024))
         throw new Error("WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced");
       let diagnostics = [];
@@ -16848,20 +17073,7 @@ function apply(root, input) {
         const parsed = parseProduct(next.text, operation.path);
         if (parsed.version !== 2)
           throw new Error("V2_REQUIRED: new writes must use the v2 document protocol");
-        const selected = next.affected === null ? parsed.items : parsed.items.filter((i) => next.affected.includes(i.id));
-        const originalDiagnostics = original ? parseProduct(decode2(original), operation.path).diagnostics : [];
-        const newRootErrors = parsed.diagnostics.filter((d) => d.severity === "error" && !d.item_id && !originalDiagnostics.some((old) => old.code === d.code && old.message === d.message && old.pointer === d.pointer));
-        const errors2 = next.affected === null ? parsed.diagnostics.filter((d) => d.severity === "error") : [...newRootErrors, ...selected.flatMap((i) => i.diagnostics.filter((d) => d.severity === "error")), ...next.affected.filter((id2) => !selected.some((i) => i.id === id2)).map((id2) => ({ message: `Missing updated item ${id2}` }))];
-        if (errors2.length)
-          throw new Error(`STRUCTURE_INVALID: ${errors2.map((e) => `${e.item_id ?? ""} ${e.pointer ?? ""} ${e.message}`).join("; ")}`);
-        if (original) {
-          const previous2 = parseProduct(decode2(original), operation.path);
-          for (const old of previous2.items.filter((i) => !i.usable && !next.affected?.includes(i.id))) {
-            const kept = parsed.items.find((i) => i.id === old.id);
-            if (!kept || kept.body !== old.body || next.text.slice(kept.metadata_start, kept.metadata_end) !== previous2.text.slice(old.metadata_start, old.metadata_end))
-              throw new Error("INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes");
-          }
-        }
+        next.affected = validateProductCandidate(previous2, parsed, operation, next.affected, catalog);
         diagnostics = parsed.diagnostics;
       }
       const saved = publish(catalog.root, operation.path, Buffer.from(next.text, "utf8"), operation.expected_sha256, operation.preimage_path, catalog);
@@ -16968,7 +17180,7 @@ function run(action, root, input = {}) {
         impact: input.impact_ids ? impactCandidates(catalog, input.impact_ids) : null,
         sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [],
         diagnostics: catalog.diagnostics,
-        coverage: { ...catalog.coverage, selection: input.item_ids ?? "all-enumerated-items", paths: input.paths ?? "manifest-managed-paths", source_bodies: input.resolve_sources ? "byte status only; fetch selected source explicitly" : "not-read" },
+        coverage: { ...catalog.coverage, selection: input.item_ids ?? "all-enumerated-items", source_bodies: input.resolve_sources ? "byte status only; fetch selected source explicitly" : "not-read" },
         task_status: "not-computed; use existing assistance only when actual task state is needed"
       };
     }
@@ -16985,7 +17197,7 @@ function run(action, root, input = {}) {
         const doc = parseProduct(input.content, input.path);
         return { ...envelope, status: doc.diagnostics.some((d) => d.severity === "error") ? "invalid" : "valid", schema: doc.schema, usable_items: doc.items.filter((i) => i.usable).map((i) => i.id), diagnostics: doc.diagnostics, business_validity: "not-evaluated" };
       }
-      return { ...envelope, status: catalog.status !== "available" ? catalog.status : catalog.diagnostics.some((d) => d.severity === "error") ? "partial" : "checked", diagnostics: catalog.diagnostics, coverage: catalog.coverage, sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [], business_validity: "not-evaluated" };
+      return { ...envelope, status: catalog.status !== "available" ? catalog.status : !catalog.coverage.complete || catalog.diagnostics.some((d) => d.severity === "error") ? "partial" : "checked", diagnostics: catalog.diagnostics, coverage: catalog.coverage, sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [], business_validity: "not-evaluated" };
     }
     throw new Error("UNKNOWN_ACTION: use read, check, apply or capture");
   } catch (error) {
@@ -17014,7 +17226,7 @@ async function main() {
     const result = run(action, args[rootIndex + 1], text3 ? JSON.parse(text3) : {});
     process.stdout.write(`${JSON.stringify(result, null, 2)}
 `);
-    if (["failed", "partial", "invalid", "unavailable", "unsupported"].includes(result.status))
+    if (["failed", "partial", "invalid", "unavailable", "unsupported"].includes(result.status) || result.status === "available" && result.coverage?.complete === false)
       process.exitCode = 1;
   } catch (error) {
     process.stdout.write(`${JSON.stringify({ kind: "product-maintenance-result/v1", action, status: "failed", error: error.message, development_gate: false, qualification: "not-evaluated" })}

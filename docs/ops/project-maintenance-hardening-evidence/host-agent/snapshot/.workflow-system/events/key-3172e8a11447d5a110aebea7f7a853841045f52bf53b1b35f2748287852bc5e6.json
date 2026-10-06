@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T06:23:37.930Z",
+  "payload_sha256": "d59d981b42a4a54f483975a90bcbea72df315559584a069dd19bf2a212694293",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:synthetic-E6R",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "synthetic-E6R",
+      "plan": {
+        "title": "合成 Excel 小数金额修复",
+        "goal": "修复本轮实际复现的金额样本，不自动恢复旧 CSV 需求",
+        "scope": [
+          "当前 Excel 共享函数的小数样本，不覆盖所有金额格式或生产数据"
+        ],
+        "steps": [
+          {
+            "id": "R",
+            "title": "金额样本修复和独立复验"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "kind": "file",
+          "path": "docs/evidence/external-failure.txt"
+        },
+        {
+          "kind": "file",
+          "path": "docs/evidence/decimal-before.txt"
+        }
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-3d3d473c824d8b1d2c12ea2a9773b683",
+      "parents": [
+        ".workflow-system/records/events/1791181417586-33655c8e-ae9d-4f05-9a66-f9203363e49e.json"
+      ],
+      "data": {
+        "plan": {
+          "title": "合成 Excel 小数金额修复",
+          "goal": "修复本轮实际复现的金额样本，不自动恢复旧 CSV 需求",
+          "scope": [
+            "当前 Excel 共享函数的小数样本，不覆盖所有金额格式或生产数据"
+          ],
+          "steps": [
+            {
+              "id": "R",
+              "title": "金额样本修复和独立复验"
+            }
+          ]
+        },
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/evidence/external-failure.txt"
+          },
+          {
+            "kind": "file",
+            "path": "docs/evidence/decimal-before.txt"
+          }
+        ],
+        "create": true,
+        "display_id": "TASK-004"
+      }
+    }
+  },
+  "issues": []
+}

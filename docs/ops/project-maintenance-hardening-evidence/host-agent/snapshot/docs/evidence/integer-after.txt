@@ -1,0 +1,1 @@
+PASS synthetic integer amounts [1,2]; no decimal/export claim

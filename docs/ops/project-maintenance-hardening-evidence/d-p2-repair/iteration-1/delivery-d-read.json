@@ -1,0 +1,574 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "read",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "available",
+    "project_id": "hardening-synthetic-orders",
+    "working_copy": {
+      "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\d-p2\\host-final",
+      "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\d-p2\\host-final"
+    },
+    "read_at": "2026-10-05T18:42:25.143Z",
+    "manifest": {
+      "schema": "vnext-product-manifest/v2",
+      "project_id": "hardening-synthetic-orders",
+      "entry": "docs/product/PROJECT.md",
+      "managed_paths": [
+        "docs/product/*.md"
+      ],
+      "source_paths": [
+        "docs/evidence/**",
+        "docs/product/raw/**",
+        "docs/product/history/**",
+        ".workflow-system/records/**"
+      ],
+      "capture_paths": [
+        "docs/product/raw/**",
+        "docs/product/history/**"
+      ],
+      "exclude_paths": [],
+      "maintenance": "enabled"
+    },
+    "manifest_path": ".workflow-system/PRODUCT.yaml",
+    "manifest_sha256": "bdd422daf36a3291d9754be311972ae50e988f6996bf32333223e899333c883c",
+    "documents": [
+      {
+        "path": "docs/product/ASSESSMENTS.md",
+        "sha256": "52d366e67f819d8cc0707626226fa0d2277d384969ee55345c1a469d10ce52ee",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 2,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/ASSESSMENTS.md"
+        }
+      },
+      {
+        "path": "docs/product/CHANGE.md",
+        "sha256": "3f747208bd4d9c361d79b15f2e0592f78ec180aff0a7f7f4111ee5650ce67963",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/CHANGE.md"
+        }
+      },
+      {
+        "path": "docs/product/D-REPAIR.md",
+        "sha256": "442735eb5207e643ccec9a48e0c35c448cc02d619ef6e87fa0c9df8c69179766",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 2,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/D-REPAIR.md"
+        }
+      },
+      {
+        "path": "docs/product/DESIGN.md",
+        "sha256": "355be702fa028267af30ef5d57a9dc03a72ca64aa43ec789fd374a226f1d6e1e",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/DESIGN.md"
+        }
+      },
+      {
+        "path": "docs/product/DISCUSSIONS.md",
+        "sha256": "dc6c19c95d67a0dcfb396b474506937c71ac817dd1a1dca598d390a6cb415f14",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/DISCUSSIONS.md"
+        }
+      },
+      {
+        "path": "docs/product/GOALS.md",
+        "sha256": "7bf0064b8ba34cf01df09d21cff0d67377c7add84904a60e118909dfb779d4d8",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 4,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/GOALS.md"
+        }
+      },
+      {
+        "path": "docs/product/LEGACY.md",
+        "sha256": "933493f6e2c1db585b6149182305c05836e659b9b2259121c9b9949acad37614",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 2,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/LEGACY.md"
+        }
+      },
+      {
+        "path": "docs/product/PLAN.md",
+        "sha256": "37ed0bae771477a69e1fc35a81ce6f95210c3986d60a236ea38d4e3863b6b368",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/PLAN.md"
+        }
+      },
+      {
+        "path": "docs/product/PROJECT.md",
+        "sha256": "a52c77569f8957a0ad4753c4c29fb600911e2e5e3b9a25475d50ba6c13d7104c",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/PROJECT.md"
+        }
+      },
+      {
+        "path": "docs/product/REQUIREMENTS.md",
+        "sha256": "05fe1370e761407d9d0012c20560294b1e8c6cfde4ceea4b17ef81e10b10e7ae",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 14,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md"
+        }
+      }
+    ],
+    "usable_items": [
+      {
+        "id": "REQ-D-ORIGINAL",
+        "type": "requirement",
+        "title": "原需求",
+        "path": "docs/product/D-REPAIR.md",
+        "line": 5,
+        "metadata": {
+          "id": "REQ-D-ORIGINAL",
+          "type": "requirement",
+          "scope": "planned",
+          "links": [
+            {
+              "id": "L-OLD",
+              "relation": "references",
+              "target": "PROJECT-ORDERS",
+              "origin": "inferred",
+              "state": "dismissed",
+              "reason": "原否定保留",
+              "sources": [
+                {
+                  "kind": "text",
+                  "text": "合成夹具中的旧依据",
+                  "label": "夹具来源"
+                }
+              ]
+            },
+            {
+              "id": "L-CURRENT",
+              "relation": "references",
+              "target": "PROJECT-ORDERS",
+              "origin": "declared",
+              "state": "active",
+              "reason": "已存在的当前关联",
+              "sources": [
+                {
+                  "kind": "text",
+                  "text": "合成夹具中的旧依据",
+                  "label": "夹具来源"
+                }
+              ]
+            },
+            {
+              "id": "L-CURRENT",
+              "relation": "references",
+              "target": "PROJECT-ORDERS",
+              "origin": "declared",
+              "state": "active",
+              "reason": "已存在的当前关联",
+              "sources": [
+                {
+                  "kind": "text",
+                  "text": "合成夹具中的旧依据",
+                  "label": "夹具来源"
+                }
+              ]
+            }
+          ]
+        },
+        "definition_sha256": "2d2f6b5a9212da57608e3fc8962ee9fe769383593f2474c637573694bc063cad",
+        "body": "## [REQ-D-ORIGINAL] 原需求\n### 需求内容\n按当前明确范围维护。\n### 范围边界\n原排除项保留，其他范围未验收。\n### 验收要求\n按实际证据核对。\n<table>\n<tr><td>原业务约束</td></tr>\n</table>\n\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/D-REPAIR.md",
+          "item_id": "REQ-D-ORIGINAL"
+        }
+      },
+      {
+        "id": "REQ-D-ADDED",
+        "type": "requirement",
+        "title": "当前新增",
+        "path": "docs/product/D-REPAIR.md",
+        "line": 16,
+        "metadata": {
+          "id": "REQ-D-ADDED",
+          "type": "requirement",
+          "scope": "current"
+        },
+        "definition_sha256": "79979f990cc7ca17f324cb04b2ef1fff35cd94f7294ed59ae56112ab6d76c288",
+        "body": "## [REQ-D-ADDED] 当前新增\n### 需求内容\n按当前明确范围维护。\n### 范围边界\n原排除项保留，其他范围未验收。\n### 验收要求\n按实际证据核对。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/D-REPAIR.md",
+          "item_id": "REQ-D-ADDED"
+        }
+      }
+    ],
+    "unusable_items": [],
+    "reverse_relations": [
+      {
+        "owner": "AS-INTEGER",
+        "relation": "assessment-target",
+        "target": "REQ-EXCEL"
+      },
+      {
+        "owner": "AS-DECIMAL",
+        "relation": "assessment-target",
+        "target": "REQ-EXCEL"
+      },
+      {
+        "owner": "REQ-D-ORIGINAL",
+        "id": "L-CURRENT",
+        "relation": "references",
+        "target": "PROJECT-ORDERS",
+        "origin": "declared",
+        "state": "active",
+        "reason": "已存在的当前关联",
+        "sources": [
+          {
+            "kind": "text",
+            "text": "合成夹具中的旧依据",
+            "label": "夹具来源"
+          }
+        ]
+      },
+      {
+        "owner": "REQ-D-ORIGINAL",
+        "id": "L-CURRENT",
+        "relation": "references",
+        "target": "PROJECT-ORDERS",
+        "origin": "declared",
+        "state": "active",
+        "reason": "已存在的当前关联",
+        "sources": [
+          {
+            "kind": "text",
+            "text": "合成夹具中的旧依据",
+            "label": "夹具来源"
+          }
+        ]
+      },
+      {
+        "owner": "DISC-INTERVIEW",
+        "id": "LC-CANDIDATE",
+        "relation": "discusses",
+        "target": "G-CLOUD",
+        "origin": "declared",
+        "state": "active",
+        "reason": "按合成当前明确改变决定，仅与候选云目标关联，非采纳/当前离线义务",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/product/raw/interview.txt",
+            "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+            "lines": {
+              "start": 2,
+              "end": 2
+            }
+          },
+          {
+            "kind": "text",
+            "text": "合成当前决定明确撤销此片段与 G-CLOUD 关系的否定，同意关联。",
+            "label": "本轮合成决定"
+          },
+          {
+            "kind": "file",
+            "path": "docs/evidence/decisions.txt",
+            "lines": {
+              "start": 4,
+              "end": 4
+            }
+          }
+        ]
+      },
+      {
+        "owner": "DISC-INTERVIEW",
+        "id": "LE-ERROR",
+        "relation": "discusses",
+        "target": "REQ-ERROR",
+        "origin": "declared",
+        "state": "active",
+        "reason": "错误提示议题明确讨论行号与原因，关联本身尚非采纳",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/product/raw/interview.txt",
+            "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+            "lines": {
+              "start": 3,
+              "end": 3
+            }
+          }
+        ]
+      },
+      {
+        "owner": "DISC-INTERVIEW",
+        "id": "LM-MULTI",
+        "relation": "discusses",
+        "target": "REQ-MULTI",
+        "origin": "inferred",
+        "state": "active",
+        "reason": "多设备片段对应候选范围，仍未采纳",
+        "sources": [
+          {
+            "kind": "file",
+            "path": "docs/product/raw/interview.txt",
+            "sha256": "63b83e5d48b09e6c913a5ec4098437716711a8ddca6a746153297d85335eb750",
+            "lines": {
+              "start": 4,
+              "end": 4
+            }
+          }
+        ]
+      },
+      {
+        "owner": "G-TRIAL",
+        "id": "L-GOAL-REPLACES",
+        "relation": "replaces",
+        "target": "G-REGISTER",
+        "origin": "declared",
+        "state": "active"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-EXCEL",
+        "coverage": "导入处理导出"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-BOOK",
+        "coverage": "预约改期"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-LOG",
+        "coverage": "日志恢复探索"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-AUDIT",
+        "coverage": "操作记录与导出"
+      },
+      {
+        "owner": "PLAN-ORDERS",
+        "relation": "plan-target",
+        "target": "REQ-REPORT",
+        "coverage": "报表优化"
+      }
+    ],
+    "plan_tasks": [
+      {
+        "plan_id": "PLAN-ORDERS",
+        "work_items": [
+          {
+            "work_item_id": "E6A",
+            "bindings": [
+              {
+                "owner": "REQ-EXCEL",
+                "binding_id": "B-E6A",
+                "task": {
+                  "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json",
+                  "step_id": "E6A",
+                  "label": "原 task 内 E6A"
+                },
+                "role": "implementation",
+                "coverage": "导入基础，仅整数夹具检查"
+              }
+            ]
+          },
+          {
+            "work_item_id": "E6B",
+            "bindings": [
+              {
+                "owner": "REQ-EXCEL",
+                "binding_id": "B-E6B",
+                "task": {
+                  "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json",
+                  "step_id": "E6B",
+                  "label": "原 task 内 E6B"
+                },
+                "role": "implementation",
+                "coverage": "整数处理基础"
+              }
+            ]
+          },
+          {
+            "work_item_id": "E6R",
+            "bindings": [
+              {
+                "owner": "REQ-EXCEL",
+                "binding_id": "B-E6R",
+                "task": {
+                  "task_id": "task-3d3d473c824d8b1d2c12ea2a9773b683",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-3172e8a11447d5a110aebea7f7a853841045f52bf53b1b35f2748287852bc5e6.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-3172e8a11447d5a110aebea7f7a853841045f52bf53b1b35f2748287852bc5e6.json"
+                },
+                "role": "repair",
+                "coverage": "当前 Excel 小数样本，未覆盖支付退货/其他格式"
+              }
+            ]
+          },
+          {
+            "work_item_id": "E6C",
+            "bindings": []
+          },
+          {
+            "work_item_id": "BOOK-CHECK",
+            "bindings": []
+          },
+          {
+            "work_item_id": "BOOK-NOTIFY",
+            "bindings": []
+          },
+          {
+            "work_item_id": "BOOK-FEE",
+            "bindings": []
+          },
+          {
+            "work_item_id": "LOG-PROBE",
+            "bindings": [
+              {
+                "owner": "REQ-LOG",
+                "binding_id": "B-PROBE",
+                "task": {
+                  "task_id": "task-790e97b72cd9ca627fa33a63d805a8eb",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-1ba90847b5eec631d22bd103c72836251d6b7400a928fc808ede143a37b779f2.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-1ba90847b5eec631d22bd103c72836251d6b7400a928fc808ede143a37b779f2.json"
+                },
+                "role": "exploration",
+                "coverage": "仅受限可行性探索，不是产品交付"
+              }
+            ]
+          },
+          {
+            "work_item_id": "AUDIT-ACTOR",
+            "bindings": [
+              {
+                "owner": "REQ-AUDIT",
+                "binding_id": "B-ACTOR",
+                "task": {
+                  "task_id": "task-cfd8fc8e0c81467f9e0812390b66241c",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-d09fd8b04aa8e49a17f0dcbea2880050e0fb8f7a3037ac5a48b29c10e1888ece.json"
+                },
+                "role": "implementation",
+                "coverage": "只提供操作人字段，尚未执行；不覆盖查询导出"
+              }
+            ]
+          },
+          {
+            "work_item_id": "AUDIT-EXPORT",
+            "bindings": []
+          },
+          {
+            "work_item_id": "REPORT-OPT",
+            "bindings": []
+          }
+        ]
+      }
+    ],
+    "discussions": [],
+    "impact": null,
+    "sources": [],
+    "diagnostics": [
+      {
+        "code": "ITEM_METADATA",
+        "path": "docs/product/LEGACY.md",
+        "message": "Unknown core field; use extensions",
+        "severity": "error",
+        "item_id": "REQ-BAD-KEEP",
+        "pointer": "/items/2/unknown_keep"
+      },
+      {
+        "code": "PENDING_SOURCES",
+        "path": "docs/product/ASSESSMENTS.md",
+        "message": "New material is pending reconciliation; existing PASS is not a current completeness claim",
+        "severity": "warning",
+        "item_id": "AS-INTEGER",
+        "line": 8
+      },
+      {
+        "code": "PENDING_SOURCES",
+        "path": "docs/product/ASSESSMENTS.md",
+        "message": "New material is pending reconciliation; existing PASS is not a current completeness claim",
+        "severity": "warning",
+        "item_id": "AS-DECIMAL",
+        "line": 16
+      },
+      {
+        "code": "DUPLICATE_LINK_ID",
+        "path": "docs/product/D-REPAIR.md",
+        "message": "Link ID L-CURRENT is duplicated",
+        "severity": "warning",
+        "item_id": "REQ-D-ORIGINAL",
+        "line": 5
+      }
+    ],
+    "coverage": {
+      "complete": true,
+      "files_read": 10,
+      "bytes_read": 25409,
+      "enumeration": "managed_paths only; sources are read only by explicit reference",
+      "omitted": [],
+      "paths": [
+        "docs/product/*.md"
+      ],
+      "excluded_paths": [],
+      "max_files": 1000,
+      "max_file_bytes": 4194304,
+      "max_total_bytes": 33554432,
+      "usable_count": 29,
+      "invalid_count": 1,
+      "selection": [
+        "REQ-D-ORIGINAL",
+        "REQ-D-ADDED"
+      ],
+      "source_bodies": "not-read"
+    },
+    "task_status": "not-computed; use existing assistance only when actual task state is needed"
+  }
+}

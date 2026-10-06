@@ -1,0 +1,13 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+(pass) R01 inline double-star globs preserve recursive matching without visiting unrelated junctions [47.00ms]
+(pass) R02 malformed old sources allow explicit reassociation but cannot supply a new basis themselves [172.00ms]
+(pass) R03 explicit relation removal repairs null members while preserving valid relations and raw history [156.00ms]
+(pass) R04 directories at explicit file paths are omitted while glob directory prefixes remain readable [16.00ms]
+
+ 4 pass
+ 24 filtered out
+ 0 fail
+ 121 expect() calls
+Ran 4 tests across 1 file. [498.00ms]

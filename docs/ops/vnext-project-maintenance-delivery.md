@@ -1,5 +1,15 @@
 # maintain-project 首版交付记录
 
+> 2026-10-05 本轮可靠性修复已在 `project-goals-requirements` / `codex/maintain-project-v1` 工作副本实施，基线及当前 HEAD 为 `20ba0275270493b94b4f02eca33cc3b8c38b198d`。本地候选 `0.24.1`，未提交、推送、发布或部署。本轮 F01～F06 原行为/修后正反证据、S01～S13 映射、53 项实际测试、四层交付和具体未执行项见 [本轮交付证据](project-maintenance-hardening-evidence/README.md)。
+>
+> 同日后续审查发现的 R01～R04 已按用户决定修复，最终候选结果见 [四项 P2 修复](project-maintenance-hardening-evidence/README.md#后续四项-p2-修复)：本次 48 项不同测试通过，包含原 24 项产品回归；此前测试数和产物摘要保留为历史。
+>
+> 2026-10-06，用户明确的维护操作不得被流程否决。后续 C01～C03 已修复并通过 [三项 P2 交付](project-maintenance-hardening-evidence/c-p2-repair/README.md)：本次 51 项不同测试通过，实际旧版 `0.24.0`→新候选 `0.24.1` 隔离升级保留 11 项业务资产；源码、分发、安装、Node／离线结果与未执行项分开记录。旧审查 findings 保留，本次不重演 S01～S13 的宿主业务决定、不新增状态或维护 gate。
+>
+> 2026-10-06，后续 D01／D02 已按用户要求修复，见 [本次修复交付](project-maintenance-hardening-evidence/d-p2-repair/README.md)：共同写入器负责 Markdown 分隔，未改重复 active 关联不再误挡维护，实际新增激活和历史删除仍保护旧否定。本次实际 53 项不同测试通过／1001 个断言，源重建、真实隔离版本升级及安装后 Node／离线消费分别取证；原业务 11 项资产未变。旧审查 findings 保留，本次为修复自查，不冒充正式 clean review、完整 S01～S13 语义重验或发布。
+>
+> 下文是 2026-10-04 首版历史报告，保留原文、时间和检查范围；其中的通过数、候选哈希及宿主材料不算本轮 PASS。源 CURRENT_TASK 的既有 legacy/drift 未覆盖，任务事实及投影结果分开记录。
+
 日期：2026-10-04。工作目录：`project-goals-requirements` worktree。本地候选：`0.24.0`，尚未提交、推送或发布。需求与验收分别以[完整能力基线](../product/project-maintenance/requirements.md)、[契约](../product/project-maintenance/document-contract.md)、[实现方案](vnext-project-maintenance-implementation.md)、[验收矩阵](vnext-project-maintenance-validation.md)为准；本记录描述实际结果，不修改验收要求。
 
 ## 1. 基线、工作划分和所有权

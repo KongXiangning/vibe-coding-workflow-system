@@ -1,0 +1,18 @@
+{
+  "helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+  "source_helper_sha256": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+  "offline_sha256": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a",
+  "upgrade_assets_unchanged": 11,
+  "asset_count": 11,
+  "managed_files": 9,
+  "usable": 27,
+  "invalid": 1,
+  "byte_coverage_complete": true,
+  "offline_matches_ids": true,
+  "task_lifecycle_counts": {
+    "closed": 4
+  },
+  "offline_has_runtime": false,
+  "offline_has_node_modules": false,
+  "business_semantics_replayed": false
+}

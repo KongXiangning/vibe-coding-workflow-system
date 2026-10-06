@@ -1,0 +1,21 @@
+{
+  "helper_sha256": "43184d80b42a80f3852e8933ad3b6a808dc79ab32191556fcc7a78b8930dcb0e",
+  "source_helper_sha256": "43184d80b42a80f3852e8933ad3b6a808dc79ab32191556fcc7a78b8930dcb0e",
+  "offline_sha256": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a",
+  "upgrade_assets_unchanged": 11,
+  "asset_count": 11,
+  "managed_files": 10,
+  "usable": 29,
+  "invalid": 1,
+  "byte_coverage_complete": true,
+  "offline_matches_ids": true,
+  "offline_d01_new_item": true,
+  "offline_d02_duplicates_preserved": true,
+  "offline_duplicate_warning": true,
+  "task_lifecycle_counts": {
+    "closed": 4
+  },
+  "offline_has_runtime": false,
+  "offline_has_node_modules": false,
+  "business_semantics_replayed": false
+}

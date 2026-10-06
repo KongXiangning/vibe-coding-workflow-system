@@ -38,10 +38,15 @@ export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog
   catalog.manifest = manifest;
   catalog.status = 'available';
   const selected = input.paths ?? manifest.managed_paths;
-  const enumeration = enumerate(root, selected, manifest.exclude_paths, maxFiles, catalog.diagnostics);
+  catalog.coverage.paths = selected;
+  catalog.coverage.excluded_paths = manifest.exclude_paths;
+  // entry is an explicitly registered file, even when a successful glob returns no files.
+  const patterns = matches(manifest.entry, selected) ? [...new Set([...selected, manifest.entry])] : selected;
+  const enumeration = enumerate(root, patterns, manifest.exclude_paths, maxFiles, catalog.diagnostics);
+  catalog.coverage.omitted.push(...enumeration.omitted);
   let bytesRead = 0;
   for (const relative of enumeration.paths) {
-    if (!allowed(manifest, relative, 'managed')) { catalog.diagnostics.push(diagnostic('NOT_MANAGED', relative, 'Selected file is not managed')); continue; }
+    if (!allowed(manifest, relative, 'managed')) { catalog.coverage.omitted.push(relative); catalog.diagnostics.push(diagnostic('NOT_MANAGED', relative, 'Selected file is not managed')); continue; }
     if (matches(relative, manifest.capture_paths)) {
       catalog.diagnostics.push(diagnostic('CURRENT_RAW_OVERLAP', relative, 'Raw/history cannot be current managed documents', { severity: 'error' }));
       catalog.coverage.omitted.push(relative);
@@ -73,6 +78,6 @@ export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog
   const projects = catalog.items.filter(i => i.usable && i.type === 'project');
   if (projects.length !== 1 || projects[0]?.path !== manifest.entry) catalog.diagnostics.push(diagnostic('PROJECT_ENTRY', manifestPath, 'Expected a unique project entry in the manifest entry document'));
   analyze(catalog);
-  catalog.coverage = { ...catalog.coverage, complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter(i => i.usable).length, invalid_count: catalog.items.filter(i => !i.usable).length };
+  catalog.coverage = { ...catalog.coverage, omitted: [...new Set(catalog.coverage.omitted)], complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter(i => i.usable).length, invalid_count: catalog.items.filter(i => !i.usable).length };
   return catalog;
 }

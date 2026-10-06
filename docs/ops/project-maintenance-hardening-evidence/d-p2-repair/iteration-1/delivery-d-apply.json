@@ -1,0 +1,34 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "apply",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "saved",
+    "files": [
+      {
+        "path": "docs/product/D-REPAIR.md",
+        "status": "saved",
+        "saved": true,
+        "changed": true,
+        "sha256": "442735eb5207e643ccec9a48e0c35c448cc02d619ef6e87fa0c9df8c69179766",
+        "preimage": {
+          "sha256": "96041c5ce07a71ff25e8945022d6c71c163b139ec00eff15d6e2c9ff92978e1b",
+          "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFt7ImlkIjoiUkVRLUQtT1JJR0lOQUwiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtT1JERVJTIiwib3JpZ2luIjoiaW5mZXJyZWQiLCJzdGF0ZSI6ImRpc21pc3NlZCIsInJlYXNvbiI6IuWOn+WQpuWumuS/neeVmSIsInNvdXJjZXMiOlt7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWQiOaIkOWkueWFt+S4reeahOaXp+S+neaNriIsImxhYmVsIjoi5aS55YW35p2l5rqQIn1dfSx7ImlkIjoiTC1DVVJSRU5UIiwicmVsYXRpb24iOiJyZWZlcmVuY2VzIiwidGFyZ2V0IjoiUFJPSkVDVC1PUkRFUlMiLCJvcmlnaW4iOiJkZWNsYXJlZCIsInN0YXRlIjoiYWN0aXZlIiwicmVhc29uIjoi5bey5a2Y5Zyo55qE5b2T5YmN5YWz6IGUIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5ZCI5oiQ5aS55YW35Lit55qE5pen5L6d5o2uIiwibGFiZWwiOiLlpLnlhbfmnaXmupAifV19LHsiaWQiOiJMLUNVUlJFTlQiLCJyZWxhdGlvbiI6InJlZmVyZW5jZXMiLCJ0YXJnZXQiOiJQUk9KRUNULU9SREVSUyIsIm9yaWdpbiI6ImRlY2xhcmVkIiwic3RhdGUiOiJhY3RpdmUiLCJyZWFzb24iOiLlt7LlrZjlnKjnmoTlvZPliY3lhbPogZQiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLlkIjmiJDlpLnlhbfkuK3nmoTml6fkvp3mja4iLCJsYWJlbCI6IuWkueWFt+adpea6kCJ9XX1dfV0KLS0tCiMjIFtSRVEtRC1PUklHSU5BTF0g5Y6f6ZyA5rGCCiMjIyDpnIDmsYLlhoXlrrkK5oyJ5b2T5YmN5piO56Gu6IyD5Zu057u05oqk44CCCiMjIyDojIPlm7TovrnnlYwK5Y6f5o6S6Zmk6aG55L+d55WZ77yM5YW25LuW6IyD5Zu05pyq6aqM5pS244CCCiMjIyDpqozmlLbopoHmsYIK5oyJ5a6e6ZmF6K+B5o2u5qC45a+544CCCjx0YWJsZT4KPHRyPjx0ZD7ljp/kuJrliqHnuqbmnZ88L3RkPjwvdHI+CjwvdGFibGU+Cg=="
+        },
+        "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+        "affected_items": [
+          "REQ-D-ORIGINAL",
+          "REQ-D-ADDED"
+        ],
+        "diagnostics": []
+      }
+    ],
+    "association": "not-evaluated",
+    "reconciliation": "not-evaluated",
+    "transaction": "per-file; no cross-file atomicity"
+  }
+}

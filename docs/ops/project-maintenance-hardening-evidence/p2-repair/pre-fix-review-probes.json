@@ -1,0 +1,1376 @@
+{
+  "old_sha256": "83a3d293aa8007b25c4bbd1b4e98dae77eed00fc856cd17a919c10ec96f2bbe4",
+  "current_sha256": "d97298d9bf0ee91ad20caca9e74689d8f7b422ed213c8a3b159d48d1eb0a8397",
+  "observations": [
+    {
+      "name": "recursive-glob-with-inline-double-star",
+      "version": "baseline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-rFvrKU",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "review",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-rFvrKU",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-rFvrKU"
+        },
+        "read_at": "2026-10-05T10:30:31.751Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "review",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**",
+            "docs/product/raw/**"
+          ],
+          "capture_paths": [
+            "docs/product/raw/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "1e5e416d0feaa5359874e8fed987f741d32bc0e004f6473aa0c46cc4b6d224e4",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "599e8b21d301ef0b83958e9f540a24a5977ab0d6b67e9715f65018c569ed7340",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "c31b826c047dbed945110bc866fa0cb5dd76c3fedea7e48e35084f5f63a6c782",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          },
+          {
+            "path": "docs/product/nested/DEEP.md",
+            "sha256": "63bc42e10575f020f8ae673f005cafad9f40bade3b7de55a18b731454c30973b",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/nested/DEEP.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "body": "## [PROJECT-A] PROJECT-A\n### 项目定位\n保留业务约束。\n### 盘点范围与未核对项\n保留业务约束。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "f6ef16ddbc9a39a7c17770de0665a815f46f6371d1c40ddf7d679a794807e402",
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留业务约束。\n### 范围边界\n保留业务约束。\n### 验收要求\n保留业务约束。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          },
+          {
+            "id": "REQ-DEEP",
+            "type": "requirement",
+            "title": "REQ-DEEP",
+            "path": "docs/product/nested/DEEP.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-DEEP",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "328f1931d2818090109e908efb49493f93ec34a10b692d76e92f85b0ee214e98",
+            "body": "## [REQ-DEEP] REQ-DEEP\n### 需求内容\n保留业务约束。\n### 范围边界\n保留业务约束。\n### 验收要求\n保留业务约束。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/nested/DEEP.md",
+              "item_id": "REQ-DEEP"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [],
+        "coverage": {
+          "complete": true,
+          "files_read": 3,
+          "bytes_read": 833,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 3,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "paths": "manifest-managed-paths",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "recursive-glob-with-inline-double-star",
+      "version": "current",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-EnAThI",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "review",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-EnAThI",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-EnAThI"
+        },
+        "read_at": "2026-10-05T10:30:31.920Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "review",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**",
+            "docs/product/raw/**"
+          ],
+          "capture_paths": [
+            "docs/product/raw/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "1e5e416d0feaa5359874e8fed987f741d32bc0e004f6473aa0c46cc4b6d224e4",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "599e8b21d301ef0b83958e9f540a24a5977ab0d6b67e9715f65018c569ed7340",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "c31b826c047dbed945110bc866fa0cb5dd76c3fedea7e48e35084f5f63a6c782",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "body": "## [PROJECT-A] PROJECT-A\n### 项目定位\n保留业务约束。\n### 盘点范围与未核对项\n保留业务约束。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "f6ef16ddbc9a39a7c17770de0665a815f46f6371d1c40ddf7d679a794807e402",
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留业务约束。\n### 范围边界\n保留业务约束。\n### 验收要求\n保留业务约束。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [],
+        "coverage": {
+          "complete": true,
+          "files_read": 2,
+          "bytes_read": 568,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/**.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 2,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "directory-at-explicit-entry-file",
+      "version": "baseline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-aqDl98",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "review",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-aqDl98",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-aqDl98"
+        },
+        "read_at": "2026-10-05T10:30:32.092Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "review",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**",
+            "docs/product/raw/**"
+          ],
+          "capture_paths": [
+            "docs/product/raw/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "445b98992ba3ee0c25df32fe754977b49a09fd56882630dfe9da6a7ed9b2287f",
+        "documents": [
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "c31b826c047dbed945110bc866fa0cb5dd76c3fedea7e48e35084f5f63a6c782",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "f6ef16ddbc9a39a7c17770de0665a815f46f6371d1c40ddf7d679a794807e402",
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留业务约束。\n### 范围边界\n保留业务约束。\n### 验收要求\n保留业务约束。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [
+          {
+            "code": "PROJECT_ENTRY",
+            "path": ".workflow-system/PRODUCT.yaml",
+            "message": "Expected a unique project entry in the manifest entry document",
+            "severity": "warning"
+          }
+        ],
+        "coverage": {
+          "complete": true,
+          "files_read": 1,
+          "bytes_read": 256,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 1,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "paths": "manifest-managed-paths",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "directory-at-explicit-entry-file",
+      "version": "current",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-7EOdHw",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "review",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-7EOdHw",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-7EOdHw"
+        },
+        "read_at": "2026-10-05T10:30:32.264Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "review",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**",
+            "docs/product/raw/**"
+          ],
+          "capture_paths": [
+            "docs/product/raw/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "445b98992ba3ee0c25df32fe754977b49a09fd56882630dfe9da6a7ed9b2287f",
+        "documents": [
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "c31b826c047dbed945110bc866fa0cb5dd76c3fedea7e48e35084f5f63a6c782",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "f6ef16ddbc9a39a7c17770de0665a815f46f6371d1c40ddf7d679a794807e402",
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留业务约束。\n### 范围边界\n保留业务约束。\n### 验收要求\n保留业务约束。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [
+          {
+            "code": "PROJECT_ENTRY",
+            "path": ".workflow-system/PRODUCT.yaml",
+            "message": "Expected a unique project entry in the manifest entry document",
+            "severity": "warning"
+          }
+        ],
+        "coverage": {
+          "complete": true,
+          "files_read": 1,
+          "bytes_read": 256,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/**/*.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 1,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "local-repair-and-authorized-reassociation-of-malformed-source",
+      "version": "baseline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-q9LKp0",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-OLD",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "当前用户明确改变原决定，同意该范围重新关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                          "label": "当前用户决定"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "77cc2313e183326ec67180dd3b3df78ef13c2e2f60c4010831570c2a9fbee52b",
+            "preimage": {
+              "sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDljp/nlKjmiLflkKblrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBudWxsCi0tLQojIOmhueebruS4muWKoei1hOaWmQoKIyMgW1JFUS1BXSBSRVEtQQojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeS4muWKoee6puadn+OAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeS4muWKoee6puadn+OAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeS4muWKoee6puadn+OAggoK"
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "local-repair-and-authorized-reassociation-of-malformed-source",
+      "version": "current",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-WHdJuY",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-OLD",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "当前用户明确改变原决定，同意该范围重新关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                          "label": "当前用户决定"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "failed",
+            "saved": false,
+            "error": "Cannot destructure property 'note' of 'source2' as it is null."
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "local-repair-malformed-source-with-dismissal-retained-control",
+      "version": "baseline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-m5Mj6A",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-OLD",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "dismissed",
+                      "reason": "当前用户明确改变原决定，同意该范围重新关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                          "label": "当前用户决定"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "515813c3c0eb050e526da35182b7ef7d34de0b367ed367baa7bb239a3edb7c67",
+            "preimage": {
+              "sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDljp/nlKjmiLflkKblrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBudWxsCi0tLQojIOmhueebruS4muWKoei1hOaWmQoKIyMgW1JFUS1BXSBSRVEtQQojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeS4muWKoee6puadn+OAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeS4muWKoee6puadn+OAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeS4muWKoee6puadn+OAggoK"
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "local-repair-malformed-source-with-dismissal-retained-control",
+      "version": "current",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-qzdAjr",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-OLD",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "dismissed",
+                      "reason": "当前用户明确改变原决定，同意该范围重新关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                          "label": "当前用户决定"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "515813c3c0eb050e526da35182b7ef7d34de0b367ed367baa7bb239a3edb7c67",
+            "preimage": {
+              "sha256": "157f287b9b85ddfed4e42202686811a9308c06ecd89d2d05970a43647ed40c19",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDljp/nlKjmiLflkKblrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBudWxsCi0tLQojIOmhueebruS4muWKoei1hOaWmQoKIyMgW1JFUS1BXSBSRVEtQQojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeS4muWKoee6puadn+OAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeS4muWKoee6puadn+OAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeS4muWKoee6puadn+OAggoK"
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "explicit-removal-and-repair-of-null-neighbor-relation",
+      "version": "baseline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-Ei5toG",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "8b97f308aa7cb0ce299c7e923c10e79bdb252980e9ae01c8e781c7b7be8682d5",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-KEEP",
+                      "relation": "references",
+                      "target": "REQ-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "原用户否定",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                          "label": "当前用户决定"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "remove_relations": [
+              {
+                "item_id": "REQ-A",
+                "field": "links",
+                "id": "L-OLD"
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "diagnostics": [
+          {
+            "code": "REQUEST_INVALID",
+            "path": "",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "pointer": "/files/0/remove_relations"
+          }
+        ]
+      },
+      "stderr": ""
+    },
+    {
+      "name": "explicit-removal-and-repair-of-null-neighbor-relation",
+      "version": "current",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-F0tJyG",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "8b97f308aa7cb0ce299c7e923c10e79bdb252980e9ae01c8e781c7b7be8682d5",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-KEEP",
+                      "relation": "references",
+                      "target": "REQ-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "原用户否定",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                          "label": "当前用户决定"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "remove_relations": [
+              {
+                "item_id": "REQ-A",
+                "field": "links",
+                "id": "L-OLD"
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "failed",
+            "saved": false,
+            "error": "Cannot read properties of null (reading 'id')"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "explicit-removal-clean-history-control",
+      "version": "baseline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-bCKPIU",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "c391ede0b73fcf87af6c974b0cf8d6be0ddab23e9a3ac69ab2d4c4556a28cb6e",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-KEEP",
+                      "relation": "references",
+                      "target": "REQ-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "原用户否定",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                          "label": "当前用户决定"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "remove_relations": [
+              {
+                "item_id": "REQ-A",
+                "field": "links",
+                "id": "L-OLD"
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "diagnostics": [
+          {
+            "code": "REQUEST_INVALID",
+            "path": "",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "pointer": "/files/0/remove_relations"
+          }
+        ]
+      },
+      "stderr": ""
+    },
+    {
+      "name": "explicit-removal-clean-history-control",
+      "version": "current",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-CYdeZe",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "c391ede0b73fcf87af6c974b0cf8d6be0ddab23e9a3ac69ab2d4c4556a28cb6e",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-KEEP",
+                      "relation": "references",
+                      "target": "REQ-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "原用户否定",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "当前明确同意此关联，旧坏来源保留在 preimage。",
+                          "label": "当前用户决定"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "remove_relations": [
+              {
+                "item_id": "REQ-A",
+                "field": "links",
+                "id": "L-OLD"
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "ee2af31c1ed3b327d120d2f4b3af513b0a03296826cbb302fbf389bfb75bd0ce",
+            "preimage": {
+              "sha256": "c391ede0b73fcf87af6c974b0cf8d6be0ddab23e9a3ac69ab2d4c4556a28cb6e",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDljp/nlKjmiLflkKblrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOW9k+WJjeaYjuehruWQjOaEj+atpOWFs+iBlO+8jOaXp+Wdj+adpea6kOS/neeVmeWcqCBwcmVpbWFnZeOAggogICAgICAgICAgICBsYWJlbDog5b2T5YmN55So5oi35Yaz5a6aCiAgICAgIC0gaWQ6IEwtS0VFUAogICAgICAgIHJlbGF0aW9uOiByZWZlcmVuY2VzCiAgICAgICAgdGFyZ2V0OiBSRVEtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogYWN0aXZlCiAgICAgICAgcmVhc29uOiDljp/nlKjmiLflkKblrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOW9k+WJjeaYjuehruWQjOaEj+atpOWFs+iBlO+8jOaXp+Wdj+adpea6kOS/neeVmeWcqCBwcmVpbWFnZeOAggogICAgICAgICAgICBsYWJlbDog5b2T5YmN55So5oi35Yaz5a6aCi0tLQojIOmhueebruS4muWKoei1hOaWmQoKIyMgW1JFUS1BXSBSRVEtQQojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeS4muWKoee6puadn+OAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeS4muWKoee6puadn+OAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeS4muWKoee6puadn+OAggoK"
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "ordinary-recursive-glob-control",
+      "version": "baseline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-EM01AD",
+      "request": {},
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "review",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-EM01AD",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-EM01AD"
+        },
+        "read_at": "2026-10-05T10:30:34.048Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "review",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**",
+            "docs/product/raw/**"
+          ],
+          "capture_paths": [
+            "docs/product/raw/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "445b98992ba3ee0c25df32fe754977b49a09fd56882630dfe9da6a7ed9b2287f",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "599e8b21d301ef0b83958e9f540a24a5977ab0d6b67e9715f65018c569ed7340",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "c31b826c047dbed945110bc866fa0cb5dd76c3fedea7e48e35084f5f63a6c782",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          },
+          {
+            "path": "docs/product/nested/DEEP.md",
+            "sha256": "63bc42e10575f020f8ae673f005cafad9f40bade3b7de55a18b731454c30973b",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/nested/DEEP.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "f6ef16ddbc9a39a7c17770de0665a815f46f6371d1c40ddf7d679a794807e402",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          },
+          {
+            "id": "REQ-DEEP",
+            "type": "requirement",
+            "title": "REQ-DEEP",
+            "path": "docs/product/nested/DEEP.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-DEEP",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "328f1931d2818090109e908efb49493f93ec34a10b692d76e92f85b0ee214e98",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/nested/DEEP.md",
+              "item_id": "REQ-DEEP"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [],
+        "coverage": {
+          "complete": true,
+          "files_read": 3,
+          "bytes_read": 833,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 3,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "paths": "manifest-managed-paths",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "name": "ordinary-recursive-glob-control",
+      "version": "current",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-sOzjvf",
+      "request": {},
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "review",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-sOzjvf",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-sOzjvf"
+        },
+        "read_at": "2026-10-05T10:30:34.222Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "review",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**",
+            "docs/product/raw/**"
+          ],
+          "capture_paths": [
+            "docs/product/raw/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "445b98992ba3ee0c25df32fe754977b49a09fd56882630dfe9da6a7ed9b2287f",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "599e8b21d301ef0b83958e9f540a24a5977ab0d6b67e9715f65018c569ed7340",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "c31b826c047dbed945110bc866fa0cb5dd76c3fedea7e48e35084f5f63a6c782",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          },
+          {
+            "path": "docs/product/nested/DEEP.md",
+            "sha256": "63bc42e10575f020f8ae673f005cafad9f40bade3b7de55a18b731454c30973b",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/nested/DEEP.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "f6ef16ddbc9a39a7c17770de0665a815f46f6371d1c40ddf7d679a794807e402",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          },
+          {
+            "id": "REQ-DEEP",
+            "type": "requirement",
+            "title": "REQ-DEEP",
+            "path": "docs/product/nested/DEEP.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-DEEP",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "328f1931d2818090109e908efb49493f93ec34a10b692d76e92f85b0ee214e98",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/nested/DEEP.md",
+              "item_id": "REQ-DEEP"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [],
+        "coverage": {
+          "complete": true,
+          "files_read": 3,
+          "bytes_read": 833,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/**/*.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 3,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    }
+  ],
+  "roots": [
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-rFvrKU",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-EnAThI",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-aqDl98",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-7EOdHw",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-q9LKp0",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-WHdJuY",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-m5Mj6A",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-qzdAjr",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-Ei5toG",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-F0tJyG",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-bCKPIU",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-CYdeZe",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-EM01AD",
+    "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-review-sOzjvf"
+  ]
+}

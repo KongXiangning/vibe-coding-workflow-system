@@ -1,0 +1,499 @@
+{
+  "baseline": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+  "helper_sha256": "bc92d5b87bd40945c7b3293fe1bdeb501c913b1d49fb8a359c0ea89de62d8cf4",
+  "node_command": "node",
+  "cases": [
+    {
+      "id": "F01-identity",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "expected_sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - id: REQ-A\n    type: goal\n    scope: current\n---\n# 项目业务资料\n\n## [REQ-A] REQ-A\n### 目标说明\n保留要求。\n### 范围边界\n保留要求。\n\n"
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "status": "failed",
+            "saved": false,
+            "error": "IDENTITY_CHANGE: stable ID/type cannot be repurposed; keep prior identity and append replacements"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "original_sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892",
+      "after_sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892"
+    },
+    {
+      "id": "F01-content-dismissed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "expected_sha256": "569954efedc9ab5d0be37ecb9ecd085f6e4194c29c18b55b3d13413323ec80ee",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - id: REQ-A\n    type: requirement\n    scope: current\n    links:\n      - id: L1\n        relation: references\n        target: REQ-A\n        origin: inferred\n        state: active\n        reason: 原决定不关联\n        sources:\n          - kind: text\n            text: 同一材料 A\n            label: A\n          - kind: text\n            text: 同一材料 B\n            label: B\n---\n# 项目业务资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留要求。\n### 范围边界\n保留要求。\n### 验收要求\n保留要求。\n\n"
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "status": "failed",
+            "saved": false,
+            "error": "DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "original_sha256": "569954efedc9ab5d0be37ecb9ecd085f6e4194c29c18b55b3d13413323ec80ee",
+      "after_sha256": "569954efedc9ab5d0be37ecb9ecd085f6e4194c29c18b55b3d13413323ec80ee"
+    },
+    {
+      "id": "F02-source-order",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "expected_sha256": "569954efedc9ab5d0be37ecb9ecd085f6e4194c29c18b55b3d13413323ec80ee",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L1",
+                      "relation": "references",
+                      "target": "REQ-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "原决定不关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "同一材料 B",
+                          "label": "B"
+                        },
+                        {
+                          "kind": "text",
+                          "text": "同一材料 A",
+                          "label": "A"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "status": "failed",
+            "saved": false,
+            "error": "DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "original_sha256": "569954efedc9ab5d0be37ecb9ecd085f6e4194c29c18b55b3d13413323ec80ee",
+      "after_sha256": "569954efedc9ab5d0be37ecb9ecd085f6e4194c29c18b55b3d13413323ec80ee"
+    },
+    {
+      "id": "F03-remove-alone",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "expected_sha256": "b41e8e2fd455718819e5ceacb746c226091aaa3512c56628410a4a39745e82f4",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "remove_fields": [
+                  "assessment_id"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "92d225363fb5519687791d12263d49f9055a384a5e5865e9cc357e6739515beb",
+            "preimage": {
+              "sha256": "b41e8e2fd455718819e5ceacb746c226091aaa3512c56628410a4a39745e82f4",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgYXNzZXNzbWVudF9pZDogQVMtQQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnopoHmsYLjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnopoHmsYLjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnopoHmsYLjgIIKCg=="
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "original_sha256": "b41e8e2fd455718819e5ceacb746c226091aaa3512c56628410a4a39745e82f4",
+      "after_sha256": "92d225363fb5519687791d12263d49f9055a384a5e5865e9cc357e6739515beb"
+    },
+    {
+      "id": "F01-v1",
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "status": "failed",
+            "saved": false,
+            "error": "V1_READ_ONLY: explicitly migrate this file to v2 before writing"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      }
+    },
+    {
+      "id": "F04-missing",
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "baseline-synthetic",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\maintain-hardening\\baseline-fixtures\\fixed-F04-missing",
+          "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\maintain-hardening\\baseline-fixtures\\fixed-F04-missing"
+        },
+        "read_at": "2026-10-05T06:05:30.392Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "baseline-synthetic",
+          "entry": "docs/product/REQUIREMENTS.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "d76b95bfe40c72070256aa311e3849e0657c642d4d8684ef1ed0608e580b35ec",
+        "documents": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQUIREMENTS.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQUIREMENTS.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "4b06bca9be593b556be5e8f007e25b534d27d45d1019a4a1886da1e1ae633da2",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQUIREMENTS.md",
+              "item_id": "REQ-A"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [
+          {
+            "code": "PATH_UNAVAILABLE",
+            "path": "docs/product/missing.md",
+            "message": "ENOENT: no such file or directory, lstat 'C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\maintain-hardening\\baseline-fixtures\\fixed-F04-missing\\docs\\product\\missing.md'",
+            "severity": "warning"
+          },
+          {
+            "code": "PROJECT_ENTRY",
+            "path": ".workflow-system/PRODUCT.yaml",
+            "message": "Expected a unique project entry in the manifest entry document",
+            "severity": "warning"
+          }
+        ],
+        "coverage": {
+          "complete": false,
+          "files_read": 1,
+          "bytes_read": 238,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [
+            "docs/product/missing.md"
+          ],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 1,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "paths": [
+            "docs/product/missing.md",
+            "docs/product/REQUIREMENTS.md"
+          ],
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      }
+    },
+    {
+      "id": "F04-windows-junction",
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "baseline-synthetic",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\maintain-hardening\\baseline-fixtures\\fixed-F04-missing",
+          "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\maintain-hardening\\baseline-fixtures\\fixed-F04-missing"
+        },
+        "read_at": "2026-10-05T06:05:30.558Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "baseline-synthetic",
+          "entry": "docs/product/REQUIREMENTS.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "d76b95bfe40c72070256aa311e3849e0657c642d4d8684ef1ed0608e580b35ec",
+        "documents": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQUIREMENTS.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQUIREMENTS.md",
+            "line": 10,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "4b06bca9be593b556be5e8f007e25b534d27d45d1019a4a1886da1e1ae633da2",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQUIREMENTS.md",
+              "item_id": "REQ-A"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [
+          {
+            "code": "SYMLINK_SKIPPED",
+            "path": "docs/product/linked",
+            "message": "SYMLINK_SKIPPED: symbolic links and junctions are not followed",
+            "severity": "warning"
+          },
+          {
+            "code": "PROJECT_ENTRY",
+            "path": ".workflow-system/PRODUCT.yaml",
+            "message": "Expected a unique project entry in the manifest entry document",
+            "severity": "warning"
+          }
+        ],
+        "coverage": {
+          "complete": false,
+          "files_read": 1,
+          "bytes_read": 238,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [
+            "docs/product/linked"
+          ],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 1,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "paths": "manifest-managed-paths",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      }
+    },
+    {
+      "id": "F05-raw-repair",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "expected_sha256": "364e72c3097295b4bfe0a4ec2beabe472f0d487caece5637aed188c85aa9bc90",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - id: REQ-A\n    type: requirement\n    scope: current\n---\n# 项目业务资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留要求。\n### 范围边界\n保留要求。\n### 验收要求\n保留要求。\n\n"
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892",
+            "preimage": {
+              "sha256": "364e72c3097295b4bfe0a4ec2beabe472f0d487caece5637aed188c85aa9bc90",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgdW5rbm93bjogdHJ1ZQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnopoHmsYLjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnopoHmsYLjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnopoHmsYLjgIIKCg=="
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "original_sha256": "364e72c3097295b4bfe0a4ec2beabe472f0d487caece5637aed188c85aa9bc90",
+      "after_sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892"
+    },
+    {
+      "id": "F06-escaped-body",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "expected_sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "body": "## [REQ-A] REQ-A\n### 需求内容\n保留要求。\n### 范围边界\n保留要求。\n### 验收要求\n保留要求。\n\n## 普通约束\n不得上传原始数据。\n"
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQUIREMENTS.md",
+            "status": "failed",
+            "saved": false,
+            "error": "BODY_BOUNDARY: body must remain entirely inside ## [REQ-A], with no extra root heading or swallowed neighbor"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "original_sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892",
+      "after_sha256": "4de327566c84d12daa1b9673b74616d41211085d20961c49c0a768db4fd67892"
+    }
+  ]
+}

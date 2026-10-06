@@ -41,3 +41,18 @@ For contradiction/omission reconcile body, design, plan, bindings, assessment an
 sources locally. Do not choose by newest file. Maintenance may be deferred by
 user instruction; list saved material and unsaved documents separately. Failures
 of summary/binding do not block implementation, commit, closure or stopping.
+
+Withdrawn scope can legitimately keep an unresolved historical failure. Determine
+whether shared implementation still affects retained payment/refund or other current
+capabilities; keep that risk scoped instead of requiring all old defects fixed.
+Historical CSV attribution and current Excel repair are separate bindings. If current
+compatibility support is explicit it still needs coverage; retired alone does not
+erase that obligation. Pure history without current effect/authority can be recorded.
+
+For goal result material use the goal's actual body/sources and observed measurement
+scope, not assessment (whose target is a requirement). For split requirements and
+multi-owner tasks compare each delivered/input scope individually. Different versions
+or new formats do not automatically contradict every historical report. New failure
+with unchanged definition must remain pending or be reconciled; repair close never
+changes this. Unaffected parts of C may continue under the existing instruction while
+the real data prerequisite of affected parts remains unsatisfied.

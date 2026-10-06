@@ -1,0 +1,26 @@
+{
+  "action": "execution",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+  "step_id": "A",
+  "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + uncommitted C01-C03 repair",
+  "result": "implemented and verified within C01-C03 and listed regression scope; no release",
+  "summary": "共同 writer 比较已知来源和真实激活，AST 追加保留坏邻项原字节；合法 scope/摘要选择、新增和拆分可保存，明确反转无需额外材料/审批；原功能回归保留",
+  "commands": [
+    "bun run test:product-maintenance: 31 pass / 548 assertions",
+    "bun run test:product-maintenance:install: 1 pass / 112 assertions",
+    "bun test test/workflow-vnext-source.test.ts: 19 pass / 115 assertions",
+    "validate:protocol and validate:freshness: passed",
+    "12 scenarios x baseline/pre-fix/current bundled Node comparisons: current expected results matched",
+    "authentic isolated 0.24.0 install -> final 0.24.1 upgrade, 11 assets unchanged; independent offline read"
+  ],
+  "report_ref": "docs/ops/project-maintenance-hardening-evidence/c-p2-repair/README.md",
+  "repairs_review_ref": ".workflow-system/records/events/key-22f170d89797f1ac7b06578da1c679a2eb0886d39944b160cd169b1dd0bccd8d.json",
+  "decision_ref": ".workflow-system/records/events/key-10de7db0a2ec9d8f9f27a68f4762a295c7ff7f40db9b677923c1f591c2f5483b.json",
+  "gaps": [
+    "same-host self-review; no independent or cross-model/real-project semantic acceptance",
+    "no complete workflow/task suite, Linux/min Node20 or npm/tgz installation checks",
+    "source task/CURRENT_TASK not adopted, focused, finished or closed; no push/publish/deploy"
+  ],
+  "idempotency_key": "maintain-hardening-c-p2-repair-execution-1"
+}

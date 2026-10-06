@@ -1,0 +1,17 @@
+{
+  "kind": "actual-local-node-check",
+  "decimal_after_exit": 0,
+  "commands": [
+    "node verify-integers.mjs",
+    "node verify-decimals.mjs"
+  ],
+  "integer_after_exit": 0,
+  "integer_before_exit": 0,
+  "old_source_sha256": "d4814069d07818113a2231192723d19f41e46aa3e6d8840f706f30960e072f21",
+  "limitations": [
+    "仅受控金额样本，未执行生产数据、所有金额格式、支付退货或 E6C 导出"
+  ],
+  "synthetic": true,
+  "new_source_sha256": "e382a794680286e006a91d5017450bea4a4a817478783ea656c7bd1033f853dd",
+  "decimal_before_exit": 1
+}

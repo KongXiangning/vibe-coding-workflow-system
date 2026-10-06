@@ -1,0 +1,2372 @@
+{
+  "artifact_sha256": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4",
+  "sourceBefore": {
+    "runtime/vnext/src/product-maintenance/writer.ts": "617635ecec81dc344289650372265871c77d385ef2a00b263a4dd200d5f164fb",
+    "runtime/vnext/src/product-maintenance/schemas.ts": "7f901792f84b4664c4f2731529ace132df1fd7ca8dba148c4c668195d06e3804",
+    "runtime/vnext/dist/product-maintenance.js": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4",
+    "templates/vnext/skills/maintain-project.SKILL.md.tmpl": "c60054c9bdc4f63abda461326109cc2e87069dc854f79335c8a9a80ecc125190",
+    "runtime/vnext/support/assistance.mjs": "364f2564abc6a68622ce0d6816afb0c265b0eadc2ef192c74fcc259fea32681f"
+  },
+  "sourceAfter": {
+    "runtime/vnext/src/product-maintenance/writer.ts": "617635ecec81dc344289650372265871c77d385ef2a00b263a4dd200d5f164fb",
+    "runtime/vnext/src/product-maintenance/schemas.ts": "7f901792f84b4664c4f2731529ace132df1fd7ca8dba148c4c668195d06e3804",
+    "runtime/vnext/dist/product-maintenance.js": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4",
+    "templates/vnext/skills/maintain-project.SKILL.md.tmpl": "c60054c9bdc4f63abda461326109cc2e87069dc854f79335c8a9a80ecc125190",
+    "runtime/vnext/support/assistance.mjs": "364f2564abc6a68622ce0d6816afb0c265b0eadc2ef192c74fcc259fea32681f"
+  },
+  "no_product_code_edit": true,
+  "observations": [
+    {
+      "label": "C01-defect-format-only-wrongly-revives",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-jEZjRJ",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "b0bb980ebf2658ee92fef724d5f934841b5f22f708d08c119674ad7ea588efa8",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-OLD",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "只清理未知字段；原业务否定不变",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "此前相同材料",
+                          "label": "原材料"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "e9870faf7290ea1368f44ee2442c4a6aed4164f48c9edfa2fdb68389eac3510a",
+            "preimage": {
+              "sha256": "b0bb980ebf2658ee92fef724d5f934841b5f22f708d08c119674ad7ea588efa8",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOatpOWJjeebuOWQjOadkOaWmQogICAgICAgICAgICBsYWJlbDog5Y6f5p2Q5paZCiAgICAgICAgICAgIHVua25vd246IHRydWUKLS0tCiMg6aG555uu5Lia5Yqh6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo="
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOatpOWJjeebuOWQjOadkOaWmQogICAgICAgICAgICBsYWJlbDog5Y6f5p2Q5paZCiAgICAgICAgICAgIHVua25vd246IHRydWUKLS0tCiMg6aG555uu5Lia5Yqh6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo=",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJhY3RpdmUiLCJyZWFzb24iOiLlj6rmuIXnkIbmnKrnn6XlrZfmrrXvvJvljp/kuJrliqHlkKblrprkuI3lj5giLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLmraTliY3nm7jlkIzmnZDmlpkiLCJsYWJlbCI6IuWOn+adkOaWmSJ9XX1dfQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg=="
+    },
+    {
+      "label": "C01-format-repair-retains-dismissed",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-rqrnxT",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "b0bb980ebf2658ee92fef724d5f934841b5f22f708d08c119674ad7ea588efa8",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-OLD",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "dismissed",
+                      "reason": "此前用户否定；当前没有改变该决定",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "此前相同材料",
+                          "label": "原材料"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "b63c15d890d09d3ecfa4f80ada7e517656a6494bad80276e44538285e3eb17fa",
+            "preimage": {
+              "sha256": "b0bb980ebf2658ee92fef724d5f934841b5f22f708d08c119674ad7ea588efa8",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOatpOWJjeebuOWQjOadkOaWmQogICAgICAgICAgICBsYWJlbDog5Y6f5p2Q5paZCiAgICAgICAgICAgIHVua25vd246IHRydWUKLS0tCiMg6aG555uu5Lia5Yqh6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo="
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOatpOWJjeebuOWQjOadkOaWmQogICAgICAgICAgICBsYWJlbDog5Y6f5p2Q5paZCiAgICAgICAgICAgIHVua25vd246IHRydWUKLS0tCiMg6aG555uu5Lia5Yqh6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo=",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLmraTliY3nm7jlkIzmnZDmlpkiLCJsYWJlbCI6IuWOn+adkOaWmSJ9XX1dfQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg=="
+    },
+    {
+      "label": "C01-same-basis-candidate-is-protected",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-rqrnxT",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "b63c15d890d09d3ecfa4f80ada7e517656a6494bad80276e44538285e3eb17fa",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-OLD",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "active",
+                      "reason": "仅重试同一材料；无当前改变决定",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "此前相同材料",
+                          "label": "原材料"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "failed",
+            "saved": false,
+            "error": "DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLmraTliY3nm7jlkIzmnZDmlpkiLCJsYWJlbCI6IuWOn+adkOaWmSJ9XX1dfQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg==",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLmraTliY3nm7jlkIzmnZDmlpkiLCJsYWJlbCI6IuWOn+adkOaWmSJ9XX1dfQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg=="
+    },
+    {
+      "label": "C01-explicit-user-reversal-no-external-material",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-rqrnxT",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "b63c15d890d09d3ecfa4f80ada7e517656a6494bad80276e44538285e3eb17fa",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-OLD",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "declared",
+                      "state": "active",
+                      "reason": "合成当前指令：我改变此前否定，现在重新关联到 PROJECT-A。",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "此前相同材料",
+                          "label": "原材料"
+                        },
+                        {
+                          "kind": "text",
+                          "text": "合成当前指令：我改变此前否定，现在重新关联到 PROJECT-A。",
+                          "label": "synthetic-current-explicit-user-decision"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "9458399abc4669af9185a8baced88f07b64a3881d4a5ba6132f8f20349d52141",
+            "preimage": {
+              "sha256": "b63c15d890d09d3ecfa4f80ada7e517656a6494bad80276e44538285e3eb17fa",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLmraTliY3nm7jlkIzmnZDmlpkiLCJsYWJlbCI6IuWOn+adkOaWmSJ9XX1dfQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg=="
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLmraTliY3nm7jlkIzmnZDmlpkiLCJsYWJlbCI6IuWOn+adkOaWmSJ9XX1dfQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg==",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImRlY2xhcmVkIiwic3RhdGUiOiJhY3RpdmUiLCJyZWFzb24iOiLlkIjmiJDlvZPliY3mjIfku6TvvJrmiJHmlLnlj5jmraTliY3lkKblrprvvIznjrDlnKjph43mlrDlhbPogZTliLAgUFJPSkVDVC1B44CCIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5q2k5YmN55u45ZCM5p2Q5paZIiwibGFiZWwiOiLljp/mnZDmlpkifSx7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWQiOaIkOW9k+WJjeaMh+S7pO+8muaIkeaUueWPmOatpOWJjeWQpuWumu+8jOeOsOWcqOmHjeaWsOWFs+iBlOWIsCBQUk9KRUNULUHjgIIiLCJsYWJlbCI6InN5bnRoZXRpYy1jdXJyZW50LWV4cGxpY2l0LXVzZXItZGVjaXNpb24ifV19XX0KLS0tCiMg6aG555uu5Lia5Yqh6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo="
+    },
+    {
+      "label": "C01-readback-explicit-reversal",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-rqrnxT",
+      "action": "read",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "intent-review-fixture",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-rqrnxT",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-rqrnxT"
+        },
+        "read_at": "2026-10-05T16:32:21.339Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "intent-review-fixture",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [
+            "docs/evidence/history/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "499971b31b981f79c189c06af4454ba58b78e03c9df08aa1e2fe6d77bd0bc5e4",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "05c552fedd8bc1f93eafaea89e817ce5abb5de045af9d1b03fa22fa621dbe84f",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "9458399abc4669af9185a8baced88f07b64a3881d4a5ba6132f8f20349d52141",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "body": "## [PROJECT-A] PROJECT-A\n### 项目定位\n保留实际要求与未核对范围。\n### 盘点范围与未核对项\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 8,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-OLD",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "declared",
+                  "state": "active",
+                  "reason": "合成当前指令：我改变此前否定，现在重新关联到 PROJECT-A。",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "此前相同材料",
+                      "label": "原材料"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "合成当前指令：我改变此前否定，现在重新关联到 PROJECT-A。",
+                      "label": "synthetic-current-explicit-user-decision"
+                    }
+                  ]
+                }
+              ]
+            },
+            "definition_sha256": "e5441d6bd2aa8e23e45f2a826a2750053fd6caa4689d19d0f0b71aa4f6df0640",
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [
+          {
+            "owner": "REQ-A",
+            "id": "L-OLD",
+            "relation": "references",
+            "target": "PROJECT-A",
+            "origin": "declared",
+            "state": "active",
+            "reason": "合成当前指令：我改变此前否定，现在重新关联到 PROJECT-A。",
+            "sources": [
+              {
+                "kind": "text",
+                "text": "此前相同材料",
+                "label": "原材料"
+              },
+              {
+                "kind": "text",
+                "text": "合成当前指令：我改变此前否定，现在重新关联到 PROJECT-A。",
+                "label": "synthetic-current-explicit-user-decision"
+              }
+            ]
+          }
+        ],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [],
+        "coverage": {
+          "complete": true,
+          "files_read": 2,
+          "bytes_read": 1091,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/*.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 2,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "label": "C02-defect-unrelated-scope-change-rejected",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-DHnQQM",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "0e2e06615ba7d5a4cbc36939cfab557739958ef69a583c432fb6ff6af0e479a5",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "scope": "planned"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "failed",
+            "saved": false,
+            "error": "DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOatpOWJjeebuOWQjOadkOaWmQogICAgICAgICAgICBsYWJlbDog5Y6f5p2Q5paZCiAgICAgIC0gaWQ6IEwtQ1VSUkVOVAogICAgICAgIHJlbGF0aW9uOiByZWZlcmVuY2VzCiAgICAgICAgdGFyZ2V0OiBQUk9KRUNULUEKICAgICAgICBvcmlnaW46IGRlY2xhcmVkCiAgICAgICAgc3RhdGU6IGFjdGl2ZQogICAgICAgIHJlYXNvbjog5q2k5YmN5bey5pyJ55qE5piO56Gu5b2T5YmN5YWz6IGU77yb5pys5qyh5L+d5oyB5LiN5Y+YCiAgICAgICAgc291cmNlczoKICAgICAgICAgIC0ga2luZDogdGV4dAogICAgICAgICAgICB0ZXh0OiDmraTliY3nm7jlkIzmnZDmlpkKICAgICAgICAgICAgbGFiZWw6IOWOn+adkOaWmQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg==",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOatpOWJjeebuOWQjOadkOaWmQogICAgICAgICAgICBsYWJlbDog5Y6f5p2Q5paZCiAgICAgIC0gaWQ6IEwtQ1VSUkVOVAogICAgICAgIHJlbGF0aW9uOiByZWZlcmVuY2VzCiAgICAgICAgdGFyZ2V0OiBQUk9KRUNULUEKICAgICAgICBvcmlnaW46IGRlY2xhcmVkCiAgICAgICAgc3RhdGU6IGFjdGl2ZQogICAgICAgIHJlYXNvbjog5q2k5YmN5bey5pyJ55qE5piO56Gu5b2T5YmN5YWz6IGU77yb5pys5qyh5L+d5oyB5LiN5Y+YCiAgICAgICAgc291cmNlczoKICAgICAgICAgIC0ga2luZDogdGV4dAogICAgICAgICAgICB0ZXh0OiDmraTliY3nm7jlkIzmnZDmlpkKICAgICAgICAgICAgbGFiZWw6IOWOn+adkOaWmQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg=="
+    },
+    {
+      "label": "C02-save-original-after-helper-failure",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-DHnQQM",
+      "action": "capture",
+      "request": {
+        "path": "docs/evidence/history/REQ.pre-scope.md",
+        "base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOatpOWJjeebuOWQjOadkOaWmQogICAgICAgICAgICBsYWJlbDog5Y6f5p2Q5paZCiAgICAgIC0gaWQ6IEwtQ1VSUkVOVAogICAgICAgIHJlbGF0aW9uOiByZWZlcmVuY2VzCiAgICAgICAgdGFyZ2V0OiBQUk9KRUNULUEKICAgICAgICBvcmlnaW46IGRlY2xhcmVkCiAgICAgICAgc3RhdGU6IGFjdGl2ZQogICAgICAgIHJlYXNvbjog5q2k5YmN5bey5pyJ55qE5piO56Gu5b2T5YmN5YWz6IGU77yb5pys5qyh5L+d5oyB5LiN5Y+YCiAgICAgICAgc291cmNlczoKICAgICAgICAgIC0ga2luZDogdGV4dAogICAgICAgICAgICB0ZXh0OiDmraTliY3nm7jlkIzmnZDmlpkKICAgICAgICAgICAgbGFiZWw6IOWOn+adkOaWmQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg=="
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "capture",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "saved": true,
+        "changed": true,
+        "sha256": "0e2e06615ba7d5a4cbc36939cfab557739958ef69a583c432fb6ff6af0e479a5",
+        "preimage": null,
+        "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+        "source": {
+          "kind": "file",
+          "path": "docs/evidence/history/REQ.pre-scope.md",
+          "sha256": "0e2e06615ba7d5a4cbc36939cfab557739958ef69a583c432fb6ff6af0e479a5"
+        },
+        "bytes": 916,
+        "reused": false,
+        "raw_capture": true,
+        "metadata": "not-saved-by-capture",
+        "privacy": "ordinary project file; no Git ignore, sharing, redaction or history deletion guarantee"
+      },
+      "stderr": ""
+    },
+    {
+      "label": "C02-authorized-editor-candidate-structure",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-DHnQQM",
+      "action": "check",
+      "request": {
+        "path": "docs/product/REQ.md",
+        "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"planned\",\"links\":[{\"id\":\"L-OLD\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"此前用户否定；当前没有改变该决定\",\"sources\":[{\"kind\":\"text\",\"text\":\"此前相同材料\",\"label\":\"原材料\"}]},{\"id\":\"L-CURRENT\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"declared\",\"state\":\"active\",\"reason\":\"此前已有的明确当前关联；本次保持不变\",\"sources\":[{\"kind\":\"text\",\"text\":\"此前相同材料\",\"label\":\"原材料\"}]}]}\n---\n# 项目业务资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "check",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "valid",
+        "schema": "vnext-product-doc/v2",
+        "usable_items": [
+          "REQ-A"
+        ],
+        "diagnostics": [],
+        "business_validity": "not-evaluated"
+      },
+      "stderr": ""
+    },
+    {
+      "label": "C02-synthetic-ordinary-editor-exact-selected-map-only",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-DHnQQM",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgbGlua3M6CiAgICAgIC0gaWQ6IEwtT0xECiAgICAgICAgcmVsYXRpb246IHJlZmVyZW5jZXMKICAgICAgICB0YXJnZXQ6IFBST0pFQ1QtQQogICAgICAgIG9yaWdpbjogaW5mZXJyZWQKICAgICAgICBzdGF0ZTogZGlzbWlzc2VkCiAgICAgICAgcmVhc29uOiDmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoKICAgICAgICBzb3VyY2VzOgogICAgICAgICAgLSBraW5kOiB0ZXh0CiAgICAgICAgICAgIHRleHQ6IOatpOWJjeebuOWQjOadkOaWmQogICAgICAgICAgICBsYWJlbDog5Y6f5p2Q5paZCiAgICAgIC0gaWQ6IEwtQ1VSUkVOVAogICAgICAgIHJlbGF0aW9uOiByZWZlcmVuY2VzCiAgICAgICAgdGFyZ2V0OiBQUk9KRUNULUEKICAgICAgICBvcmlnaW46IGRlY2xhcmVkCiAgICAgICAgc3RhdGU6IGFjdGl2ZQogICAgICAgIHJlYXNvbjog5q2k5YmN5bey5pyJ55qE5piO56Gu5b2T5YmN5YWz6IGU77yb5pys5qyh5L+d5oyB5LiN5Y+YCiAgICAgICAgc291cmNlczoKICAgICAgICAgIC0ga2luZDogdGV4dAogICAgICAgICAgICB0ZXh0OiDmraTliY3nm7jlkIzmnZDmlpkKICAgICAgICAgICAgbGFiZWw6IOWOn+adkOaWmQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg==",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6InBsYW5uZWQiLCJsaW5rcyI6W3siaWQiOiJMLU9MRCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLmraTliY3nlKjmiLflkKblrprvvJvlvZPliY3msqHmnInmlLnlj5jor6XlhrPlrpoiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLmraTliY3nm7jlkIzmnZDmlpkiLCJsYWJlbCI6IuWOn+adkOaWmSJ9XX0seyJpZCI6IkwtQ1VSUkVOVCIsInJlbGF0aW9uIjoicmVmZXJlbmNlcyIsInRhcmdldCI6IlBST0pFQ1QtQSIsIm9yaWdpbiI6ImRlY2xhcmVkIiwic3RhdGUiOiJhY3RpdmUiLCJyZWFzb24iOiLmraTliY3lt7LmnInnmoTmmI7noa7lvZPliY3lhbPogZTvvJvmnKzmrKHkv53mjIHkuI3lj5giLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLmraTliY3nm7jlkIzmnZDmlpkiLCJsYWJlbCI6IuWOn+adkOaWmSJ9XX1dfQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKCg==",
+      "helper_saved": false,
+      "method": "ordinary authorized editor in isolated fixture; original captured; read version rechecked"
+    },
+    {
+      "label": "C02-readback-editor-result",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-DHnQQM",
+      "action": "read",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "intent-review-fixture",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-DHnQQM",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-DHnQQM"
+        },
+        "read_at": "2026-10-05T16:32:22.231Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "intent-review-fixture",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [
+            "docs/evidence/history/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "499971b31b981f79c189c06af4454ba58b78e03c9df08aa1e2fe6d77bd0bc5e4",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "05c552fedd8bc1f93eafaea89e817ce5abb5de045af9d1b03fa22fa621dbe84f",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "901bb11f2f1661f886f6aadc1efa09fb9e68e82ab6bd67df362e1e5846eb523f",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "body": "## [PROJECT-A] PROJECT-A\n### 项目定位\n保留实际要求与未核对范围。\n### 盘点范围与未核对项\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 8,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "planned",
+              "links": [
+                {
+                  "id": "L-OLD",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "此前用户否定；当前没有改变该决定",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "此前相同材料",
+                      "label": "原材料"
+                    }
+                  ]
+                },
+                {
+                  "id": "L-CURRENT",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "declared",
+                  "state": "active",
+                  "reason": "此前已有的明确当前关联；本次保持不变",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "此前相同材料",
+                      "label": "原材料"
+                    }
+                  ]
+                }
+              ]
+            },
+            "definition_sha256": "6fe5c77e8e52a2322b5b1ace861ad64203db9adf40d4e916cb0de0357e0b5aef",
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          }
+        ],
+        "unusable_items": [],
+        "reverse_relations": [
+          {
+            "owner": "REQ-A",
+            "id": "L-CURRENT",
+            "relation": "references",
+            "target": "PROJECT-A",
+            "origin": "declared",
+            "state": "active",
+            "reason": "此前已有的明确当前关联；本次保持不变",
+            "sources": [
+              {
+                "kind": "text",
+                "text": "此前相同材料",
+                "label": "原材料"
+              }
+            ]
+          }
+        ],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [],
+        "coverage": {
+          "complete": true,
+          "files_read": 2,
+          "bytes_read": 1150,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/*.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 2,
+          "invalid_count": 0,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "label": "C03-defect-append-single-final-newline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-TOq1lo",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "b4cf42d17727ecc3f2bc0378c30c9d1612fe5ed74bed43ce2fdf6120b2de963c",
+            "append": [
+              {
+                "metadata": {
+                  "id": "REQ-NEW",
+                  "type": "requirement",
+                  "scope": "current"
+                },
+                "body": "## [REQ-NEW] REQ-NEW\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "failed",
+            "saved": false,
+            "error": "INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUtFRVAKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgdW5rbm93bjogdHJ1ZQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtS0VFUF0gUkVRLUtFRVAKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIK",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUtFRVAKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgdW5rbm93bjogdHJ1ZQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtS0VFUF0gUkVRLUtFRVAKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIK"
+    },
+    {
+      "label": "C03-exact-whole-candidate-add-single-final-newline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-TOq1lo",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "b4cf42d17727ecc3f2bc0378c30c9d1612fe5ed74bed43ce2fdf6120b2de963c",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - id: REQ-KEEP\n    type: requirement\n    scope: current\n    unknown: true\n  - {\"id\":\"REQ-NEW\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 项目业务资料\n\n## [REQ-KEEP] REQ-KEEP\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n## [REQ-NEW] REQ-NEW\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "a18f5d9360620b1bc3e44a586b35568ff5f71f62cd05ca82e27f84841960a11f",
+            "preimage": {
+              "sha256": "b4cf42d17727ecc3f2bc0378c30c9d1612fe5ed74bed43ce2fdf6120b2de963c",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUtFRVAKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgdW5rbm93bjogdHJ1ZQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtS0VFUF0gUkVRLUtFRVAKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIK"
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-NEW"
+            ],
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/REQ.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-KEEP",
+                "pointer": "/items/0/unknown"
+              }
+            ]
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUtFRVAKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgdW5rbm93bjogdHJ1ZQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtS0VFUF0gUkVRLUtFRVAKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIK",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUtFRVAKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogICAgdW5rbm93bjogdHJ1ZQogIC0geyJpZCI6IlJFUS1ORVciLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQifQotLS0KIyDpobnnm67kuJrliqHotYTmlpkKCiMjIFtSRVEtS0VFUF0gUkVRLUtFRVAKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMgW1JFUS1ORVddIFJFUS1ORVcKIyMjIOmcgOaxguWGheWuuQrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnlrp7pmYXopoHmsYLkuI7mnKrmoLjlr7nojIPlm7TjgIIK"
+    },
+    {
+      "label": "C03-readback-new-item-single-final-newline",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-TOq1lo",
+      "action": "read",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "intent-review-fixture",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-TOq1lo",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-TOq1lo"
+        },
+        "read_at": "2026-10-05T16:32:22.966Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "intent-review-fixture",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [
+            "docs/evidence/history/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "499971b31b981f79c189c06af4454ba58b78e03c9df08aa1e2fe6d77bd0bc5e4",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "05c552fedd8bc1f93eafaea89e817ce5abb5de045af9d1b03fa22fa621dbe84f",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "a18f5d9360620b1bc3e44a586b35568ff5f71f62cd05ca82e27f84841960a11f",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "body": "## [PROJECT-A] PROJECT-A\n### 项目定位\n保留实际要求与未核对范围。\n### 盘点范围与未核对项\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-NEW",
+            "type": "requirement",
+            "title": "REQ-NEW",
+            "path": "docs/product/REQ.md",
+            "line": 19,
+            "metadata": {
+              "id": "REQ-NEW",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "57437d315db40aed06d0ec11df7575237db504024c1b362e427d9afd8078aaf4",
+            "body": "## [REQ-NEW] REQ-NEW\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-NEW"
+            }
+          }
+        ],
+        "unusable_items": [
+          {
+            "id": "REQ-KEEP",
+            "type": "requirement",
+            "path": "docs/product/REQ.md",
+            "line": 12,
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/REQ.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-KEEP",
+                "pointer": "/items/0/unknown"
+              }
+            ],
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            },
+            "body": "## [REQ-KEEP] REQ-KEEP\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+          }
+        ],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/REQ.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-KEEP",
+            "pointer": "/items/0/unknown"
+          }
+        ],
+        "coverage": {
+          "complete": true,
+          "files_read": 2,
+          "bytes_read": 936,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/*.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 2,
+          "invalid_count": 1,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "label": "C03-defect-append-flow-map",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-5psY46",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "c8eff7008b090f8ce19cbfa106e74463123a58f13e9ed2e92e3da8b495b051a9",
+            "append": [
+              {
+                "metadata": {
+                  "id": "REQ-NEW",
+                  "type": "requirement",
+                  "scope": "current"
+                },
+                "body": "## [REQ-NEW] REQ-NEW\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "failed",
+            "saved": false,
+            "error": "INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFsgeyAiaWQiIDogIlJFUS1LRUVQIiwgInR5cGUiIDogInJlcXVpcmVtZW50IiwgInNjb3BlIiA6ICJjdXJyZW50IiwgInVua25vd24iIDogdHJ1ZSB9IF0KLS0tCiMg5Lia5Yqh6LWE5paZCgojIyBbUkVRLUtFRVBdIFJFUS1LRUVQCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo=",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFsgeyAiaWQiIDogIlJFUS1LRUVQIiwgInR5cGUiIDogInJlcXVpcmVtZW50IiwgInNjb3BlIiA6ICJjdXJyZW50IiwgInVua25vd24iIDogdHJ1ZSB9IF0KLS0tCiMg5Lia5Yqh6LWE5paZCgojIyBbUkVRLUtFRVBdIFJFUS1LRUVQCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo="
+    },
+    {
+      "label": "C03-exact-whole-candidate-add-flow-map",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-5psY46",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "c8eff7008b090f8ce19cbfa106e74463123a58f13e9ed2e92e3da8b495b051a9",
+            "content": "---\nschema: vnext-product-doc/v2\nitems: [ { \"id\" : \"REQ-KEEP\", \"type\" : \"requirement\", \"scope\" : \"current\", \"unknown\" : true }, {\"id\":\"REQ-NEW\",\"type\":\"requirement\",\"scope\":\"current\"} ]\n---\n# 业务资料\n\n## [REQ-KEEP] REQ-KEEP\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n## [REQ-NEW] REQ-NEW\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "d3c9d6d1176a4a84f98835545427255f4d40ec4b9ee6941e0bebdfa6437ee4e5",
+            "preimage": {
+              "sha256": "c8eff7008b090f8ce19cbfa106e74463123a58f13e9ed2e92e3da8b495b051a9",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFsgeyAiaWQiIDogIlJFUS1LRUVQIiwgInR5cGUiIDogInJlcXVpcmVtZW50IiwgInNjb3BlIiA6ICJjdXJyZW50IiwgInVua25vd24iIDogdHJ1ZSB9IF0KLS0tCiMg5Lia5Yqh6LWE5paZCgojIyBbUkVRLUtFRVBdIFJFUS1LRUVQCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo="
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-NEW"
+            ],
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/REQ.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-KEEP",
+                "pointer": "/items/0/unknown"
+              }
+            ]
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFsgeyAiaWQiIDogIlJFUS1LRUVQIiwgInR5cGUiIDogInJlcXVpcmVtZW50IiwgInNjb3BlIiA6ICJjdXJyZW50IiwgInVua25vd24iIDogdHJ1ZSB9IF0KLS0tCiMg5Lia5Yqh6LWE5paZCgojIyBbUkVRLUtFRVBdIFJFUS1LRUVQCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo=",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFsgeyAiaWQiIDogIlJFUS1LRUVQIiwgInR5cGUiIDogInJlcXVpcmVtZW50IiwgInNjb3BlIiA6ICJjdXJyZW50IiwgInVua25vd24iIDogdHJ1ZSB9LCB7ImlkIjoiUkVRLU5FVyIsInR5cGUiOiJyZXF1aXJlbWVudCIsInNjb3BlIjoiY3VycmVudCJ9IF0KLS0tCiMg5Lia5Yqh6LWE5paZCgojIyBbUkVRLUtFRVBdIFJFUS1LRUVQCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgojIyBbUkVRLU5FV10gUkVRLU5FVwojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggo="
+    },
+    {
+      "label": "C03-readback-new-item-flow-map",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-5psY46",
+      "action": "read",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "intent-review-fixture",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-5psY46",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-5psY46"
+        },
+        "read_at": "2026-10-05T16:32:23.748Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "intent-review-fixture",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [
+            "docs/evidence/history/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "499971b31b981f79c189c06af4454ba58b78e03c9df08aa1e2fe6d77bd0bc5e4",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "05c552fedd8bc1f93eafaea89e817ce5abb5de045af9d1b03fa22fa621dbe84f",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "d3c9d6d1176a4a84f98835545427255f4d40ec4b9ee6941e0bebdfa6437ee4e5",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "body": "## [PROJECT-A] PROJECT-A\n### 项目定位\n保留实际要求与未核对范围。\n### 盘点范围与未核对项\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-NEW",
+            "type": "requirement",
+            "title": "REQ-NEW",
+            "path": "docs/product/REQ.md",
+            "line": 15,
+            "metadata": {
+              "id": "REQ-NEW",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "definition_sha256": "57437d315db40aed06d0ec11df7575237db504024c1b362e427d9afd8078aaf4",
+            "body": "## [REQ-NEW] REQ-NEW\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-NEW"
+            }
+          }
+        ],
+        "unusable_items": [
+          {
+            "id": "REQ-KEEP",
+            "type": "requirement",
+            "path": "docs/product/REQ.md",
+            "line": 7,
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/REQ.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-KEEP",
+                "pointer": "/items/0/unknown"
+              }
+            ],
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            },
+            "body": "## [REQ-KEEP] REQ-KEEP\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n"
+          }
+        ],
+        "reverse_relations": [],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/REQ.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-KEEP",
+            "pointer": "/items/0/unknown"
+          }
+        ],
+        "coverage": {
+          "complete": true,
+          "files_read": 2,
+          "bytes_read": 941,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/*.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 2,
+          "invalid_count": 1,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "label": "C03-defect-split-same-file-with-malformed-neighbor",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "5a870634655d613fd6a9fcc9cb9cdd87f9eb98171377220b085051e85ce91c4c",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "scope": "retired"
+                }
+              }
+            ],
+            "append": [
+              {
+                "metadata": {
+                  "id": "REQ-CHILD-A",
+                  "type": "requirement",
+                  "scope": "current",
+                  "links": [
+                    {
+                      "id": "FROM-REQ-CHILD-A",
+                      "relation": "derived_from",
+                      "target": "REQ-A",
+                      "origin": "declared",
+                      "state": "active"
+                    }
+                  ]
+                },
+                "body": "## [REQ-CHILD-A] REQ-CHILD-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+              },
+              {
+                "metadata": {
+                  "id": "REQ-CHILD-B",
+                  "type": "requirement",
+                  "scope": "current",
+                  "links": [
+                    {
+                      "id": "FROM-REQ-CHILD-B",
+                      "relation": "derived_from",
+                      "target": "REQ-A",
+                      "origin": "declared",
+                      "state": "active"
+                    }
+                  ]
+                },
+                "body": "## [REQ-CHILD-B] REQ-CHILD-B\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 1,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "failed",
+        "files": [
+          {
+            "path": "docs/product/REQ.md",
+            "status": "failed",
+            "saved": false,
+            "error": "INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes"
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "before_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogIC0gaWQ6IFJFUS1LRUVQCiAgICB0eXBlOiByZXF1aXJlbWVudAogICAgc2NvcGU6IGN1cnJlbnQKICAgIHVua25vd246IHRydWUKLS0tCiMg6aG555uu5Lia5Yqh6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgoKIyMgW1JFUS1LRUVQXSBSRVEtS0VFUAojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggo=",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogIC0gaWQ6IFJFUS1LRUVQCiAgICB0eXBlOiByZXF1aXJlbWVudAogICAgc2NvcGU6IGN1cnJlbnQKICAgIHVua25vd246IHRydWUKLS0tCiMg6aG555uu5Lia5Yqh6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgoKIyMgW1JFUS1LRUVQXSBSRVEtS0VFUAojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggo="
+    },
+    {
+      "label": "C03-split-existing-authorized-file-paths",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/SPLIT.md",
+            "expected_sha256": null,
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - id: REQ-CHILD-A\n    type: requirement\n    scope: current\n    links:\n      - id: FROM-REQ-CHILD-A\n        relation: derived_from\n        target: REQ-A\n        origin: declared\n        state: active\n  - id: REQ-CHILD-B\n    type: requirement\n    scope: current\n    links:\n      - id: FROM-REQ-CHILD-B\n        relation: derived_from\n        target: REQ-A\n        origin: declared\n        state: active\n---\n# 项目业务资料\n\n## [REQ-CHILD-A] REQ-CHILD-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n\n## [REQ-CHILD-B] REQ-CHILD-B\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n"
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "expected_sha256": "5a870634655d613fd6a9fcc9cb9cdd87f9eb98171377220b085051e85ce91c4c",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "scope": "retired",
+                  "links": [
+                    {
+                      "id": "TO-REQ-CHILD-A",
+                      "relation": "replaces",
+                      "target": "REQ-CHILD-A",
+                      "origin": "declared",
+                      "state": "active"
+                    },
+                    {
+                      "id": "TO-REQ-CHILD-B",
+                      "relation": "replaces",
+                      "target": "REQ-CHILD-B",
+                      "origin": "declared",
+                      "state": "active"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/SPLIT.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "a5b47baa5002125250a6593743bea734817ebf5b5dd0514f80bb7d00c39a9de6",
+            "preimage": null,
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-CHILD-A",
+              "REQ-CHILD-B"
+            ],
+            "diagnostics": []
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "20c87a0ae6c88ce3b908000078fffb8d38d0424e15246cce56b77d0d7bf05fd0",
+            "preimage": {
+              "sha256": "5a870634655d613fd6a9fcc9cb9cdd87f9eb98171377220b085051e85ce91c4c",
+              "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogUkVRLUEKICAgIHR5cGU6IHJlcXVpcmVtZW50CiAgICBzY29wZTogY3VycmVudAogIC0gaWQ6IFJFUS1LRUVQCiAgICB0eXBlOiByZXF1aXJlbWVudAogICAgc2NvcGU6IGN1cnJlbnQKICAgIHVua25vd246IHRydWUKLS0tCiMg6aG555uu5Lia5Yqh6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgoKIyMgW1JFUS1LRUVQXSBSRVEtS0VFUAojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggo="
+            },
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "REQ-A"
+            ],
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/REQ.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-KEEP",
+                "pointer": "/items/1/unknown"
+              }
+            ]
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": ""
+    },
+    {
+      "label": "C03-readback-split-identities-and-history",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+      "action": "read",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "intent-review-fixture",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs"
+        },
+        "read_at": "2026-10-05T16:32:24.606Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "intent-review-fixture",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [
+            "docs/evidence/history/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "499971b31b981f79c189c06af4454ba58b78e03c9df08aa1e2fe6d77bd0bc5e4",
+        "documents": [
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "05c552fedd8bc1f93eafaea89e817ce5abb5de045af9d1b03fa22fa621dbe84f",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "20c87a0ae6c88ce3b908000078fffb8d38d0424e15246cce56b77d0d7bf05fd0",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          },
+          {
+            "path": "docs/product/SPLIT.md",
+            "sha256": "a5b47baa5002125250a6593743bea734817ebf5b5dd0514f80bb7d00c39a9de6",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 2,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/SPLIT.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "body": "## [PROJECT-A] PROJECT-A\n### 项目定位\n保留实际要求与未核对范围。\n### 盘点范围与未核对项\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 12,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "retired",
+              "links": [
+                {
+                  "id": "TO-REQ-CHILD-A",
+                  "relation": "replaces",
+                  "target": "REQ-CHILD-A",
+                  "origin": "declared",
+                  "state": "active"
+                },
+                {
+                  "id": "TO-REQ-CHILD-B",
+                  "relation": "replaces",
+                  "target": "REQ-CHILD-B",
+                  "origin": "declared",
+                  "state": "active"
+                }
+              ]
+            },
+            "definition_sha256": "82a2238bba830f9e9657ac9d009b614706d18c0f0d0b35ffc407bd4b6ac5e216",
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          },
+          {
+            "id": "REQ-CHILD-A",
+            "type": "requirement",
+            "title": "REQ-CHILD-A",
+            "path": "docs/product/SPLIT.md",
+            "line": 25,
+            "metadata": {
+              "id": "REQ-CHILD-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "FROM-REQ-CHILD-A",
+                  "relation": "derived_from",
+                  "target": "REQ-A",
+                  "origin": "declared",
+                  "state": "active"
+                }
+              ]
+            },
+            "definition_sha256": "4ca8441b959124a35baaaa973cdd6f1f9972e0d3dff6ebf1f900e65f7b631b4a",
+            "body": "## [REQ-CHILD-A] REQ-CHILD-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/SPLIT.md",
+              "item_id": "REQ-CHILD-A"
+            }
+          },
+          {
+            "id": "REQ-CHILD-B",
+            "type": "requirement",
+            "title": "REQ-CHILD-B",
+            "path": "docs/product/SPLIT.md",
+            "line": 34,
+            "metadata": {
+              "id": "REQ-CHILD-B",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "FROM-REQ-CHILD-B",
+                  "relation": "derived_from",
+                  "target": "REQ-A",
+                  "origin": "declared",
+                  "state": "active"
+                }
+              ]
+            },
+            "definition_sha256": "bd187c3eecf1eb2a1b4e318a10e7c86c6481010d7edd730af3dc9ced882abf3f",
+            "body": "## [REQ-CHILD-B] REQ-CHILD-B\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/SPLIT.md",
+              "item_id": "REQ-CHILD-B"
+            }
+          }
+        ],
+        "unusable_items": [
+          {
+            "id": "REQ-KEEP",
+            "type": "requirement",
+            "path": "docs/product/REQ.md",
+            "line": 21,
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/REQ.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-KEEP",
+                "pointer": "/items/1/unknown"
+              }
+            ],
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            },
+            "body": "## [REQ-KEEP] REQ-KEEP\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+          }
+        ],
+        "reverse_relations": [
+          {
+            "owner": "REQ-A",
+            "id": "TO-REQ-CHILD-A",
+            "relation": "replaces",
+            "target": "REQ-CHILD-A",
+            "origin": "declared",
+            "state": "active"
+          },
+          {
+            "owner": "REQ-A",
+            "id": "TO-REQ-CHILD-B",
+            "relation": "replaces",
+            "target": "REQ-CHILD-B",
+            "origin": "declared",
+            "state": "active"
+          },
+          {
+            "owner": "REQ-CHILD-A",
+            "id": "FROM-REQ-CHILD-A",
+            "relation": "derived_from",
+            "target": "REQ-A",
+            "origin": "declared",
+            "state": "active"
+          },
+          {
+            "owner": "REQ-CHILD-B",
+            "id": "FROM-REQ-CHILD-B",
+            "relation": "derived_from",
+            "target": "REQ-A",
+            "origin": "declared",
+            "state": "active"
+          }
+        ],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/REQ.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-KEEP",
+            "pointer": "/items/1/unknown"
+          }
+        ],
+        "coverage": {
+          "complete": true,
+          "files_read": 3,
+          "bytes_read": 2025,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/*.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 4,
+          "invalid_count": 1,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    },
+    {
+      "label": "independent-goal-and-design-after-maintenance-failure",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+      "action": "apply",
+      "request": {
+        "files": [
+          {
+            "path": "docs/product/NEW.md",
+            "expected_sha256": null,
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - id: GOAL-NEW\n    type: goal\n    scope: current\n  - id: DESIGN-NEW\n    type: design\n    intent_state: proposed\n---\n# 项目业务资料\n\n## [GOAL-NEW] GOAL-NEW\n### 目标说明\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n\n\n## [DESIGN-NEW] DESIGN-NEW\n### 设计方案\n保留实际要求与未核对范围。\n### 约束与取舍\n保留实际要求与未核对范围。\n### 实际实现与差异\n保留实际要求与未核对范围。\n\n"
+          }
+        ]
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "apply",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "saved",
+        "files": [
+          {
+            "path": "docs/product/NEW.md",
+            "status": "saved",
+            "saved": true,
+            "changed": true,
+            "sha256": "488c2f298bbad93416a655c8bec1cbc4934ecc39766568421969fe4abec3a18e",
+            "preimage": null,
+            "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+            "affected_items": [
+              "GOAL-NEW",
+              "DESIGN-NEW"
+            ],
+            "diagnostics": []
+          }
+        ],
+        "association": "not-evaluated",
+        "reconciliation": "not-evaluated",
+        "transaction": "per-file; no cross-file atomicity"
+      },
+      "stderr": "",
+      "after_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSBpZDogR09BTC1ORVcKICAgIHR5cGU6IGdvYWwKICAgIHNjb3BlOiBjdXJyZW50CiAgLSBpZDogREVTSUdOLU5FVwogICAgdHlwZTogZGVzaWduCiAgICBpbnRlbnRfc3RhdGU6IHByb3Bvc2VkCi0tLQojIOmhueebruS4muWKoei1hOaWmQoKIyMgW0dPQUwtTkVXXSBHT0FMLU5FVwojIyMg55uu5qCH6K+05piOCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWunumZheimgeaxguS4juacquaguOWvueiMg+WbtOOAggoKCiMjIFtERVNJR04tTkVXXSBERVNJR04tTkVXCiMjIyDorr7orqHmlrnmoYgK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDnuqbmnZ/kuI7lj5boiI0K5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCiMjIyDlrp7pmYXlrp7njrDkuI7lt67lvIIK5L+d55WZ5a6e6ZmF6KaB5rGC5LiO5pyq5qC45a+56IyD5Zu044CCCgo="
+    },
+    {
+      "label": "assistance-record-after-maintenance-failure",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+      "action": "record",
+      "request": {
+        "kind": "observation",
+        "body": {
+          "test_fixture": true,
+          "original_failure": "INVALID_ITEM_CHANGED",
+          "user_intent": "synthetic split/new goal/new design",
+          "alternative_saved": true
+        },
+        "idempotency_key": "intent-review-observation-1"
+      },
+      "exit": 0,
+      "result": {
+        "runtime_role": "assistance",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "status": "recorded",
+        "recorded": true,
+        "ref": ".workflow-system/records/events/key-96579c31ed6ef0bd958b6d3cfbccb9b971567072ed983fabafd98e07bf83c8a1.json",
+        "sha256": "a0cb80ee3d117060f3933a92649bb000df13ccddfaff5888d05e7d50d7917ccf",
+        "attachments_ref": null,
+        "attachments": [],
+        "issues": [],
+        "management": {
+          "status": "updated",
+          "cache_ref": ".workflow-system/records/task-view.json",
+          "display": "retained-no-managed-task"
+        },
+        "current_task_id": null
+      },
+      "stderr": ""
+    },
+    {
+      "label": "assistance-prepare-after-maintenance-failure",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+      "action": "task",
+      "request": {
+        "action": "prepare",
+        "plan": {
+          "title": "合成任务准备检查",
+          "goal": "验证 PRODUCT 坏条目和维护失败不构成任务门槛",
+          "steps": [
+            {
+              "id": "S1",
+              "title": "后续明确工作"
+            }
+          ]
+        },
+        "idempotency_key": "intent-review-prepare-1"
+      },
+      "exit": 0,
+      "result": {
+        "runtime_role": "assistance",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "status": "applied",
+        "recorded": true,
+        "ref": ".workflow-system/records/events/key-654586a7e930a58cb2f9c3b3a17344530c03aa8681b0eaba8c46c6249fe29c84.json",
+        "task_id": "task-ebd6081603e7272df7ce1da6b3da0215",
+        "task": {
+          "task_id": "task-ebd6081603e7272df7ce1da6b3da0215",
+          "display_id": "TASK-001",
+          "title": "合成任务准备检查",
+          "lifecycle": "draft",
+          "lifecycle_ref": null,
+          "adopted_plan_ref": null,
+          "plan_status": "candidate",
+          "plan": null,
+          "plans": [
+            {
+              "title": "合成任务准备检查",
+              "goal": "验证 PRODUCT 坏条目和维护失败不构成任务门槛",
+              "steps": [
+                {
+                  "id": "S1",
+                  "title": "后续明确工作"
+                }
+              ],
+              "ref": ".workflow-system/records/events/key-654586a7e930a58cb2f9c3b3a17344530c03aa8681b0eaba8c46c6249fe29c84.json",
+              "parent_plan_ref": null
+            }
+          ],
+          "adopted_by": null,
+          "adoption": null,
+          "candidate_plan_refs": [
+            ".workflow-system/records/events/key-654586a7e930a58cb2f9c3b3a17344530c03aa8681b0eaba8c46c6249fe29c84.json"
+          ],
+          "current_step_id": null,
+          "steps": [],
+          "reviews": [],
+          "executions": [],
+          "tests": [],
+          "review_decisions": [],
+          "commits": [],
+          "dispositions": [],
+          "next_route": "review-draft",
+          "next_mode": null,
+          "next_action": null,
+          "recommendation_only": true,
+          "legacy_source": null,
+          "legacy_plan_ref": null,
+          "heads": [
+            ".workflow-system/records/events/key-654586a7e930a58cb2f9c3b3a17344530c03aa8681b0eaba8c46c6249fe29c84.json"
+          ]
+        },
+        "association": "applied",
+        "projection": {
+          "status": "updated",
+          "cache_ref": ".workflow-system/records/task-view.json",
+          "display": "updated",
+          "display_ref": "docs/workflow/CURRENT_TASK.md"
+        },
+        "current_task_id": null,
+        "issues": [],
+        "recovery_options": [
+          "rebuild",
+          "link",
+          "correct",
+          "resolve",
+          "defer",
+          "pause",
+          "close"
+        ]
+      },
+      "stderr": ""
+    },
+    {
+      "label": "assistance-readback-no-product-gate",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+      "action": "task-status",
+      "request": {
+        "task_ref": "task-ebd6081603e7272df7ce1da6b3da0215",
+        "detail": "task"
+      },
+      "exit": 0,
+      "result": {
+        "runtime_role": "assistance",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "kind": "task-query/v1",
+        "detail": "task",
+        "status": "available",
+        "source_revision": "19367832e391e7a1f0fb64354c5c709f838a17596bf4309d0717d770e3110c30",
+        "view_revision": "2fadc876221b862de4f54d795252a91df9ffef51a5c3764b8cbb9e07d5158780",
+        "workflow_home": "docs/workflow",
+        "current_task_id": null,
+        "selection": {
+          "requested_task_ref": "task-ebd6081603e7272df7ce1da6b3da0215",
+          "task_id": "task-ebd6081603e7272df7ce1da6b3da0215",
+          "status": "resolved",
+          "detail_request": {
+            "detail": "task",
+            "task_ref": "task-ebd6081603e7272df7ce1da6b3da0215",
+            "workflow_home": "docs/workflow"
+          }
+        },
+        "health": "consistent",
+        "state_completeness": "complete",
+        "records_scanned": 2,
+        "projection": {
+          "cache": "current",
+          "display": "current",
+          "read_only_rebuilt": true
+        },
+        "recovery_options": [
+          "rebuild",
+          "link",
+          "correct",
+          "resolve",
+          "defer",
+          "pause",
+          "close"
+        ],
+        "issues": [],
+        "unassociated_records": [],
+        "task_count": 1,
+        "lifecycle_counts": {
+          "draft": 1
+        },
+        "coverage": {
+          "computation": "full-journal-rebuild",
+          "diagnostics": "all",
+          "history": "selected-task"
+        },
+        "note": "Presentation of the complete live rebuild. Omitted detail is not absent history, clean review or permission. Read record refs with read; use detail=full for the compatibility view.",
+        "task": {
+          "task_id": "task-ebd6081603e7272df7ce1da6b3da0215",
+          "display_id": "TASK-001",
+          "title": "合成任务准备检查",
+          "lifecycle": "draft",
+          "lifecycle_ref": null,
+          "adopted_plan_ref": null,
+          "plan_status": "candidate",
+          "plan": null,
+          "plans": [
+            {
+              "title": "合成任务准备检查",
+              "goal": "验证 PRODUCT 坏条目和维护失败不构成任务门槛",
+              "steps": [
+                {
+                  "id": "S1",
+                  "title": "后续明确工作"
+                }
+              ],
+              "ref": ".workflow-system/records/events/key-654586a7e930a58cb2f9c3b3a17344530c03aa8681b0eaba8c46c6249fe29c84.json",
+              "parent_plan_ref": null
+            }
+          ],
+          "adopted_by": null,
+          "adoption": null,
+          "candidate_plan_refs": [
+            ".workflow-system/records/events/key-654586a7e930a58cb2f9c3b3a17344530c03aa8681b0eaba8c46c6249fe29c84.json"
+          ],
+          "current_step_id": null,
+          "steps": [],
+          "reviews": [],
+          "executions": [],
+          "tests": [],
+          "review_decisions": [],
+          "commits": [],
+          "dispositions": [],
+          "next_route": "review-draft",
+          "next_mode": null,
+          "next_action": null,
+          "recommendation_only": true,
+          "legacy_source": null,
+          "legacy_plan_ref": null,
+          "heads": [
+            ".workflow-system/records/events/key-654586a7e930a58cb2f9c3b3a17344530c03aa8681b0eaba8c46c6249fe29c84.json"
+          ]
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "label": "final-readback-goal-design-split",
+      "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+      "action": "read",
+      "request": {
+        "detail": "items"
+      },
+      "exit": 0,
+      "result": {
+        "kind": "product-maintenance-result/v1",
+        "action": "read",
+        "development_gate": false,
+        "qualification": "not-evaluated",
+        "task_operations": "not-performed",
+        "status": "available",
+        "project_id": "intent-review-fixture",
+        "working_copy": {
+          "root": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs",
+          "identity": "C:\\Users\\kongx\\AppData\\Local\\Temp\\maintain-intent-review-bapdHs"
+        },
+        "read_at": "2026-10-05T16:32:26.101Z",
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "intent-review-fixture",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [
+            "docs/evidence/history/**"
+          ],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "manifest_path": ".workflow-system/PRODUCT.yaml",
+        "manifest_sha256": "499971b31b981f79c189c06af4454ba58b78e03c9df08aa1e2fe6d77bd0bc5e4",
+        "documents": [
+          {
+            "path": "docs/product/NEW.md",
+            "sha256": "488c2f298bbad93416a655c8bec1cbc4934ecc39766568421969fe4abec3a18e",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 2,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/NEW.md"
+            }
+          },
+          {
+            "path": "docs/product/PROJECT.md",
+            "sha256": "05c552fedd8bc1f93eafaea89e817ce5abb5de045af9d1b03fa22fa621dbe84f",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md"
+            }
+          },
+          {
+            "path": "docs/product/REQ.md",
+            "sha256": "20c87a0ae6c88ce3b908000078fffb8d38d0424e15246cce56b77d0d7bf05fd0",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 1,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            }
+          },
+          {
+            "path": "docs/product/SPLIT.md",
+            "sha256": "a5b47baa5002125250a6593743bea734817ebf5b5dd0514f80bb7d00c39a9de6",
+            "schema": "vnext-product-doc/v2",
+            "usable_count": 2,
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/SPLIT.md"
+            }
+          }
+        ],
+        "usable_items": [
+          {
+            "id": "GOAL-NEW",
+            "type": "goal",
+            "title": "GOAL-NEW",
+            "path": "docs/product/NEW.md",
+            "line": 13,
+            "metadata": {
+              "id": "GOAL-NEW",
+              "type": "goal",
+              "scope": "current"
+            },
+            "definition_sha256": null,
+            "body": "## [GOAL-NEW] GOAL-NEW\n### 目标说明\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/NEW.md",
+              "item_id": "GOAL-NEW"
+            }
+          },
+          {
+            "id": "DESIGN-NEW",
+            "type": "design",
+            "title": "DESIGN-NEW",
+            "path": "docs/product/NEW.md",
+            "line": 20,
+            "metadata": {
+              "id": "DESIGN-NEW",
+              "type": "design",
+              "intent_state": "proposed"
+            },
+            "definition_sha256": null,
+            "body": "## [DESIGN-NEW] DESIGN-NEW\n### 设计方案\n保留实际要求与未核对范围。\n### 约束与取舍\n保留实际要求与未核对范围。\n### 实际实现与差异\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/NEW.md",
+              "item_id": "DESIGN-NEW"
+            }
+          },
+          {
+            "id": "PROJECT-A",
+            "type": "project",
+            "title": "PROJECT-A",
+            "path": "docs/product/PROJECT.md",
+            "line": 13,
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "definition_sha256": null,
+            "body": "## [PROJECT-A] PROJECT-A\n### 项目定位\n保留实际要求与未核对范围。\n### 盘点范围与未核对项\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/PROJECT.md",
+              "item_id": "PROJECT-A"
+            }
+          },
+          {
+            "id": "REQ-A",
+            "type": "requirement",
+            "title": "REQ-A",
+            "path": "docs/product/REQ.md",
+            "line": 12,
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "retired",
+              "links": [
+                {
+                  "id": "TO-REQ-CHILD-A",
+                  "relation": "replaces",
+                  "target": "REQ-CHILD-A",
+                  "origin": "declared",
+                  "state": "active"
+                },
+                {
+                  "id": "TO-REQ-CHILD-B",
+                  "relation": "replaces",
+                  "target": "REQ-CHILD-B",
+                  "origin": "declared",
+                  "state": "active"
+                }
+              ]
+            },
+            "definition_sha256": "82a2238bba830f9e9657ac9d009b614706d18c0f0d0b35ffc407bd4b6ac5e216",
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md",
+              "item_id": "REQ-A"
+            }
+          },
+          {
+            "id": "REQ-CHILD-A",
+            "type": "requirement",
+            "title": "REQ-CHILD-A",
+            "path": "docs/product/SPLIT.md",
+            "line": 25,
+            "metadata": {
+              "id": "REQ-CHILD-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "FROM-REQ-CHILD-A",
+                  "relation": "derived_from",
+                  "target": "REQ-A",
+                  "origin": "declared",
+                  "state": "active"
+                }
+              ]
+            },
+            "definition_sha256": "4ca8441b959124a35baaaa973cdd6f1f9972e0d3dff6ebf1f900e65f7b631b4a",
+            "body": "## [REQ-CHILD-A] REQ-CHILD-A\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/SPLIT.md",
+              "item_id": "REQ-CHILD-A"
+            }
+          },
+          {
+            "id": "REQ-CHILD-B",
+            "type": "requirement",
+            "title": "REQ-CHILD-B",
+            "path": "docs/product/SPLIT.md",
+            "line": 34,
+            "metadata": {
+              "id": "REQ-CHILD-B",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "FROM-REQ-CHILD-B",
+                  "relation": "derived_from",
+                  "target": "REQ-A",
+                  "origin": "declared",
+                  "state": "active"
+                }
+              ]
+            },
+            "definition_sha256": "bd187c3eecf1eb2a1b4e318a10e7c86c6481010d7edd730af3dc9ced882abf3f",
+            "body": "## [REQ-CHILD-B] REQ-CHILD-B\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n\n",
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/SPLIT.md",
+              "item_id": "REQ-CHILD-B"
+            }
+          }
+        ],
+        "unusable_items": [
+          {
+            "id": "REQ-KEEP",
+            "type": "requirement",
+            "path": "docs/product/REQ.md",
+            "line": 21,
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/REQ.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-KEEP",
+                "pointer": "/items/1/unknown"
+              }
+            ],
+            "raw_locator": {
+              "kind": "file",
+              "path": "docs/product/REQ.md"
+            },
+            "body": "## [REQ-KEEP] REQ-KEEP\n### 需求内容\n保留实际要求与未核对范围。\n### 范围边界\n保留实际要求与未核对范围。\n### 验收要求\n保留实际要求与未核对范围。\n"
+          }
+        ],
+        "reverse_relations": [
+          {
+            "owner": "REQ-A",
+            "id": "TO-REQ-CHILD-A",
+            "relation": "replaces",
+            "target": "REQ-CHILD-A",
+            "origin": "declared",
+            "state": "active"
+          },
+          {
+            "owner": "REQ-A",
+            "id": "TO-REQ-CHILD-B",
+            "relation": "replaces",
+            "target": "REQ-CHILD-B",
+            "origin": "declared",
+            "state": "active"
+          },
+          {
+            "owner": "REQ-CHILD-A",
+            "id": "FROM-REQ-CHILD-A",
+            "relation": "derived_from",
+            "target": "REQ-A",
+            "origin": "declared",
+            "state": "active"
+          },
+          {
+            "owner": "REQ-CHILD-B",
+            "id": "FROM-REQ-CHILD-B",
+            "relation": "derived_from",
+            "target": "REQ-A",
+            "origin": "declared",
+            "state": "active"
+          }
+        ],
+        "plan_tasks": [],
+        "discussions": [],
+        "impact": null,
+        "sources": [],
+        "diagnostics": [
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/REQ.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-KEEP",
+            "pointer": "/items/1/unknown"
+          }
+        ],
+        "coverage": {
+          "complete": true,
+          "files_read": 4,
+          "bytes_read": 2555,
+          "enumeration": "managed_paths only; sources are read only by explicit reference",
+          "omitted": [],
+          "paths": [
+            "docs/product/*.md"
+          ],
+          "excluded_paths": [],
+          "max_files": 1000,
+          "max_file_bytes": 4194304,
+          "max_total_bytes": 33554432,
+          "usable_count": 6,
+          "invalid_count": 1,
+          "selection": "all-enumerated-items",
+          "source_bodies": "not-read"
+        },
+        "task_status": "not-computed; use existing assistance only when actual task state is needed"
+      },
+      "stderr": ""
+    }
+  ],
+  "limits": [
+    "deterministic synthetic probes; no host-agent compliance proof",
+    "ordinary-editor fallback is demonstrated, not automated by helper",
+    "no independent review, real-project or cross-model acceptance",
+    "known defects intentionally remain; probe script success is not overall product PASS"
+  ]
+}

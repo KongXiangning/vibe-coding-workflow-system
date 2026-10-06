@@ -1,0 +1,698 @@
+{
+  "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+  "branch": "codex/maintain-project-v1",
+  "versions": {
+    "node": "v24.12.0",
+    "bun": "1.3.10"
+  },
+  "artifacts": {
+    "baseline": "83a3d293aa8007b25c4bbd1b4e98dae77eed00fc856cd17a919c10ec96f2bbe4",
+    "before_d_fix": "cc4ebd6af391d43e601d499404efa88d3e5b2469581edca6295ff919d24d2387",
+    "current": "42ca8baf451c48af30f68f5804a932684ea44740427d3b3cda017e87c8109bf5"
+  },
+  "files": {
+    "runtime/vnext/src/product-maintenance/writer.ts": "307137afdb0e43ddd14e4db492d51d5dc0df85a38a6d1317cc995e551b2ac23a",
+    "test/product-maintenance.test.ts": "6b97f01f7d2395f9806734d9e81a73e3872654d7e34a2351756a0b2689bd136f",
+    "test/product-maintenance-install.test.ts": "e89d69e072658090e500859ab654c0bb90f038ca765ef1e755225f3242da9f1f",
+    "docs/product/project-maintenance/document-contract.md": "40b8c1ba573de4fe38c46876aa728f89861faa9b918a3936bb2527ffdaef7c5d",
+    "runtime/vnext/support/product-maintenance/contract.md": "40b8c1ba573de4fe38c46876aa728f89861faa9b918a3936bb2527ffdaef7c5d",
+    "runtime/vnext/support/product-maintenance/API.md": "e63d6b6245b393bb4e84916c5b908efbd99c6ccc63964ca888a98a14edfc41a6",
+    "runtime/vnext/support/product-maintenance/references/recovery.md": "0544d3f5509bb8db1cbe61c5dd17546d3e7de01bc2a0e6e63fbb30372f365d52",
+    "runtime/vnext/dist/product-maintenance.js": "42ca8baf451c48af30f68f5804a932684ea44740427d3b3cda017e87c8109bf5",
+    "runtime/vnext/support/product-maintenance/offline-reader.js": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a"
+  },
+  "source_contract_equals_generated": true,
+  "node_observation_count": 42,
+  "expected_current_results": true,
+  "tests": {
+    "product": {
+      "pass": 33,
+      "fail": 0,
+      "assertions": 761
+    },
+    "install": {
+      "pass": 1,
+      "fail": 0,
+      "assertions": 125
+    },
+    "source": {
+      "pass": 19,
+      "fail": 0,
+      "assertions": 115
+    },
+    "distinct_total": 53,
+    "assertion_total": 1001
+  },
+  "distribution": {
+    "schema_version": 1,
+    "kind": "vibe-governance-distribution-manifest",
+    "product": "Vibe Governance",
+    "package_name": "vibe-governance",
+    "distribution_version": "0.24.1",
+    "minimum_node": ">=20.0.0",
+    "runtime_dependency_path": ".workflow-system/runtime/node_modules",
+    "artifact_source": "embedded-release",
+    "artifacts": [
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/bootstrap-project.SKILL.md.tmpl",
+        "target_path": ".agents/skills/bootstrap-project/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "5c2f3eb6a5df0dccfd7a9f4f84c3ef9b4e1cd61c071ec9796932c029d39a6692"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/capture-work-item.SKILL.md.tmpl",
+        "target_path": ".agents/skills/capture-work-item/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "e64d17a675e7a4e9710e09b14e71a9b981fc76285971fa6efb849971aa9d0525"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/close-task.SKILL.md.tmpl",
+        "target_path": ".agents/skills/close-task/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "f4aab694497b0e5d4bc4625c2dd8f658e4aa9826dfbe9b88c7538c69ca15a81e"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/debug-task.SKILL.md.tmpl",
+        "target_path": ".agents/skills/debug-task/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "90680b4db3310a3d7cd664af8988b31cc640fc8b71e739f46ca9cba4f22e3b06"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/execute-step.SKILL.md.tmpl",
+        "target_path": ".agents/skills/execute-step/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "fef48a343eca3fc6944903bbadd91e30cafea3053eac583e81daae781e88c1ca"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/git-commit.SKILL.md.tmpl",
+        "target_path": ".agents/skills/git-commit/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "3ce702b546a234212fada77840937dd433e40ff9639cd6f1e1338be54e27c47c"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/maintain-project.SKILL.md.tmpl",
+        "target_path": ".agents/skills/maintain-project/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "c60054c9bdc4f63abda461326109cc2e87069dc854f79335c8a9a80ecc125190"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/prepare-task.SKILL.md.tmpl",
+        "target_path": ".agents/skills/prepare-task/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "23ae7be0c9da179b33d2e5a020207fbf54a1aad7a75d16640ef8c4b16a86ded4"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/review-change.SKILL.md.tmpl",
+        "target_path": ".agents/skills/review-change/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "bad896e9541f5344756321a17c7ce82cabaafbcbd6b31d0e0ab6f0d05e5f6ebd"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/review-draft.SKILL.md.tmpl",
+        "target_path": ".agents/skills/review-draft/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "6938eebe27b20b8f8f1a69d1edc593cf6d73fecc9b2fd5b57ac4d0c25c6c35c7"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/task-lifecycle.SKILL.md.tmpl",
+        "target_path": ".agents/skills/task-lifecycle/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "469611296f0c6dd7611e4c4d211a829e1055779c9cdd8b10a41e9e14477eade5"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/skills/validate-change.SKILL.md.tmpl",
+        "target_path": ".agents/skills/validate-change/SKILL.md",
+        "category": "skill",
+        "required": true,
+        "checksum": "4f3107480a02c6319cc464f287c9e147a12d4f88d1b8939094c78f60e5984c34"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/bootstrap/FILE_SCHEMAS.md",
+        "target_path": ".workflow-system/FILE_SCHEMAS.md",
+        "category": "schema",
+        "required": true,
+        "checksum": "c44edd9fad1c898028cb1da02f7a65e23a50b06cc38a25d05e73a20e96dff72c"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/dist/cli.js",
+        "target_path": ".workflow-system/runtime/dist/cli.js",
+        "category": "runtime",
+        "required": true,
+        "checksum": "bd41777948282ff597e953ede64a66b1b96a56d58bf33ded4c18ba3fc95557c5"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/dist/install-tools.js",
+        "target_path": ".workflow-system/runtime/dist/install-tools.js",
+        "category": "runtime",
+        "required": true,
+        "checksum": "52dda1d9ccff732ba5363449c0b77c74969012259ad44d9bc9bb1fc90cc0386c"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/package-lock.json",
+        "target_path": ".workflow-system/runtime/package-lock.json",
+        "category": "runtime",
+        "required": true,
+        "checksum": "41cb7973690b825c3116d361881b0d29dbbab06e51cc45f83b761c210b476a10"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/package.json",
+        "target_path": ".workflow-system/runtime/package.json",
+        "category": "runtime",
+        "required": true,
+        "checksum": "a7eaa0bbdadfe7483e14292e03fb937e0b338ee7728b395f619e4a22c335f291"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/artifact-checkpoints.ts",
+        "target_path": ".workflow-system/runtime/src/artifact-checkpoints.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "6e3d3037e902e924c8d378c2cc1a979f3e1e8dc1a98963f0fd59d9ebb0067e0b"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/bootstrap-support.ts",
+        "target_path": ".workflow-system/runtime/src/bootstrap-support.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "8d645a7c9e13048753bd3a77a8e0df6aa1362558f9d7ef81277901ebd2bb36b5"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/bootstrap.ts",
+        "target_path": ".workflow-system/runtime/src/bootstrap.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "ce45b7ec19950ea1553a8343ce4823cd96ddc64265ed9b594c09b00e9f0d95f0"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/cli.ts",
+        "target_path": ".workflow-system/runtime/src/cli.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "6d307721e7c9106c1cf72344bd67aa8f0e18efd6af7f4dc5b7e29b1e9026112e"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/current-task.ts",
+        "target_path": ".workflow-system/runtime/src/current-task.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "a64026ebc9cc9a578701f24d0aef1963b93de1d5386383eabba8dacd0c305f3d"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/evidence-lineage.ts",
+        "target_path": ".workflow-system/runtime/src/evidence-lineage.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "ec186f8d9a247f81928c74238e81c0274a3bd590d9dcf9a8c45f2637b800a64f"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/execution-admission.ts",
+        "target_path": ".workflow-system/runtime/src/execution-admission.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "75396650b966ff3d1001598788e12688d6e3c62bfdf4c86889086f3f441826a2"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/file-context-cli.ts",
+        "target_path": ".workflow-system/runtime/src/file-context-cli.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "5630be4f049b5ce0231ed73ded3831d7c29062093b4f5a65365a2d08ce11d1e9"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/file-context.ts",
+        "target_path": ".workflow-system/runtime/src/file-context.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "6aebcbf295b56ab8db36604d0435075a5c4aa6708ca1f2333e901ac2072c531e"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/finding-queue-transaction.ts",
+        "target_path": ".workflow-system/runtime/src/finding-queue-transaction.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "3866bdfee7f56854519e227b676251baa0a9e1e3a524957a8d092e8e48ce741e"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/host-guidance.ts",
+        "target_path": ".workflow-system/runtime/src/host-guidance.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "274fb72a50cbdbfcd339a2527dcfd76547b786e1a484c6f69d7873ac84dd4bb0"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/install-tools-cli.ts",
+        "target_path": ".workflow-system/runtime/src/install-tools-cli.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "6fb51f466a935db3c7010852117029954a22551b0c1a4131c58b7f88572fd106"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/install-tools.ts",
+        "target_path": ".workflow-system/runtime/src/install-tools.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "194a486fa41b5fc70f293faa645c703f2febd04e4b02a16179de204dd85a4fa9"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/kernel.ts",
+        "target_path": ".workflow-system/runtime/src/kernel.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "1337bec0c6f09fa4ed11e48b03ccc61ea8a0de2ef8377435b3c1518bd4b2a8e1"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/migration-preservation.ts",
+        "target_path": ".workflow-system/runtime/src/migration-preservation.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "4ef0ab7e59a5f862f7b0d23f4b0262ecae71c66ff06cc32cc17f1958deab1274"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/migration-provenance.ts",
+        "target_path": ".workflow-system/runtime/src/migration-provenance.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "04675f4715a8aac5c7fd02222ffadeb21d5272e91eae7aae9c29c0e937b19b44"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/mutation-scope.ts",
+        "target_path": ".workflow-system/runtime/src/mutation-scope.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "cebfb62501cf46839534a5aa7b71666d706c34348bdd01157bddaf7b5973eebf"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/project-documents.ts",
+        "target_path": ".workflow-system/runtime/src/project-documents.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "75dc6ffe2270344ca0b7d871ffc52236ab3d5de7aab89f451dde567ae2b78f04"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/rg-tool.ts",
+        "target_path": ".workflow-system/runtime/src/rg-tool.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "1fedc058c184777e2832d817db1efda4d21ca0ce911c61d8ea4b758999119b37"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/runtime-io.ts",
+        "target_path": ".workflow-system/runtime/src/runtime-io.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "249298b9e0cb04c65bd55cb51aa3c8845ced5ca341d59982b9d9fb9e8c0d5b0a"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/scoped-tree-hash.ts",
+        "target_path": ".workflow-system/runtime/src/scoped-tree-hash.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "1f528e1495a226554083341d77ae3b3dc2c03821ae075784d5a4ae65da62340f"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/status-schema.ts",
+        "target_path": ".workflow-system/runtime/src/status-schema.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "6ebe59540beff2fa55ee4c44aac3281d4b26fd41ce1ce3dbd28df4faa39b9f5d"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/task-context.ts",
+        "target_path": ".workflow-system/runtime/src/task-context.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "90b7eb83c4cc89459e24706a0c73a4145309ffd6dae4fb274c8cec244172600e"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/task-identity.ts",
+        "target_path": ".workflow-system/runtime/src/task-identity.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "78de2613f899cf49f055780d65a7fededa03fbaa48295e649287c21d2438f3e4"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/task-recovery.ts",
+        "target_path": ".workflow-system/runtime/src/task-recovery.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "f55f94d6e4a5e0d3ad0114974cb991bb8f260ed625cdc2374a640317fb5dd487"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/task-state-transaction.ts",
+        "target_path": ".workflow-system/runtime/src/task-state-transaction.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "1d6b4949618254353e8c144479aa2e7c43de4e39c1df48df738170b1df8abf25"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/task-steps.ts",
+        "target_path": ".workflow-system/runtime/src/task-steps.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "868126876654788624956b051749aa8773cae4254fd778562504df6f92864b20"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/src/task-store.ts",
+        "target_path": ".workflow-system/runtime/src/task-store.ts",
+        "category": "runtime",
+        "required": true,
+        "checksum": "c444b5d749b62d6e280914342bc0594773d0df7bb670ef8f9e7bbee8dc9acbfb"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/ASSISTANCE_API.md",
+        "target_path": ".workflow-system/runtime/support/ASSISTANCE_API.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "da040ed5412296970c8f9c0a012aebf533495ba5806a15988da5093f3cc13b97"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/assistance.mjs",
+        "target_path": ".workflow-system/runtime/support/assistance.mjs",
+        "category": "runtime",
+        "required": true,
+        "checksum": "364f2564abc6a68622ce0d6816afb0c265b0eadc2ef192c74fcc259fea32681f"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/bootstrap/CURRENT_TASK.md.tmpl",
+        "target_path": ".workflow-system/runtime/support/bootstrap/CURRENT_TASK.md.tmpl",
+        "category": "runtime",
+        "required": true,
+        "checksum": "8a2c46bc4523d0bb19010e3820130f5927173e47ef99a51a96773cd0e4454a0a"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/CONTEXT_API.md",
+        "target_path": ".workflow-system/runtime/support/CONTEXT_API.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "95ee133b1109c593daedf6a8d51d5368707ec2ce822606099167da7e0e23529d"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md",
+        "target_path": ".workflow-system/runtime/support/CONTEXT_THIRD_PARTY_NOTICES.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "88cc1675fdd3b9a0e24a64276aa4c678d2614cc5c02b6ba44edce282abf9d58b"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/dist/product-maintenance.js",
+        "target_path": ".workflow-system/runtime/support/product-maintenance.js",
+        "category": "runtime",
+        "required": true,
+        "checksum": "42ca8baf451c48af30f68f5804a932684ea44740427d3b3cda017e87c8109bf5"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/API.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/API.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "e63d6b6245b393bb4e84916c5b908efbd99c6ccc63964ca888a98a14edfc41a6"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/contract.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/contract.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "40b8c1ba573de4fe38c46876aa728f89861faa9b918a3936bb2527ffdaef7c5d"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/.workflow-system/PRODUCT.yaml",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/examples/e6/.workflow-system/PRODUCT.yaml",
+        "category": "runtime",
+        "required": true,
+        "checksum": "401bf406938b0b7747fffdd7d207e303cfbcef8fd91c4d2201b02ca2fc2e4397"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/ASSESSMENTS.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/examples/e6/docs/product/ASSESSMENTS.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "8217e22ce42eec46d69dcc6176f61a9777e9d964ac5aaf483014340418e4f122"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/DISCUSSIONS.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/examples/e6/docs/product/DISCUSSIONS.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "5a79534c3b3310784ab84db7b05d32312a9c0355fae916564d4ecbe99ff3baa2"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/PLAN.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/examples/e6/docs/product/PLAN.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "94d2f1ff0a5ba072182e40977dd1b3af7086abb519f00cef1b12a552486aa56c"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/PROJECT.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/examples/e6/docs/product/PROJECT.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "0daefbd95295abec8f45556a51852e3d41ff4b57409f3c81d115101864a812ab"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/raw/selected.txt",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/examples/e6/docs/product/raw/selected.txt",
+        "category": "runtime",
+        "required": true,
+        "checksum": "38062e5560c2a12d5ddf875c0453791f0a22cd9bf4786d0f21d066f2d421020a"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/REQUIREMENTS.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/examples/e6/docs/product/REQUIREMENTS.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "d05bd910f9930f8e55a5db9ddd98dd7ecb0e4a4bb47f3a3fe50c9f645a35bb2a"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/offline-reader.js",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/offline-reader.js",
+        "category": "runtime",
+        "required": true,
+        "checksum": "8b923e073a8cc27c8bf8cd8c0524980df6082525f8d05fb402d239ae5179de2a"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/references/discussion.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/references/discussion.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "e80637f670356897bab32345347c8673fe46fde9a2e7cd15c5670f4bb59a756f"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/references/inventory.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/references/inventory.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "3ed8c3ba4ac2b7c4eb48953b4fd847ac7d187c698fcaa513f4f1b82e0f5582eb"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/references/plan.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/references/plan.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "15c7e1a8289afe77742360ebcf683a01b2137d2ecad50494f4f4c15ed49e8d73"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/references/reconcile.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/references/reconcile.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "2282df85614474dc565fd2bbbde3466602190a7ade7ff5d19498a0307c567b45"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/references/recovery.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/references/recovery.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "0544d3f5509bb8db1cbe61c5dd17546d3e7de01bc2a0e6e63fbb30372f365d52"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/references/update.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/references/update.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "b306db54aef0e7c428a32201ddb3be9e62cda6eec5ec3cffd08eaecb2f6c499d"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/schemas/product-doc-v1.json",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/schemas/product-doc-v1.json",
+        "category": "runtime",
+        "required": true,
+        "checksum": "1d341ee1782e9b4c7c24eaf1b2af344a73445e5ac1356d488ff0915307d5cf4b"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/schemas/product-doc-v2.json",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/schemas/product-doc-v2.json",
+        "category": "runtime",
+        "required": true,
+        "checksum": "a628cc443f5bdc1495e8d8ae3e9c5c40e7e31eab2278e6bd1442fa31d58e40ce"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/schemas/product-manifest-v1.json",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/schemas/product-manifest-v1.json",
+        "category": "runtime",
+        "required": true,
+        "checksum": "b870b60e82d96bcc1fccaf9fbfad6291b0af66c308e9b497155931bf089a73a5"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/schemas/product-manifest-v2.json",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/schemas/product-manifest-v2.json",
+        "category": "runtime",
+        "required": true,
+        "checksum": "5346e5f45aced8bb82fd613febffaa9186a7a914f9d4cad974c71aa075fbd9a6"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/schemas/request-v1.json",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/schemas/request-v1.json",
+        "category": "runtime",
+        "required": true,
+        "checksum": "28eb1cd90db044c58bfe5a00422a9435c6a9ebe30772e900e77d35d670c2802d"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/schemas/result-v1.json",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/schemas/result-v1.json",
+        "category": "runtime",
+        "required": true,
+        "checksum": "d7f2630869ae40acf2b7db0d0e6d58c5f07586873bdade3e0c19d56874e1fcda"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/ASSESSMENT.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/ASSESSMENT.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "495b143c764384d0c10f3d3f939c292962152e464670bf98d696963035af85fb"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/CHANGE.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/CHANGE.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "6c66e0ab3afa190786590f7a28a329d0151d1a3d5b84b32c6324e61f31badc4c"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/DESIGN.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/DESIGN.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "d04554829b293c9ccdcdbb06ec0c3c6eb723427177311172eb5deee897b07e45"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/DISCUSSION.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/DISCUSSION.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "0f76ea57eac316366d7b5717bd6045d50a23ae57228cc8c481ec6c605b49e591"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/GOAL.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/GOAL.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "8d08674f5400e414639a18605185ff7c82307f53571165dccd82ff009b045e85"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/MODULE.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/MODULE.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "30d56b5594bd78b9c8525cd347dd117df31f76fd718e852fb473b15793d24206"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/PLAN.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/PLAN.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "e129722ef71a7d40c5caa7ff082194b9684a7a9dac1b61674b91b948e94de93f"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/PRODUCT.yaml",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/PRODUCT.yaml",
+        "category": "runtime",
+        "required": true,
+        "checksum": "631827f1660c9e66ec80a61137e81ff3295dca843823219f1c7fda8a910b5197"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/PROJECT.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/PROJECT.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/product-maintenance/templates/REQUIREMENTS.md",
+        "target_path": ".workflow-system/runtime/support/product-maintenance/templates/REQUIREMENTS.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "51c239d38ac54e7b683abb691a1fffb1532feace08ca3f8147ad10152b55eb45"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/TASK_MANAGEMENT_API.md",
+        "target_path": ".workflow-system/runtime/support/TASK_MANAGEMENT_API.md",
+        "category": "runtime",
+        "required": true,
+        "checksum": "804fefa1a5b5c6b1225749fb3ad5d9443115ce6e6a3fd773b9443ae1e40030e6"
+      },
+      {
+        "source_path": "vnext-bundle/runtime/vnext/support/task-management.mjs",
+        "target_path": ".workflow-system/runtime/support/task-management.mjs",
+        "category": "runtime",
+        "required": true,
+        "checksum": "c87ff88c5bec3da2a81aaaa48bb75fd9df2b75eb0cd261efcddbdc46a99d162c"
+      },
+      {
+        "source_path": "vnext-bundle/.workflow-system/vnext/RUNTIME_CONTRACT.yaml",
+        "target_path": ".workflow-system/vnext/RUNTIME_CONTRACT.yaml",
+        "category": "protocol",
+        "required": true,
+        "checksum": "3ab6587f076c1de058505fd85f95de229321ae803755dcdd89046930360367ab"
+      },
+      {
+        "source_path": "vnext-bundle/.workflow-system/vnext/SOURCE_CONTRACT.yaml",
+        "target_path": ".workflow-system/vnext/SOURCE_CONTRACT.yaml",
+        "category": "config",
+        "required": true,
+        "checksum": "f856b4da791b4758b4e999fa9d67286a3bee919edd60fdf4ce5cf7cb0a6f7b61"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md",
+        "target_path": ".workflow-system/WORKFLOW_PROTOCOL.md",
+        "category": "protocol",
+        "required": true,
+        "checksum": "bc82dfd4f5fb0ca5282f0eb2095a357d55b45c824d89b21fad3038ac06ed02d5"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/bootstrap/TASK_STORE.gitattributes",
+        "target_path": "docs/workflow/.gitattributes",
+        "category": "config",
+        "required": true,
+        "checksum": "55731b25846c4d213498e78824aaf1ce7d18cc3c745ba64b499cc2d18e0d6a94"
+      },
+      {
+        "source_path": "vnext-bundle/templates/vnext/bootstrap/test-admission-policy.md",
+        "target_path": "docs/workflow/test-admission-policy.md",
+        "category": "config",
+        "required": true,
+        "checksum": "03b5a4fa93bfe9e95a17f318a08e7e8bd79faf9ba1567c1d8fce72315047697f"
+      }
+    ],
+    "state": {
+      "path": ".workflow-system/vnext/DISTRIBUTION_STATE.json",
+      "in_progress_path": ".workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json"
+    },
+    "support": {
+      "bundle_path": "vnext-bundle",
+      "bundle_manifest_sha256": "b674bc365000085c6e1ebbc77b4e27b250ad7e358c7ad2619c1f913e377f800e",
+      "migration_source_path": "migration-source"
+    },
+    "manifest_digest": "102a8d298c631ef20ff466b5708e265931ec5ce70e464ca2391e0a11fc012d01"
+  }
+}

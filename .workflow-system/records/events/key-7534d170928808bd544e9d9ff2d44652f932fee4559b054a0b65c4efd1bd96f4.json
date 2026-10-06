@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T07:29:23.762Z",
+  "payload_sha256": "3c355d3aea50477fcdd8c2d8c47e892d3a737ca3233659c5dd39b376d155b88d",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-execution-C-20261005",
+    "request": {
+      "action": "execution",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+      "step_id": "C",
+      "idempotency_key": "maintain-hardening-execution-C-20261005",
+      "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+      "result": "implemented within recorded scope; no independent review or release",
+      "summary": "最终本地分发、安装升级、实际宿主合成场景和离线消费者；局限分别保留",
+      "commands": [
+        "bun run test:product-maintenance:install",
+        "既有 distribution 定向7项、bootstrap 定向2项",
+        "真实 task/讨论/约束/交付回读"
+      ],
+      "report_ref": "docs/ops/project-maintenance-hardening-evidence/host-agent/observations.jsonl",
+      "gaps": [
+        "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+        "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-c26103e17369437671b27371483d97e265287fff50ca4991d82268c2bc272a49.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "C",
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + 本轮未提交工作副本",
+        "result": "implemented within recorded scope; no independent review or release",
+        "summary": "最终本地分发、安装升级、实际宿主合成场景和离线消费者；局限分别保留",
+        "commands": [
+          "bun run test:product-maintenance:install",
+          "既有 distribution 定向7项、bootstrap 定向2项",
+          "真实 task/讨论/约束/交付回读"
+        ],
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/host-agent/observations.jsonl",
+        "gaps": [
+          "未做独立审查、真实业务项目、跨模型或 TraceLens 页面验收；未发布/推送/部署",
+          "source CURRENT_TASK legacy drift 保留，不自动 adopt/focus/close 任何源 task"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

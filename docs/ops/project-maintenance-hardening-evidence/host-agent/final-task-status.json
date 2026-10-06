@@ -1,0 +1,218 @@
+{
+  "runtime_role": "assistance",
+  "development_gate": false,
+  "qualification": "not-evaluated",
+  "kind": "task-query/v1",
+  "detail": "summary",
+  "status": "available",
+  "source_revision": "ad7035f7ee61057ba451a95f77b15ba80ef147089e2eea46ef2477ee822df83b",
+  "view_revision": "ff8ca70fc3bafa6676e3738f0466bdd8e7549407a74d6298bc0d7dda7e830b16",
+  "workflow_home": "docs/workflow",
+  "current_task_id": null,
+  "selection": {
+    "requested_task_ref": null,
+    "task_id": null,
+    "status": "unresolved",
+    "detail_request": null
+  },
+  "health": "consistent",
+  "state_completeness": "complete",
+  "records_scanned": 9,
+  "projection": {
+    "cache": "current",
+    "display": "missing",
+    "read_only_rebuilt": true
+  },
+  "recovery_options": [
+    "rebuild",
+    "link",
+    "correct",
+    "resolve",
+    "defer",
+    "pause",
+    "close"
+  ],
+  "issues": [],
+  "unassociated_records": [],
+  "task_count": 4,
+  "lifecycle_counts": {
+    "closed": 4
+  },
+  "coverage": {
+    "computation": "full-journal-rebuild",
+    "diagnostics": "all",
+    "history": "not-expanded"
+  },
+  "note": "Presentation of the complete live rebuild. Omitted detail is not absent history, clean review or permission. Read record refs with read; use detail=full for the compatibility view.",
+  "tasks": [
+    {
+      "task_id": "task-790e97b72cd9ca627fa33a63d805a8eb",
+      "display_id": "TASK-003",
+      "title": "合成断电恢复探索",
+      "lifecycle": "closed",
+      "lifecycle_ref": ".workflow-system/records/events/1791181417586-33655c8e-ae9d-4f05-9a66-f9203363e49e.json",
+      "plan_status": "candidate",
+      "adopted_plan_ref": null,
+      "adopted_by": null,
+      "legacy_plan_ref": null,
+      "legacy_source": null,
+      "current_step_id": null,
+      "current_step": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "remaining_work": [
+        "产品日志可靠性未交付；实际断电硬件未执行"
+      ],
+      "gaps": [
+        "仅接纳合成探索观察，非 Agent 断电实测"
+      ],
+      "counts": {
+        "steps": 0,
+        "unfinished_steps": 0,
+        "findings_in_current_plan": 0,
+        "plans": 1,
+        "executions": 0,
+        "tests": 0,
+        "reviews": 0,
+        "review_decisions": 0,
+        "commits": 0
+      },
+      "detail_request": {
+        "detail": "task",
+        "task_ref": "task-790e97b72cd9ca627fa33a63d805a8eb",
+        "workflow_home": "docs/workflow"
+      }
+    },
+    {
+      "task_id": "task-3d3d473c824d8b1d2c12ea2a9773b683",
+      "display_id": "TASK-004",
+      "title": "合成 Excel 小数金额修复",
+      "lifecycle": "closed",
+      "lifecycle_ref": ".workflow-system/records/events/1791181642082-c255d27f-c28d-48d0-8aee-8584548a09db.json",
+      "plan_status": "candidate",
+      "adopted_plan_ref": null,
+      "adopted_by": null,
+      "legacy_plan_ref": null,
+      "legacy_source": null,
+      "current_step_id": null,
+      "current_step": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "remaining_work": [
+        "外部报告版本未知；E6C 导出、支付退货及其他金额格式未验证"
+      ],
+      "gaps": [
+        "结束本轮样本修复，不认证整个需求；交付摘要另行维护"
+      ],
+      "counts": {
+        "steps": 0,
+        "unfinished_steps": 0,
+        "findings_in_current_plan": 0,
+        "plans": 1,
+        "executions": 1,
+        "tests": 0,
+        "reviews": 0,
+        "review_decisions": 0,
+        "commits": 0
+      },
+      "detail_request": {
+        "detail": "task",
+        "task_ref": "task-3d3d473c824d8b1d2c12ea2a9773b683",
+        "workflow_home": "docs/workflow"
+      }
+    },
+    {
+      "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+      "display_id": "TASK-001",
+      "title": "合成 E6 导入与处理历史任务",
+      "lifecycle": "closed",
+      "lifecycle_ref": ".workflow-system/records/events/1791181417252-f53cdc08-935c-414b-b593-d67a63434519.json",
+      "plan_status": "candidate",
+      "adopted_plan_ref": null,
+      "adopted_by": null,
+      "legacy_plan_ref": null,
+      "legacy_source": null,
+      "current_step_id": null,
+      "current_step": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "remaining_work": [
+        "合成整数范围已有检查；小数新失败和 E6C 导出仍未完成"
+      ],
+      "gaps": [
+        "此关闭仅记录合成历史处置，不认证完整需求或当前反例通过"
+      ],
+      "counts": {
+        "steps": 0,
+        "unfinished_steps": 0,
+        "findings_in_current_plan": 0,
+        "plans": 1,
+        "executions": 0,
+        "tests": 0,
+        "reviews": 0,
+        "review_decisions": 0,
+        "commits": 0
+      },
+      "detail_request": {
+        "detail": "task",
+        "task_ref": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+        "workflow_home": "docs/workflow"
+      }
+    },
+    {
+      "task_id": "task-cfd8fc8e0c81467f9e0812390b66241c",
+      "display_id": "TASK-002",
+      "title": "合成权限与审计操作人任务",
+      "lifecycle": "closed",
+      "lifecycle_ref": ".workflow-system/records/events/1791181643143-b80761f0-feba-41ed-89c2-a53b9f1b9308.json",
+      "plan_status": "candidate",
+      "adopted_plan_ref": null,
+      "adopted_by": null,
+      "legacy_plan_ref": null,
+      "legacy_source": null,
+      "current_step_id": null,
+      "current_step": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "recommendation_only": true,
+      "remaining_work": [
+        "权限和操作人字段尚未执行；全部审计未交付"
+      ],
+      "gaps": [
+        "合成停止处置，不声明完成或 PASS"
+      ],
+      "counts": {
+        "steps": 0,
+        "unfinished_steps": 0,
+        "findings_in_current_plan": 0,
+        "plans": 1,
+        "executions": 0,
+        "tests": 0,
+        "reviews": 0,
+        "review_decisions": 0,
+        "commits": 0
+      },
+      "detail_request": {
+        "detail": "task",
+        "task_ref": "task-cfd8fc8e0c81467f9e0812390b66241c",
+        "workflow_home": "docs/workflow"
+      }
+    }
+  ],
+  "pagination": {
+    "total": 4,
+    "offset": 0,
+    "limit": 20,
+    "next_offset": null,
+    "view_revision": "ff8ca70fc3bafa6676e3738f0466bdd8e7549407a74d6298bc0d7dda7e830b16",
+    "next_request": null
+  }
+}
+

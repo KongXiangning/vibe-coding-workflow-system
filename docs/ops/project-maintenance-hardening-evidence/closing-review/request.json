@@ -1,0 +1,91 @@
+{
+  "action": "review",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "stage": "change",
+  "execution_ref": ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json",
+  "verdict": "findings",
+  "findings": [
+    {
+      "id": "C01",
+      "severity": "P2",
+      "file": "runtime/vnext/src/product-maintenance/writer.ts",
+      "line": 161,
+      "category": "remaining-history-protection-gap",
+      "text": "sourceKey 保留旧 SourceRef 中未知字段，删除该字段被 hasNewBasis 当作新来源。旧 text 来源含 unknown:true，本次来源 kind/text/label 均未变、仅删除 unknown 并把关系设 active，当前 Node exit0/saved；原业务否定被恢复而无新材料或当前反转依据。保留 dismissed 的同格式修复对照可 saved。需按可比较的已知来源字段保留历史判断，不能用未知字段的清理制造新依据。",
+      "probes": [
+        "format-only-source-repair-must-not-revive-dismissed",
+        "format-only-source-repair-keeps-dismissed-control"
+      ]
+    },
+    {
+      "id": "C02",
+      "severity": "P2",
+      "file": "runtime/vnext/src/product-maintenance/writer.ts",
+      "line": 216,
+      "category": "introduced-regression-against-20ba",
+      "text": "等价关系保护将已有且未变化的 active 关系也当成新恢复。旧文件同时保有同目标/关系的 dismissed 历史和另一 ID 的 declared active 当前关系，输入只将 assessment_id 置 null 或把 scope 改 planned，links 值完全不变；20ba Node saved，当前 Node failed/DISMISSED_RELATION。应针对实际关系转变判定，不能使未改关系成为其他合法字段更新的门槛。原 assessment 及原文件均在夹具中保留。",
+      "probes": [
+        "unchanged-relations-must-not-block-assessment-deselection",
+        "unchanged-relations-must-not-block-scope-update",
+        "dismissed-only-scope-update-control"
+      ]
+    },
+    {
+      "id": "C03",
+      "severity": "P2",
+      "file": "runtime/vnext/src/product-maintenance/writer.ts",
+      "line": 129,
+      "related_line": 137,
+      "category": "remaining-legitimate-append-gap",
+      "text": "append 候选生成会改动无关坏项的原字节：spaced flow items 被整体 JSON 重序列化，或末尾仅一 LF 的旧 body 被补 LF。新增项本身合法且不改坏项，当前 Node 却 failed/INVALID_ITEM_CHANGED，新增无法保存。相同坏项以 block items/两 LF 结尾可 saved；合法旧项的一 LF 结尾也可 append。该问题在 20ba 已存在，是本轮普通新增/局部降级能力遗留缺口；应只插入新 YAML/正文而保留原 AST 区域。",
+      "probes": [
+        "append-with-spaced-flow-yaml-malformed-neighbor",
+        "append-after-malformed-item-single-final-newline",
+        "append-after-malformed-item-two-final-newlines-control",
+        "append-after-valid-item-single-final-newline-control"
+      ]
+    }
+  ],
+  "coverage": {
+    "head": "20ba0275270493b94b4f02eca33cc3b8c38b198d",
+    "branch": "codex/maintain-project-v1",
+    "target": "unchanged uncommitted implementation, final local 0.24.1 candidate",
+    "original_four_findings_regression": "R01-R04 pass in 28-item product suite and installed Node test",
+    "commands": [
+      {
+        "command": "bun test test/product-maintenance.test.ts test/product-maintenance-install.test.ts test/workflow-vnext-source.test.ts",
+        "result": "48 pass / 0 fail / 517 assertions"
+      },
+      {
+        "command": "bun .tmp/closing-review/probes.ts",
+        "result": "9 scenarios across baseline, reviewed and current Node artifacts; three counterexamples with controls; script exit0 is not an overall PASS"
+      }
+    ],
+    "artifacts": {
+      "baseline": "83a3d293aa8007b25c4bbd1b4e98dae77eed00fc856cd17a919c10ec96f2bbe4",
+      "reviewed": "d97298d9bf0ee91ad20caca9e74689d8f7b422ed213c8a3b159d48d1eb0a8397",
+      "current": "9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4"
+    },
+    "source_digests": {
+      "writer.ts": "617635ecec81dc344289650372265871c77d385ef2a00b263a4dd200d5f164fb",
+      "paths.ts": "8eb328e81b615914ce76c7a1c93d8aa1db3b5cebd84dbc81ceb4a8c5f534a151"
+    },
+    "evidence_ref": "docs/ops/project-maintenance-hardening-evidence/closing-review/results.json",
+    "artifact_consistency": {
+      "helper_matches_installed": true,
+      "offline_matches_delivered": true,
+      "distribution_digest": "d043a00b55fd92514eaf94213c90ebfaf0853f2531787a2dbabb565b70b39341"
+    },
+    "original_review_ref": ".workflow-system/records/events/key-da2455adb8204ccedc8e83a097ba585015868dcd9dadd5ae5e18c7db5386ac74.json",
+    "limits": [
+      "same-host self-review; no independent reviewer or cross-model semantic validation",
+      "no new source build; checked current built/install artifact digests",
+      "no full workflow/runtime suite, Linux/minimum Node20 or npm/tgz verification",
+      "synthetic fixtures only; no real product/hardware/TraceLens checks or S01-S13 business replay"
+    ],
+    "no_product_code_edit": true
+  },
+  "provenance": "self-review",
+  "source_revision": "20ba0275 + uncommitted implementation; helper 9473c3213f529fe28743ff3708e39ca897a75abc34b29f56950335a985e742d4",
+  "idempotency_key": "maintain-hardening-closing-review-1"
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T06:21:05.474Z",
+  "payload_sha256": "7e42715291760c4d308556b393de736463fb8948b7d04dee605622ce6c38c8f1",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:synthetic-PERM",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "synthetic-PERM",
+      "plan": {
+        "title": "合成权限与审计操作人任务",
+        "goal": "接口权限和提供操作人字段，不包含全部审计查询导出",
+        "steps": [
+          {
+            "id": "PERM",
+            "title": "权限与操作人字段"
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-cfd8fc8e0c81467f9e0812390b66241c",
+      "parents": [
+        ".workflow-system/records/events/key-81a12f2432b8abc7cbdf4d9e78875fadaa3c4835917f0115af8da9139ff52b48.json"
+      ],
+      "data": {
+        "plan": {
+          "title": "合成权限与审计操作人任务",
+          "goal": "接口权限和提供操作人字段，不包含全部审计查询导出",
+          "steps": [
+            {
+              "id": "PERM",
+              "title": "权限与操作人字段"
+            }
+          ]
+        },
+        "create": true,
+        "display_id": "TASK-002"
+      }
+    }
+  },
+  "issues": []
+}

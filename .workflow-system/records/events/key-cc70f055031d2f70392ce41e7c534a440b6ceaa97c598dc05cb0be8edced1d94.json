@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T18:58:14.424Z",
+  "payload_sha256": "1f854b0c1ce5f4ef29924d5b5d3db18b825d04b3a0c7230780d8d8c0b44d6a96",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-d-p2-test-product-2",
+    "request": {
+      "action": "test",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+      "step_id": "A",
+      "execution_ref": ".workflow-system/records/events/key-7d9256704804fc56ea6feeff85fa220c1272ccc2e55e476b5f109e1cd2cf41c8.json",
+      "command": "bun test test/product-maintenance.test.ts",
+      "selector": "product",
+      "result": "passed",
+      "counts": {
+        "pass": 33,
+        "fail": 0,
+        "assertions": 761
+      },
+      "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + helper 42ca8baf451c48af30f68f5804a932684ea44740427d3b3cda017e87c8109bf5",
+      "report_ref": "docs/ops/project-maintenance-hardening-evidence/d-p2-repair/product.txt",
+      "idempotency_key": "maintain-hardening-d-p2-test-product-2"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-7d9256704804fc56ea6feeff85fa220c1272ccc2e55e476b5f109e1cd2cf41c8.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "A",
+        "execution_ref": ".workflow-system/records/events/key-7d9256704804fc56ea6feeff85fa220c1272ccc2e55e476b5f109e1cd2cf41c8.json",
+        "command": "bun test test/product-maintenance.test.ts",
+        "selector": "product",
+        "result": "passed",
+        "counts": {
+          "pass": 33,
+          "fail": 0,
+          "assertions": 761
+        },
+        "source_revision": "20ba0275270493b94b4f02eca33cc3b8c38b198d + helper 42ca8baf451c48af30f68f5804a932684ea44740427d3b3cda017e87c8109bf5",
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/d-p2-repair/product.txt"
+      }
+    }
+  },
+  "issues": []
+}

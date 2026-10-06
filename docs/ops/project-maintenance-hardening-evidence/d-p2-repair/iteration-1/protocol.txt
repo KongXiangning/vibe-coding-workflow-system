@@ -1,0 +1,16 @@
+$ bun run scripts/run-validation.ts --layer=protocol
+=== Protocol-level validation ===
+  ✓ workflow-skills-validation [blocks-generator] — passed
+  ✓ workflow-docs-validation [blocks-generator] — passed
+  ✓ registry-validation [blocks-generator] — passed
+  ✓ workflow-skills-tests [blocks-merge] — passed
+  ✓ workflow-docs-tests [blocks-merge] — passed
+  ✓ registry-tests [blocks-merge] — passed
+  ✓ bootstrap-tests [blocks-merge] — passed
+  ✓ task-identity-tests [blocks-merge] — passed
+  Protocol: PASSED
+
+=== Project-level validation ===
+  (no bound project-level entrypoints)
+
+No gates blocked.

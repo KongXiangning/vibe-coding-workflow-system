@@ -1,0 +1,71 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+137 |   put(root, 'docs/product/nested/deeper/LEAF.md', newDocument([req('REQ-LEAF')]));
+138 |   put(root, 'docs/product/nestX/OTHER.md', newDocument([req('REQ-OTHER')]));
+139 |   for (const pattern of ['docs/product/**.md', 'docs/product/nest**/*.md', 'docs/product/**/*.md']) {
+140 |     const read = run('read', root, { paths: [pattern] });
+141 |     expect(read.coverage.complete).toBe(true); expect(read.coverage.omitted).toEqual([]);
+142 |     expect(read.usable_items.map((i: any) => i.id)).toEqual(expect.arrayContaining(['REQ-DEEP', 'REQ-LEAF', 'REQ-OTHER']));
+                                                          ^
+error: expect(received).toEqual(expected)
+
+- ExpectArrayContaining {}
++ [
++   "PROJECT-A",
++   "REQ-A",
++ ]
+
+- Expected  - 1
++ Received  + 4
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:142:53)
+(fail) R01 inline double-star globs preserve recursive matching without visiting unrelated junctions [31.00ms]
+161 |     for (const sources of [[source], [null, source]]) {
+162 |       expect(run('apply', root, { files: [operation({ ...relation, state: 'active', sources })] }).status).toBe('failed'); expect(get(root)).toEqual(original);
+163 |     }
+164 |     const nextRelation = { ...relation, state: 'active', reason: '采用当前明确反转决定，保留旧原文', sources: [source, decision] };
+165 |     const saved = run('apply', root, { files: [operation(nextRelation)] });
+166 |     expect(saved.status).toBe('saved'); expect(saved.files[0].preimage.data_base64).toBe(original.toString('base64'));
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: "saved"
+Received: "failed"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:166:26)
+(fail) R02 malformed old sources allow explicit reassociation but cannot supply a new basis themselves [31.00ms]
+183 |     const removal = { item_id: 'REQ-A', field, id: relation.id };
+184 |     for (const op of [operation([kept]), operation([kept], [{ ...removal, id: kept.id }]), operation([kept], [{ ...removal, id: 'UNKNOWN' }]), operation([null, kept], [removal])]) {
+185 |       expect(run('apply', root, { files: [op] }).status).toBe('failed'); expect(get(root)).toEqual(original);
+186 |     }
+187 |     const saved = run('apply', root, { files: [operation([kept], [removal])] });
+188 |     expect(saved.status).toBe('saved'); expect(saved.files[0].preimage.data_base64).toBe(original.toString('base64'));
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: "saved"
+Received: "failed"
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:188:26)
+(fail) R03 explicit relation removal repairs null members while preserving valid relations and raw history [47.00ms]
+193 | });
+194 | test('R04 directories at explicit file paths are omitted while glob directory prefixes remain readable', () => {
+195 |   const root = fixture(), entry = 'docs/product/PROJECT.md';
+196 |   put(root, 'docs/evidence/project-before.txt', get(root, entry)); fs.unlinkSync(path.join(root, entry)); fs.mkdirSync(path.join(root, entry));
+197 |   const read = run('read', root, { paths: [entry, 'docs/product/REQUIREMENTS.md'] });
+198 |   expect(read.coverage.complete).toBe(false); expect(read.coverage.omitted).toContain(entry); expect(read.usable_items.map((i: any) => i.id)).toContain('REQ-A');
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:198:34)
+(fail) R04 directories at explicit file paths are omitted while glob directory prefixes remain readable
+
+ 0 pass
+ 24 filtered out
+ 4 fail
+ 18 expect() calls
+Ran 4 tests across 1 file. [214.00ms]

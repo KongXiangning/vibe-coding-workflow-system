@@ -32,3 +32,25 @@ Use localized apply updates and read back. Malformed neighbor entries remain int
 repair only selected structure without restoring the former business meaning.
 On partial saves report which current bodies, changes and designs actually saved;
 record pending synchronization without blocking development or faking successful maintenance.
+
+Distinguish goal tuning from replacement. A numerical/wording adjustment to the same
+business outcome can keep its ID; a materially different outcome retains the former
+goal and a replacement destination. Result material belongs in goal body/sources:
+include observed time, population, measurement scope and unknowns, not a new KPI
+system or requirement-only assessment. A shipped feature does not prove that outcome.
+
+Before splitting a requirement ask the business question internally: are there
+independent obligations, or just several implementation batches? Batches belong in
+work_items/tasks under the same REQ; genuine splits/merges preserve prior IDs and
+where each scope went. Do not copy historical PASS to every destination.
+For a withdrawal distinguish deferred/retired from fulfilled. Existing coupon code
+may remain after coupons leave launch scope; shared amount bugs still warrant local
+payment/refund impact checks. Do not auto-create cleanup work without current need
+and authority. Clear user decisions are implemented without another field approval.
+
+Put long constraints under ### or deeper sections in the selected body's complete
+root heading. Read back the whole affected item, including exceptions and diagnostics.
+If manual text puts an explicit constraint in an appendix, keep its authority and
+locate/repair it within the request rather than ignoring it as outside the item.
+Whole candidates may repair selected malformed fields; retain untouched bad neighbors.
+Actual deletions use the API's precise removal declarations, not implicit renaming.

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-05T06:21:05.072Z",
+  "payload_sha256": "8c2901188f8ef50fdf99d04f11ada76dc370cf83aa66c072a268408a3fa2e5d9",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:synthetic-E6AB",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "synthetic-E6AB",
+      "plan": {
+        "title": "合成 E6 导入与处理历史任务",
+        "goal": "验证原 task 内 E6A/B 步骤身份及关闭语义",
+        "scope": [
+          "隔离夹具，仅整数金额实际检查；不证明小数或导出"
+        ],
+        "steps": [
+          {
+            "id": "E6A",
+            "title": "导入基础"
+          },
+          {
+            "id": "E6B",
+            "title": "整数处理检查"
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-a90ec0f56920f3f91b016ece3fb95e3a",
+      "parents": [],
+      "data": {
+        "plan": {
+          "title": "合成 E6 导入与处理历史任务",
+          "goal": "验证原 task 内 E6A/B 步骤身份及关闭语义",
+          "scope": [
+            "隔离夹具，仅整数金额实际检查；不证明小数或导出"
+          ],
+          "steps": [
+            {
+              "id": "E6A",
+              "title": "导入基础"
+            },
+            {
+              "id": "E6B",
+              "title": "整数处理检查"
+            }
+          ]
+        },
+        "create": true,
+        "display_id": "TASK-001"
+      }
+    }
+  },
+  "issues": []
+}
