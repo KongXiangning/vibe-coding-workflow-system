@@ -1,0 +1,19 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+342 |     expect(run('apply', root, { files: [update({ [field]: [first] }, deletion)] }).status).toBe('saved');
+343 |     // Repurposing another historical ID must still protect that ID's old basis.
+344 |     const protectedId = { ...first, sources: [source, decision] }, otherId = { ...second, id: 'REL-OTHER', sources: [source] };
+345 |     put(root, 'docs/product/REQUIREMENTS.md', newDocument([req('REQ-A', { [field]: [protectedId, otherId] }), req('REQ-OTHER'), bad]));
+346 |     const reusedId = { ...otherId, id: first.id, state: 'active', origin: 'declared', reason: decision.text, sources: [source, decision] }, protectedBytes = get(root);
+347 |     expect(run('apply', root, { files: [update({ [field]: [protectedId, otherId, reusedId] })] }).files[0].error).toContain('DISMISSED_RELATION'); expect(get(root)).toEqual(protectedBytes);
+                                                                                                                        ^
+error: Received value must be an array type, or both received and expected values must be strings.
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:347:115)
+(fail) Review R2 dismissed history is matched once by identity while explicit partial removals and reversals remain legal [172.00ms]
+
+ 0 pass
+ 34 filtered out
+ 1 fail
+ 18 expect() calls
+Ran 1 test across 1 file. [259.00ms]

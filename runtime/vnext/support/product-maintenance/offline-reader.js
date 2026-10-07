@@ -15958,7 +15958,7 @@ function decode2(bytes) {
   return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
 }
 function strictYaml(text3, file) {
-  const doc = $parseDocument(text3, { schema: "core", uniqueKeys: true, strict: true });
+  const doc = $parseDocument(text3, { schema: "core", uniqueKeys: true, strict: true, prettyErrors: false });
   const problems = [];
   const problem = (code, message, offset = 0) => problems.push({ offset, diagnostic: diagnostic(code, file, message, { severity: "error", line: text3.slice(0, offset).split(/\r\n|\n|\r/).length }) });
   for (const issue of [...doc.errors, ...doc.warnings])
@@ -15967,7 +15967,7 @@ function strictYaml(text3, file) {
     if (node2 === null)
       return null;
     if (node2?.anchor)
-      problem("YAML_ANCHOR", "Anchors are not permitted", node2.range?.[0]);
+      problem("YAML_ANCHOR", `Anchors are not permitted (&${node2.anchor})`, node2.range?.[0]);
     if (node2?.tag && !["tag:yaml.org,2002:str", "tag:yaml.org,2002:int", "tag:yaml.org,2002:float", "tag:yaml.org,2002:bool", "tag:yaml.org,2002:null", "tag:yaml.org,2002:seq", "tag:yaml.org,2002:map"].includes(node2.tag))
       problem("YAML_TAG", "Custom/non-JSON tags are not permitted", node2.range?.[0]);
     if ($isAlias(node2)) {
@@ -16199,10 +16199,15 @@ function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
   const paths = [];
   const omitted = new Set;
   let stopped = false;
+  const directoryPrefixes = new Set;
   const prefixes = patterns.map((p) => {
     relativePath(p, true);
     const wildcard = p.search(/[*?\[\]]/);
-    return wildcard < 0 ? p : p.slice(0, p.lastIndexOf("/", wildcard) + 1).replace(/\/$/, "");
+    if (wildcard < 0)
+      return p;
+    const prefix = p.slice(0, p.lastIndexOf("/", wildcard) + 1).replace(/\/$/, "");
+    directoryPrefixes.add(prefix);
+    return prefix;
   });
   const visited = new Set;
   const explicitFiles = new Set(patterns.filter((p) => !/[*?]/.test(p)));
@@ -16237,6 +16242,8 @@ function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
       omit(relative2, "SYMLINK_SKIPPED", "Symbolic link/junction not scanned");
       return;
     }
+    if (directoryPrefixes.has(relative2) && !stat.isDirectory())
+      omit(relative2, "PATH_UNAVAILABLE", "Selected glob prefix is not a directory; its range was not enumerated");
     if (stat.isDirectory()) {
       if (explicitFiles.has(relative2))
         omit(relative2, "PATH_UNAVAILABLE", "Selected file path is a directory, not a regular file");
@@ -16491,7 +16498,8 @@ function readCatalog(rootInput, input = {}) {
   const selected = input.paths ?? manifest.managed_paths;
   catalog.coverage.paths = selected;
   catalog.coverage.excluded_paths = manifest.exclude_paths;
-  const patterns = matches(manifest.entry, selected) ? [...new Set([...selected, manifest.entry])] : selected;
+  const registeredFiles = [manifest.entry, ...manifest.managed_paths.filter((p) => !/[*?]/.test(p))];
+  const patterns = [...new Set([...selected, ...registeredFiles.filter((p) => matches(p, selected))])];
   const enumeration = enumerate(root, patterns, manifest.exclude_paths, maxFiles, catalog.diagnostics);
   catalog.coverage.omitted.push(...enumeration.omitted);
   let bytesRead = 0;

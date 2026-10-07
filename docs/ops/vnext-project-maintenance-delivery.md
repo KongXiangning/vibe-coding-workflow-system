@@ -8,7 +8,13 @@
 >
 > 2026-10-06，后续 D01／D02 已按用户要求修复，见 [本次修复交付](project-maintenance-hardening-evidence/d-p2-repair/README.md)：共同写入器负责 Markdown 分隔，未改重复 active 关联不再误挡维护，实际新增激活和历史删除仍保护旧否定。本次实际 53 项不同测试通过／1001 个断言，源重建、真实隔离版本升级及安装后 Node／离线消费分别取证；原业务 11 项资产未变。旧审查 findings 保留，本次为修复自查，不冒充正式 clean review、完整 S01～S13 语义重验或发布。
 >
+> 2026-10-07，实际 HEAD 已为 `00e5309e872130f87fc1c33525bf944eb394b824`，修复前工作区干净。按用户要求修复该提交外部审查中的 R1／R2（与旧 R01～R04 区分），见 [本次交付](project-maintenance-hardening-evidence/r1-r2-repair-00e5309/README.md)：整文件纳入 YAML 原文／稳定诊断，逐份保护 dismissed 历史，并保留合法修复、当前决定恢复及同 ID 部分明确删除。最终 55 项不同测试通过／1151 断言，原报告 8 个输入的修前／修后 16 次 Node 对照匹配；重新隔离升级保留 11 项业务资产，安装与离线回读一致。本次修复未提交或推送，候选 0.24.1 未发布。外部 R3／R4 仍未修复；不能以本次测试通过认定完整加固或 S01～S13 宿主语义全部通过。
+>
+> 同日进一步修复 R3／R4，保留上述未提交的 R1／R2 和实际 HEAD。见 [本次交付](project-maintenance-hardening-evidence/r3-r4-repair-00e5309/README.md)：选定 glob 内具体登记缺失仍报遗漏，非目录静态前缀不再冒充完整空匹配；合法空目录、未选／排除范围和普通非匹配文件保持可用，缺口下独立授权保存及回读成功。最终 57 项不同测试通过／1241 断言；4 个原读取输入、10 个控制组共 42 次 helper／离线观察匹配，新的真实隔离升级保留 11 项业务资产。外部 R1～R4 实现及回归已依次完成，本次为修复自查，仍未完成正式独立复审或 S01～S13 真实宿主语义重验，未提交、推送或发布。
+>
 > 下文是 2026-10-04 首版历史报告，保留原文、时间和检查范围；其中的通过数、候选哈希及宿主材料不算本轮 PASS。源 CURRENT_TASK 的既有 legacy/drift 未覆盖，任务事实及投影结果分开记录。
+
+2026-10-07，依用户“提交并推送”指令，本轮提交范围为 R1～R4 源码修复、源重建产物、回归测试、契约与 references、两轮证据及原生执行记录。上述“未提交／推送”描述保留为各轮取证时状态。57 项测试结果保持原验证范围；宿主 Agent 业务语义与恢复流程、S01～S13 的剩余验收欠账不因提交而转为通过，候选包仍未发布。
 
 日期：2026-10-04。工作目录：`project-goals-requirements` worktree。本地候选：`0.24.0`，尚未提交、推送或发布。需求与验收分别以[完整能力基线](../product/project-maintenance/requirements.md)、[契约](../product/project-maintenance/document-contract.md)、[实现方案](vnext-project-maintenance-implementation.md)、[验收矩阵](vnext-project-maintenance-validation.md)为准；本记录描述实际结果，不修改验收要求。
 

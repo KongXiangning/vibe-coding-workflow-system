@@ -32,5 +32,9 @@ file, inaccessible relevant directory or skipped junction is unread coverage;
 report its known path/pattern without guessing contents. Continue other readable
 selected paths. A successful empty glob is an empty scope, not evidence that no
 requirements exist elsewhere. source_paths grants reference reading only.
+Selected concrete registrations remain expected under a glob; do not lose their
+missing-file diagnostics. A static glob prefix must be an actual readable directory;
+a file there does not prove zero requirements. Keep exclusions and unselected scope
+out of coverage claims, and do not turn unrelated nonmatching files into missing scope.
 For a moved file use stable identity only within already authorized known paths,
 or update the explicitly known manifest path; unknown location remains unknown.

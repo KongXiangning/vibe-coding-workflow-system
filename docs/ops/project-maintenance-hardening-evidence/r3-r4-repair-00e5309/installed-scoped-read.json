@@ -1,0 +1,108 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "read",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "available",
+    "project_id": "hardening-synthetic-orders",
+    "working_copy": {
+      "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\upgraded-target",
+      "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\upgraded-target"
+    },
+    "read_at": "2026-10-07T04:42:15.186Z",
+    "manifest": {
+      "schema": "vnext-product-manifest/v2",
+      "project_id": "hardening-synthetic-orders",
+      "entry": "docs/product/PROJECT.md",
+      "managed_paths": [
+        "docs/product/*.md",
+        "docs/product/MISSING.md",
+        "docs/outside/UNSELECTED.md"
+      ],
+      "source_paths": [
+        "docs/evidence/**",
+        "docs/product/raw/**",
+        "docs/product/history/**",
+        ".workflow-system/records/**"
+      ],
+      "capture_paths": [
+        "docs/product/raw/**",
+        "docs/product/history/**"
+      ],
+      "exclude_paths": [],
+      "maintenance": "enabled"
+    },
+    "manifest_path": ".workflow-system/PRODUCT.yaml",
+    "manifest_sha256": "235143b5cff2156b7ec3deab7d42a8c76da94136acbcab57a4add48d36673023",
+    "documents": [
+      {
+        "path": "docs/product/R34-INDEPENDENT.md",
+        "sha256": "a0032ca216138f8b8fca57fc0998d50ee10bff46d1dea2665cffd92e63430fff",
+        "schema": "vnext-product-doc/v2",
+        "usable_count": 1,
+        "raw_locator": {
+          "kind": "file",
+          "path": "docs/product/R34-INDEPENDENT.md"
+        }
+      }
+    ],
+    "usable_items": [
+      {
+        "id": "REQ-R34-INDEPENDENT",
+        "type": "requirement",
+        "title": "合成需求",
+        "path": "docs/product/R34-INDEPENDENT.md",
+        "line": 5,
+        "metadata": {
+          "id": "REQ-R34-INDEPENDENT",
+          "type": "requirement",
+          "scope": "current"
+        },
+        "definition_sha256": "6899a16ae840ed45bae4d41f5de273a3289e1786282f2d74a7f32937fc26ad63",
+        "body": "## [REQ-R34-INDEPENDENT] 合成需求\n### 需求内容\n当前明确范围。\n### 范围边界\n原排除项保留。\n### 验收要求\n按本次证据核对。\n",
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/R34-INDEPENDENT.md",
+          "item_id": "REQ-R34-INDEPENDENT"
+        }
+      }
+    ],
+    "unusable_items": [],
+    "reverse_relations": [],
+    "plan_tasks": [],
+    "discussions": [],
+    "impact": null,
+    "sources": [],
+    "diagnostics": [
+      {
+        "code": "PROJECT_ENTRY",
+        "path": ".workflow-system/PRODUCT.yaml",
+        "message": "Expected a unique project entry in the manifest entry document",
+        "severity": "warning"
+      }
+    ],
+    "coverage": {
+      "complete": true,
+      "files_read": 1,
+      "bytes_read": 272,
+      "enumeration": "managed_paths only; sources are read only by explicit reference",
+      "omitted": [],
+      "paths": [
+        "docs/product/R34-INDEPENDENT.md"
+      ],
+      "excluded_paths": [],
+      "max_files": 1000,
+      "max_file_bytes": 4194304,
+      "max_total_bytes": 33554432,
+      "usable_count": 1,
+      "invalid_count": 0,
+      "selection": "all-enumerated-items",
+      "source_bodies": "not-read"
+    },
+    "task_status": "not-computed; use existing assistance only when actual task state is needed"
+  }
+}

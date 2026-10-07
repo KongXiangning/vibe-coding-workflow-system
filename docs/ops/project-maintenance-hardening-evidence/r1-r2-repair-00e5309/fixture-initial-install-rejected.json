@@ -1,0 +1,27 @@
+{
+  "exit": 1,
+  "stderr": "",
+  "result": {
+    "operation": "install",
+    "status": "rejected",
+    "target_root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r1-r2\\upgraded-target",
+    "distribution_version": "0.24.0",
+    "classification": {
+      "state": "uninstalled",
+      "version": null,
+      "valid": true,
+      "reasons": []
+    },
+    "planned_writes": [],
+    "planned_deletes": [],
+    "blockers": [
+      {
+        "code": "TARGET_ROOT_DENIED",
+        "message": "Target root cannot share the same Git root as the workflow-system source root.",
+        "path": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r1-r2\\upgraded-target"
+      }
+    ],
+    "warnings": [],
+    "read_back_verified": false
+  }
+}

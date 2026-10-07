@@ -1,0 +1,25 @@
+{
+  "fingerprints": {
+    "runtime/vnext/src/product-maintenance/catalog.ts": "ce25b5e52c808451b94f969cb75a4a0449e80ed88d24e4a8fe0c83b320494042",
+    "runtime/vnext/src/product-maintenance/paths.ts": "8eb328e81b615914ce76c7a1c93d8aa1db3b5cebd84dbc81ceb4a8c5f534a151",
+    "runtime/vnext/dist/product-maintenance.js": "a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+    "runtime/vnext/support/product-maintenance/offline-reader.js": "782d00fed8572df4f00c38e86f4f3e70035bf1d2b932007e81affb754efb68df"
+  },
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "lifecycle": "draft",
+  "adopted_plan_ref": null,
+  "current_task_id": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+  "executions": [
+    ".workflow-system/records/events/key-3f8a49f15884df63f79a13e5bef1cfe31144c617383d1007ebc6276c810dec05.json",
+    ".workflow-system/records/events/key-7534d170928808bd544e9d9ff2d44652f932fee4559b054a0b65c4efd1bd96f4.json",
+    ".workflow-system/records/events/key-7d9256704804fc56ea6feeff85fa220c1272ccc2e55e476b5f109e1cd2cf41c8.json",
+    ".workflow-system/records/events/key-aaa4c9375d909bea0c8142a46daf5906a6750f66343303b0fa66d1f6bd9132b6.json",
+    ".workflow-system/records/events/key-c1d0c213ea1e31f65b132d019c28758dc000a63e875b227b1a460723b9d6ba8d.json",
+    ".workflow-system/records/events/key-c26103e17369437671b27371483d97e265287fff50ca4991d82268c2bc272a49.json",
+    ".workflow-system/records/events/key-d871c43e69db42b78ddc4f5d93b23857e3838a314472ee23619d60928299dded.json",
+    ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json"
+  ],
+  "current_task_sha256": "48b9be7f0af3a5eeeeea790fe7f2bdc2ea53ae30f1353cdff74239a2cfde77d8",
+  "source_revision": "aa76d9f399c5e2480db1429680b2dd8d6280bb415a584775cf19980d4aae7647",
+  "view_revision": "e878fbe7d75b56b9977b717a900150a9019441f39b66545a1575c270efe2c145"
+}

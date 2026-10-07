@@ -142,6 +142,65 @@ test('installed maintenance assets execute with Node and upgrade preserves all t
   const duplicateBefore = closingBytes();
   const duplicateRevival = attempt('apply', closingUpdate({ links: [{ ...currentActive }, ...duplicates] }));
   expect(duplicateRevival.exit).toBe(1); expect(duplicateRevival.result.files[0].error).toContain('DISMISSED_RELATION'); expect(closingBytes()).toEqual(duplicateBefore);
+  // Review R1/R2 of 00e5309: syntax-aware repairs and individual historical rows.
+  const syntaxPath = 'docs/product/REVIEW-SYNTAX.md', syntaxFile = path.join(root, syntaxPath);
+  const syntaxItem = { metadata: { id: 'REQ-REVIEW-SYNTAX', type: 'requirement', scope: 'current' }, body: '## [REQ-REVIEW-SYNTAX] 原可用需求\n' + sections };
+  const syntaxKeep = { metadata: { id: 'REQ-REVIEW-KEEP', type: 'requirement', scope: 'current', unknown: true }, body: '## [REQ-REVIEW-KEEP] 无关坏邻项\n' + sections };
+  const syntaxGood = newDocument([syntaxItem, syntaxKeep]); fs.writeFileSync(syntaxFile, syntaxGood);
+  const syntaxRequest = (content: string) => ({ files: [{ path: syntaxPath, expected_sha256: sha256(fs.readFileSync(syntaxFile)), content }] });
+  for (const malformed of [syntaxGood.replace('    scope: current', '    scope: current\n    scope: current'), syntaxGood.replace('    scope: current', '    scope: &flag current'), syntaxGood.replace('  - id: REQ-REVIEW-SYNTAX', '  - &entry\n    id: REQ-REVIEW-SYNTAX')]) {
+    const rejected = attempt('apply', syntaxRequest(malformed));
+    expect(rejected.exit).toBe(1); expect(rejected.result.files[0].error).toContain('STRUCTURE_INVALID'); expect(fs.readFileSync(syntaxFile, 'utf8')).toBe(syntaxGood);
+    fs.writeFileSync(syntaxFile, malformed);
+    const repaired = invoke('apply', syntaxRequest(syntaxGood));
+    expect(repaired.status).toBe('saved'); expect(repaired.files[0].affected_items).toEqual(['REQ-REVIEW-SYNTAX']);
+    expect(repaired.files[0].preimage.data_base64).toBe(Buffer.from(malformed).toString('base64')); expect(fs.readFileSync(syntaxFile, 'utf8')).toBe(syntaxGood);
+  }
+  const historyPath = 'docs/product/REVIEW-HISTORY.md', historyFile = path.join(root, historyPath);
+  for (const field of ['links', 'task_bindings']) {
+    const identity = field === 'links' ? { relation: 'references', target: 'REQ-H' }
+      : { task: { task_id: 'review-first-task', source: sourceA }, role: 'repair', coverage: '原范围' };
+    const first = { id: 'REL-REVIEW-SHARED', ...identity, origin: 'inferred', state: 'dismissed', reason: '第一份否定', sources: [sourceA] };
+    const second = field === 'links' ? { ...first, target: 'REQ-IMPORT', sources: [sourceA, currentDecision] }
+      : { ...first, task: { task_id: 'review-second-task', source: sourceA }, sources: [sourceA, currentDecision] };
+    fs.writeFileSync(historyFile, newDocument([{ metadata: { id: 'REQ-REVIEW-HISTORY', type: 'requirement', scope: 'current', [field]: [first, second] }, body: '## [REQ-REVIEW-HISTORY] 分别保留否定历史\n' + sections }]));
+    const historyRequest = (relations: any[], removal = false) => ({ files: [{ path: historyPath, expected_sha256: sha256(fs.readFileSync(historyFile)), updates: [{ id: 'REQ-REVIEW-HISTORY', metadata: { [field]: relations } }], ...(removal ? { remove_relations: [{ item_id: 'REQ-REVIEW-HISTORY', field, id: first.id }] } : {}) }] });
+    const original = fs.readFileSync(historyFile);
+    const implicit = attempt('apply', historyRequest([first]));
+    expect(implicit.exit).toBe(1); expect(implicit.result.files[0].error).toContain('DISMISSED_REMOVAL'); expect(fs.readFileSync(historyFile)).toEqual(original);
+    const restored = { ...first, state: 'active', origin: 'declared', reason: currentDecision.text, sources: [sourceA, currentDecision] };
+    expect(invoke('apply', historyRequest([second, restored])).status).toBe('saved');
+    const beforeRemoval = fs.readFileSync(historyFile), removed = invoke('apply', historyRequest([restored], true));
+    expect(removed.status).toBe('saved'); expect(removed.files[0].preimage.data_base64).toBe(beforeRemoval.toString('base64'));
+    expect(invoke('read', { item_ids: ['REQ-REVIEW-HISTORY'], detail: 'items' }).usable_items[0].metadata[field]).toEqual([restored]);
+  }
+  // Review R3/R4: requested coverage stays truthful in the installed artifact.
+  const scopeManifestBefore = fs.readFileSync(manifestPath), registeredMissing = 'docs/product/REGISTERED-MISSING.md';
+  const coverageManifest = { ...read.manifest, managed_paths: ['docs/product/**.md', registeredMissing] };
+  fs.writeFileSync(manifestPath, stringify(coverageManifest));
+  for (const action of ['read', 'check']) {
+    const gap = attempt(action, { paths: ['docs/product/*.md'] });
+    expect(gap.exit).toBe(1); expect(gap.result.coverage.complete).toBe(false); expect(gap.result.coverage.omitted).toEqual([registeredMissing]); expect(gap.result.development_gate).toBe(false);
+    if (action === 'read') expect(gap.result.usable_items.map((i: any) => i.id)).toContain('REQ-H'); else expect(gap.result.status).toBe('partial');
+  }
+  expect(invoke('read', { paths: [selected] }).coverage.complete).toBe(true);
+  expect(invoke('read', { paths: ['docs/product/NO-MATCH-*.md'] }).coverage.complete).toBe(true);
+  fs.writeFileSync(manifestPath, stringify({ ...coverageManifest, exclude_paths: [registeredMissing] }));
+  expect(invoke('read', { paths: ['docs/product/*.md'] }).coverage.complete).toBe(true);
+  const globPrefix = 'docs/product/READ-PREFIX', globPrefixFile = path.join(root, globPrefix);
+  fs.writeFileSync(globPrefixFile, '合成目录被换成普通文件，读取不得改写。');
+  const prefixManifest = { ...read.manifest, managed_paths: ['docs/product/**.md', globPrefix + '/*.md'] };
+  fs.writeFileSync(manifestPath, stringify(prefixManifest));
+  for (const action of ['read', 'check']) {
+    const gap = attempt(action, {});
+    expect(gap.exit).toBe(1); expect(gap.result.coverage.complete).toBe(false); expect(gap.result.coverage.omitted).toEqual([globPrefix]);
+    expect(gap.result.diagnostics.some((d: any) => d.code === 'PATH_UNAVAILABLE' && d.path === globPrefix && d.message.includes('directory'))).toBe(true);
+  }
+  expect(fs.readFileSync(globPrefixFile, 'utf8')).toBe('合成目录被换成普通文件，读取不得改写。');
+  expect(invoke('read', { paths: [selected] }).coverage.complete).toBe(true);
+  fs.writeFileSync(manifestPath, stringify({ ...prefixManifest, exclude_paths: [globPrefix] })); expect(invoke('read').coverage.complete).toBe(true);
+  fs.unlinkSync(globPrefixFile); fs.mkdirSync(globPrefixFile); fs.writeFileSync(manifestPath, stringify(prefixManifest)); expect(invoke('read').coverage.complete).toBe(true);
+  fs.writeFileSync(manifestPath, scopeManifestBefore);
   const manage = (command: string, input: any) => JSON.parse(execFileSync('node', [path.join(root, '.workflow-system/runtime/support/assistance.mjs'), command, '--root', root], { encoding: 'utf8', input: JSON.stringify(input) }));
   expect(manage('record', { kind: 'observation', body: { synthetic_fixture: true, maintenance_saved: false, error: failedCandidate.result.files[0].error }, idempotency_key: 'c-p2-failure-observation' }).recorded).toBe(true);
   const prepared = manage('task', { action: 'prepare', plan: { title: '合成明确任务', goal: '管理保存失败不否决明确任务', steps: [{ id: 'S1', title: '已明确工作' }] }, idempotency_key: 'c-p2-independent-prepare' });
@@ -163,12 +222,24 @@ test('installed maintenance assets execute with Node and upgrade preserves all t
   expect(offlineD.items.map((i: any) => i.id)).toContain('REQ-AFTER-HTML');
   expect(offlineD.items.find((i: any) => i.id === 'REQ-C-P2').metadata.links).toEqual(duplicates);
   expect(offlineD.diagnostics.some((d: any) => d.code === 'DUPLICATE_LINK_ID')).toBe(true);
+  fs.copyFileSync(syntaxFile, path.join(offline, syntaxPath)); fs.copyFileSync(historyFile, path.join(offline, historyPath));
+  const offlineReview = JSON.parse(execFileSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' }));
+  expect(offlineReview.items.map((i: any) => i.id)).toContain('REQ-REVIEW-SYNTAX');
+  expect(offlineReview.diagnostics.some((d: any) => d.item_id === 'REQ-REVIEW-KEEP' && d.severity === 'error')).toBe(true);
+  expect(offlineReview.items.find((i: any) => i.id === 'REQ-REVIEW-HISTORY').metadata.task_bindings).toEqual(parseProduct(fs.readFileSync(historyFile, 'utf8'), historyPath).items[0]!.metadata.task_bindings);
   // The same coverage gap survives a runtime-free consumer, including a real Windows junction.
   const offlineManifest = path.join(offline, '.workflow-system/PRODUCT.yaml');
   const selectedManifest = { ...read.manifest, managed_paths: ['docs/product/**.md'] }; fs.writeFileSync(offlineManifest, stringify(selectedManifest));
   fs.mkdirSync(path.join(offline, 'docs/product/nested'), { recursive: true }); fs.copyFileSync(path.join(root, deepPath), path.join(offline, deepPath));
   const inlineGlob = JSON.parse(execFileSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' }));
   expect(inlineGlob.coverage.complete).toBe(true); expect(inlineGlob.items.map((i: any) => i.id)).toContain('REQ-DEEP');
+  const offlineScope = () => { const child = spawnSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' }); return { exit: child.status, result: JSON.parse(child.stdout) }; };
+  fs.writeFileSync(offlineManifest, stringify({ ...selectedManifest, managed_paths: ['docs/product/**.md', registeredMissing] }));
+  const offlineMissing = offlineScope(); expect(offlineMissing.exit).toBe(1); expect(offlineMissing.result.coverage.omitted).toEqual([registeredMissing]); expect(offlineMissing.result.items.map((i: any) => i.id)).toContain('REQ-IMPORT');
+  fs.writeFileSync(path.join(offline, globPrefix), '离线普通文件，不能冒充 glob 目录'); fs.writeFileSync(offlineManifest, stringify(prefixManifest));
+  const offlinePrefix = offlineScope(); expect(offlinePrefix.exit).toBe(1); expect(offlinePrefix.result.coverage.complete).toBe(false); expect(offlinePrefix.result.coverage.omitted).toEqual([globPrefix]);
+  expect(offlinePrefix.result.diagnostics.some((d: any) => d.code === 'PATH_UNAVAILABLE' && d.path === globPrefix)).toBe(true);
+  fs.writeFileSync(offlineManifest, stringify(selectedManifest)); const ordinaryPrefix = offlineScope(); expect(ordinaryPrefix.exit).toBe(0); expect(ordinaryPrefix.result.coverage.complete).toBe(true);
   const linkTarget = fs.mkdtempSync(path.join(os.tmpdir(), 'offline-link-')); roots.push(linkTarget);
   fs.symlinkSync(linkTarget, path.join(offline, 'docs/product/junction'), process.platform === 'win32' ? 'junction' : 'dir');
   fs.unlinkSync(path.join(offline, 'docs/product/PROJECT.md'));

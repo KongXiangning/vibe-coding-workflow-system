@@ -1,0 +1,23 @@
+{
+  "exit": 1,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "apply",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "failed",
+    "files": [
+      {
+        "path": "docs/product/R2-REPAIR.md",
+        "status": "failed",
+        "saved": false,
+        "error": "DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested"
+      }
+    ],
+    "association": "not-evaluated",
+    "reconciliation": "not-evaluated",
+    "transaction": "per-file; no cross-file atomicity"
+  }
+}

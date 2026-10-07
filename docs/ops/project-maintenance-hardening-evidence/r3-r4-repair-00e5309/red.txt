@@ -1,0 +1,37 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+353 |   const manifest = { ...run('read', root).manifest, managed_paths: ['docs/product/PROJECT.md', 'docs/product/REQUIREMENTS.md', missing, outside] };
+354 |   put(root, '.workflow-system/PRODUCT.yaml', stringify(manifest));
+355 |   const selected = ['docs/product/*.md'];
+356 |   for (const action of ['read', 'check']) {
+357 |     const result = run(action, root, { paths: selected });
+358 |     expect(result.coverage.complete).toBe(false); expect(result.coverage.omitted).toEqual([missing]);
+                                           ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:358:38)
+(fail) Review R3 selected globs retain registered concrete files only within the requested scope [47.00ms]
+381 |   const root = fixture(), prefix = 'docs/product/section', pattern = prefix + '/*.md';
+382 |   const manifest = { ...run('read', root).manifest, managed_paths: ['docs/product/*.md', pattern] };
+383 |   put(root, '.workflow-system/PRODUCT.yaml', stringify(manifest)); put(root, prefix, '手工替换成文件的原文');
+384 |   for (const action of ['read', 'check']) for (const paths of [undefined, [pattern, 'docs/product/REQUIREMENTS.md']]) {
+385 |     const result = run(action, root, paths ? { paths } : {});
+386 |     expect(result.coverage.complete).toBe(false); expect(result.coverage.omitted).toEqual([prefix]); expect(result.development_gate).toBe(false);
+                                           ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:386:38)
+(fail) Review R4 required glob prefixes must be directories without misclassifying ordinary wildcard files [15.00ms]
+
+ 0 pass
+ 35 filtered out
+ 2 fail
+ 2 expect() calls
+Ran 2 tests across 1 file. [149.00ms]

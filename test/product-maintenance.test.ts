@@ -271,6 +271,140 @@ test('C02 existing active relations do not block unrelated maintenance but new e
   expect(get(root)).toEqual(before);
 });
 
+test('Review R1 whole candidates validate YAML syntax changes and permit exact malformed-item repairs', () => {
+  const bad = req('REQ-KEEP', { unknown: true });
+  const good = newDocument([req(), bad]);
+  const mutations = [
+    (text: string) => text.replace('    scope: current', '    scope: current\n    scope: current'),
+    (text: string) => text.replace('    scope: current', '    scope: &flag current'),
+    (text: string) => text.replace('  - id: REQ-A', '  - &entry\n    id: REQ-A'),
+  ];
+  for (const mutate of mutations) {
+    const root = fixture([req(), bad]), malformed = mutate(good);
+    expect(run('apply', root, { files: [wholeOp(root, malformed)] }).files[0].error).toContain('STRUCTURE_INVALID');
+    expect(get(root).toString()).toBe(good);
+    put(root, 'docs/product/REQUIREMENTS.md', malformed);
+    const old = parseProduct(malformed, 'r.md'); expect(old.items[0]!.usable).toBe(false);
+    const repaired = run('apply', root, { files: [wholeOp(root, good)] });
+    expect(repaired.status).toBe('saved'); expect(repaired.files[0].affected_items).toEqual(['REQ-A']);
+    expect(repaired.files[0].preimage.data_base64).toBe(Buffer.from(malformed).toString('base64'));
+    const next = parseProduct(get(root).toString(), 'r.md'); expect(next.items[0]!.usable).toBe(true); expect(next.items[1]!.usable).toBe(false);
+    expect(next.items[1]!.body).toBe(old.items[1]!.body);
+    expect(good.slice(next.items[1]!.metadata_start, next.items[1]!.metadata_end)).toBe(malformed.slice(old.items[1]!.metadata_start, old.items[1]!.metadata_end));
+  }
+  // A change in an earlier item's line count must not select an unchanged bad neighbor.
+  const root = fixture([req(), bad]), formatted = good.replace('  - id: REQ-A', '  - id: REQ-A\n    # selected item formatting');
+  const formatSaved = run('apply', root, { files: [wholeOp(root, formatted)] });
+  expect(formatSaved.status).toBe('saved'); expect(formatSaved.files[0].affected_items).toEqual(['REQ-A']);
+  expect(run('apply', root, { files: [wholeOp(root, formatted)] }).files[0].status).toBe('unchanged');
+  const badNeighbor = good.replace('  - id: REQ-KEEP', '  - &keep\n    id: REQ-KEEP').replace('    unknown: true', '    unknown: true\n    scope: current');
+  put(root, 'docs/product/REQUIREMENTS.md', badNeighbor);
+  expect(run('apply', root, { files: [wholeOp(root, badNeighbor.replace('  - id: REQ-A', '  - id: REQ-A\n    # selected formatting'))] }).status).toBe('saved');
+  const anchored = mutations[2]!(good); put(root, 'docs/product/REQUIREMENTS.md', anchored);
+  expect(run('apply', root, { files: [wholeOp(root, anchored.replace('&entry', '&renamed'))] }).files[0].error).toContain('STRUCTURE_INVALID');
+  expect(get(root).toString()).toBe(anchored);
+});
+
+test('Review R2 dismissed history is matched once by identity while explicit partial removals and reversals remain legal', () => {
+  const source = { kind: 'text', text: '原否定依据', label: '原材料' };
+  const decision = { kind: 'text', text: '当前用户明确恢复第一个关联，另一个否定保持。', label: '当前决定' };
+  for (const field of ['links', 'task_bindings']) for (const whole of [false, true]) {
+    const identity = field === 'links' ? { relation: 'references', target: 'PROJECT-A' }
+      : { task: { task_id: 'first-task', source }, role: 'repair', coverage: '原范围' };
+    const first = { id: 'REL-SHARED', ...identity, origin: 'inferred', state: 'dismissed', reason: '第一个否定', sources: [source] };
+    const second = field === 'links' ? { ...first, target: 'REQ-OTHER', reason: '另一个目标的否定', sources: [source, decision] }
+      : { ...first, task: { task_id: 'second-task', source }, reason: '另一个 task 的否定', sources: [source, decision] };
+    const bad = req('REQ-KEEP', { unknown: true }), root = fixture([req('REQ-A', { [field]: [first, second] }), req('REQ-OTHER'), bad]);
+    const update = (metadata: ObjectValue, extra: ObjectValue = {}) => {
+      const prior = parseProduct(get(root).toString(), 'r.md').items.find(i => i.id === 'REQ-A')!.metadata;
+      return whole ? wholeOp(root, newDocument([req('REQ-A', { ...prior, ...metadata }), req('REQ-OTHER'), bad]), extra)
+        : { ...fileOp(root, [{ id: 'REQ-A', metadata }]), ...extra };
+    };
+    expect(run('apply', root, { files: [update({ scope: 'planned' })] }).status).toBe('saved');
+    const edited = { ...second, reason: '只更新第二份否定的说明' };
+    expect(run('apply', root, { files: [update({ [field]: [edited, first] })] }).status).toBe('saved');
+    const before = get(root);
+    expect(run('apply', root, { files: [update({ [field]: [first] })] }).files[0].error).toContain('DISMISSED_REMOVAL'); expect(get(root)).toEqual(before);
+    const deletion = { remove_relations: [{ item_id: 'REQ-A', field, id: first.id }] };
+    expect(run('apply', root, { files: [update({ [field]: [edited, first] }, deletion)] }).files[0].error).toContain('REMOVAL_INPUT'); expect(get(root)).toEqual(before);
+    expect(run('apply', root, { files: [update({ [field]: [edited, { ...first, state: 'active' }] })] }).files[0].error).toContain('DISMISSED_RELATION'); expect(get(root)).toEqual(before);
+    const restored = { ...first, state: 'active', origin: 'declared', reason: decision.text, sources: [source, decision] };
+    const renewal = run('apply', root, { files: [update({ [field]: [edited, restored] })] });
+    expect(renewal.status).toBe('saved'); expect(renewal.files[0].preimage.data_base64).toBe(before.toString('base64'));
+    expect(parseProduct(get(root).toString(), 'r.md').items[0]!.metadata[field]).toEqual([edited, restored]);
+    const deleteBefore = get(root), removed = run('apply', root, { files: [update({ [field]: [restored] }, deletion)] });
+    expect(removed.status).toBe('saved'); expect(removed.files[0].preimage.data_base64).toBe(deleteBefore.toString('base64'));
+    expect(parseProduct(get(root).toString(), 'r.md').items[0]!.metadata[field]).toEqual([restored]);
+    // Two equivalent historical rows also require two distinct matches.
+    put(root, 'docs/product/REQUIREMENTS.md', newDocument([req('REQ-A', { [field]: [first, { ...first }] }), req('REQ-OTHER'), bad]));
+    const repeated = get(root);
+    expect(run('apply', root, { files: [update({ [field]: [first] })] }).files[0].error).toContain('DISMISSED_REMOVAL'); expect(get(root)).toEqual(repeated);
+    expect(run('apply', root, { files: [update({ [field]: [first] }, deletion)] }).status).toBe('saved');
+    // Repurposing another historical ID must still protect that ID's old basis.
+    const protectedId = { ...first, sources: [source, decision] }, otherId = { ...second, id: 'REL-OTHER', sources: [source] };
+    put(root, 'docs/product/REQUIREMENTS.md', newDocument([req('REQ-A', { [field]: [protectedId, otherId] }), req('REQ-OTHER'), bad]));
+    const reusedId = { ...otherId, id: first.id, state: 'active', origin: 'declared', reason: decision.text, sources: [source, decision] }, protectedBytes = get(root);
+    expect(run('apply', root, { files: [update({ [field]: [protectedId, otherId, reusedId] })] }).files[0].error).toContain('DISMISSED_RELATION'); expect(get(root)).toEqual(protectedBytes);
+  }
+});
+
+test('Review R3 selected globs retain registered concrete files only within the requested scope', () => {
+  const root = fixture(), missing = 'docs/product/MISSING.md', outside = 'docs/elsewhere/UNSELECTED.md';
+  const manifest = { ...run('read', root).manifest, managed_paths: ['docs/product/PROJECT.md', 'docs/product/REQUIREMENTS.md', missing, outside] };
+  put(root, '.workflow-system/PRODUCT.yaml', stringify(manifest));
+  const selected = ['docs/product/*.md'];
+  for (const action of ['read', 'check']) {
+    const result = run(action, root, { paths: selected });
+    expect(result.coverage.complete).toBe(false); expect(result.coverage.omitted).toEqual([missing]);
+    expect(result.coverage.paths).toEqual(selected); expect(result.development_gate).toBe(false);
+    expect(result.diagnostics.some((d: any) => d.code === 'PATH_UNAVAILABLE' && d.path === missing)).toBe(true);
+    if (action === 'read') expect(result.usable_items.map((i: any) => i.id)).toEqual(['PROJECT-A', 'REQ-A']);
+    else expect(result.status).toBe('partial');
+  }
+  for (const paths of [['docs/product/REQUIREMENTS.md'], ['docs/product/NO-MATCH-*.md']]) {
+    const result = run('read', root, { paths }); expect(result.coverage.complete).toBe(true); expect(result.coverage.omitted).toEqual([]);
+  }
+  put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, exclude_paths: [missing] }));
+  expect(run('read', root, { paths: selected }).coverage.complete).toBe(true);
+  put(root, '.workflow-system/PRODUCT.yaml', stringify(manifest));
+  put(root, missing, newDocument([req('REQ-FOUND')]));
+  const found = run('read', root, { paths: selected }); expect(found.coverage.complete).toBe(true); expect(found.usable_items.map((i: any) => i.id)).toContain('REQ-FOUND');
+  // A read gap reports truth without blocking an independent authorized write.
+  fs.unlinkSync(path.join(root, missing));
+  expect(run('apply', root, { files: [fileOp(root, [{ id: 'REQ-A', metadata: { scope: 'planned' } }])] }).status).toBe('saved');
+  expect(run('read', root, { paths: ['docs/product/REQUIREMENTS.md'] }).usable_items[0].metadata.scope).toBe('planned');
+  put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: ['docs/product/*.md', missing] }));
+  expect(run('read', root, { paths: selected }).coverage.omitted).toEqual([missing]);
+});
+
+test('Review R4 required glob prefixes must be directories without misclassifying ordinary wildcard files', () => {
+  const root = fixture(), prefix = 'docs/product/section', pattern = prefix + '/*.md';
+  const manifest = { ...run('read', root).manifest, managed_paths: ['docs/product/*.md', pattern] };
+  put(root, '.workflow-system/PRODUCT.yaml', stringify(manifest)); put(root, prefix, '手工替换成文件的原文');
+  for (const action of ['read', 'check']) for (const paths of [undefined, [pattern, 'docs/product/REQUIREMENTS.md']]) {
+    const result = run(action, root, paths ? { paths } : {});
+    expect(result.coverage.complete).toBe(false); expect(result.coverage.omitted).toEqual([prefix]); expect(result.development_gate).toBe(false);
+    expect(result.diagnostics.some((d: any) => d.code === 'PATH_UNAVAILABLE' && d.path === prefix && d.message.includes('directory'))).toBe(true);
+    if (action === 'read') expect(result.usable_items.map((i: any) => i.id)).toContain('REQ-A'); else expect(result.status).toBe('partial');
+    expect(get(root, prefix).toString()).toBe('手工替换成文件的原文');
+  }
+  expect(run('read', root, { paths: ['docs/product/REQUIREMENTS.md'] }).coverage.complete).toBe(true);
+  put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, exclude_paths: [prefix] }));
+  expect(run('read', root).coverage.complete).toBe(true);
+  put(root, '.workflow-system/PRODUCT.yaml', stringify(manifest)); fs.unlinkSync(path.join(root, prefix)); fs.mkdirSync(path.join(root, prefix));
+  const empty = run('read', root); expect(empty.coverage.complete).toBe(true); expect(empty.coverage.omitted).toEqual([]);
+  put(root, prefix + '/CHILD.md', newDocument([req('REQ-CHILD')])); expect(run('read', root).usable_items.map((i: any) => i.id)).toContain('REQ-CHILD');
+  put(root, 'docs/product/ordinary-file', '不匹配最终模式的普通文件');
+  put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: ['docs/product/**/*.md'] }));
+  const wildcard = run('read', root); expect(wildcard.coverage.complete).toBe(true); expect(wildcard.coverage.omitted).toEqual([]);
+  // A path may be a valid explicit document and an unavailable glob directory.
+  const both = fixture(); put(both, prefix, newDocument([req('REQ-PREFIX-FILE')]));
+  put(both, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: ['docs/product/*.md', prefix, pattern] }));
+  const mixed = run('read', both, { paths: [prefix, pattern, 'docs/product/REQUIREMENTS.md'] });
+  expect(mixed.coverage.complete).toBe(false); expect(mixed.coverage.omitted).toEqual([prefix]);
+  expect(mixed.usable_items.map((i: any) => i.id)).toEqual(['REQ-A', 'REQ-PREFIX-FILE']);
+});
+
 test('D01 append supplies Markdown boundaries while preserving original body bytes and malformed neighbors', () => {
   for (const eol of ['\n', '\r\n']) for (const ending of ['', eol, eol + ' \t']) for (const malformed of [false, true]) {
     const item = req('REQ-KEEP', malformed ? { unknown: true } : {});

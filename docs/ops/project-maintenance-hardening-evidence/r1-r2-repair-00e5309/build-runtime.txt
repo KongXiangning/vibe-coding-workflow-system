@@ -1,0 +1,20 @@
+$ bun run check:toolchain && bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js && bun run build:product-maintenance
+$ bun run scripts/check-toolchain.ts
+Bun toolchain verified: 1.3.10
+Bundled 43 modules in 91ms
+
+  cli.js  2.15 MB  (entry point)
+
+Bundled 17 modules in 15ms
+
+  install-tools.js  97.66 KB  (entry point)
+
+$ bun run scripts/build-product-maintenance.ts
+Bundled 175 modules in 30ms
+
+  product-maintenance.js  0.57 MB  (entry point)
+
+Bundled 173 modules in 29ms
+
+  offline-reader.js  0.52 MB  (entry point)
+

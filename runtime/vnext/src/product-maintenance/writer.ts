@@ -211,9 +211,9 @@ function relationIdentity(relation: ObjectValue, field: string): string {
   const identity = task.task_id ? [task.task_id, task.step_id ?? null] : [sourceKey(locator), task.step_id ?? null];
   return canonical([identity, relation.role, relation.coverage]);
 }
-function activatedRelations(previous: ObjectValue[], next: ObjectValue[], field: string): Set<ObjectValue> {
-  const remaining = previous.filter(relation => relation.state === 'active');
-  const additions = next.filter(relation => relation.state === 'active');
+function unmatchedRelations(previous: ObjectValue[], next: ObjectValue[], field: string, allowUniqueCorrection = false) {
+  const remaining = [...previous];
+  const additions = [...next];
   // Match retained rows first, then edits of the same identity. Each old row
   // accounts for one next row; duplicate IDs neither veto edits nor hide revival.
   for (const exact of [true, false]) {
@@ -225,17 +225,38 @@ function activatedRelations(previous: ObjectValue[], next: ObjectValue[], field:
       if (match >= 0) { remaining.splice(index, 1); additions.splice(match, 1); }
     }
   }
-  return new Set(additions);
+  // A unique ID still permits an ordinary identity correction. With duplicate
+  // IDs, only an actual identity match can account for a retained history row.
+  if (allowUniqueCorrection) {
+    for (let index = remaining.length - 1; index >= 0; index--) {
+      const old = remaining[index]!;
+      if (previous.filter(relation => relation.id === old.id).length !== 1 || next.filter(relation => relation.id === old.id).length !== 1) continue;
+      const match = additions.findIndex(relation => relation.id === old.id);
+      if (match >= 0) { remaining.splice(index, 1); additions.splice(match, 1); }
+    }
+  }
+  return { removed: remaining, added: additions };
+}
+function activatedRelations(previous: ObjectValue[], next: ObjectValue[], field: string): Set<ObjectValue> {
+  return new Set(unmatchedRelations(previous.filter(relation => relation.state === 'active'), next.filter(relation => relation.state === 'active'), field).added);
 }
 function normalizedBody(body: string): string {
   return body.replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
 }
-function changedItem(old: Item | undefined, next: Item): boolean {
-  return !old || old.body !== next.body || canonical(old.metadata) !== canonical(next.metadata);
+function itemDiagnostics(item: Item): string {
+  // Absolute lines and array indexes move when an earlier item is edited.
+  return canonical(item.diagnostics.map(d => [d.code, d.severity, d.message, d.pointer?.replace(/^\/items\/\d+(?=\/|$)/, '')]).sort());
+}
+function changedItem(previous: ProductDocument | undefined, document: ProductDocument, next: Item): boolean {
+  const old = previous?.items.find(item => item.id === next.id);
+  if (!old || !previous) return true;
+  return old.body !== next.body || canonical(old.metadata) !== canonical(next.metadata)
+    || previous.text.slice(old.metadata_start, old.metadata_end) !== document.text.slice(next.metadata_start, next.metadata_end)
+    || itemDiagnostics(old) !== itemDiagnostics(next);
 }
 function validateProductCandidate(previous: ProductDocument | undefined, next: ProductDocument, operation: ObjectValue, selectedIds: string[] | null, catalog: Catalog): string[] {
   const oldItems = previous?.items ?? [];
-  const affected = selectedIds ?? next.items.filter(item => changedItem(oldItems.find(old => old.id === item.id), item)).map(item => item.id);
+  const affected = selectedIds ?? next.items.filter(item => changedItem(previous, next, item)).map(item => item.id);
   for (const item of next.items) {
     if (!oldItems.some(old => old.id === item.id) && catalog.items.some(other => other.id === item.id && other.path !== operation.path)) throw new Error(`DUPLICATE_ID: ${item.id} already has a known current definition in another registered file`);
   }
@@ -245,7 +266,8 @@ function validateProductCandidate(previous: ProductDocument | undefined, next: P
   for (const removal of operation.remove_relations ?? []) {
     const old = oldItems.find(item => item.id === removal.item_id);
     const kept = next.items.find(item => item.id === removal.item_id);
-    if (!relationList(old?.metadata[removal.field]).some(r => r.id === removal.id) || relationList(kept?.metadata[removal.field]).some(r => r.id === removal.id)) throw new Error('REMOVAL_INPUT: remove_relations must name an existing relation actually removed');
+    const deleted = unmatchedRelations(relationList(old?.metadata[removal.field]), relationList(kept?.metadata[removal.field]), removal.field, true).removed;
+    if (!deleted.some(relation => relation.id === removal.id)) throw new Error('REMOVAL_INPUT: remove_relations must name an existing relation actually removed');
   }
   for (const old of oldItems) {
     const kept = next.items.find(item => item.id === old.id);
@@ -269,13 +291,20 @@ function validateProductCandidate(previous: ProductDocument | undefined, next: P
       const oldRelations = relationList(old.metadata[field]);
       const nextRelations = relationList(kept.metadata[field]);
       const activated = activatedRelations(oldRelations, nextRelations, field);
-      for (const relation of oldRelations.filter(r => r.state === 'dismissed')) {
-        const replacements = nextRelations.filter(r => r.id === relation.id || relationIdentity(r, field) === relationIdentity(relation, field));
-        if (replacements.some(r => activated.has(r) && !hasNewBasis(relation, r))) throw new Error('DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation');
+      const dismissed = oldRelations.filter(relation => relation.state === 'dismissed');
+      for (const activation of activated) {
+        const identity = relationIdentity(activation, field);
+        // Disambiguate shared IDs without waiving history when an ID is retargeted.
+        const knownIdIdentity = dismissed.some(relation => relation.id === activation.id && relationIdentity(relation, field) === identity);
+        const history = dismissed.filter(relation => relationIdentity(relation, field) === identity || (!knownIdIdentity && relation.id === activation.id));
+        if (history.some(relation => !hasNewBasis(relation, activation))) throw new Error('DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation');
+      }
+      const unretained = unmatchedRelations(dismissed, nextRelations.filter(relation => relation.state === 'dismissed'), field, true).removed;
+      const removedHistory = unmatchedRelations(unretained, [...activated], field, true).removed;
+      for (const relation of removedHistory) {
         const explicitlyRemoved = operation.remove_relations?.some((r: ObjectValue) => r.item_id === old.id && r.field === field && r.id === relation.id)
           || operation.updates?.some((u: ObjectValue) => u.id === old.id && u.remove_fields?.includes(field) && kept.metadata[field] === undefined);
-        const retained = nextRelations.some(r => r.id === relation.id && (r.state === 'dismissed' || activated.has(r)));
-        if (!retained && !explicitlyRemoved) throw new Error('DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested');
+        if (!explicitlyRemoved) throw new Error('DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested');
       }
     }
   }

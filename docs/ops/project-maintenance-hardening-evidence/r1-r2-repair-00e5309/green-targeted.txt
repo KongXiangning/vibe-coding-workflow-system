@@ -1,0 +1,11 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+(pass) Review R1 whole candidates validate YAML syntax changes and permit exact malformed-item repairs [157.00ms]
+(pass) Review R2 dismissed history is matched once by identity while explicit partial removals and reversals remain legal [422.00ms]
+
+ 2 pass
+ 33 filtered out
+ 0 fail
+ 112 expect() calls
+Ran 2 tests across 1 file. [684.00ms]

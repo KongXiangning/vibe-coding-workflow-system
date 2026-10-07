@@ -1,0 +1,30 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "apply",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "saved",
+    "files": [
+      {
+        "path": "docs/product/R34-INDEPENDENT.md",
+        "status": "saved",
+        "saved": true,
+        "changed": true,
+        "sha256": "a0032ca216138f8b8fca57fc0998d50ee10bff46d1dea2665cffd92e63430fff",
+        "preimage": null,
+        "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+        "affected_items": [
+          "REQ-R34-INDEPENDENT"
+        ],
+        "diagnostics": []
+      }
+    ],
+    "association": "not-evaluated",
+    "reconciliation": "not-evaluated",
+    "transaction": "per-file; no cross-file atomicity"
+  }
+}

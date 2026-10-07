@@ -1,0 +1,18 @@
+{
+  "action": "test",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+  "step_id": "A",
+  "execution_ref": ".workflow-system/records/events/key-5dcd7b2ef97d26d5f1b738e014de32adfab1a4ed0ce7ed0f5ecb9d2bfe7c101c.json",
+  "command": "bun test test/workflow-vnext-source.test.ts",
+  "selector": "source",
+  "result": "passed",
+  "counts": {
+    "pass": 19,
+    "fail": 0,
+    "assertions": 115
+  },
+  "source_revision": "00e5309e872130f87fc1c33525bf944eb394b824 + retained R1/R2 and uncommitted R3/R4 repair; helper aed9d8674db7a85dae521e42fda2d2251903d3dd8758aa34eb4fa174f68a97ed",
+  "report_ref": "docs/ops/project-maintenance-hardening-evidence/r3-r4-repair-00e5309/source-tests.txt",
+  "idempotency_key": "maintain-hardening-review-00e5309-r3-r4-test-source-1"
+}

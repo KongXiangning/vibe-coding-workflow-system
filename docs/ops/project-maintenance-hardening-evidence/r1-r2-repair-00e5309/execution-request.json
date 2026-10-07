@@ -1,0 +1,62 @@
+{
+  "action": "execution",
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+  "step_id": "A",
+  "source_revision": "00e5309e872130f87fc1c33525bf944eb394b824 + uncommitted R1/R2 repair; helper a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+  "decision_source": "current human user instruction",
+  "decision_text": "用户明确要求先修复外部 00e5309 审查报告中的 R1、R2。",
+  "external_review_ref": "docs/ops/project-maintenance-hardening-evidence/r1-r2-repair-00e5309/external-review-00e5309.md",
+  "external_review_sha256": "a10bd228e8bda0f82a1235439e37fbf0d6b7b74c5f0c7721584d70f0e1176254",
+  "result": "R1/R2 repaired and self-checked within listed scope; R3/R4 remain open; no formal clean review or release",
+  "summary": "共同写入链纳入 YAML 原文及稳定结构诊断，允许选中坏语法的合法修复；逐份匹配 dismissed 历史，支持同 ID 保留另一行的明确删除及当前明确决定下重新关联；保留原跨 ID 身份保护，无新状态或维护 gate。",
+  "commands": [
+    "bun test test/product-maintenance.test.ts: 35 pass / 873 assertions",
+    "bun test test/product-maintenance-install.test.ts: 1 pass / 163 assertions",
+    "bun test test/workflow-vnext-source.test.ts: 19 pass / 115 assertions",
+    "build:vnext-runtime and build:vibe-governance-distribution: passed",
+    "validate:protocol and validate:freshness: passed",
+    "8 original review inputs x pre-fix/current installed Node: 16 matched observations",
+    "actual isolated 0.24.0 -> current 0.24.1 upgrade: 11 original business assets unchanged; installed repair/reversal/removal and runtime-free offline readback matched"
+  ],
+  "report_ref": "docs/ops/project-maintenance-hardening-evidence/r1-r2-repair-00e5309/README.md",
+  "evidence": {
+    "tests": {
+      "product": {
+        "pass": 35,
+        "fail": 0,
+        "assertions": 873
+      },
+      "install": {
+        "pass": 1,
+        "fail": 0,
+        "assertions": 163
+      },
+      "source": {
+        "pass": 19,
+        "fail": 0,
+        "assertions": 115
+      },
+      "distinct_total": 55,
+      "assertion_total": 1151
+    },
+    "artifacts": {
+      "before": "42ca8baf451c48af30f68f5804a932684ea44740427d3b3cda017e87c8109bf5",
+      "current": "a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+      "offline": "782d00fed8572df4f00c38e86f4f3e70035bf1d2b932007e81affb754efb68df"
+    },
+    "distribution": {
+      "manifest_digest": "2c8b3bf5ba1a77e4f0faf8b05d43fdbe6df9f4b3d4f6e366ec29e22090916d6b"
+    },
+    "node_observations": 16,
+    "upgrade_assets_unchanged": 11,
+    "offline_ids_match": true
+  },
+  "previous_execution_ref": ".workflow-system/records/events/key-e2c1b71a97f87b708e8897d9a4c7d6f36f53edd18b69d1451004ace0e25f3017.json",
+  "gaps": [
+    "R3/R4 are known unmodified reading gaps; no full hardening PASS",
+    "self-check and synthetic deterministic evidence; no independent clean review, S01-S13 host-Agent/cross-model semantic replay or real-project verification",
+    "no full workflow/task suite, Linux, minimum Node20, npm/tgz, push, publication or deployment; source task lifecycle/plan/focus unchanged"
+  ],
+  "idempotency_key": "maintain-hardening-review-00e5309-r1-r2-execution-1"
+}

@@ -1,0 +1,29 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+279 |     (text: string) => text.replace('    scope: current', '    scope: &flag current'),
+280 |     (text: string) => text.replace('  - id: REQ-A', '  - &entry\n    id: REQ-A'),
+281 |   ];
+282 |   for (const mutate of mutations) {
+283 |     const root = fixture([req(), bad]), malformed = mutate(good);
+284 |     expect(run('apply', root, { files: [wholeOp(root, malformed)] }).files[0].error).toContain('STRUCTURE_INVALID');
+                                                                                           ^
+error: Received value must be an array type, or both received and expected values must be strings.
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:284:86)
+(fail) Review R1 whole candidates validate YAML syntax changes and permit exact malformed-item repairs [46.00ms]
+318 |     };
+319 |     expect(run('apply', root, { files: [update({ scope: 'planned' })] }).status).toBe('saved');
+320 |     const edited = { ...second, reason: '只更新第二份否定的说明' };
+321 |     expect(run('apply', root, { files: [update({ [field]: [edited, first] })] }).status).toBe('saved');
+322 |     const before = get(root);
+323 |     expect(run('apply', root, { files: [update({ [field]: [first] })] }).files[0].error).toContain('DISMISSED_REMOVAL'); expect(get(root)).toEqual(before);
+                                                                                               ^
+error: Received value must be an array type, or both received and expected values must be strings.
+      at <anonymous> (C:\Users\kongx\.codex\worktrees\project-goals-requirements\vibe-coding-workflow-system\test\product-maintenance.test.ts:323:90)
+(fail) Review R2 dismissed history is matched once by identity while explicit partial removals and reversals remain legal [63.00ms]
+
+ 0 pass
+ 33 filtered out
+ 2 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [316.00ms]

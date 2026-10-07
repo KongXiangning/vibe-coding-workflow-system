@@ -1,0 +1,42 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "apply",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "saved",
+    "files": [
+      {
+        "path": "docs/product/R1-REPAIR.md",
+        "status": "saved",
+        "saved": true,
+        "changed": true,
+        "sha256": "f0e7cf84b22a3c3c5514824ff17cac068af8792a31b476f15f378cc4eda77503",
+        "preimage": {
+          "sha256": "9da2e476a89c98760f8945a4344585910eb013216500d7d0560ef688f628c3f1",
+          "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFt7ImlkIjoiUkVRLVIxIiwidHlwZSI6InJlcXVpcmVtZW50Iiwic2NvcGUiOiJjdXJyZW50Iiwic2NvcGUiOiJjdXJyZW50In0seyJpZCI6IlJFUS1SMS1LRUVQIiwidHlwZSI6InJlcXVpcmVtZW50Iiwic2NvcGUiOiJjdXJyZW50IiwidW5rbm93biI6dHJ1ZX1dCi0tLQojIyBbUkVRLVIxXSDlkIjmiJDmmI7noa7pnIDmsYIKIyMjIOmcgOaxguWGheWuuQrlvZPliY3mmI7noa7nu7TmiqTjgIIKIyMjIOiMg+WbtOi+ueeVjArml6fkuJrliqHotYTkuqflkozmnKrmlLnnuqbmnZ/kv53nlZnjgIIKIyMjIOmqjOaUtuimgeaxggrmjInmnKzmrKHojIPlm7TmoLjlr7njgIIKCiMjIFtSRVEtUjEtS0VFUF0g5ZCI5oiQ5piO56Gu6ZyA5rGCCiMjIyDpnIDmsYLlhoXlrrkK5b2T5YmN5piO56Gu57u05oqk44CCCiMjIyDojIPlm7TovrnnlYwK5pen5Lia5Yqh6LWE5Lqn5ZKM5pyq5pS557qm5p2f5L+d55WZ44CCCiMjIyDpqozmlLbopoHmsYIK5oyJ5pys5qyh6IyD5Zu05qC45a+544CCCgo="
+        },
+        "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+        "affected_items": [
+          "REQ-R1"
+        ],
+        "diagnostics": [
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R1-REPAIR.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-R1-KEEP",
+            "pointer": "/items/1/unknown"
+          }
+        ]
+      }
+    ],
+    "association": "not-evaluated",
+    "reconciliation": "not-evaluated",
+    "transaction": "per-file; no cross-file atomicity"
+  }
+}

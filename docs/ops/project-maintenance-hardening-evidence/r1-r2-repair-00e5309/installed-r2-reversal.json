@@ -1,0 +1,33 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "apply",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "saved",
+    "files": [
+      {
+        "path": "docs/product/R2-REPAIR.md",
+        "status": "saved",
+        "saved": true,
+        "changed": true,
+        "sha256": "350b231418ff04be38c75515ce3ac756f320f62285b4970da9f2b96afaadd6b4",
+        "preimage": {
+          "sha256": "d525432a486f58ceb3b0fa0f28bf31ec99ee53345eb1fcee5e611542708652c7",
+          "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFt7ImlkIjoiUkVRLVIyIiwidHlwZSI6InJlcXVpcmVtZW50Iiwic2NvcGUiOiJjdXJyZW50IiwibGlua3MiOlt7ImlkIjoiTC1TSEFSRUQiLCJyZWxhdGlvbiI6InJlZmVyZW5jZXMiLCJ0YXJnZXQiOiJQUk9KRUNULU9SREVSUyIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLljp/lkKblrpoiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLlkIjmiJDljp/lkKblrprkvp3mja4iLCJsYWJlbCI6IuaXp+S+neaNriJ9XX0seyJpZCI6IkwtU0hBUkVEIiwicmVsYXRpb24iOiJyZWZlcmVuY2VzIiwidGFyZ2V0IjoiUkVRLVIxIiwib3JpZ2luIjoiaW5mZXJyZWQiLCJzdGF0ZSI6ImRpc21pc3NlZCIsInJlYXNvbiI6IuWOn+WQpuWumiIsInNvdXJjZXMiOlt7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWQiOaIkOWOn+WQpuWumuS+neaNriIsImxhYmVsIjoi5pen5L6d5o2uIn0seyJraW5kIjoidGV4dCIsInRleHQiOiLlvZPliY3nlKjmiLfmmI7noa7mgaLlpI3kv53nlZnnmoTlhbPogZTjgIIiLCJsYWJlbCI6IuW9k+WJjeWGs+WumiJ9XX1dfV0KLS0tCiMjIFtSRVEtUjJdIOWQiOaIkOaYjuehrumcgOaxggojIyMg6ZyA5rGC5YaF5a65CuW9k+WJjeaYjuehrue7tOaKpOOAggojIyMg6IyD5Zu06L6555WMCuaXp+S4muWKoei1hOS6p+WSjOacquaUuee6puadn+S/neeVmeOAggojIyMg6aqM5pS26KaB5rGCCuaMieacrOasoeiMg+WbtOaguOWvueOAggoK"
+        },
+        "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+        "affected_items": [
+          "REQ-R2"
+        ],
+        "diagnostics": []
+      }
+    ],
+    "association": "not-evaluated",
+    "reconciliation": "not-evaluated",
+    "transaction": "per-file; no cross-file atomicity"
+  }
+}

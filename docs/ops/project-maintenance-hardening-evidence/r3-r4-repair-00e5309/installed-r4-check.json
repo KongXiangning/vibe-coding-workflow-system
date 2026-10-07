@@ -1,0 +1,65 @@
+{
+  "exit": 1,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "check",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "partial",
+    "diagnostics": [
+      {
+        "code": "PATH_UNAVAILABLE",
+        "path": "docs/product/section",
+        "message": "Selected glob prefix is not a directory; its range was not enumerated",
+        "severity": "warning"
+      },
+      {
+        "code": "ITEM_METADATA",
+        "path": "docs/product/LEGACY.md",
+        "message": "Unknown core field; use extensions",
+        "severity": "error",
+        "item_id": "REQ-BAD-KEEP",
+        "pointer": "/items/2/unknown_keep"
+      },
+      {
+        "code": "PENDING_SOURCES",
+        "path": "docs/product/ASSESSMENTS.md",
+        "message": "New material is pending reconciliation; existing PASS is not a current completeness claim",
+        "severity": "warning",
+        "item_id": "AS-INTEGER",
+        "line": 8
+      },
+      {
+        "code": "PENDING_SOURCES",
+        "path": "docs/product/ASSESSMENTS.md",
+        "message": "New material is pending reconciliation; existing PASS is not a current completeness claim",
+        "severity": "warning",
+        "item_id": "AS-DECIMAL",
+        "line": 16
+      }
+    ],
+    "coverage": {
+      "complete": false,
+      "files_read": 10,
+      "bytes_read": 24403,
+      "enumeration": "managed_paths only; sources are read only by explicit reference",
+      "omitted": [
+        "docs/product/section"
+      ],
+      "paths": [
+        "docs/product/*.md",
+        "docs/product/section/*.md"
+      ],
+      "excluded_paths": [],
+      "max_files": 1000,
+      "max_file_bytes": 4194304,
+      "max_total_bytes": 33554432,
+      "usable_count": 28,
+      "invalid_count": 1
+    },
+    "sources": [],
+    "business_validity": "not-evaluated"
+  }
+}

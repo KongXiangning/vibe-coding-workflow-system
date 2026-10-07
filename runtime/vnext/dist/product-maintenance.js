@@ -15961,7 +15961,7 @@ function decode2(bytes) {
   return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
 }
 function strictYaml(text3, file) {
-  const doc = $parseDocument(text3, { schema: "core", uniqueKeys: true, strict: true });
+  const doc = $parseDocument(text3, { schema: "core", uniqueKeys: true, strict: true, prettyErrors: false });
   const problems = [];
   const problem = (code, message, offset = 0) => problems.push({ offset, diagnostic: diagnostic(code, file, message, { severity: "error", line: text3.slice(0, offset).split(/\r\n|\n|\r/).length }) });
   for (const issue of [...doc.errors, ...doc.warnings])
@@ -15970,7 +15970,7 @@ function strictYaml(text3, file) {
     if (node2 === null)
       return null;
     if (node2?.anchor)
-      problem("YAML_ANCHOR", "Anchors are not permitted", node2.range?.[0]);
+      problem("YAML_ANCHOR", `Anchors are not permitted (&${node2.anchor})`, node2.range?.[0]);
     if (node2?.tag && !["tag:yaml.org,2002:str", "tag:yaml.org,2002:int", "tag:yaml.org,2002:float", "tag:yaml.org,2002:bool", "tag:yaml.org,2002:null", "tag:yaml.org,2002:seq", "tag:yaml.org,2002:map"].includes(node2.tag))
       problem("YAML_TAG", "Custom/non-JSON tags are not permitted", node2.range?.[0]);
     if ($isAlias(node2)) {
@@ -16202,10 +16202,15 @@ function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
   const paths = [];
   const omitted = new Set;
   let stopped = false;
+  const directoryPrefixes = new Set;
   const prefixes = patterns.map((p) => {
     relativePath(p, true);
     const wildcard = p.search(/[*?\[\]]/);
-    return wildcard < 0 ? p : p.slice(0, p.lastIndexOf("/", wildcard) + 1).replace(/\/$/, "");
+    if (wildcard < 0)
+      return p;
+    const prefix = p.slice(0, p.lastIndexOf("/", wildcard) + 1).replace(/\/$/, "");
+    directoryPrefixes.add(prefix);
+    return prefix;
   });
   const visited = new Set;
   const explicitFiles = new Set(patterns.filter((p) => !/[*?]/.test(p)));
@@ -16240,6 +16245,8 @@ function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
       omit(relative2, "SYMLINK_SKIPPED", "Symbolic link/junction not scanned");
       return;
     }
+    if (directoryPrefixes.has(relative2) && !stat.isDirectory())
+      omit(relative2, "PATH_UNAVAILABLE", "Selected glob prefix is not a directory; its range was not enumerated");
     if (stat.isDirectory()) {
       if (explicitFiles.has(relative2))
         omit(relative2, "PATH_UNAVAILABLE", "Selected file path is a directory, not a regular file");
@@ -16501,7 +16508,8 @@ function readCatalog(rootInput, input = {}) {
   const selected = input.paths ?? manifest.managed_paths;
   catalog.coverage.paths = selected;
   catalog.coverage.excluded_paths = manifest.exclude_paths;
-  const patterns = matches(manifest.entry, selected) ? [...new Set([...selected, manifest.entry])] : selected;
+  const registeredFiles = [manifest.entry, ...manifest.managed_paths.filter((p) => !/[*?]/.test(p))];
+  const patterns = [...new Set([...selected, ...registeredFiles.filter((p) => matches(p, selected))])];
   const enumeration = enumerate(root, patterns, manifest.exclude_paths, maxFiles, catalog.diagnostics);
   catalog.coverage.omitted.push(...enumeration.omitted);
   let bytesRead = 0;
@@ -16932,9 +16940,9 @@ function relationIdentity(relation, field) {
   const identity2 = task.task_id ? [task.task_id, task.step_id ?? null] : [sourceKey(locator), task.step_id ?? null];
   return canonical([identity2, relation.role, relation.coverage]);
 }
-function activatedRelations(previous2, next, field) {
-  const remaining = previous2.filter((relation) => relation.state === "active");
-  const additions = next.filter((relation) => relation.state === "active");
+function unmatchedRelations(previous2, next, field, allowUniqueCorrection = false) {
+  const remaining = [...previous2];
+  const additions = [...next];
   for (const exact of [true, false]) {
     for (let index2 = remaining.length - 1;index2 >= 0; index2--) {
       const old = remaining[index2];
@@ -16945,18 +16953,39 @@ function activatedRelations(previous2, next, field) {
       }
     }
   }
-  return new Set(additions);
+  if (allowUniqueCorrection) {
+    for (let index2 = remaining.length - 1;index2 >= 0; index2--) {
+      const old = remaining[index2];
+      if (previous2.filter((relation) => relation.id === old.id).length !== 1 || next.filter((relation) => relation.id === old.id).length !== 1)
+        continue;
+      const match = additions.findIndex((relation) => relation.id === old.id);
+      if (match >= 0) {
+        remaining.splice(index2, 1);
+        additions.splice(match, 1);
+      }
+    }
+  }
+  return { removed: remaining, added: additions };
+}
+function activatedRelations(previous2, next, field) {
+  return new Set(unmatchedRelations(previous2.filter((relation) => relation.state === "active"), next.filter((relation) => relation.state === "active"), field).added);
 }
 function normalizedBody(body) {
   return body.replace(/\r\n|\r/g, `
 `).replace(/\n+$/, "");
 }
-function changedItem(old, next) {
-  return !old || old.body !== next.body || canonical(old.metadata) !== canonical(next.metadata);
+function itemDiagnostics(item) {
+  return canonical(item.diagnostics.map((d) => [d.code, d.severity, d.message, d.pointer?.replace(/^\/items\/\d+(?=\/|$)/, "")]).sort());
+}
+function changedItem(previous2, document4, next) {
+  const old = previous2?.items.find((item) => item.id === next.id);
+  if (!old || !previous2)
+    return true;
+  return old.body !== next.body || canonical(old.metadata) !== canonical(next.metadata) || previous2.text.slice(old.metadata_start, old.metadata_end) !== document4.text.slice(next.metadata_start, next.metadata_end) || itemDiagnostics(old) !== itemDiagnostics(next);
 }
 function validateProductCandidate(previous2, next, operation, selectedIds, catalog) {
   const oldItems = previous2?.items ?? [];
-  const affected = selectedIds ?? next.items.filter((item) => changedItem(oldItems.find((old) => old.id === item.id), item)).map((item) => item.id);
+  const affected = selectedIds ?? next.items.filter((item) => changedItem(previous2, next, item)).map((item) => item.id);
   for (const item of next.items) {
     if (!oldItems.some((old) => old.id === item.id) && catalog.items.some((other) => other.id === item.id && other.path !== operation.path))
       throw new Error(`DUPLICATE_ID: ${item.id} already has a known current definition in another registered file`);
@@ -16970,7 +16999,8 @@ function validateProductCandidate(previous2, next, operation, selectedIds, catal
   for (const removal of operation.remove_relations ?? []) {
     const old = oldItems.find((item) => item.id === removal.item_id);
     const kept = next.items.find((item) => item.id === removal.item_id);
-    if (!relationList(old?.metadata[removal.field]).some((r) => r.id === removal.id) || relationList(kept?.metadata[removal.field]).some((r) => r.id === removal.id))
+    const deleted = unmatchedRelations(relationList(old?.metadata[removal.field]), relationList(kept?.metadata[removal.field]), removal.field, true).removed;
+    if (!deleted.some((relation) => relation.id === removal.id))
       throw new Error("REMOVAL_INPUT: remove_relations must name an existing relation actually removed");
   }
   for (const old of oldItems) {
@@ -16996,13 +17026,19 @@ function validateProductCandidate(previous2, next, operation, selectedIds, catal
       const oldRelations = relationList(old.metadata[field]);
       const nextRelations = relationList(kept.metadata[field]);
       const activated = activatedRelations(oldRelations, nextRelations, field);
-      for (const relation of oldRelations.filter((r) => r.state === "dismissed")) {
-        const replacements = nextRelations.filter((r) => r.id === relation.id || relationIdentity(r, field) === relationIdentity(relation, field));
-        if (replacements.some((r) => activated.has(r) && !hasNewBasis(relation, r)))
+      const dismissed = oldRelations.filter((relation) => relation.state === "dismissed");
+      for (const activation of activated) {
+        const identity2 = relationIdentity(activation, field);
+        const knownIdIdentity = dismissed.some((relation) => relation.id === activation.id && relationIdentity(relation, field) === identity2);
+        const history = dismissed.filter((relation) => relationIdentity(relation, field) === identity2 || !knownIdIdentity && relation.id === activation.id);
+        if (history.some((relation) => !hasNewBasis(relation, activation)))
           throw new Error("DISMISSED_RELATION: reassociation requires a new explicit basis; reordered/repeated sources or a retry cannot revive a dismissed relation");
+      }
+      const unretained = unmatchedRelations(dismissed, nextRelations.filter((relation) => relation.state === "dismissed"), field, true).removed;
+      const removedHistory = unmatchedRelations(unretained, [...activated], field, true).removed;
+      for (const relation of removedHistory) {
         const explicitlyRemoved = operation.remove_relations?.some((r) => r.item_id === old.id && r.field === field && r.id === relation.id) || operation.updates?.some((u) => u.id === old.id && u.remove_fields?.includes(field) && kept.metadata[field] === undefined);
-        const retained = nextRelations.some((r) => r.id === relation.id && (r.state === "dismissed" || activated.has(r)));
-        if (!retained && !explicitlyRemoved)
+        if (!explicitlyRemoved)
           throw new Error("DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested");
       }
     }

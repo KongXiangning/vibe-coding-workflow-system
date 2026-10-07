@@ -1,0 +1,27 @@
+{
+  "exit": 0,
+  "recorded": true,
+  "ref": ".workflow-system/records/events/key-f7f313464f470bea04c98ba5af67996c88723fdc99c3a4752d6e327308d87164.json",
+  "association": "applied",
+  "projection": {
+    "status": "partial",
+    "cache_ref": ".workflow-system/records/task-view.json",
+    "display": "drift",
+    "issues": [
+      {
+        "id": "issue-72f0ee56c6ebec76c3dfff25",
+        "code": "CURRENT_TASK_DRIFT",
+        "ref": "docs/workflow/CURRENT_TASK.md",
+        "message": "Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "id": "issue-7ef165e16850439ae98fed15",
+      "code": "LEGACY_ASSOCIATION_REQUIRED",
+      "ref": ".workflow-system/records/legacy/current-48b9be7f0af3a5eeeeea790fe7f2bdc2ea53ae30f1353cdff74239a2cfde77d8.md",
+      "message": "Old content preserved but no unambiguous hot-field identity could be read. Use link/import; do not assume no prior task exists."
+    }
+  ]
+}

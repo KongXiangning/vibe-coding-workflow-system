@@ -40,8 +40,10 @@ export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog
   const selected = input.paths ?? manifest.managed_paths;
   catalog.coverage.paths = selected;
   catalog.coverage.excluded_paths = manifest.exclude_paths;
-  // entry is an explicitly registered file, even when a successful glob returns no files.
-  const patterns = matches(manifest.entry, selected) ? [...new Set([...selected, manifest.entry])] : selected;
+  // A glob may find no file, but concrete registered files within its selected
+  // scope still have to be read or reported missing. Keep other scopes unselected.
+  const registeredFiles = [manifest.entry, ...manifest.managed_paths.filter((p: string) => !/[*?]/.test(p))];
+  const patterns = [...new Set([...selected, ...registeredFiles.filter(p => matches(p, selected))])];
   const enumeration = enumerate(root, patterns, manifest.exclude_paths, maxFiles, catalog.diagnostics);
   catalog.coverage.omitted.push(...enumeration.omitted);
   let bytesRead = 0;

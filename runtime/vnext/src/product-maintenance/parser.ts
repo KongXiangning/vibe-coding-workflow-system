@@ -11,13 +11,15 @@ export function decode(bytes: Uint8Array): string {
   return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
 }
 export function strictYaml(text: string, file: string) {
-  const doc = parseDocument(text, { schema: 'core', uniqueKeys: true, strict: true });
+  // Keep diagnostic content independent of absolute lines/snippets. Locations
+  // are reported separately and must not make unchanged bad neighbors selected.
+  const doc = parseDocument(text, { schema: 'core', uniqueKeys: true, strict: true, prettyErrors: false });
   const problems: { offset: number; diagnostic: Diagnostic }[] = [];
   const problem = (code: string, message: string, offset = 0) => problems.push({ offset, diagnostic: diagnostic(code, file, message, { severity: 'error', line: text.slice(0, offset).split(/\r\n|\n|\r/).length }) });
   for (const issue of [...doc.errors, ...doc.warnings]) problem(`YAML_${issue.code}`, issue.message, issue.pos?.[0] ?? 0);
   const convert = (node: any): any => {
     if (node === null) return null;
-    if (node?.anchor) problem('YAML_ANCHOR', 'Anchors are not permitted', node.range?.[0]);
+    if (node?.anchor) problem('YAML_ANCHOR', `Anchors are not permitted (&${node.anchor})`, node.range?.[0]);
     if (node?.tag && !['tag:yaml.org,2002:str', 'tag:yaml.org,2002:int', 'tag:yaml.org,2002:float', 'tag:yaml.org,2002:bool', 'tag:yaml.org,2002:null', 'tag:yaml.org,2002:seq', 'tag:yaml.org,2002:map'].includes(node.tag)) problem('YAML_TAG', 'Custom/non-JSON tags are not permitted', node.range?.[0]);
     if (isAlias(node)) { problem('YAML_ALIAS', 'Aliases are not permitted', node.range?.[0]); return null; }
     if (isMap(node)) {

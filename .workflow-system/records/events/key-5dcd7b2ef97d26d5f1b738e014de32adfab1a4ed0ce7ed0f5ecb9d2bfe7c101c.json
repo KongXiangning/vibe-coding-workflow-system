@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-07T04:47:15.376Z",
+  "payload_sha256": "9df461868fc2661da60cd284a9280a001f34f195ed52a9065b5cae5f25596740",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-review-00e5309-r3-r4-execution-1",
+    "request": {
+      "action": "execution",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+      "step_id": "A",
+      "source_revision": "00e5309e872130f87fc1c33525bf944eb394b824 + retained R1/R2 and uncommitted R3/R4 repair; helper aed9d8674db7a85dae521e42fda2d2251903d3dd8758aa34eb4fa174f68a97ed",
+      "decision_source": "current human user instruction",
+      "decision_text": "用户明确要求继续修复外部 00e5309 审查报告中的 R3、R4。",
+      "external_review_ref": "docs/ops/project-maintenance-hardening-evidence/r1-r2-repair-00e5309/external-review-00e5309.md",
+      "external_review_sha256": "a10bd228e8bda0f82a1235439e37fbf0d6b7b74c5f0c7721584d70f0e1176254",
+      "result": "R3/R4 repaired and self-checked; known R1-R4 implementations covered; no formal clean review or full business acceptance",
+      "summary": "选定 glob 保留范围内具体登记文件的读取义务；枚举器保留静态前缀的目录用途，非目录报遗漏并继续独立资料读取；未选／排除／合法空匹配及普通不匹配文件不误报，无全 source 扫描或新增状态／gate。",
+      "commands": [
+        "bun test test/product-maintenance.test.ts: 37 pass / 929 assertions",
+        "bun test test/product-maintenance-install.test.ts: 1 pass / 197 assertions",
+        "bun test test/workflow-vnext-source.test.ts: 19 pass / 115 assertions",
+        "build:vnext-runtime and build:vibe-governance-distribution passed",
+        "validate:protocol and validate:freshness passed",
+        "4 original read cases + 10 controls: 28 helper and 14 default offline observations matched",
+        "actual isolated 0.24.0 -> current 0.24.1 upgrade: 11 original business assets unchanged; installed incomplete coverage, independent save/read and runtime-free offline verified"
+      ],
+      "report_ref": "docs/ops/project-maintenance-hardening-evidence/r3-r4-repair-00e5309/README.md",
+      "previous_execution_ref": ".workflow-system/records/events/key-c1d0c213ea1e31f65b132d019c28758dc000a63e875b227b1a460723b9d6ba8d.json",
+      "evidence": {
+        "tests": {
+          "product": {
+            "pass": 37,
+            "fail": 0,
+            "assertions": 929
+          },
+          "install": {
+            "pass": 1,
+            "fail": 0,
+            "assertions": 197
+          },
+          "source": {
+            "pass": 19,
+            "fail": 0,
+            "assertions": 115
+          },
+          "distinct_total": 57,
+          "assertion_total": 1241
+        },
+        "artifacts": {
+          "before": "a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+          "before_offline": "782d00fed8572df4f00c38e86f4f3e70035bf1d2b932007e81affb754efb68df",
+          "current": "aed9d8674db7a85dae521e42fda2d2251903d3dd8758aa34eb4fa174f68a97ed",
+          "offline": "ad7cddbedf6d519894f697119d4b224b2fb49e5bb7e4da5e9b0313856ff600be"
+        },
+        "distribution": {
+          "manifest_digest": "13f8766e2bfd98f0fc0d65ad5002b18c6befd4b49cddc0867b85fa29560b7ed2",
+          "bundle_id": "bundle-d96c691686ae532c7f7c5325"
+        },
+        "helper_observations": 28,
+        "offline_observations": 14,
+        "upgrade_assets_unchanged": 11,
+        "independent_save_and_scoped_read": true
+      },
+      "gaps": [
+        "self-check and synthetic deterministic evidence; no independent clean review, S01-S13 host-Agent/cross-model semantic replay or real-project verification",
+        "no full workflow/task suite, Linux, minimum Node20, permission ACL/EACCES injection, npm/tgz, push, package publication or deployment; original task lifecycle/plan/focus unchanged"
+      ],
+      "idempotency_key": "maintain-hardening-review-00e5309-r3-r4-execution-1"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-1369cfd4b45db8328dc37343f71d49b81ba96fb1f85b9d2997eb2a127b7891f0.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "A",
+        "source_revision": "00e5309e872130f87fc1c33525bf944eb394b824 + retained R1/R2 and uncommitted R3/R4 repair; helper aed9d8674db7a85dae521e42fda2d2251903d3dd8758aa34eb4fa174f68a97ed",
+        "decision_source": "current human user instruction",
+        "decision_text": "用户明确要求继续修复外部 00e5309 审查报告中的 R3、R4。",
+        "external_review_ref": "docs/ops/project-maintenance-hardening-evidence/r1-r2-repair-00e5309/external-review-00e5309.md",
+        "external_review_sha256": "a10bd228e8bda0f82a1235439e37fbf0d6b7b74c5f0c7721584d70f0e1176254",
+        "result": "R3/R4 repaired and self-checked; known R1-R4 implementations covered; no formal clean review or full business acceptance",
+        "summary": "选定 glob 保留范围内具体登记文件的读取义务；枚举器保留静态前缀的目录用途，非目录报遗漏并继续独立资料读取；未选／排除／合法空匹配及普通不匹配文件不误报，无全 source 扫描或新增状态／gate。",
+        "commands": [
+          "bun test test/product-maintenance.test.ts: 37 pass / 929 assertions",
+          "bun test test/product-maintenance-install.test.ts: 1 pass / 197 assertions",
+          "bun test test/workflow-vnext-source.test.ts: 19 pass / 115 assertions",
+          "build:vnext-runtime and build:vibe-governance-distribution passed",
+          "validate:protocol and validate:freshness passed",
+          "4 original read cases + 10 controls: 28 helper and 14 default offline observations matched",
+          "actual isolated 0.24.0 -> current 0.24.1 upgrade: 11 original business assets unchanged; installed incomplete coverage, independent save/read and runtime-free offline verified"
+        ],
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/r3-r4-repair-00e5309/README.md",
+        "previous_execution_ref": ".workflow-system/records/events/key-c1d0c213ea1e31f65b132d019c28758dc000a63e875b227b1a460723b9d6ba8d.json",
+        "evidence": {
+          "tests": {
+            "product": {
+              "pass": 37,
+              "fail": 0,
+              "assertions": 929
+            },
+            "install": {
+              "pass": 1,
+              "fail": 0,
+              "assertions": 197
+            },
+            "source": {
+              "pass": 19,
+              "fail": 0,
+              "assertions": 115
+            },
+            "distinct_total": 57,
+            "assertion_total": 1241
+          },
+          "artifacts": {
+            "before": "a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+            "before_offline": "782d00fed8572df4f00c38e86f4f3e70035bf1d2b932007e81affb754efb68df",
+            "current": "aed9d8674db7a85dae521e42fda2d2251903d3dd8758aa34eb4fa174f68a97ed",
+            "offline": "ad7cddbedf6d519894f697119d4b224b2fb49e5bb7e4da5e9b0313856ff600be"
+          },
+          "distribution": {
+            "manifest_digest": "13f8766e2bfd98f0fc0d65ad5002b18c6befd4b49cddc0867b85fa29560b7ed2",
+            "bundle_id": "bundle-d96c691686ae532c7f7c5325"
+          },
+          "helper_observations": 28,
+          "offline_observations": 14,
+          "upgrade_assets_unchanged": 11,
+          "independent_save_and_scoped_read": true
+        },
+        "gaps": [
+          "self-check and synthetic deterministic evidence; no independent clean review, S01-S13 host-Agent/cross-model semantic replay or real-project verification",
+          "no full workflow/task suite, Linux, minimum Node20, permission ACL/EACCES injection, npm/tgz, push, package publication or deployment; original task lifecycle/plan/focus unchanged"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

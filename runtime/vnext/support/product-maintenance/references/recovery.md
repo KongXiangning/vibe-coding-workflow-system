@@ -36,11 +36,20 @@ and delivery evidence. Preserve the junction-skip and exclude policies; do not r
 coverage by traversing all source_paths. Successful empty glob in a readable directory
 is valid; explicit missing file is not. CLI exit 1 for incomplete coverage retains
 the available items, not a veto on other work. Offline consumers preserve the gaps.
+For a selected glob, concrete registered files inside that scope remain expected
+even when missing; other registrations remain unselected and exclusions take priority.
+A required static glob prefix that is a regular file is unavailable directory scope,
+not a successfully enumerated empty directory. Preserve that file and report its path;
+ordinary nonmatching wildcard files do not create gaps. Continue independent reads,
+authorized writes and task work without scanning every source or creating a gate.
 
 For optional-field removal use remove_fields even without metadata; merge then delete.
 Deleting assessment_id removes only its display selection, not the assessment/history.
 For full candidates the helper derives actual changed items and allows valid repair
 of selected malformed metadata. Unchanged malformed neighbors keep exact bytes.
+This includes same-value duplicate keys and anchors: whole candidates compare YAML
+syntax as well as decoded values. Repair the selected syntax without cleaning unrelated
+bad entries; line/index shifts alone do not make those entries selected.
 Ambiguous identity/root AST needs a precisely authorized raw repair, with original
 bytes retained; it does not disable the project. Item/relation deletion declarations
 describe only actual removals and cannot grant permission or bypass migration/history.
@@ -68,3 +77,8 @@ must stay exact. Do not trim the whole document or relax root-boundary protectio
 Duplicate active relation IDs remain diagnostics, not a prerequisite to changing
 scope or assessment selection. Retain their values; only actual relation activation
 needs the current basis, which an already explicit user reversal can supply as text.
+Preserve each dismissed row separately, including different associations sharing an
+ID. For an explicitly requested partial deletion, retain the other rows and declare
+the actually removed ID with remove_relations; it may remain on a retained row.
+For a current reversal, preserve its own prior basis and current text decision; a
+different association sharing the ID does not impose its unrelated source history.

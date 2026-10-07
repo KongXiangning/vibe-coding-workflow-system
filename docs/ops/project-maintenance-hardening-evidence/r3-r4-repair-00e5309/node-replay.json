@@ -1,0 +1,4733 @@
+{
+  "packet_sha256": "a5e132fa0ac0f4d95b3c58d1df7c504174832485c4422a337f87ee864c5d69e7",
+  "artifacts": {
+    "before": "a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+    "before_offline": "782d00fed8572df4f00c38e86f4f3e70035bf1d2b932007e81affb754efb68df",
+    "current": "aed9d8674db7a85dae521e42fda2d2251903d3dd8758aa34eb4fa174f68a97ed",
+    "offline": "ad7cddbedf6d519894f697119d4b224b2fb49e5bb7e4da5e9b0313856ff600be"
+  },
+  "original_case_count": 4,
+  "control_case_count": 10,
+  "observations": [
+    {
+      "name": "default detects missing explicit registered file",
+      "source": "original-review",
+      "label": "before",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-0",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-0"
+          },
+          "read_at": "2026-10-07T04:42:05.906Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "5f5772004361b6f245afbc43464c60f38de6c77d7c71e32d7f99278540d5b45e",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "PATH_UNAVAILABLE",
+              "path": "docs/product/MISSING.md",
+              "message": "ENOENT: no such file or directory, lstat 'C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-0\\docs\\product\\MISSING.md'",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/MISSING.md"
+            ],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "default detects missing explicit registered file",
+      "source": "original-review",
+      "label": "offline-before",
+      "input": "default only; no paths option",
+      "expected_complete": false,
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-0",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [
+            {
+              "code": "PATH_UNAVAILABLE",
+              "path": "docs/product/MISSING.md",
+              "message": "ENOENT: no such file or directory, lstat 'C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-0\\docs\\product\\MISSING.md'",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/MISSING.md"
+            ],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "default detects missing explicit registered file",
+      "source": "original-review",
+      "label": "current-installed",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-0",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-0"
+          },
+          "read_at": "2026-10-07T04:42:06.421Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "5f5772004361b6f245afbc43464c60f38de6c77d7c71e32d7f99278540d5b45e",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "PATH_UNAVAILABLE",
+              "path": "docs/product/MISSING.md",
+              "message": "ENOENT: no such file or directory, lstat 'C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-0\\docs\\product\\MISSING.md'",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/MISSING.md"
+            ],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "default detects missing explicit registered file",
+      "source": "original-review",
+      "label": "offline-current-installed",
+      "input": "default only; no paths option",
+      "expected_complete": false,
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-0",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [
+            {
+              "code": "PATH_UNAVAILABLE",
+              "path": "docs/product/MISSING.md",
+              "message": "ENOENT: no such file or directory, lstat 'C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-0\\docs\\product\\MISSING.md'",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/MISSING.md"
+            ],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "broad selection hides missing explicit registration",
+      "source": "original-review",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/*.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-1",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-1"
+          },
+          "read_at": "2026-10-07T04:42:07.081Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "5f5772004361b6f245afbc43464c60f38de6c77d7c71e32d7f99278540d5b45e",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "broad selection hides missing explicit registration",
+      "source": "original-review",
+      "label": "current-installed",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/*.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-1",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-1"
+          },
+          "read_at": "2026-10-07T04:42:07.295Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "5f5772004361b6f245afbc43464c60f38de6c77d7c71e32d7f99278540d5b45e",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "PATH_UNAVAILABLE",
+              "path": "docs/product/MISSING.md",
+              "message": "ENOENT: no such file or directory, lstat 'C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-1\\docs\\product\\MISSING.md'",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/MISSING.md"
+            ],
+            "paths": [
+              "docs/product/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "file glob prefix",
+      "source": "original-review",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/section": "replaced directory"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-2",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-2"
+          },
+          "read_at": "2026-10-07T04:42:07.473Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "768735026a8230b2fc78ba594730d9a1eea3b6fb40c816bea9b6d4bc7616cdd3",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "file glob prefix",
+      "source": "original-review",
+      "label": "offline-before",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\original-2",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "file glob prefix",
+      "source": "original-review",
+      "label": "current-installed",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/section": "replaced directory"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-2",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-2"
+          },
+          "read_at": "2026-10-07T04:42:07.827Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "768735026a8230b2fc78ba594730d9a1eea3b6fb40c816bea9b6d4bc7616cdd3",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "PATH_UNAVAILABLE",
+              "path": "docs/product/section",
+              "message": "Selected glob prefix is not a directory; its range was not enumerated",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/section"
+            ],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "file glob prefix",
+      "source": "original-review",
+      "label": "offline-current-installed",
+      "input": "default only; no paths option",
+      "expected_complete": false,
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\original-2",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [
+            {
+              "code": "PATH_UNAVAILABLE",
+              "path": "docs/product/section",
+              "message": "Selected glob prefix is not a directory; its range was not enumerated",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/section"
+            ],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "file glob prefix check",
+      "source": "original-review",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/section": "replaced directory"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "check",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "check",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "checked",
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "sources": [],
+          "business_validity": "not-evaluated"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "file glob prefix check",
+      "source": "original-review",
+      "label": "current-installed",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/section": "replaced directory"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "check",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "check",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "partial",
+          "diagnostics": [
+            {
+              "code": "PATH_UNAVAILABLE",
+              "path": "docs/product/section",
+              "message": "Selected glob prefix is not a directory; its range was not enumerated",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/section"
+            ],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "sources": [],
+          "business_validity": "not-evaluated"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "unselected registration stays outside scope",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/PROJECT.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\unselected-registration",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\unselected-registration"
+          },
+          "read_at": "2026-10-07T04:42:08.564Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "5f5772004361b6f245afbc43464c60f38de6c77d7c71e32d7f99278540d5b45e",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "unselected registration stays outside scope",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/PROJECT.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\unselected-registration",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\unselected-registration"
+          },
+          "read_at": "2026-10-07T04:42:08.754Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "5f5772004361b6f245afbc43464c60f38de6c77d7c71e32d7f99278540d5b45e",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "successful zero match in readable directory",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/NOT-*.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\empty-glob",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\empty-glob"
+          },
+          "read_at": "2026-10-07T04:42:08.975Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "5f5772004361b6f245afbc43464c60f38de6c77d7c71e32d7f99278540d5b45e",
+          "documents": [],
+          "usable_items": [],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "PROJECT_ENTRY",
+              "path": ".workflow-system/PRODUCT.yaml",
+              "message": "Expected a unique project entry in the manifest entry document",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": true,
+            "files_read": 0,
+            "bytes_read": 0,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/NOT-*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 0,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "successful zero match in readable directory",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/NOT-*.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\empty-glob",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\empty-glob"
+          },
+          "read_at": "2026-10-07T04:42:09.253Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "5f5772004361b6f245afbc43464c60f38de6c77d7c71e32d7f99278540d5b45e",
+          "documents": [],
+          "usable_items": [],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "PROJECT_ENTRY",
+              "path": ".workflow-system/PRODUCT.yaml",
+              "message": "Expected a unique project entry in the manifest entry document",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": true,
+            "files_read": 0,
+            "bytes_read": 0,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/NOT-*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 0,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "excluded concrete registration is not omitted",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [
+            "docs/product/MISSING.md"
+          ],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[\"docs/product/MISSING.md\"],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/*.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\excluded-registration",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\excluded-registration"
+          },
+          "read_at": "2026-10-07T04:42:09.510Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [
+              "docs/product/MISSING.md"
+            ],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "2d9a82216aa0d2465241660387c836ac2be58949acbb0c0a05ccdc38a4e05f9e",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/MISSING.md"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "excluded concrete registration is not omitted",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/MISSING.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [
+            "docs/product/MISSING.md"
+          ],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/MISSING.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[\"docs/product/MISSING.md\"],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/*.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\excluded-registration",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\excluded-registration"
+          },
+          "read_at": "2026-10-07T04:42:09.690Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/MISSING.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [
+              "docs/product/MISSING.md"
+            ],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "2d9a82216aa0d2465241660387c836ac2be58949acbb0c0a05ccdc38a4e05f9e",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/MISSING.md"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "empty real glob directory is complete",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [
+          "docs/product/section"
+        ],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\empty-directory",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\empty-directory"
+          },
+          "read_at": "2026-10-07T04:42:09.875Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "768735026a8230b2fc78ba594730d9a1eea3b6fb40c816bea9b6d4bc7616cdd3",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "empty real glob directory is complete",
+      "source": "filesystem-control",
+      "label": "offline-before",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\empty-directory",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "empty real glob directory is complete",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [
+          "docs/product/section"
+        ],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\empty-directory",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\empty-directory"
+          },
+          "read_at": "2026-10-07T04:42:10.240Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "768735026a8230b2fc78ba594730d9a1eea3b6fb40c816bea9b6d4bc7616cdd3",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "empty real glob directory is complete",
+      "source": "filesystem-control",
+      "label": "offline-current-installed",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\empty-directory",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "unselected file prefix is not expanded",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/section": "ordinary file"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/PROJECT.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\unselected-prefix",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\unselected-prefix"
+          },
+          "read_at": "2026-10-07T04:42:10.587Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "768735026a8230b2fc78ba594730d9a1eea3b6fb40c816bea9b6d4bc7616cdd3",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "unselected file prefix is not expanded",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/section": "ordinary file"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "paths": [
+          "docs/product/PROJECT.md"
+        ]
+      },
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\unselected-prefix",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\unselected-prefix"
+          },
+          "read_at": "2026-10-07T04:42:10.768Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "768735026a8230b2fc78ba594730d9a1eea3b6fb40c816bea9b6d4bc7616cdd3",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "excluded required directory prefix remains excluded",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [
+            "docs/product/section"
+          ],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[\"docs/product/section\"],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/section": "ordinary file"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\excluded-prefix",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\excluded-prefix"
+          },
+          "read_at": "2026-10-07T04:42:10.959Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [
+              "docs/product/section"
+            ],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "55b05d5448502c9b7ac8768b9932101c5cd5d9212c1acfe7e9c00da0d92fa488",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/section"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "excluded required directory prefix remains excluded",
+      "source": "filesystem-control",
+      "label": "offline-before",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\excluded-prefix",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/section"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "excluded required directory prefix remains excluded",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/PROJECT.md",
+            "docs/product/section/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [
+            "docs/product/section"
+          ],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/PROJECT.md\",\"docs/product/section/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[\"docs/product/section\"],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/section": "ordinary file"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\excluded-prefix",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\excluded-prefix"
+          },
+          "read_at": "2026-10-07T04:42:11.368Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [
+              "docs/product/section"
+            ],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "55b05d5448502c9b7ac8768b9932101c5cd5d9212c1acfe7e9c00da0d92fa488",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/section"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "excluded required directory prefix remains excluded",
+      "source": "filesystem-control",
+      "label": "offline-current-installed",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\excluded-prefix",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/PROJECT.md",
+              "docs/product/section/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/section"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "wildcard nonmatching files and source tree remain unread",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/**/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/ordinary-file": "not a document match",
+          "docs/evidence/SHOULD-NOT-SCAN.md": "---\nschema: vnext-product-doc/v2\nitems: [{\"id\":\"REQ-HIDDEN\",\"type\":\"requirement\",\"scope\":\"current\"}]\n---\n## [REQ-HIDDEN] 合成需求\n### 需求内容\n当前明确范围。\n### 范围边界\n原排除项保留。\n### 验收要求\n按本次证据核对。\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": true
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\ordinary-files",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\ordinary-files"
+          },
+          "read_at": "2026-10-07T04:42:11.818Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/**/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "8266a4af110d5c5b7b78193d9bd224016d71fe42b92fc24428fb18d203633378",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "wildcard nonmatching files and source tree remain unread",
+      "source": "filesystem-control",
+      "label": "offline-before",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\ordinary-files",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "wildcard nonmatching files and source tree remain unread",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/**/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/ordinary-file": "not a document match",
+          "docs/evidence/SHOULD-NOT-SCAN.md": "---\nschema: vnext-product-doc/v2\nitems: [{\"id\":\"REQ-HIDDEN\",\"type\":\"requirement\",\"scope\":\"current\"}]\n---\n## [REQ-HIDDEN] 合成需求\n### 需求内容\n当前明确范围。\n### 范围边界\n原排除项保留。\n### 验收要求\n按本次证据核对。\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": true
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\ordinary-files",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\ordinary-files"
+          },
+          "read_at": "2026-10-07T04:42:12.181Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/**/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "8266a4af110d5c5b7b78193d9bd224016d71fe42b92fc24428fb18d203633378",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "wildcard nonmatching files and source tree remain unread",
+      "source": "filesystem-control",
+      "label": "offline-current-installed",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\ordinary-files",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "relevant real Windows junction is skipped",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/**/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": true,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\relevant-junction",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\relevant-junction"
+          },
+          "read_at": "2026-10-07T04:42:12.545Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/**/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "8266a4af110d5c5b7b78193d9bd224016d71fe42b92fc24428fb18d203633378",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "SYMLINK_SKIPPED",
+              "path": "docs/product/linked",
+              "message": "SYMLINK_SKIPPED: symbolic links and junctions are not followed",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/linked"
+            ],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "relevant real Windows junction is skipped",
+      "source": "filesystem-control",
+      "label": "offline-before",
+      "input": "default only; no paths option",
+      "expected_complete": false,
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\relevant-junction",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [
+            {
+              "code": "SYMLINK_SKIPPED",
+              "path": "docs/product/linked",
+              "message": "SYMLINK_SKIPPED: symbolic links and junctions are not followed",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/linked"
+            ],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "relevant real Windows junction is skipped",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/**/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": true,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\relevant-junction",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\relevant-junction"
+          },
+          "read_at": "2026-10-07T04:42:12.911Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/**/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "8266a4af110d5c5b7b78193d9bd224016d71fe42b92fc24428fb18d203633378",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "SYMLINK_SKIPPED",
+              "path": "docs/product/linked",
+              "message": "SYMLINK_SKIPPED: symbolic links and junctions are not followed",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/linked"
+            ],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "relevant real Windows junction is skipped",
+      "source": "filesystem-control",
+      "label": "offline-current-installed",
+      "input": "default only; no paths option",
+      "expected_complete": false,
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\relevant-junction",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [
+            {
+              "code": "SYMLINK_SKIPPED",
+              "path": "docs/product/linked",
+              "message": "SYMLINK_SKIPPED: symbolic links and junctions are not followed",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/linked"
+            ],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "excluded real Windows junction is not followed",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [
+            "docs/product/linked"
+          ],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/**/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[\"docs/product/linked\"],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": true,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\excluded-junction",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\excluded-junction"
+          },
+          "read_at": "2026-10-07T04:42:13.275Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/**/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [
+              "docs/product/linked"
+            ],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "40acf13b8f2afcc17fd3fabe766b60e8f5f1428c2eef29d9e14a9d5f97f209f6",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/linked"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "excluded real Windows junction is not followed",
+      "source": "filesystem-control",
+      "label": "offline-before",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\excluded-junction",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/linked"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "excluded real Windows junction is not followed",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": true,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/**/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [
+            "docs/product/linked"
+          ],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/**/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[\"docs/product/linked\"],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n"
+        },
+        "directories": [],
+        "real_junction": true,
+        "source_junction": false
+      },
+      "input": {},
+      "action": "read",
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\excluded-junction",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\excluded-junction"
+          },
+          "read_at": "2026-10-07T04:42:13.752Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/**/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [
+              "docs/product/linked"
+            ],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "40acf13b8f2afcc17fd3fabe766b60e8f5f1428c2eef29d9e14a9d5f97f209f6",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/linked"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "excluded real Windows junction is not followed",
+      "source": "filesystem-control",
+      "label": "offline-current-installed",
+      "input": "default only; no paths option",
+      "expected_complete": true,
+      "response": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "contract": "vnext-product-doc/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\excluded-junction",
+          "status": "available",
+          "items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "body": "## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "definition_sha256": null
+            }
+          ],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "diagnostics": [],
+          "coverage": {
+            "complete": true,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [],
+            "paths": [
+              "docs/product/**/*.md"
+            ],
+            "excluded_paths": [
+              "docs/product/linked"
+            ],
+            "max_files": 1000,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0
+          },
+          "task_states": "not-computed; document reports only"
+        }
+      }
+    },
+    {
+      "name": "file budget retains omitted ranges",
+      "source": "filesystem-control",
+      "label": "before",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/R.md": "---\nschema: vnext-product-doc/v2\nitems: [{\"id\":\"REQ-BUDGET\",\"type\":\"requirement\",\"scope\":\"current\"}]\n---\n## [REQ-BUDGET] 合成需求\n### 需求内容\n当前明确范围。\n### 范围边界\n原排除项保留。\n### 验收要求\n按本次证据核对。\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "max_files": 1
+      },
+      "action": "read",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\file-budget",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\before\\file-budget"
+          },
+          "read_at": "2026-10-07T04:42:14.169Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "ae729f4c3e071eb8323920c3b3e5931e40ac2cd1dcaf40d30a4d4754d48c4f35",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "FILE_LIMIT",
+              "path": "docs/product/R.md",
+              "message": "File limit reached; remaining files were not read",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/R.md",
+              "docs/product/*.md",
+              "docs/product/PROJECT.md"
+            ],
+            "paths": [
+              "docs/product/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    },
+    {
+      "name": "file budget retains omitted ranges",
+      "source": "filesystem-control",
+      "label": "current-installed",
+      "expected_complete": false,
+      "fixture": {
+        "manifest": {
+          "schema": "vnext-product-manifest/v2",
+          "project_id": "synthetic-r3-r4-read",
+          "entry": "docs/product/PROJECT.md",
+          "managed_paths": [
+            "docs/product/*.md"
+          ],
+          "source_paths": [
+            "docs/evidence/**"
+          ],
+          "capture_paths": [],
+          "exclude_paths": [],
+          "maintenance": "enabled"
+        },
+        "files": {
+          ".workflow-system/PRODUCT.yaml": "{\"schema\":\"vnext-product-manifest/v2\",\"project_id\":\"synthetic-r3-r4-read\",\"entry\":\"docs/product/PROJECT.md\",\"managed_paths\":[\"docs/product/*.md\"],\"source_paths\":[\"docs/evidence/**\"],\"capture_paths\":[],\"exclude_paths\":[],\"maintenance\":\"enabled\"}",
+          "docs/product/PROJECT.md": "---\nschema: vnext-product-doc/v2\nitems:\n  - type: project\n    id: PROJECT-ID\n    inventory:\n      state: partial\n      checked_sources: []\n      unreviewed_sources:\n        - kind: text\n          text: 模板占位，替换为已取得且获授权的实际依据。\n          label: 非事实模板\n---\n# 格式模板（不是事实）\n\n## [PROJECT-ID] 待填写的project\n### 项目定位\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n### 盘点范围与未核对项\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。\n\n",
+          "docs/product/R.md": "---\nschema: vnext-product-doc/v2\nitems: [{\"id\":\"REQ-BUDGET\",\"type\":\"requirement\",\"scope\":\"current\"}]\n---\n## [REQ-BUDGET] 合成需求\n### 需求内容\n当前明确范围。\n### 范围边界\n原排除项保留。\n### 验收要求\n按本次证据核对。\n"
+        },
+        "directories": [],
+        "real_junction": false,
+        "source_junction": false
+      },
+      "input": {
+        "max_files": 1
+      },
+      "action": "read",
+      "response": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "read",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "available",
+          "project_id": "synthetic-r3-r4-read",
+          "working_copy": {
+            "root": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\file-budget",
+            "identity": "C:\\Users\\kongx\\.codex\\worktrees\\project-goals-requirements\\vibe-coding-workflow-system\\.tmp\\review-r3-r4\\fixtures\\current-installed\\file-budget"
+          },
+          "read_at": "2026-10-07T04:42:14.350Z",
+          "manifest": {
+            "schema": "vnext-product-manifest/v2",
+            "project_id": "synthetic-r3-r4-read",
+            "entry": "docs/product/PROJECT.md",
+            "managed_paths": [
+              "docs/product/*.md"
+            ],
+            "source_paths": [
+              "docs/evidence/**"
+            ],
+            "capture_paths": [],
+            "exclude_paths": [],
+            "maintenance": "enabled"
+          },
+          "manifest_path": ".workflow-system/PRODUCT.yaml",
+          "manifest_sha256": "ae729f4c3e071eb8323920c3b3e5931e40ac2cd1dcaf40d30a4d4754d48c4f35",
+          "documents": [
+            {
+              "path": "docs/product/PROJECT.md",
+              "sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+              "schema": "vnext-product-doc/v2",
+              "usable_count": 1,
+              "raw_locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md"
+              }
+            }
+          ],
+          "usable_items": [
+            {
+              "id": "PROJECT-ID",
+              "type": "project",
+              "title": "待填写的project",
+              "path": "docs/product/PROJECT.md",
+              "line": 16,
+              "metadata": {
+                "type": "project",
+                "id": "PROJECT-ID",
+                "inventory": {
+                  "state": "partial",
+                  "checked_sources": [],
+                  "unreviewed_sources": [
+                    {
+                      "kind": "text",
+                      "text": "模板占位，替换为已取得且获授权的实际依据。",
+                      "label": "非事实模板"
+                    }
+                  ]
+                }
+              },
+              "definition_sha256": null,
+              "locator": {
+                "kind": "file",
+                "path": "docs/product/PROJECT.md",
+                "item_id": "PROJECT-ID"
+              }
+            }
+          ],
+          "unusable_items": [],
+          "reverse_relations": [],
+          "plan_tasks": [],
+          "discussions": [],
+          "impact": null,
+          "sources": [],
+          "diagnostics": [
+            {
+              "code": "FILE_LIMIT",
+              "path": "docs/product/R.md",
+              "message": "File limit reached; remaining files were not read",
+              "severity": "warning"
+            }
+          ],
+          "coverage": {
+            "complete": false,
+            "files_read": 1,
+            "bytes_read": 593,
+            "enumeration": "managed_paths only; sources are read only by explicit reference",
+            "omitted": [
+              "docs/product/R.md",
+              "docs/product/*.md",
+              "docs/product/PROJECT.md"
+            ],
+            "paths": [
+              "docs/product/*.md"
+            ],
+            "excluded_paths": [],
+            "max_files": 1,
+            "max_file_bytes": 4194304,
+            "max_total_bytes": 33554432,
+            "usable_count": 1,
+            "invalid_count": 0,
+            "selection": "all-enumerated-items",
+            "source_bodies": "not-read"
+          },
+          "task_status": "not-computed; use existing assistance only when actual task state is needed"
+        }
+      },
+      "fixture_bytes_unchanged": true
+    }
+  ],
+  "expected_results_matched": true,
+  "scope": "deterministic helper/offline I/O evidence; no host-Agent business semantic replay"
+}

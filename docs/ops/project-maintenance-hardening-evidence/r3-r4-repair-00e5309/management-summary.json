@@ -1,0 +1,67 @@
+{
+  "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+  "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+  "execution_ref": ".workflow-system/records/events/key-5dcd7b2ef97d26d5f1b738e014de32adfab1a4ed0ce7ed0f5ecb9d2bfe7c101c.json",
+  "test_refs": [
+    ".workflow-system/records/events/key-11165d7db29526fce463f7755eea6eb917336965aab61fb7b7a975fe8f38d618.json",
+    ".workflow-system/records/events/key-6be3d336346a2935f2fed7b7a99efccacfec60c204dff0c581cbba66639de51f.json",
+    ".workflow-system/records/events/key-6d940d713d26865512ed8165a3ee651ed2aa3d33a1e85c286203abf1cd23de76.json"
+  ],
+  "recorded": true,
+  "associations": [
+    "applied",
+    "applied",
+    "applied",
+    "applied"
+  ],
+  "projection": {
+    "status": "partial",
+    "cache_ref": ".workflow-system/records/task-view.json",
+    "display": "drift",
+    "issues": [
+      {
+        "id": "issue-72f0ee56c6ebec76c3dfff25",
+        "code": "CURRENT_TASK_DRIFT",
+        "ref": "docs/workflow/CURRENT_TASK.md",
+        "message": "Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it."
+      }
+    ]
+  },
+  "execution_present": true,
+  "prior_r1_r2_execution_retained": true,
+  "old_reviews_unchanged": true,
+  "old_verdicts": [
+    {
+      "ref": ".workflow-system/records/events/key-22f170d89797f1ac7b06578da1c679a2eb0886d39944b160cd169b1dd0bccd8d.json",
+      "verdict": "findings"
+    },
+    {
+      "ref": ".workflow-system/records/events/key-35dabd12aeb82c9cdea26b4b7b229e4d3d40f93ae092ad3a0aad7eedaea34506.json",
+      "verdict": "clean"
+    },
+    {
+      "ref": ".workflow-system/records/events/key-6b4d438aae11d488ea7bb5268db9571903854c50091da81d2709701951a84609.json",
+      "verdict": "findings"
+    },
+    {
+      "ref": ".workflow-system/records/events/key-8bef2065e14b259c8ff3119d918aadf0f01089dd07a1a928ae0a4526bb0c7ea8.json",
+      "verdict": "findings"
+    },
+    {
+      "ref": ".workflow-system/records/events/key-bc1faf91d3630c0bd56c500c93e4652c006f3ea5dd09c9b265f4f4c5610c1900.json",
+      "verdict": "findings"
+    },
+    {
+      "ref": ".workflow-system/records/events/key-da2455adb8204ccedc8e83a097ba585015868dcd9dadd5ae5e18c7db5386ac74.json",
+      "verdict": "clean"
+    }
+  ],
+  "current_task_bytes_unchanged": true,
+  "lifecycle_before": "draft",
+  "lifecycle_after": "draft",
+  "plan_before": null,
+  "plan_after": null,
+  "focus_before": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+  "focus_after": "task-dc53226a81e7d5a0045c6fa94e5f9a0a",
+  "new_formal_review_created": false
+}

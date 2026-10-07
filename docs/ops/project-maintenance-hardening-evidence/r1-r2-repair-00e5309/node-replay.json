@@ -1,0 +1,3181 @@
+{
+  "baseline_head": "00e5309e872130f87fc1c33525bf944eb394b824",
+  "packet_sha256": "ecdd7559ce64e1547180c65314eec018c77cf50502039c1bfeba2439d0a7ce71",
+  "artifacts": {
+    "before": "42ca8baf451c48af30f68f5804a932684ea44740427d3b3cda017e87c8109bf5",
+    "current": "a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+    "offline": "782d00fed8572df4f00c38e86f4f3e70035bf1d2b932007e81affb754efb68df"
+  },
+  "observations": [
+    {
+      "defect": "R2",
+      "name": "duplicate-dismissed-links-local",
+      "label": "before",
+      "expected": "saved",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "a33a435824540d006a0913c51f9d6e757c3fac032d5be349d6665cf21f35599d",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-A",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "dismissed",
+                      "reason": "用户否定原关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "原材料 A",
+                          "label": "A"
+                        },
+                        {
+                          "kind": "text",
+                          "text": "原材料 B",
+                          "label": "B"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"REQ-B\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": false,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "REQ-B",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_LINK_ID",
+            "path": "docs/product/R.md",
+            "message": "Link ID L-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      },
+      "applied": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "saved",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "saved",
+              "saved": true,
+              "changed": true,
+              "sha256": "01d4ca8d3bc7ddbab81b2d6bf60942e38090b2c0121f2881ec95bf3e674b51cb",
+              "preimage": {
+                "sha256": "a33a435824540d006a0913c51f9d6e757c3fac032d5be349d6665cf21f35599d",
+                "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLUEiLCJyZWxhdGlvbiI6InJlZmVyZW5jZXMiLCJ0YXJnZXQiOiJQUk9KRUNULUEiLCJvcmlnaW4iOiJpbmZlcnJlZCIsInN0YXRlIjoiZGlzbWlzc2VkIiwicmVhc29uIjoi55So5oi35ZCm5a6a5Y6f5YWz6IGUIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5Y6f5p2Q5paZIEEiLCJsYWJlbCI6IkEifSx7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWOn+adkOaWmSBCIiwibGFiZWwiOiJCIn1dfSx7ImlkIjoiTC1BIiwicmVsYXRpb24iOiJyZWZlcmVuY2VzIiwidGFyZ2V0IjoiUkVRLUIiLCJvcmlnaW4iOiJpbmZlcnJlZCIsInN0YXRlIjoiZGlzbWlzc2VkIiwicmVhc29uIjoi55So5oi35ZCm5a6a5Y6f5YWz6IGUIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5Y6f5p2Q5paZIEEiLCJsYWJlbCI6IkEifSx7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWOn+adkOaWmSBCIiwibGFiZWwiOiJCIn1dfV19CiAgLSB7ImlkIjoiUkVRLUIiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQifQotLS0KIyDkuqflk4HotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKCiMjIFtSRVEtQl0gUkVRLUIKIyMjIOmcgOaxguWGheWuuQrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKCg=="
+              },
+              "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+              "affected_items": [
+                "REQ-A"
+              ],
+              "diagnostics": []
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      }
+    },
+    {
+      "defect": "R2",
+      "name": "duplicate-dismissed-links-local",
+      "label": "current-installed",
+      "expected": "failed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "a33a435824540d006a0913c51f9d6e757c3fac032d5be349d6665cf21f35599d",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "links": [
+                    {
+                      "id": "L-A",
+                      "relation": "references",
+                      "target": "PROJECT-A",
+                      "origin": "inferred",
+                      "state": "dismissed",
+                      "reason": "用户否定原关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "原材料 A",
+                          "label": "A"
+                        },
+                        {
+                          "kind": "text",
+                          "text": "原材料 B",
+                          "label": "B"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"REQ-B\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"REQ-B\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": true,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "REQ-B",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_LINK_ID",
+            "path": "docs/product/R.md",
+            "message": "Link ID L-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      },
+      "applied": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "failed",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "failed",
+              "saved": false,
+              "error": "DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested"
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "REQ-B",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_LINK_ID",
+            "path": "docs/product/R.md",
+            "message": "Link ID L-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R2",
+      "name": "duplicate-dismissed-links-whole",
+      "label": "before",
+      "expected": "saved",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "a33a435824540d006a0913c51f9d6e757c3fac032d5be349d6665cf21f35599d",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"REQ-B\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": false,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "REQ-B",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_LINK_ID",
+            "path": "docs/product/R.md",
+            "message": "Link ID L-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      },
+      "applied": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "saved",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "saved",
+              "saved": true,
+              "changed": true,
+              "sha256": "01d4ca8d3bc7ddbab81b2d6bf60942e38090b2c0121f2881ec95bf3e674b51cb",
+              "preimage": {
+                "sha256": "a33a435824540d006a0913c51f9d6e757c3fac032d5be349d6665cf21f35599d",
+                "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJsaW5rcyI6W3siaWQiOiJMLUEiLCJyZWxhdGlvbiI6InJlZmVyZW5jZXMiLCJ0YXJnZXQiOiJQUk9KRUNULUEiLCJvcmlnaW4iOiJpbmZlcnJlZCIsInN0YXRlIjoiZGlzbWlzc2VkIiwicmVhc29uIjoi55So5oi35ZCm5a6a5Y6f5YWz6IGUIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5Y6f5p2Q5paZIEEiLCJsYWJlbCI6IkEifSx7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWOn+adkOaWmSBCIiwibGFiZWwiOiJCIn1dfSx7ImlkIjoiTC1BIiwicmVsYXRpb24iOiJyZWZlcmVuY2VzIiwidGFyZ2V0IjoiUkVRLUIiLCJvcmlnaW4iOiJpbmZlcnJlZCIsInN0YXRlIjoiZGlzbWlzc2VkIiwicmVhc29uIjoi55So5oi35ZCm5a6a5Y6f5YWz6IGUIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5Y6f5p2Q5paZIEEiLCJsYWJlbCI6IkEifSx7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWOn+adkOaWmSBCIiwibGFiZWwiOiJCIn1dfV19CiAgLSB7ImlkIjoiUkVRLUIiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQifQotLS0KIyDkuqflk4HotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKCiMjIFtSRVEtQl0gUkVRLUIKIyMjIOmcgOaxguWGheWuuQrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKCg=="
+              },
+              "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+              "affected_items": [
+                "REQ-A"
+              ],
+              "diagnostics": []
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      }
+    },
+    {
+      "defect": "R2",
+      "name": "duplicate-dismissed-links-whole",
+      "label": "current-installed",
+      "expected": "failed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "a33a435824540d006a0913c51f9d6e757c3fac032d5be349d6665cf21f35599d",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"REQ-B\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"links\":[{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"PROJECT-A\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"L-A\",\"relation\":\"references\",\"target\":\"REQ-B\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": true,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "REQ-B",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_LINK_ID",
+            "path": "docs/product/R.md",
+            "message": "Link ID L-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      },
+      "applied": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "failed",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "failed",
+              "saved": false,
+              "error": "DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested"
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "links": [
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "PROJECT-A",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "L-A",
+                  "relation": "references",
+                  "target": "REQ-B",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_LINK_ID",
+            "path": "docs/product/R.md",
+            "message": "Link ID L-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R2",
+      "name": "duplicate-dismissed-task_bindings-local",
+      "label": "before",
+      "expected": "saved",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "a0ef8c775fb42b48b98ce9695828614a28bcd6212472ad00dcf2df36cb592c41",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "task_bindings": [
+                    {
+                      "id": "B-A",
+                      "task": {
+                        "task_id": "real-task",
+                        "source": {
+                          "kind": "text",
+                          "text": "原材料 A",
+                          "label": "A"
+                        }
+                      },
+                      "role": "repair",
+                      "coverage": "原范围",
+                      "origin": "inferred",
+                      "state": "dismissed",
+                      "reason": "用户否定原关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "原材料 A",
+                          "label": "A"
+                        },
+                        {
+                          "kind": "text",
+                          "text": "原材料 B",
+                          "label": "B"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"B-A\",\"task\":{\"task_id\":\"other-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": false,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "task_bindings": [
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "real-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "other-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_BINDING_ID",
+            "path": "docs/product/R.md",
+            "message": "Binding ID B-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      },
+      "applied": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "saved",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "saved",
+              "saved": true,
+              "changed": true,
+              "sha256": "eeb880f644a7f377f90642ec51bb774e1d6cb811baa778488cfcaf381a6bf1ac",
+              "preimage": {
+                "sha256": "a0ef8c775fb42b48b98ce9695828614a28bcd6212472ad00dcf2df36cb592c41",
+                "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJ0YXNrX2JpbmRpbmdzIjpbeyJpZCI6IkItQSIsInRhc2siOnsidGFza19pZCI6InJlYWwtdGFzayIsInNvdXJjZSI6eyJraW5kIjoidGV4dCIsInRleHQiOiLljp/mnZDmlpkgQSIsImxhYmVsIjoiQSJ9fSwicm9sZSI6InJlcGFpciIsImNvdmVyYWdlIjoi5Y6f6IyD5Zu0Iiwib3JpZ2luIjoiaW5mZXJyZWQiLCJzdGF0ZSI6ImRpc21pc3NlZCIsInJlYXNvbiI6IueUqOaIt+WQpuWumuWOn+WFs+iBlCIsInNvdXJjZXMiOlt7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWOn+adkOaWmSBBIiwibGFiZWwiOiJBIn0seyJraW5kIjoidGV4dCIsInRleHQiOiLljp/mnZDmlpkgQiIsImxhYmVsIjoiQiJ9XX0seyJpZCI6IkItQSIsInRhc2siOnsidGFza19pZCI6Im90aGVyLXRhc2siLCJzb3VyY2UiOnsia2luZCI6InRleHQiLCJ0ZXh0Ijoi5Y6f5p2Q5paZIEEiLCJsYWJlbCI6IkEifX0sInJvbGUiOiJyZXBhaXIiLCJjb3ZlcmFnZSI6IuWOn+iMg+WbtCIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLnlKjmiLflkKblrprljp/lhbPogZQiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLljp/mnZDmlpkgQSIsImxhYmVsIjoiQSJ9LHsia2luZCI6InRleHQiLCJ0ZXh0Ijoi5Y6f5p2Q5paZIEIiLCJsYWJlbCI6IkIifV19XX0KICAtIHsiaWQiOiJSRVEtQiIsInR5cGUiOiJyZXF1aXJlbWVudCIsInNjb3BlIjoiY3VycmVudCJ9Ci0tLQojIOS6p+WTgei1hOaWmQoKIyMgW1JFUS1BXSBSRVEtQQojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeWOn+S4muWKoeimgeaxguOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWOn+S4muWKoeimgeaxguOAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeWOn+S4muWKoeimgeaxguOAggoKIyMgW1JFUS1CXSBSRVEtQgojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeWOn+S4muWKoeimgeaxguOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWOn+S4muWKoeimgeaxguOAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeWOn+S4muWKoeimgeaxguOAggoK"
+              },
+              "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+              "affected_items": [
+                "REQ-A"
+              ],
+              "diagnostics": []
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "task_bindings": [
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "real-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      }
+    },
+    {
+      "defect": "R2",
+      "name": "duplicate-dismissed-task_bindings-local",
+      "label": "current-installed",
+      "expected": "failed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "a0ef8c775fb42b48b98ce9695828614a28bcd6212472ad00dcf2df36cb592c41",
+            "updates": [
+              {
+                "id": "REQ-A",
+                "metadata": {
+                  "task_bindings": [
+                    {
+                      "id": "B-A",
+                      "task": {
+                        "task_id": "real-task",
+                        "source": {
+                          "kind": "text",
+                          "text": "原材料 A",
+                          "label": "A"
+                        }
+                      },
+                      "role": "repair",
+                      "coverage": "原范围",
+                      "origin": "inferred",
+                      "state": "dismissed",
+                      "reason": "用户否定原关联",
+                      "sources": [
+                        {
+                          "kind": "text",
+                          "text": "原材料 A",
+                          "label": "A"
+                        },
+                        {
+                          "kind": "text",
+                          "text": "原材料 B",
+                          "label": "B"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"B-A\",\"task\":{\"task_id\":\"other-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"B-A\",\"task\":{\"task_id\":\"other-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": true,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "task_bindings": [
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "real-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "other-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_BINDING_ID",
+            "path": "docs/product/R.md",
+            "message": "Binding ID B-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      },
+      "applied": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "failed",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "failed",
+              "saved": false,
+              "error": "DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested"
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "task_bindings": [
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "real-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "other-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_BINDING_ID",
+            "path": "docs/product/R.md",
+            "message": "Binding ID B-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R2",
+      "name": "duplicate-dismissed-task_bindings-whole",
+      "label": "before",
+      "expected": "saved",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "a0ef8c775fb42b48b98ce9695828614a28bcd6212472ad00dcf2df36cb592c41",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"B-A\",\"task\":{\"task_id\":\"other-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": false,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "task_bindings": [
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "real-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "other-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_BINDING_ID",
+            "path": "docs/product/R.md",
+            "message": "Binding ID B-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      },
+      "applied": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "saved",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "saved",
+              "saved": true,
+              "changed": true,
+              "sha256": "eeb880f644a7f377f90642ec51bb774e1d6cb811baa778488cfcaf381a6bf1ac",
+              "preimage": {
+                "sha256": "a0ef8c775fb42b48b98ce9695828614a28bcd6212472ad00dcf2df36cb592c41",
+                "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJ0YXNrX2JpbmRpbmdzIjpbeyJpZCI6IkItQSIsInRhc2siOnsidGFza19pZCI6InJlYWwtdGFzayIsInNvdXJjZSI6eyJraW5kIjoidGV4dCIsInRleHQiOiLljp/mnZDmlpkgQSIsImxhYmVsIjoiQSJ9fSwicm9sZSI6InJlcGFpciIsImNvdmVyYWdlIjoi5Y6f6IyD5Zu0Iiwib3JpZ2luIjoiaW5mZXJyZWQiLCJzdGF0ZSI6ImRpc21pc3NlZCIsInJlYXNvbiI6IueUqOaIt+WQpuWumuWOn+WFs+iBlCIsInNvdXJjZXMiOlt7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuWOn+adkOaWmSBBIiwibGFiZWwiOiJBIn0seyJraW5kIjoidGV4dCIsInRleHQiOiLljp/mnZDmlpkgQiIsImxhYmVsIjoiQiJ9XX0seyJpZCI6IkItQSIsInRhc2siOnsidGFza19pZCI6Im90aGVyLXRhc2siLCJzb3VyY2UiOnsia2luZCI6InRleHQiLCJ0ZXh0Ijoi5Y6f5p2Q5paZIEEiLCJsYWJlbCI6IkEifX0sInJvbGUiOiJyZXBhaXIiLCJjb3ZlcmFnZSI6IuWOn+iMg+WbtCIsIm9yaWdpbiI6ImluZmVycmVkIiwic3RhdGUiOiJkaXNtaXNzZWQiLCJyZWFzb24iOiLnlKjmiLflkKblrprljp/lhbPogZQiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLljp/mnZDmlpkgQSIsImxhYmVsIjoiQSJ9LHsia2luZCI6InRleHQiLCJ0ZXh0Ijoi5Y6f5p2Q5paZIEIiLCJsYWJlbCI6IkIifV19XX0KICAtIHsiaWQiOiJSRVEtQiIsInR5cGUiOiJyZXF1aXJlbWVudCIsInNjb3BlIjoiY3VycmVudCJ9Ci0tLQojIOS6p+WTgei1hOaWmQoKIyMgW1JFUS1BXSBSRVEtQQojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeWOn+S4muWKoeimgeaxguOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWOn+S4muWKoeimgeaxguOAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeWOn+S4muWKoeimgeaxguOAggoKIyMgW1JFUS1CXSBSRVEtQgojIyMg6ZyA5rGC5YaF5a65CuS/neeVmeWOn+S4muWKoeimgeaxguOAggojIyMg6IyD5Zu06L6555WMCuS/neeVmeWOn+S4muWKoeimgeaxguOAggojIyMg6aqM5pS26KaB5rGCCuS/neeVmeWOn+S4muWKoeimgeaxguOAggoK"
+              },
+              "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+              "affected_items": [
+                "REQ-A"
+              ],
+              "diagnostics": []
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "task_bindings": [
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "real-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      }
+    },
+    {
+      "defect": "R2",
+      "name": "duplicate-dismissed-task_bindings-whole",
+      "label": "current-installed",
+      "expected": "failed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "a0ef8c775fb42b48b98ce9695828614a28bcd6212472ad00dcf2df36cb592c41",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"B-A\",\"task\":{\"task_id\":\"other-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"task_bindings\":[{\"id\":\"B-A\",\"task\":{\"task_id\":\"real-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]},{\"id\":\"B-A\",\"task\":{\"task_id\":\"other-task\",\"source\":{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"}},\"role\":\"repair\",\"coverage\":\"原范围\",\"origin\":\"inferred\",\"state\":\"dismissed\",\"reason\":\"用户否定原关联\",\"sources\":[{\"kind\":\"text\",\"text\":\"原材料 A\",\"label\":\"A\"},{\"kind\":\"text\",\"text\":\"原材料 B\",\"label\":\"B\"}]}]}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": true,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "task_bindings": [
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "real-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "other-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_BINDING_ID",
+            "path": "docs/product/R.md",
+            "message": "Binding ID B-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      },
+      "applied": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "failed",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "failed",
+              "saved": false,
+              "error": "DISMISSED_REMOVAL: retain dismissed history unless an explicit field/relation removal is requested"
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current",
+              "task_bindings": [
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "real-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                },
+                {
+                  "id": "B-A",
+                  "task": {
+                    "task_id": "other-task",
+                    "source": {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    }
+                  },
+                  "role": "repair",
+                  "coverage": "原范围",
+                  "origin": "inferred",
+                  "state": "dismissed",
+                  "reason": "用户否定原关联",
+                  "sources": [
+                    {
+                      "kind": "text",
+                      "text": "原材料 A",
+                      "label": "A"
+                    },
+                    {
+                      "kind": "text",
+                      "text": "原材料 B",
+                      "label": "B"
+                    }
+                  ]
+                }
+              ]
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": [
+          {
+            "code": "DUPLICATE_BINDING_ID",
+            "path": "docs/product/R.md",
+            "message": "Binding ID B-A is duplicated",
+            "severity": "warning",
+            "item_id": "REQ-A",
+            "line": 9
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R1",
+      "name": "F05-duplicate-key-repair",
+      "label": "before",
+      "expected": "failed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "92e2a3c75ff0855874840006be8a9e3f7a73a8f230fbf9c9583a0ed4482d09ab",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": true,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-A",
+            "diagnostics": [
+              {
+                "code": "YAML_DUPLICATE_KEY",
+                "path": "docs/product/R.md",
+                "message": "Map keys must be unique at line 3, column 58:\n\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n                                                         ^\n",
+                "severity": "error",
+                "line": 3,
+                "item_id": "REQ-A"
+              }
+            ]
+          },
+          {
+            "id": "REQ-B",
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/R.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-B",
+                "pointer": "/items/1/another_unknown"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "YAML_DUPLICATE_KEY",
+            "path": "docs/product/R.md",
+            "message": "Map keys must be unique at line 3, column 58:\n\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n                                                         ^\n",
+            "severity": "error",
+            "line": 3,
+            "item_id": "REQ-A"
+          },
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-B",
+            "pointer": "/items/1/another_unknown"
+          }
+        ]
+      },
+      "applied": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "failed",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "failed",
+              "saved": false,
+              "error": "INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes"
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-A",
+            "diagnostics": [
+              {
+                "code": "YAML_DUPLICATE_KEY",
+                "path": "docs/product/R.md",
+                "message": "Map keys must be unique at line 3, column 58:\n\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n                                                         ^\n",
+                "severity": "error",
+                "line": 3,
+                "item_id": "REQ-A"
+              }
+            ]
+          },
+          {
+            "id": "REQ-B",
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/R.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-B",
+                "pointer": "/items/1/another_unknown"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "YAML_DUPLICATE_KEY",
+            "path": "docs/product/R.md",
+            "message": "Map keys must be unique at line 3, column 58:\n\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n                                                         ^\n",
+            "severity": "error",
+            "line": 3,
+            "item_id": "REQ-A"
+          },
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-B",
+            "pointer": "/items/1/another_unknown"
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R1",
+      "name": "F05-duplicate-key-repair",
+      "label": "current-installed",
+      "expected": "saved",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "92e2a3c75ff0855874840006be8a9e3f7a73a8f230fbf9c9583a0ed4482d09ab",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": false,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-A",
+            "diagnostics": [
+              {
+                "code": "YAML_DUPLICATE_KEY",
+                "path": "docs/product/R.md",
+                "message": "Map keys must be unique",
+                "severity": "error",
+                "line": 3,
+                "item_id": "REQ-A"
+              }
+            ]
+          },
+          {
+            "id": "REQ-B",
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/R.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-B",
+                "pointer": "/items/1/another_unknown"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "YAML_DUPLICATE_KEY",
+            "path": "docs/product/R.md",
+            "message": "Map keys must be unique",
+            "severity": "error",
+            "line": 3,
+            "item_id": "REQ-A"
+          },
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-B",
+            "pointer": "/items/1/another_unknown"
+          }
+        ]
+      },
+      "applied": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "saved",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "saved",
+              "saved": true,
+              "changed": true,
+              "sha256": "4d0bfb562b1c0fafe26dfd343f5ec772842c00f0847e6d487e0d5e2ea68bdd0e",
+              "preimage": {
+                "sha256": "92e2a3c75ff0855874840006be8a9e3f7a73a8f230fbf9c9583a0ed4482d09ab",
+                "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQiLCJzY29wZSI6ImN1cnJlbnQifQogIC0geyJpZCI6IlJFUS1CIiwidHlwZSI6InJlcXVpcmVtZW50Iiwic2NvcGUiOiJjdXJyZW50IiwiYW5vdGhlcl91bmtub3duIjp0cnVlfQotLS0KIyDkuqflk4HotYTmlpkKCiMjIFtSRVEtQV0gUkVRLUEKIyMjIOmcgOaxguWGheWuuQrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKCiMjIFtSRVEtQl0gUkVRLUIKIyMjIOmcgOaxguWGheWuuQrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOiMg+WbtOi+ueeVjArkv53nlZnljp/kuJrliqHopoHmsYLjgIIKIyMjIOmqjOaUtuimgeaxggrkv53nlZnljp/kuJrliqHopoHmsYLjgIIKCg=="
+              },
+              "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+              "affected_items": [
+                "REQ-A"
+              ],
+              "diagnostics": [
+                {
+                  "code": "ITEM_METADATA",
+                  "path": "docs/product/R.md",
+                  "message": "Unknown core field; use extensions",
+                  "severity": "error",
+                  "item_id": "REQ-B",
+                  "pointer": "/items/1/another_unknown"
+                }
+              ]
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-B",
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/R.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-B",
+                "pointer": "/items/1/another_unknown"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-B",
+            "pointer": "/items/1/another_unknown"
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R1",
+      "name": "F05-anchor-repair",
+      "label": "before",
+      "expected": "failed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "c1acc604d1ff5dda28a2183be53c3a5f67d48468dabb8e87d0932f36c27ba7ae",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": &flag \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": &flag \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": true,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-A",
+            "diagnostics": [
+              {
+                "code": "YAML_ANCHOR",
+                "path": "docs/product/R.md",
+                "message": "Anchors are not permitted",
+                "severity": "error",
+                "line": 3,
+                "item_id": "REQ-A"
+              }
+            ]
+          },
+          {
+            "id": "REQ-B",
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/R.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-B",
+                "pointer": "/items/1/another_unknown"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "YAML_ANCHOR",
+            "path": "docs/product/R.md",
+            "message": "Anchors are not permitted",
+            "severity": "error",
+            "line": 3,
+            "item_id": "REQ-A"
+          },
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-B",
+            "pointer": "/items/1/another_unknown"
+          }
+        ]
+      },
+      "applied": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "failed",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "failed",
+              "saved": false,
+              "error": "INVALID_ITEM_CHANGED: unrelated malformed item must retain its original bytes"
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-A",
+            "diagnostics": [
+              {
+                "code": "YAML_ANCHOR",
+                "path": "docs/product/R.md",
+                "message": "Anchors are not permitted",
+                "severity": "error",
+                "line": 3,
+                "item_id": "REQ-A"
+              }
+            ]
+          },
+          {
+            "id": "REQ-B",
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/R.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-B",
+                "pointer": "/items/1/another_unknown"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "YAML_ANCHOR",
+            "path": "docs/product/R.md",
+            "message": "Anchors are not permitted",
+            "severity": "error",
+            "line": 3,
+            "item_id": "REQ-A"
+          },
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-B",
+            "pointer": "/items/1/another_unknown"
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R1",
+      "name": "F05-anchor-repair",
+      "label": "current-installed",
+      "expected": "saved",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "c1acc604d1ff5dda28a2183be53c3a5f67d48468dabb8e87d0932f36c27ba7ae",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": &flag \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\",\"another_unknown\":true}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": false,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-A",
+            "diagnostics": [
+              {
+                "code": "YAML_ANCHOR",
+                "path": "docs/product/R.md",
+                "message": "Anchors are not permitted (&flag)",
+                "severity": "error",
+                "line": 3,
+                "item_id": "REQ-A"
+              }
+            ]
+          },
+          {
+            "id": "REQ-B",
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/R.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-B",
+                "pointer": "/items/1/another_unknown"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "YAML_ANCHOR",
+            "path": "docs/product/R.md",
+            "message": "Anchors are not permitted (&flag)",
+            "severity": "error",
+            "line": 3,
+            "item_id": "REQ-A"
+          },
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-B",
+            "pointer": "/items/1/another_unknown"
+          }
+        ]
+      },
+      "applied": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "saved",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "saved",
+              "saved": true,
+              "changed": true,
+              "sha256": "9ba0c7bcd510e289e7f95a352e660d00fedc6c7157d12726502d83b7b704d386",
+              "preimage": {
+                "sha256": "c1acc604d1ff5dda28a2183be53c3a5f67d48468dabb8e87d0932f36c27ba7ae",
+                "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ICZmbGFnICJjdXJyZW50In0KICAtIHsiaWQiOiJSRVEtQiIsInR5cGUiOiJyZXF1aXJlbWVudCIsInNjb3BlIjoiY3VycmVudCIsImFub3RoZXJfdW5rbm93biI6dHJ1ZX0KLS0tCiMg5Lqn5ZOB6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCgojIyBbUkVRLUJdIFJFUS1CCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCgo="
+              },
+              "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+              "affected_items": [
+                "REQ-A"
+              ],
+              "diagnostics": [
+                {
+                  "code": "ITEM_METADATA",
+                  "path": "docs/product/R.md",
+                  "message": "Unknown core field; use extensions",
+                  "severity": "error",
+                  "item_id": "REQ-B",
+                  "pointer": "/items/1/another_unknown"
+                }
+              ]
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-B",
+            "diagnostics": [
+              {
+                "code": "ITEM_METADATA",
+                "path": "docs/product/R.md",
+                "message": "Unknown core field; use extensions",
+                "severity": "error",
+                "item_id": "REQ-B",
+                "pointer": "/items/1/another_unknown"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "ITEM_METADATA",
+            "path": "docs/product/R.md",
+            "message": "Unknown core field; use extensions",
+            "severity": "error",
+            "item_id": "REQ-B",
+            "pointer": "/items/1/another_unknown"
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R1",
+      "name": "F05-introduce-same-value-duplicate-key",
+      "label": "before",
+      "expected": "saved",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "80074d2edcc18e0c9f199fd611c3cd64c659ab6619de1955a985bee2b929777e",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": false,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      },
+      "applied": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "saved",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "saved",
+              "saved": true,
+              "changed": true,
+              "sha256": "d1671c886f92af275c0b218c8a6131d5f3c1bb8babcafe6c16c5d7b61e14d9cb",
+              "preimage": {
+                "sha256": "80074d2edcc18e0c9f199fd611c3cd64c659ab6619de1955a985bee2b929777e",
+                "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQifQogIC0geyJpZCI6IlJFUS1CIiwidHlwZSI6InJlcXVpcmVtZW50Iiwic2NvcGUiOiJjdXJyZW50In0KLS0tCiMg5Lqn5ZOB6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCgojIyBbUkVRLUJdIFJFUS1CCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCgo="
+              },
+              "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+              "affected_items": [],
+              "diagnostics": [
+                {
+                  "code": "YAML_DUPLICATE_KEY",
+                  "path": "docs/product/R.md",
+                  "message": "Map keys must be unique at line 3, column 58:\n\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n                                                         ^\n",
+                  "severity": "error",
+                  "line": 3,
+                  "item_id": "REQ-A"
+                }
+              ]
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-A",
+            "diagnostics": [
+              {
+                "code": "YAML_DUPLICATE_KEY",
+                "path": "docs/product/R.md",
+                "message": "Map keys must be unique at line 3, column 58:\n\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n                                                         ^\n",
+                "severity": "error",
+                "line": 3,
+                "item_id": "REQ-A"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "YAML_DUPLICATE_KEY",
+            "path": "docs/product/R.md",
+            "message": "Map keys must be unique at line 3, column 58:\n\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n                                                         ^\n",
+            "severity": "error",
+            "line": 3,
+            "item_id": "REQ-A"
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R1",
+      "name": "F05-introduce-same-value-duplicate-key",
+      "label": "current-installed",
+      "expected": "failed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "80074d2edcc18e0c9f199fd611c3cd64c659ab6619de1955a985bee2b929777e",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": true,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      },
+      "applied": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "failed",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "failed",
+              "saved": false,
+              "error": "STRUCTURE_INVALID: REQ-A  Map keys must be unique"
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      }
+    },
+    {
+      "defect": "R1",
+      "name": "F05-introduce-unused-anchor",
+      "label": "before",
+      "expected": "saved",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "80074d2edcc18e0c9f199fd611c3cd64c659ab6619de1955a985bee2b929777e",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": &flag \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": &flag \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": false,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      },
+      "applied": {
+        "exit": 0,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "saved",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "saved",
+              "saved": true,
+              "changed": true,
+              "sha256": "0faef474262a7b4ffc51de8b35b3337d858a5026028f51c2a32d454f8bee255f",
+              "preimage": {
+                "sha256": "80074d2edcc18e0c9f199fd611c3cd64c659ab6619de1955a985bee2b929777e",
+                "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6CiAgLSB7ImlkIjoiUkVRLUEiLCJ0eXBlIjoicmVxdWlyZW1lbnQiLCJzY29wZSI6ImN1cnJlbnQifQogIC0geyJpZCI6IlJFUS1CIiwidHlwZSI6InJlcXVpcmVtZW50Iiwic2NvcGUiOiJjdXJyZW50In0KLS0tCiMg5Lqn5ZOB6LWE5paZCgojIyBbUkVRLUFdIFJFUS1BCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCgojIyBbUkVRLUJdIFJFUS1CCiMjIyDpnIDmsYLlhoXlrrkK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDojIPlm7TovrnnlYwK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCiMjIyDpqozmlLbopoHmsYIK5L+d55WZ5Y6f5Lia5Yqh6KaB5rGC44CCCgo="
+              },
+              "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+              "affected_items": [],
+              "diagnostics": [
+                {
+                  "code": "YAML_ANCHOR",
+                  "path": "docs/product/R.md",
+                  "message": "Anchors are not permitted",
+                  "severity": "error",
+                  "line": 3,
+                  "item_id": "REQ-A"
+                }
+              ]
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [
+          {
+            "id": "REQ-A",
+            "diagnostics": [
+              {
+                "code": "YAML_ANCHOR",
+                "path": "docs/product/R.md",
+                "message": "Anchors are not permitted",
+                "severity": "error",
+                "line": 3,
+                "item_id": "REQ-A"
+              }
+            ]
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "YAML_ANCHOR",
+            "path": "docs/product/R.md",
+            "message": "Anchors are not permitted",
+            "severity": "error",
+            "line": 3,
+            "item_id": "REQ-A"
+          }
+        ]
+      }
+    },
+    {
+      "defect": "R1",
+      "name": "F05-introduce-unused-anchor",
+      "label": "current-installed",
+      "expected": "failed",
+      "input": {
+        "files": [
+          {
+            "path": "docs/product/R.md",
+            "expected_sha256": "80074d2edcc18e0c9f199fd611c3cd64c659ab6619de1955a985bee2b929777e",
+            "content": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\": &flag \"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ]
+      },
+      "original": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "after": "---\nschema: vnext-product-doc/v2\nitems:\n  - {\"id\":\"REQ-A\",\"type\":\"requirement\",\"scope\":\"current\"}\n  - {\"id\":\"REQ-B\",\"type\":\"requirement\",\"scope\":\"current\"}\n---\n# 产品资料\n\n## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n",
+      "unchanged": true,
+      "readBefore": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      },
+      "applied": {
+        "exit": 1,
+        "stderr": "",
+        "result": {
+          "kind": "product-maintenance-result/v1",
+          "action": "apply",
+          "development_gate": false,
+          "qualification": "not-evaluated",
+          "task_operations": "not-performed",
+          "status": "failed",
+          "files": [
+            {
+              "path": "docs/product/R.md",
+              "status": "failed",
+              "saved": false,
+              "error": "STRUCTURE_INVALID: REQ-A  Anchors are not permitted (&flag)"
+            }
+          ],
+          "association": "not-evaluated",
+          "reconciliation": "not-evaluated",
+          "transaction": "per-file; no cross-file atomicity"
+        }
+      },
+      "readAfter": {
+        "exit": 0,
+        "complete": true,
+        "usable": [
+          {
+            "id": "PROJECT-A",
+            "metadata": {
+              "id": "PROJECT-A",
+              "type": "project",
+              "inventory": {
+                "state": "partial",
+                "checked_sources": [],
+                "unreviewed_sources": []
+              }
+            },
+            "body": "## [PROJECT-A] 合成项目\n### 项目定位\n合成复现。\n### 盘点范围与未核对项\n其他范围未验收。\n"
+          },
+          {
+            "id": "REQ-A",
+            "metadata": {
+              "id": "REQ-A",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-A] REQ-A\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          },
+          {
+            "id": "REQ-B",
+            "metadata": {
+              "id": "REQ-B",
+              "type": "requirement",
+              "scope": "current"
+            },
+            "body": "## [REQ-B] REQ-B\n### 需求内容\n保留原业务要求。\n### 范围边界\n保留原业务要求。\n### 验收要求\n保留原业务要求。\n\n"
+          }
+        ],
+        "unusable": [],
+        "diagnostics": []
+      }
+    }
+  ],
+  "expected_results_matched": true,
+  "scope": "deterministic structural replay, not host-Agent business semantic validation"
+}

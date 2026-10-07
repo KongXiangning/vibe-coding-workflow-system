@@ -1,0 +1,33 @@
+{
+  "exit": 0,
+  "stderr": "",
+  "result": {
+    "kind": "product-maintenance-result/v1",
+    "action": "apply",
+    "development_gate": false,
+    "qualification": "not-evaluated",
+    "task_operations": "not-performed",
+    "status": "saved",
+    "files": [
+      {
+        "path": "docs/product/R2-REPAIR.md",
+        "status": "saved",
+        "saved": true,
+        "changed": true,
+        "sha256": "566f528e20a2630b763616ddbf7582a56b595f610b2f82eae820ba6f92e87abe",
+        "preimage": {
+          "sha256": "350b231418ff04be38c75515ce3ac756f320f62285b4970da9f2b96afaadd6b4",
+          "data_base64": "LS0tCnNjaGVtYTogdm5leHQtcHJvZHVjdC1kb2MvdjIKaXRlbXM6IFt7ImlkIjoiUkVRLVIyIiwidHlwZSI6InJlcXVpcmVtZW50Iiwic2NvcGUiOiJjdXJyZW50IiwibGlua3MiOlt7ImlkIjoiTC1TSEFSRUQiLCJyZWxhdGlvbiI6InJlZmVyZW5jZXMiLCJ0YXJnZXQiOiJSRVEtUjEiLCJvcmlnaW4iOiJpbmZlcnJlZCIsInN0YXRlIjoiZGlzbWlzc2VkIiwicmVhc29uIjoi5Y6f5ZCm5a6aIiwic291cmNlcyI6W3sia2luZCI6InRleHQiLCJ0ZXh0Ijoi5ZCI5oiQ5Y6f5ZCm5a6a5L6d5o2uIiwibGFiZWwiOiLml6fkvp3mja4ifSx7ImtpbmQiOiJ0ZXh0IiwidGV4dCI6IuW9k+WJjeeUqOaIt+aYjuehruaBouWkjeS/neeVmeeahOWFs+iBlOOAgiIsImxhYmVsIjoi5b2T5YmN5Yaz5a6aIn1dfSx7ImlkIjoiTC1TSEFSRUQiLCJyZWxhdGlvbiI6InJlZmVyZW5jZXMiLCJ0YXJnZXQiOiJQUk9KRUNULU9SREVSUyIsIm9yaWdpbiI6ImRlY2xhcmVkIiwic3RhdGUiOiJhY3RpdmUiLCJyZWFzb24iOiLlvZPliY3nlKjmiLfmmI7noa7mgaLlpI3kv53nlZnnmoTlhbPogZTjgIIiLCJzb3VyY2VzIjpbeyJraW5kIjoidGV4dCIsInRleHQiOiLlkIjmiJDljp/lkKblrprkvp3mja4iLCJsYWJlbCI6IuaXp+S+neaNriJ9LHsia2luZCI6InRleHQiLCJ0ZXh0Ijoi5b2T5YmN55So5oi35piO56Gu5oGi5aSN5L+d55WZ55qE5YWz6IGU44CCIiwibGFiZWwiOiLlvZPliY3lhrPlrpoifV19XX1dCi0tLQojIyBbUkVRLVIyXSDlkIjmiJDmmI7noa7pnIDmsYIKIyMjIOmcgOaxguWGheWuuQrlvZPliY3mmI7noa7nu7TmiqTjgIIKIyMjIOiMg+WbtOi+ueeVjArml6fkuJrliqHotYTkuqflkozmnKrmlLnnuqbmnZ/kv53nlZnjgIIKIyMjIOmqjOaUtuimgeaxggrmjInmnKzmrKHojIPlm7TmoLjlr7njgIIKCg=="
+        },
+        "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+        "affected_items": [
+          "REQ-R2"
+        ],
+        "diagnostics": []
+      }
+    ],
+    "association": "not-evaluated",
+    "reconciliation": "not-evaluated",
+    "transaction": "per-file; no cross-file atomicity"
+  }
+}

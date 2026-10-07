@@ -1,0 +1,11 @@
+bun test v1.3.10 (30e609e0)
+
+test\product-maintenance.test.ts:
+(pass) Review R3 selected globs retain registered concrete files only within the requested scope [78.00ms]
+(pass) Review R4 required glob prefixes must be directories without misclassifying ordinary wildcard files [63.00ms]
+
+ 2 pass
+ 35 filtered out
+ 0 fail
+ 56 expect() calls
+Ran 2 tests across 1 file. [250.00ms]

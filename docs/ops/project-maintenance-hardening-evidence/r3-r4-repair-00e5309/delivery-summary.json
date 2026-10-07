@@ -1,0 +1,35 @@
+{
+  "versions": {
+    "from": "0.24.0",
+    "to": "0.24.1"
+  },
+  "assets_unchanged_during_upgrade": 11,
+  "original_business_assets_restored_exactly": true,
+  "artifacts": {
+    "before": "a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+    "before_offline": "782d00fed8572df4f00c38e86f4f3e70035bf1d2b932007e81affb754efb68df",
+    "current": "aed9d8674db7a85dae521e42fda2d2251903d3dd8758aa34eb4fa174f68a97ed",
+    "offline": "ad7cddbedf6d519894f697119d4b224b2fb49e5bb7e4da5e9b0313856ff600be"
+  },
+  "original_read_cases": 4,
+  "control_cases": 10,
+  "helper_observations": 28,
+  "offline_observations": 14,
+  "expected_results_matched": true,
+  "installed_r3_incomplete": true,
+  "independent_save_and_scoped_read_succeeded": true,
+  "installed_r4_incomplete": true,
+  "offline_r4_incomplete": true,
+  "final_helper_offline_ids_match": true,
+  "final_byte_coverage_complete": true,
+  "usable_count": 28,
+  "unusable_count": 1,
+  "offline_has_runtime": false,
+  "offline_has_node_modules": false,
+  "real_windows_junctions_exercised": true,
+  "host_agent_semantics_replayed": false,
+  "scoped_findings_addressed": [
+    "R3",
+    "R4"
+  ]
+}

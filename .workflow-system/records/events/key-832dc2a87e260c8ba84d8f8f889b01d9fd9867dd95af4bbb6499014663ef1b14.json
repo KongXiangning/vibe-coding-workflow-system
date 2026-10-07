@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-07T04:22:01.051Z",
+  "payload_sha256": "aa5e2e1be64f10cfeaa8a6bdfc690d4be2fce7a68cf545482ebcfd7e74a85ab1",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:maintain-hardening-review-00e5309-r1-r2-test-install-1",
+    "request": {
+      "action": "test",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+      "step_id": "A",
+      "execution_ref": ".workflow-system/records/events/key-c1d0c213ea1e31f65b132d019c28758dc000a63e875b227b1a460723b9d6ba8d.json",
+      "command": "bun test test/product-maintenance-install.test.ts",
+      "selector": "install",
+      "result": "passed",
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "assertions": 163
+      },
+      "source_revision": "00e5309e872130f87fc1c33525bf944eb394b824 + uncommitted R1/R2 repair; helper a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+      "report_ref": "docs/ops/project-maintenance-hardening-evidence/r1-r2-repair-00e5309/install-tests.txt",
+      "idempotency_key": "maintain-hardening-review-00e5309-r1-r2-test-install-1"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-05b880c9a4288ad327c5302992c6eb7c",
+      "parents": [
+        ".workflow-system/records/events/key-f7f313464f470bea04c98ba5af67996c88723fdc99c3a4752d6e327308d87164.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-11fd39e91a7f5c633a29b70cb1727a45f15d74659f9133c3d2602f4a9d8c11d4.json",
+        "step_id": "A",
+        "execution_ref": ".workflow-system/records/events/key-c1d0c213ea1e31f65b132d019c28758dc000a63e875b227b1a460723b9d6ba8d.json",
+        "command": "bun test test/product-maintenance-install.test.ts",
+        "selector": "install",
+        "result": "passed",
+        "counts": {
+          "pass": 1,
+          "fail": 0,
+          "assertions": 163
+        },
+        "source_revision": "00e5309e872130f87fc1c33525bf944eb394b824 + uncommitted R1/R2 repair; helper a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+        "report_ref": "docs/ops/project-maintenance-hardening-evidence/r1-r2-repair-00e5309/install-tests.txt"
+      }
+    }
+  },
+  "issues": []
+}

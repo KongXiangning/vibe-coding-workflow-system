@@ -1,0 +1,18 @@
+{
+  "exit": 0,
+  "projection": {
+    "cache": "current",
+    "display": "legacy",
+    "read_only_rebuilt": true
+  },
+  "issues": [
+    {
+      "id": "issue-7ef165e16850439ae98fed15",
+      "code": "LEGACY_ASSOCIATION_REQUIRED",
+      "ref": ".workflow-system/records/legacy/current-48b9be7f0af3a5eeeeea790fe7f2bdc2ea53ae30f1353cdff74239a2cfde77d8.md",
+      "message": "Old content preserved but no unambiguous hot-field identity could be read. Use link/import; do not assume no prior task exists."
+    }
+  ],
+  "source_revision": "f9710607ab669dadecc908763b8935800e12774b9ff2b7e99fc6c590054a9575",
+  "view_revision": "68c4cb010a82d719a1df043e38e8a766e308a6090703c6f33ee4ed5ce9c80870"
+}

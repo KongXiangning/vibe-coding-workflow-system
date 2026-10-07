@@ -74,10 +74,14 @@ export function enumerate(root: string, patterns: string[], excludes: string[], 
   const omitted = new Set<string>();
   let stopped = false;
   // Start at each pattern's static prefix, never recursively enumerate source_paths.
+  const directoryPrefixes = new Set<string>();
   const prefixes = patterns.map(p => {
     relativePath(p, true);
     const wildcard = p.search(/[*?\[\]]/);
-    return wildcard < 0 ? p : p.slice(0, p.lastIndexOf('/', wildcard) + 1).replace(/\/$/, '');
+    if (wildcard < 0) return p;
+    const prefix = p.slice(0, p.lastIndexOf('/', wildcard) + 1).replace(/\/$/, '');
+    directoryPrefixes.add(prefix);
+    return prefix;
   });
   const visited = new Set<string>();
   const explicitFiles = new Set(patterns.filter(p => !/[*?]/.test(p)));
@@ -100,6 +104,7 @@ export function enumerate(root: string, patterns: string[], excludes: string[], 
       return;
     }
     if (stat.isSymbolicLink()) { omit(relative, 'SYMLINK_SKIPPED', 'Symbolic link/junction not scanned'); return; }
+    if (directoryPrefixes.has(relative) && !stat.isDirectory()) omit(relative, 'PATH_UNAVAILABLE', 'Selected glob prefix is not a directory; its range was not enumerated');
     if (stat.isDirectory()) {
       if (explicitFiles.has(relative)) omit(relative, 'PATH_UNAVAILABLE', 'Selected file path is a directory, not a regular file');
       if (!patterns.some(pattern => mayContainMatch(relative, pattern))) return;

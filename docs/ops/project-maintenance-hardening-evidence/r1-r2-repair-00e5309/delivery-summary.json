@@ -1,0 +1,30 @@
+{
+  "versions": {
+    "from": "0.24.0",
+    "to": "0.24.1"
+  },
+  "assets_unchanged": 11,
+  "artifacts": {
+    "before": "42ca8baf451c48af30f68f5804a932684ea44740427d3b3cda017e87c8109bf5",
+    "current": "a6df4d52ce65efa9d6ed106f86696ded8ddb3f1df896a625d2cd095d1a84dce3",
+    "offline": "782d00fed8572df4f00c38e86f4f3e70035bf1d2b932007e81affb754efb68df"
+  },
+  "node_cases": 8,
+  "node_observations": 16,
+  "expected_results_matched": true,
+  "installed_repair_saved": true,
+  "installed_reversal_saved": true,
+  "installed_partial_removal_saved": true,
+  "offline_ids_match": true,
+  "original_business_assets_still_unchanged": true,
+  "byte_coverage_complete": true,
+  "usable_count": 29,
+  "unusable_count": 2,
+  "offline_has_runtime": false,
+  "offline_has_node_modules": false,
+  "host_agent_semantics_replayed": false,
+  "open_findings": [
+    "R3",
+    "R4"
+  ]
+}

@@ -49,6 +49,14 @@ enumeration pruning uses the same glob semantics as file matching.
 `coverage.paths` and `excluded_paths` retain the actual request scope in CLI and offline results.
 Missing explicit files (including entry when selected), inaccessible relevant directories,
 skipped relevant links/junctions and budgets populate `omitted` with known paths/patterns.
+When `paths` selects globs, also check all concrete `managed_paths` registrations
+matching that selection, even if enumeration cannot discover their missing bytes.
+Unselected registrations stay outside this read; exclusions still take priority.
+Each requested glob's static directory prefix must be an accessible directory.
+A regular file at that prefix is omitted rather than reported as an empty match;
+ordinary nonmatching files encountered under wildcard directories are ignored.
+If a prefix is also selected as a concrete document, that document can still be read
+while its unavailable directory role is reported separately in the same coverage.
 Independent readable paths continue after an omission; hard budgets stop enumeration.
 A glob with zero matches in a successfully enumerated directory is valid; excluded
 or unselected paths are outside this claim. Sources are never all recursively scanned.
@@ -84,8 +92,11 @@ line breaks for local body replacements and append, without trimming original te
 to replacement destinations. `content` is for new files or explicitly authorized
 whole-file candidates, never combined with item edits. Every candidate uses the same
 old→next identity, migration, dismissed-history and affected-item checks. Actual
-changes select whole-candidate items: a valid repair of selected malformed metadata
-is allowed while unchanged malformed neighbors keep exact YAML/body bytes.
+changes select whole-candidate items, including raw YAML maps and syntax diagnostics,
+not only decoded values. Same-value duplicate keys and anchors cannot silently make
+a usable item invalid. A valid repair of selected malformed metadata is allowed while
+unchanged malformed neighbors keep exact YAML/body bytes; shifted absolute lines or
+array indexes do not select those neighbors.
 
 Append inserts new YAML members at the existing sequence's AST location, preserving
 old maps, comments and block indentation. It starts new bodies after an existing
@@ -112,6 +123,9 @@ changed IDs. Actual selective deletion uses
 `remove_relations:[{"item_id":"DISC-A","field":"links","id":"L-OLD"}]` at file-operation
 level (field is links or task_bindings). Existing remove_fields can explicitly remove
 an entire relation field. Neither removal declaration bypasses reassociation checks.
+With duplicate relation IDs the candidate identifies the removed rows: the declaration
+is valid when an old row is actually removed even if another row with that ID remains.
+A declaration without an actual removal fails; it does not waive the current basis.
 After deliberate deletion the helper does not maintain a global tombstone; retain
 recoverable history where needed and let the host interpret later current decisions.
 
@@ -135,6 +149,11 @@ or a new equivalent association without an actual current basis.
 Keeping an old active row with a duplicate ID does not account for deleting the
 dismissed row. Retain that history, actually reassociate with a current basis or
 use the existing explicit field/relation removal path.
+Dismissed history is also matched once per row, by ID and association identity, then
+count. One retained dismissed row cannot account for a different association or a
+second identical historical row. For a newly active association with a known identity,
+compare its own dismissed basis rather than a different association sharing its ID.
+Ordinary explanation edits/reordering and unique-ID identity corrections remain legal.
 
 Every file requires expected_sha256; null means must not exist. The optional
 expected_manifest_sha256 detects changed write scope. A manifest is itself applied
