@@ -7498,79 +7498,6 @@ var require_browser = __commonJS((exports, module) => {
   };
 });
 
-// ../../../../node_modules/has-flag/index.js
-var require_has_flag = __commonJS((exports, module) => {
-  module.exports = function(flag, argv) {
-    argv = argv || process.argv;
-    var terminatorPos = argv.indexOf("--");
-    var prefix = /^--/.test(flag) ? "" : "--";
-    var pos = argv.indexOf(prefix + flag);
-    return pos !== -1 && (terminatorPos !== -1 ? pos < terminatorPos : true);
-  };
-});
-
-// ../../../../node_modules/supports-color/index.js
-var require_supports_color = __commonJS((exports, module) => {
-  var hasFlag = require_has_flag();
-  var support = function(level) {
-    if (level === 0) {
-      return false;
-    }
-    return {
-      level,
-      hasBasic: true,
-      has256: level >= 2,
-      has16m: level >= 3
-    };
-  };
-  var supportLevel = function() {
-    if (hasFlag("no-color") || hasFlag("no-colors") || hasFlag("color=false")) {
-      return 0;
-    }
-    if (hasFlag("color=16m") || hasFlag("color=full") || hasFlag("color=truecolor")) {
-      return 3;
-    }
-    if (hasFlag("color=256")) {
-      return 2;
-    }
-    if (hasFlag("color") || hasFlag("colors") || hasFlag("color=true") || hasFlag("color=always")) {
-      return 1;
-    }
-    if (process.stdout && !process.stdout.isTTY) {
-      return 0;
-    }
-    if (process.platform === "win32") {
-      return 1;
-    }
-    if ("CI" in process.env) {
-      if ("TRAVIS" in process.env || process.env.CI === "Travis") {
-        return 1;
-      }
-      return 0;
-    }
-    if ("TEAMCITY_VERSION" in process.env) {
-      return process.env.TEAMCITY_VERSION.match(/^(9\.(0*[1-9]\d*)\.|\d{2,}\.)/) === null ? 0 : 1;
-    }
-    if (/^(screen|xterm)-256(?:color)?/.test(process.env.TERM)) {
-      return 2;
-    }
-    if (/^screen|^xterm|^vt100|color|ansi|cygwin|linux/i.test(process.env.TERM)) {
-      return 1;
-    }
-    if ("COLORTERM" in process.env) {
-      return 1;
-    }
-    if (process.env.TERM === "dumb") {
-      return 0;
-    }
-    return 0;
-  }();
-  if (supportLevel === 0 && "FORCE_COLOR" in process.env) {
-    supportLevel = 1;
-  }
-  module.exports = process && support(supportLevel);
-});
-
 // node_modules/debug/src/node.js
 var require_node = __commonJS((exports, module) => {
   var tty = __require("tty");
@@ -7584,7 +7511,7 @@ var require_node = __commonJS((exports, module) => {
   exports.destroy = util.deprecate(() => {}, "Instance method `debug.destroy()` is deprecated and no longer does anything. It will be removed in the next major version of `debug`.");
   exports.colors = [6, 2, 3, 4, 5, 1];
   try {
-    const supportsColor = require_supports_color();
+    const supportsColor = (()=>{throw new Error("Cannot require module "+"supports-color");})();
     if (supportsColor && (supportsColor.stderr || supportsColor).level >= 2) {
       exports.colors = [
         20,

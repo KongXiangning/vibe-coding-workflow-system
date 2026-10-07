@@ -338,6 +338,11 @@ function stepSummary(step) {
     finding_count: Array.isArray(step.findings) ? step.findings.length : 0, test_count: step.tests.length };
 }
 function followUpRequest(home, fields) { return { ...fields, workflow_home: home }; }
+function returnSummary(result) {
+  if (!result) return null;
+  return { status: result.status, ref: result.ref ?? null, parent_task_id: result.parent_task_id ?? null,
+    parent_plan_ref: result.parent_plan_ref ?? null, parent_step_id: result.parent_step_id ?? null };
+}
 function taskSummary(task, home) {
   const step = task.steps.find(s => s.id === task.current_step_id);
   const disposition = task.dispositions.find(d => d.ref === task.lifecycle_ref);
@@ -348,6 +353,12 @@ function taskSummary(task, home) {
     current_step_id: task.current_step_id, current_step: step ? stepSummary(step) : null,
     next_route: task.next_route, next_mode: task.next_mode, next_action: task.next_action,
     recommendation_only: task.recommendation_only,
+    origin: task.origin ? { ref: task.origin.ref, parent_task_id: task.origin.parent_task_id,
+      parent_plan_ref: task.origin.parent_plan_ref, parent_step_id: task.origin.parent_step_id,
+      return_policy: task.origin.return_policy } : null,
+    dependency: { state: task.dependency.state, ref: task.dependency.ref },
+    dependencies: task.dependencies.map(d => ({ ...d, return_result: returnSummary(d.return_result) })),
+    return_result: returnSummary(task.return_result), waiting_on_task_ids: task.waiting_on_task_ids, continuation: task.continuation,
     remaining_work: disposition?.remaining_work ?? null, gaps: disposition?.gaps ?? null,
     counts: { steps: task.steps.length,
       unfinished_steps: task.steps.filter(s => !['finished', 'skipped', 'closed'].includes(s.state)).length,
@@ -367,6 +378,8 @@ function presentStatus(view, input, options) {
   const output = { ...base(), kind: 'task-query/v1', detail: options.detail, status: view.status,
     source_revision: view.source_revision, view_revision: view.view_revision, workflow_home: view.workflow_home,
     current_task_id: view.current_task_id,
+    focus: view.focus, next_task_id: view.next_task_id, next_step_id: view.next_step_id,
+    next_route: view.next_route, next_mode: view.next_mode, next_action: view.next_action,
     selection: { requested_task_ref: input.task_ref ?? null, task_id: selected?.task_id ?? null,
       status: selected ? 'resolved' : 'unresolved',
       detail_request: detailRequest },

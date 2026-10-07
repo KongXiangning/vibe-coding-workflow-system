@@ -103,6 +103,15 @@ Supersede links the replacement to the retained original without resetting histo
 to external resources, deletion or rollback need their own actual authorization. Lifecycle
 recording is not a verified-result claim.
 
+For a derived-task switch or manual return, inspect explicit origin, checkpoint, dependency
+outcome and return_result. focus/resume never completes the parent step or resolves a
+prerequisite. Report actual focus with exact next_task_id/next_step_id; a next_route is only
+advice. For an explicitly selected manual return, use focus with return_from set to the
+actual child so the view retains continuation context and unresolved dependency limits.
+If auto return was suppressed by changed work/focus, retain the reason and current
+facts rather than restoring an old plan or overriding a newer choice. Recovery does not
+invent past entry checkpoints; a new explicit entry from the parent can capture one.
+
 A requested resume, replacement, reordered step or termination can differ from the
 previous workflow. Apply the shared rule to the real changed commitment and unresolved
 choice, not the old state tuple. After consent perform the requested lifecycle

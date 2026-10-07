@@ -30,6 +30,7 @@ permission tokens. Raw `record` remains the permissive path for arbitrary eviden
 | close | remaining_work, gaps, actual decision and source links | closed; removed from active focus without setting PASS |
 | pause/resume | actual decision and retained context | work lifecycle changes |
 | focus | task_id and actual choice | selects work focus, without closing another task |
+| dependency | derived task_id, `dependency: {state,summary,evidence_refs}` | explicit prerequisite outcome; independent of lifecycle and review verdict |
 
 Task/step defaults are resolved from the unique current view, not a guessed latest file. New
 prepare without task_ref intentionally means a new task. Adopt can infer a plan only when the
@@ -61,6 +62,104 @@ report its SHA without appending management records or rebuilding views. An empt
 list means no persisted associations, not that Git has no commits. Use the optional action
 only for an explicitly requested persistent association; never recursively commit the
 management files it produces just to record that new commit's SHA.
+
+## Derived prerequisite tasks and continuation
+
+A separate prerequisite discovered inside a step retains its own stable task_id and numeric
+display_id. Use `prepare` with an explicit `origin`; ordinary repairs and plan revisions stay
+in the existing task. The parent remains active with its plan, execution, review, findings,
+step dispositions and remaining work intact. No files, steps or reviews are rolled back.
+
+```json
+{"action":"prepare","plan":{"title":"Shared contract prerequisite","steps":[{"id":"S1","title":"Repair and verify shared contract"}]},"origin":{"parent_task_ref":"<actual parent task ID or display number>","reason":"Current step needs a shared contract change","handoff":{"child_scope":["shared contract repair"],"parent_remaining_scope":["integration","device validation"]},"return_policy":"auto","resume_context":"Continue integration at the interrupted step; retain unfinished validation."}}
+```
+
+`parent_plan_ref` and `parent_step_id` default to the parent's adopted/legacy plan and current
+step at preparation; explicit values must identify that active position. The saved origin
+uses the stable `parent_task_id`. `reason`, `handoff` and `resume_context` retain actual
+business meaning, not invented user words. `return_policy` defaults to `manual`; use `auto`
+when the actual selected workflow includes returning to the parent. It authorizes focus
+restoration only, never implementation, finish, review, Git or external effects.
+
+Preparation/adoption alone does not imply a switch. When switching from the parent, use
+`focus` on the child or `adopt` with `focus:true`. That event captures the actual parent
+work position at entry, including work recorded after preparation. This is a management
+checkpoint; it does not copy code. Repeated child focus preserves the checkpoint. Entering
+from an unrelated task does not manufacture a return address.
+
+```json
+{"action":"adopt","task_id":"<child ID>","plan_ref":"<child plan ref>","focus":true,"decision_source":"<actual source>","decision_text":"<actual selection>"}
+```
+
+After assessing the actual prerequisite delivery, record its outcome separately or with
+closure. `state` is `satisfied`, `unresolved` or `cancelled`. `satisfied` requires a nonempty
+actual `summary`; retain evidence refs and any limits. It is an observation, not Runtime
+verification or a clean/PASS receipt. Closing with no outcome keeps the dependency unresolved.
+An explicit cancellation is not fulfillment. Prior failed/not-run evidence remains visible.
+
+```json
+{"action":"close","task_id":"<child ID>","dependency":{"state":"satisfied","summary":"Shared contract repaired; isolated save scenarios verified","evidence_refs":["<actual report ref>"]},"remaining_work":[],"decision_source":"<actual source>"}
+```
+
+`dependency` can record the same outcome before or after close. Before close, automatic return
+waits. After close, it can complete a pending return if focus still belongs to the retained
+child entry. A satisfied outcome recorded before close is reused by a later close.
+
+With auto policy, closure/outcome saves its return effect in the **same immutable event**.
+The live view selects the parent only when the parent remains active at the same adopted
+plan and step, its captured work has not changed, and focus still belongs to that child
+entry. New focus, changed parent work/lifecycle or concurrent choices prevent automatic
+return. Child lifecycle and prerequisite outcomes are checked at the causal return boundary:
+contradictory concurrent alternatives suppress return until an explicit selection resolves
+them. `return_result` follows those lifecycle/dependency choices and the validated saved
+effect; it is derived metadata, not a second conflict requiring user selection. Concurrent
+agreeing attempts report their effective return even when another attempt observed changed
+focus. Selecting an unresolved outcome keeps the return suppressed without inventing a
+remaining choice. Agreeing alternatives remain usable. Ordered child changes after a completed return
+do not undo its focus; their current gaps still appear in continuation. A later parent action
+does not retrospectively erase a return that already occurred.
+Exact idempotent replay reuses the first recorded effect; queries/rebuild never append a
+second focus action or rerun work. Publication failure is still reported independently;
+read live status to verify persistence and focus before claiming completion.
+
+Both operation responses and status/context provide `next_task_id`, `next_step_id`,
+`next_route`, `next_mode`, `next_action` for the actual current focus. The affected child can
+be closed while these fields point to the parent. Task summaries expose `origin`, dependency
+state, `dependencies`, `waiting_on_task_ids`, `return_result` and `continuation`. Waiting is
+descriptive, not a lifecycle pause or development gate. `continuation.status=ready` suggests
+`execute-step` / `continue-step` at the retained step; it does **not** finish or review it.
+Once new parent work changes the checkpoint, normal phase recommendations apply again.
+Readiness also considers the current parent's other waiting prerequisites. Manual return
+preserves the selected focus but reports `dependency-unresolved` while any of these remain;
+an ambiguous originating child lifecycle reports `child-state-unresolved`. Neither gap is
+a development gate, and neither creates a ready continuation or clears an existing conflict.
+
+Return outcomes include `returned`, `dependency-unresolved`, `awaiting-close`, `manual`,
+`focus-changed`, `no-return-checkpoint`, `parent-changed`, `multiple-dependencies`,
+`focus-conflict`, `concurrent-parent-change`, `concurrent-child-change`, `origin-unresolved`
+and `invalid-return`.
+The last two report damaged/unassociated return interpretations for targeted recovery.
+Inspect the parent target and actual gaps
+before manually selecting focus; a suggestion is not a completed switch. Manual selection
+does not alter the parent plan/step or clear unresolved dependencies. Use focus with
+`return_from` (the actual child task ID or display number) to carry its retained continuation
+context on a manual return. An unresolved dependency is still reported; changed work uses
+the actual phase route instead of a falsely ready continuation.
+
+```json
+{"action":"focus","task_id":"<parent ID>","return_from":"<child ID>","decision_source":"<actual manual return choice>"}
+```
+
+This version supports one outstanding derived prerequisite per parent task/plan/step, at one level.
+An old-plan relation remains historical and does not block derivation or return in a newly
+adopted plan merely because it uses the same step ID.
+Nested or multiple outstanding proposals are retained with unresolved association and a
+concrete explanation; no guessed relationship or implicit scheduling. Historical relations
+can be supplemented using `link/correct` on the original prepare record with explicit
+`data.origin`; this does not invent a past checkpoint. Explicitly focus from the parent to
+establish a new real return checkpoint. Origin is not replaced by same-task plan revision.
+Origin step matching uses the same normalization as ordinary plan projection, including
+retained null/incomplete step definitions; it does not make the entire view unreadable.
 
 ## Read model and publication
 

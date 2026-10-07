@@ -91,6 +91,14 @@ review's `close-task` suggestion while the step remains open. An explicit read-o
 request remains read-only. In `finish` mode, do not repeat implementation or tests
 solely to perform the step disposition.
 
+If the step needs an independently scoped prerequisite, follow the protocol's Derived
+prerequisite tasks section: preserve the unfinished step, record the scope handoff and
+origin, and switch only under the actual choice. Do not finish it to manufacture a switch.
+After a return, read continuation, waiting dependencies and original execution/review facts.
+continue-step means resume the remaining work, not finish or reuse old evidence as current
+proof. Honor the parent's retained findings and checks; reassess evidence affected by the
+child changes. No automatic business execution solely because focus was restored.
+
 Establish the current requested work and actual scope from the user's instruction,
 existing plan and source. Runtime state is context, not permission. Read relevant
 requirements, contracts, past findings and tests. An optional snapshot can preserve

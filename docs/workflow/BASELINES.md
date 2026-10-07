@@ -9,7 +9,7 @@
 
 ## 版本治理概览
 
-- 当前版本：0.24.0
+- 当前版本：0.24.1
 - 项目：vibe-coding-workflow-system
 - 项目类型：ai-engineering-workflow
 - 主要技术栈：TypeScript, Markdown

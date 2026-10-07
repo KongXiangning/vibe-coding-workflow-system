@@ -1,5 +1,95 @@
 # 完整任务管理：本次验证与交接
 
+## 第一版再次收口审查修复（2026-10-05）
+
+修复再次同代理审查隔离复现的 2 个 P2，范围为原生任务模块、回归测试和 API/产品说明。
+
+- return_result 按有效生命周期、依赖选择与已保存的实际返回效果推导，不再对派生元数据
+  生成另一项 RECORD_CONFLICT。内容一致的并发 close 或事后 dependency 保持返回、摘要和
+  health 一致；明确选择 satisfied 或 unresolved 后无需第二次选择。后续有序结果仍展示
+  当前尝试，真实并发冲突和焦点选择保持可见，原始记录字节不改写。
+- 派生依赖去重和返回判断统一比较原任务/原计划/原步骤。旧计划的未解决依赖继续保留，
+  不阻止新采纳计划中同名步骤的 prepare 或已有任务 link，也不误报 multiple-dependencies。
+
+新增 7 个行为检查并扩展已有一致并发关闭场景。修复前聚焦检查 **8 fail、0 pass**；
+修复后加上上一轮并发回归，聚焦检查 **14 pass、0 fail**。覆盖操作结果、完整视图、摘要、
+context、重建、事件数量和原始字节保留。未在产品源码中加入临时调试日志。
+
+最终验证：
+
+- `bun run test:workflow-assistance`：**94 pass、0 fail、1 skip**，其中任务管理 **54 pass**。
+  跳过项仍为宿主物理符号链接能力限制，Git index 链接模式另有覆盖。
+- `bun run validate:vnext-source` 与 `bun run test:workflow-vnext-source`：通过，源码测试
+  **19 pass、0 fail**。
+- `bun run validate:protocol`、`bun run validate:freshness`、两个原生模块语法检查及
+  `git diff --check`：通过。
+- `bun run build:vibe-governance-distribution`：本地构建成功，版本仍为 0.23.8。
+
+未执行 test:workflow-all、发布、Git 提交/推送或业务项目升级。复制安装原生 CLI 的跨进程
+回读包含在服务回归中；安装器未修改，本轮未重复安装器测试。原生服务验证不代表模型
+对话遵从性验收或 TermLink 已更新。
+
+## 第一版审查修复（2026-10-05）
+
+修复同代理审查中隔离复现的 1 个 P1、2 个 P2。变更限定于原生任务模块、回归测试、
+API/产品说明和本记录；不新增入口、审批规则或版本号，不修改目标项目任务数据。
+
+| 审查问题 | 修复与回读 |
+| --- | --- |
+| 子任务并发 close/resume/pause 或 satisfied/unresolved 仍触发返回 | 按返回边界的因果状态检查子任务生命周期与依赖；矛盾替代保留并抑制返回，显式选择来源可恢复返回；一致替代与返回后的正常变化不误判 |
+| 空步骤补关联后整个视图不可读 | 来源步骤沿用既有 obj 归一化；null 步骤的 prepare/link/status/context/query/correct 均可执行，原记录字节保留 |
+| 人工返回忽略其他前置问题并显示 ready | 检查父步骤 waiting_on_task_ids，并保留子任务生命周期歧义；人工选择的焦点保持，缺口未解决时不建议 continue-step，解决后可恢复 ready |
+
+新增 8 个行为检查，扩展已有多依赖人工返回场景。先在修复前运行：7 个聚焦检查中
+6 fail、1 pass（其中并发根场景及子场景分别计数）；补充选择来源和一致替代后，最终
+聚焦检查 9 pass、0 fail。没有在产品源码中添加临时日志。
+
+最终验证：
+
+- `bun run test:workflow-assistance`：**87 pass、0 fail、1 skip**；跳过项仍为宿主物理
+  符号链接能力限制，Git index 链接模式另有覆盖。
+- `bun run validate:vnext-source` 与源码契约测试：通过，**19 pass、0 fail**。
+- `bun run validate:protocol`、`bun run validate:freshness`、原生模块语法检查及
+  `git diff --check`：通过。
+- `bun run build:vibe-governance-distribution`：本地构建成功，版本仍为 0.23.8；原生 CLI
+  的复制安装与跨进程回读包含在服务回归中。本轮未重复分发安装器测试，安装器未修改。
+
+未执行 test:workflow-all、发布、Git 提交/推送或业务项目升级。原生回归不代表模型对话
+遵从性验证，也不代表 TermLink 已安装本次更新。
+
+## 派生前置任务与原步骤续接（2026-10-05）
+
+环境：Windows / Node.js v24.12.0 / Bun 1.3.10，当前完整源码仓库及隔离临时项目。
+范围：原生任务服务、查询展示、四个 vNext Skill 模板、共享协议、API 和产品设计。
+沿用同一事实日志、独立稳定身份及 development_gate=false；没有新增准入内核、版本号
+或自动业务执行。单层、每个原步骤一个未收束派生前置任务；超出范围保留提案并报告。
+
+新增 23 个行为检查覆盖：
+
+- 准备/采纳与焦点切换分开；切入时捕获实际工作，而非准备时的旧位置。
+- 自动返回保留原步骤执行、finding、审查和处置，不自动 finish 或伪造 PASS。
+- 关闭未解决任务、提前/事后记录依赖结果、人工返回及原任务范围/状态变化。
+- 用户的新焦点、真实并发工作与显式选择；补登 historical 执行不影响当前返回。
+- 已有任务补关联、旧格式已识别步骤及返回后的计划采纳，不重建身份或改写历史。
+- 同一关闭/返回事件的幂等重放、缓存重建、投影发布失败后的实时读取与恢复。
+- 多依赖/嵌套提案的可见限制，以及复制安装的原生 CLI 跨进程返回和不重复记账。
+
+最终执行结果：
+
+| 检查 | 实际结果 |
+| --- | --- |
+| `bun run test:workflow-assistance` | 79 pass、0 fail、1 skip；跳过项为宿主无法创建物理符号链接，Git index 链接模式另有覆盖 |
+| `bun run validate:vnext-source` 与 `bun test test/workflow-vnext-source.test.ts` | 契约通过；19 pass、0 fail |
+| `bun run validate:protocol` | 通过 |
+| `bun run gen:workflow-docs` 与 `bun run validate:freshness` | 生成及新鲜度通过；三份参考输出同步换行，无 Git 语义差异 |
+| 两个原生模块 `node --check` 与 `git diff --check` | 通过 |
+| `bun run build:vibe-governance-distribution` | 本地分发构建成功，版本仍为 0.23.8 |
+| 定向 fresh Node install / legacy 与 summary upgrade | 3 pass、0 fail，保留未确认/不可读目标任务 |
+
+未执行 test:workflow-all、Agent 对话遵从性评测、发布、Git 提交/推送或业务项目升级。
+测试安装位于隔离夹具；源码和本地分发成功不代表 TermLink 等目标项目已更新。
+旧真实任务的派生来源需从实际证据 link/correct，不从粘贴聊天猜历史返回检查点。
+
 ## df2815ca 四项缺陷修复验证（2026-09-29）
 
 修复基线：`df2815cabdae80c0d696803d1ec40b22ff94af6b`。

@@ -17,7 +17,7 @@ const list = value => Array.isArray(value) ? value : [];
 const unique = values => [...new Set(list(values).filter(v => typeof v === 'string' && v))];
 const errorInfo = e => ({ code: e?.code ?? 'MANAGEMENT_IO_FAILED', message: e instanceof Error ? e.message : String(e) });
 const meta = () => ({ runtime_role: 'assistance', development_gate: false, qualification: 'not-evaluated' });
-const ACTIONS = new Set(['prepare', 'adopt', 'execution', 'test', 'review', 'review-decision', 'step', 'git', 'close', 'pause', 'resume', 'focus', 'link', 'correct', 'resolve', 'defer']);
+const ACTIONS = new Set(['prepare', 'adopt', 'execution', 'test', 'review', 'review-decision', 'step', 'git', 'close', 'pause', 'resume', 'focus', 'dependency', 'link', 'correct', 'resolve', 'defer']);
 const META_ACTIONS = new Set(['link', 'correct', 'resolve', 'defer']);
 const RECOVERY = ['rebuild', 'link', 'correct', 'resolve', 'defer', 'pause', 'close'];
 const label = value => {
@@ -26,6 +26,82 @@ const label = value => {
   return Number.isSafeInteger(n) && n >= 0 ? `TASK-${String(n).padStart(3, '0')}` : null;
 };
 const diagnostic = (code, ref, message, details = {}) => ({ id: `issue-${digest([code, ref, details]).slice(0, 24)}`, code, ref, message, ...details });
+
+// A return checkpoint describes work, never a filesystem snapshot or execution permission.
+function workCheckpoint(task, stepId) {
+  const step = task.steps.find(s => s.id === stepId);
+  const currentWork = step ? { ...step } : null;
+  if (currentWork) delete currentWork.historical_execution_refs;
+  return { task_id: task.task_id, plan_ref: task.adopted_plan_ref ?? task.legacy_plan_ref,
+    adopted_by: task.adopted_by, lifecycle_ref: task.lifecycle_ref, current_step_id: task.current_step_id,
+    step_id: stepId, step_digest: digest(currentWork) };
+}
+function openDependency(task) {
+  return task.origin && !(task.lifecycle === 'closed' && ['satisfied', 'cancelled'].includes(task.dependency?.state));
+}
+function sameOriginStep(a, b) {
+  return a.parent_task_id === b.parent_task_id && a.parent_plan_ref === b.parent_plan_ref
+    && a.parent_step_id === b.parent_step_id;
+}
+function satisfiedDependency(outcome) {
+  return outcome?.state === 'satisfied' && typeof outcome.summary === 'string' && !!outcome.summary.trim();
+}
+function observedData(selected, fallback) {
+  if (!selected || selected.conflict) return fallback;
+  return { ...selected.value, ref: selected.ref };
+}
+function returnObservation(heads, dependency, lifecycle) {
+  if (!heads.length) return null;
+  let selected = heads[0];
+  // Effects follow their source choices; derived metadata never needs another user selection.
+  if (!heads.every(e => digest(e.value) === digest(selected.value)))
+    selected = heads.find(e => e.ref === dependency?.ref) ?? heads.find(e => e.ref === lifecycle?.ref);
+  return observedData(selected, { status: 'ambiguous' });
+}
+function affectsReturnCheckpoint(event, origin, events) {
+  if (['adopt', 'close', 'pause', 'resume'].includes(event.action)) return true;
+  const atStep = e => e?.data.historical !== true && e?.data.plan_ref === origin.parent_plan_ref
+    && e?.data.step_id === origin.parent_step_id;
+  if (['execution', 'test', 'step'].includes(event.action)) return atStep(event);
+  const review = event.action === 'review' ? event : event.action === 'review-decision' ? events.get(event.data.review_ref) : null;
+  const execution = review?.action === 'review' && review.data.stage === 'change' ? events.get(review.data.execution_ref) : null;
+  return execution?.action === 'execution' && atStep(execution);
+}
+function originProblem(origin, child, tasks) {
+  const parent = tasks.find(t => t.task_id === origin.parent_task_id);
+  if (!parent || parent.task_id === child.task_id) return 'The parent task is missing or is the child itself.';
+  if (parent.origin) return 'Nested derived tasks are not supported in this version; retain the proposal for manual handling.';
+  const plan = parent.plans.find(p => p.ref === origin.parent_plan_ref)
+    ?? (parent.legacy_plan_ref === origin.parent_plan_ref ? parent.legacy_plan : null);
+  if (!plan || !list(plan.steps).some((s, i) => (typeof s === 'string' ? `S${i + 1}` : obj(s).id ?? `S${i + 1}`) === origin.parent_step_id))
+    return 'The origin must identify an existing parent plan and step.';
+  if (!['auto', 'manual'].includes(origin.return_policy)) return 'return_policy must be auto or manual.';
+  return null;
+}
+function returnDecision(view, child, outcome, closing) {
+  const origin = child.origin;
+  if (!origin) return null;
+  const result = { status: 'pending', parent_task_id: origin.parent_task_id,
+    parent_plan_ref: origin.parent_plan_ref, parent_step_id: origin.parent_step_id };
+  if (!satisfiedDependency(outcome))
+    return { ...result, status: 'dependency-unresolved' };
+  if (!closing && child.lifecycle !== 'closed') return { ...result, status: 'awaiting-close' };
+  if (origin.return_policy !== 'auto') return { ...result, status: 'manual' };
+  if (view.focus?.task_id !== child.task_id || view.focus.conflict) return { ...result, status: 'focus-changed' };
+  const entry = child.return_entry;
+  if (!entry || entry.ref !== view.focus.ref) return { ...result, status: 'no-return-checkpoint' };
+  const parent = view.tasks.find(t => t.task_id === origin.parent_task_id);
+  if (parent?.lifecycle !== 'active' || parent.current_step_id !== origin.parent_step_id
+    || (parent.adopted_plan_ref ?? parent.legacy_plan_ref) !== origin.parent_plan_ref
+    || digest(workCheckpoint(parent, origin.parent_step_id)) !== digest(entry.checkpoint))
+    return { ...result, status: 'parent-changed' };
+  if (view.tasks.some(t => t.task_id !== child.task_id && openDependency(t)
+    && sameOriginStep(t.origin, origin)))
+    return { ...result, status: 'multiple-dependencies' };
+  return { ...result, status: 'returned', entry_ref: entry.ref, checkpoint: entry.checkpoint, dependency_ref: outcome.ref ?? null,
+    close_ref: closing ? null : child.lifecycle_ref,
+    origin_ref: origin.ref, resume_context: origin.resume_context ?? null };
+}
 
 function readFile(root, ref, io) { return fs.readFileSync(io.local(root, ref)); }
 function files(root, directory, io, suffix) {
@@ -239,7 +315,7 @@ export function taskView(root, input, io) {
   let causal = causalRelations(all);
   const maxima = entries => causal.maxima(entries);
   const effective = new Set();
-  function choose(field, entries) {
+  function choose(field, entries, reportConflict = true) {
     const heads = maxima(entries);
     if (!heads.length) return null;
     if (heads.length === 1 || heads.every(e => digest(e.semantic ?? e.value) === digest(heads[0].semantic ?? heads[0].value))) return heads[0];
@@ -252,7 +328,7 @@ export function taskView(root, input, io) {
       if (decisions[0].interpretation_ref) effective.add(decisions[0].interpretation_ref);
       return heads.find(e => e.ref === decisions[0].data.selected_ref);
     }
-    issues.push({ id, code: 'RECORD_CONFLICT', field, candidates, message: 'Concurrent alternatives require a specific selection; no last-write-wins.', options: ['resolve', 'defer'] });
+    if (reportConflict) issues.push({ id, code: 'RECORD_CONFLICT', field, candidates, message: 'Concurrent alternatives require a specific selection; no last-write-wins.', options: ['resolve', 'defer'] });
     return { ref: null, value: null, conflict: id };
   }
   const amendments = new Map();
@@ -318,7 +394,16 @@ export function taskView(root, input, io) {
   }
   function belongs(ref, task, action) { const target = all.get(ref); return !!target && target.task_id === task.task_id && (!action || action.includes(target.action)); }
   const result = [];
-  const focus = [], gitCache = new Map();
+  const focus = [], gitCache = new Map(), returnStates = new Map();
+  function manuallySelectedAfter(entries) {
+    return focus.some(candidate => {
+      if (candidate.returned && !candidate.returned.manual) return false;
+      return entries.every(other => {
+        const heads = maxima([candidate, other]);
+        return heads.length === 1 && heads[0].ref === candidate.ref;
+      });
+    });
+  }
   for (const task of tasks.values()) {
     const events = task.events;
     const plans = events.filter(e => e.action === 'prepare' && e.data.plan && typeof e.data.plan === 'object').map(e => ({ ...e.data.plan, ref: e.ref, parent_plan_ref: e.data.base_plan_ref ?? null }));
@@ -326,7 +411,8 @@ export function taskView(root, input, io) {
     for (const e of events.filter(e => e.action === 'adopt' && !belongs(e.data.plan_ref, task, ['prepare']))) unassociated.push({ ref: e.ref, reason: 'Plan is missing or belongs to another task.' });
     const lifeEvents = events.filter(e => ['close', 'pause', 'resume'].includes(e.action)
       || (e.action === 'adopt' && e.data.activate && belongs(e.data.plan_ref, task, ['prepare'])));
-    const life = choose(`${task.task_id}:lifecycle`, lifeEvents.map(e => ({ ...e, value: { close: 'closed', pause: 'paused', resume: 'active', adopt: 'active' }[e.action] })));
+    const lifeChoices = lifeEvents.map(e => ({ ...e, value: { close: 'closed', pause: 'paused', resume: 'active', adopt: 'active' }[e.action] }));
+    const life = choose(`${task.task_id}:lifecycle`, lifeChoices);
     const lifecycle = life?.conflict ? 'ambiguous' : life?.value ?? task.baseline?.lifecycle ?? 'draft';
     const plan = adopted?.conflict ? null : adopted?.value ? plans.find(p => p.ref === adopted.value) : task.baseline?.plan ?? null;
     const planRef = adopted?.conflict ? null : adopted?.value ?? task.baseline?.plan_ref ?? null;
@@ -351,7 +437,8 @@ export function taskView(root, input, io) {
         if (!actual.object_available) issues.push(diagnostic('COMMIT_NOT_VERIFIED', e.ref, 'Recorded commit reference is not a locally available Git commit; no commit/push/deploy was replayed.', { task_id: task.task_id }));
       }
       if (e.action === 'focus' || ((e.action === 'adopt' || e.action === 'resume') && data.focus === true)) {
-        if (e.action !== 'adopt' || belongs(data.plan_ref, task, ['prepare'])) focus.push({ ...e, value: task.task_id });
+        if (e.action !== 'adopt' || belongs(data.plan_ref, task, ['prepare']))
+          focus.push({ ...e, value: task.task_id, returned: data.continuation?.manual === true ? data.continuation : null });
       }
     }
     // Validate dependent observations after collecting their targets; journal filenames have no causal order.
@@ -384,6 +471,31 @@ export function taskView(root, input, io) {
         historical_execution_refs: executions.filter(e => e.step_id === id && !eligible(e)).map(e => e.ref) };
     });
     const currentStep = steps.find(s => !['finished', 'skipped', 'closed'].includes(s.state));
+    const origin = choose(`${task.task_id}:origin`, events.filter(e => e.action === 'prepare' && e.data.origin)
+      .map(e => ({ ...e, value: e.data.origin })));
+    const outcomes = events.filter(e => ['dependency', 'close'].includes(e.action) && e.data.dependency);
+    const validOutcomes = outcomes.filter(e => {
+      const outcome = obj(e.data.dependency);
+      const valid = !!origin && !origin.conflict && ['satisfied', 'unresolved', 'cancelled'].includes(outcome.state)
+        && (outcome.state !== 'satisfied' || satisfiedDependency(outcome));
+      if (!valid) unassociated.push({ ref: e.ref, reason: 'A dependency outcome needs a known state; satisfied requires an actual result summary.' });
+      return valid;
+    });
+    for (const e of events.filter(e => e.action === 'dependency' && !e.data.dependency))
+      unassociated.push({ ref: e.ref, reason: 'dependency requires an explicit outcome.' });
+    const dependencyChoices = validOutcomes.map(e => ({ ...e, value: e.data.dependency }));
+    const dependency = choose(`${task.task_id}:dependency`, dependencyChoices);
+    const entry = choose(`${task.task_id}:return-entry`, events.filter(e => ['focus', 'adopt', 'resume'].includes(e.action)
+      && e.data.return_checkpoint).map(e => ({ ...e, value: e.data.return_checkpoint })));
+    const returnHeads = maxima(events.filter(e => ['dependency', 'close'].includes(e.action)
+      && e.data.return_result).map(e => ({ ...e, value: e.data.return_result })));
+    const taskOrigin = observedData(origin, null);
+    if (taskOrigin) returnStates.set(task.task_id, { lifecycle: lifeChoices, dependency: dependencyChoices,
+      returnHeads: new Set(returnHeads.map(e => e.ref)) });
+    const dependencyFallback = { state: taskOrigin ? 'unresolved' : 'not-applicable', ref: null };
+    if (dependency?.conflict) dependencyFallback.state = 'ambiguous';
+    let returnEntry = null;
+    if (entry && !entry.conflict) returnEntry = { ref: entry.ref, checkpoint: entry.value };
     let route = null, mode = null, nextAction = null;
     if (lifecycle !== 'closed' && lifecycle !== 'paused') {
       if (adopted?.conflict) route = 'task-lifecycle';
@@ -408,12 +520,18 @@ export function taskView(root, input, io) {
       steps, reviews, executions, tests, review_decisions: decisions, commits,
       dispositions: events.filter(e => ['close', 'pause', 'resume'].includes(e.action)).map(e => ({ ...e.data, ref: e.ref, action: e.action })),
       next_route: route, next_mode: mode, next_action: nextAction, recommendation_only: true,
-      legacy_source: task.baseline?.source_ref ?? null, legacy_plan_ref: task.baseline?.plan_ref ?? null, heads: maxima(events).map(e => e.ref) });
+      origin: taskOrigin,
+      dependency: observedData(dependency, dependencyFallback),
+      return_entry: returnEntry,
+      return_result: returnObservation(returnHeads, dependency, life),
+      dependencies: [], waiting_on_task_ids: [], continuation: null,
+      legacy_source: task.baseline?.source_ref ?? null, legacy_plan_ref: task.baseline?.plan_ref ?? null,
+      legacy_plan: task.baseline?.plan ?? null, heads: maxima(events).map(e => e.ref) });
     const applied = [
       ...events.filter(e => e.action === 'prepare' && e.data.plan && typeof e.data.plan === 'object'),
       // Valid lifecycle history remains associated after a later decision takes over.
       ...events.filter(e => ['close', 'pause', 'resume'].includes(e.action)),
-      ...executions, ...tests, ...reviews, ...decisions, ...commits, ...dispositions,
+      ...executions, ...tests, ...reviews, ...decisions, ...commits, ...dispositions, ...validOutcomes,
       ...(adopted?.ref ? [adopted] : []), ...(life?.ref ? [life] : []),
     ];
     for (const item of applied) {
@@ -421,13 +539,131 @@ export function taskView(root, input, io) {
       if (item.interpretation_ref) effective.add(item.interpretation_ref);
     }
   }
+  // Cross-task meaning is explicit. Causal event parents and plan revisions are not task ancestry.
+  const originProblems = result.map(child => child.origin ? originProblem(child.origin, child, result) : null);
+  for (const [index, child] of result.entries()) {
+    const problem = originProblems[index];
+    if (problem) { unassociated.push({ ref: child.origin.ref, reason: problem }); child.origin = null; }
+    if (!child.origin && child.return_result?.status === 'returned') child.return_result.status = 'origin-unresolved';
+    if (!child.origin) for (const e of tasks.get(child.task_id).events.filter(e => e.action === 'dependency'))
+      unassociated.push({ ref: e.ref, reason: 'The dependency outcome has no effective derived-task origin.' });
+    for (const e of tasks.get(child.task_id).events.filter(e => e.data.origin_error))
+      unassociated.push({ ref: e.ref, reason: e.data.origin_error });
+    for (const e of tasks.get(child.task_id).events.filter(e => e.data.continuation_error))
+      unassociated.push({ ref: e.ref, reason: e.data.continuation_error });
+  }
+  for (const child of result.filter(t => t.origin)) {
+    const parent = result.find(t => t.task_id === child.origin.parent_task_id);
+    const events = tasks.get(child.task_id).events;
+    const childStates = returnStates.get(child.task_id);
+    let effectiveReturn = null;
+    for (const e of events.filter(e => ['dependency', 'close'].includes(e.action) && e.data.return_result?.status === 'returned')) {
+      const returned = e.data.return_result, entry = all.get(returned.entry_ref);
+      const outcomeEvent = returned.dependency_ref ? all.get(returned.dependency_ref) : e;
+      const outcome = outcomeEvent?.data.dependency;
+      const close = e.action === 'close' ? e : all.get(returned.close_ref);
+      const follows = other => {
+        if (!other) return false;
+        if (other.ref === e.ref) return true;
+        const heads = maxima([e, other]);
+        return heads.length === 1 && heads[0].ref === e.ref;
+      };
+      const valid = satisfiedDependency(outcome)
+        && outcomeEvent.task_id === child.task_id && ['dependency', 'close'].includes(outcomeEvent.action)
+        && follows(outcomeEvent) && close?.action === 'close' && close.task_id === child.task_id && follows(close)
+        && entry?.task_id === child.task_id && ['focus', 'adopt', 'resume'].includes(entry.action)
+        && (entry.action === 'focus' || entry.data.focus === true) && follows(entry)
+        && returned.origin_ref === child.origin.ref && returned.parent_task_id === parent.task_id
+        && returned.parent_plan_ref === child.origin.parent_plan_ref && returned.parent_step_id === child.origin.parent_step_id
+        && digest(obj(returned.checkpoint)) === digest(obj(entry.data.return_checkpoint))
+        && entry.data.return_checkpoint?.task_id === parent.task_id
+        && entry.data.return_checkpoint.plan_ref === child.origin.parent_plan_ref
+        && entry.data.return_checkpoint.step_id === child.origin.parent_step_id
+        && entry.data.return_checkpoint.current_step_id === child.origin.parent_step_id;
+      if (!valid) {
+        unassociated.push({ ref: e.ref, reason: 'The return does not match the retained child entry and parent origin.' });
+        if (child.return_result?.ref === e.ref) child.return_result.status = 'invalid-return';
+        continue;
+      }
+      const concurrentChild = [...childStates.lifecycle, ...childStates.dependency]
+        .filter(other => other.ref !== e.ref && maxima([e, other]).length === 2);
+      if (concurrentChild.length) {
+        // Later ordered changes cannot undo an earlier return. Concurrent alternatives can.
+        const atReturn = other => {
+          if (other.ref === e.ref) return true;
+          const heads = maxima([e, other]);
+          return heads.length === 2 || heads[0]?.ref === e.ref;
+        };
+        const life = choose(`${child.task_id}:lifecycle`, childStates.lifecycle.filter(atReturn), false);
+        const outcome = choose(`${child.task_id}:dependency`, childStates.dependency.filter(atReturn), false);
+        if (life?.conflict || life?.value !== 'closed' || outcome?.conflict || !satisfiedDependency(outcome?.value)) {
+          if ((life?.conflict || outcome?.conflict) && !manuallySelectedAfter([e, ...concurrentChild])) issues.push(diagnostic('RETURN_CHILD_CONFLICT', e.ref,
+            'Concurrent child lifecycle or dependency choices prevent automatic return; resolve the alternatives or select focus explicitly.', { task_id: child.task_id }));
+          if (child.return_result?.ref === e.ref) child.return_result.status = 'concurrent-child-change';
+          continue;
+        }
+      }
+      const concurrentWork = tasks.get(parent.task_id).events.filter(other =>
+        affectsReturnCheckpoint(other, child.origin, all)
+        && maxima([e, other]).length === 2);
+      if (concurrentWork.length) {
+        if (!manuallySelectedAfter([e, ...concurrentWork])) issues.push(diagnostic('RETURN_PARENT_CONFLICT', e.ref, 'Concurrent parent work prevents automatic return; select the work focus explicitly.', { task_id: parent.task_id }));
+        if (child.return_result?.ref === e.ref) child.return_result.status = 'concurrent-parent-change';
+        continue;
+      }
+      focus.push({ ...e, value: parent.task_id, returned });
+      // A valid effect wins among concurrent agreeing attempts, never over a later ordered attempt.
+      if (!effectiveReturn && childStates.returnHeads.has(e.ref)) effectiveReturn = { ...returned, ref: e.ref };
+    }
+    if (effectiveReturn) child.return_result = effectiveReturn;
+    parent.dependencies.push({ task_id: child.task_id, display_id: child.display_id,
+      plan_ref: child.origin.parent_plan_ref, step_id: child.origin.parent_step_id,
+      state: child.dependency.state, outcome_ref: child.dependency.ref,
+      lifecycle: child.lifecycle, origin_ref: child.origin.ref, return_result: child.return_result });
+  }
+  for (const parent of result) {
+    parent.waiting_on_task_ids = parent.dependencies.filter(d => d.plan_ref === (parent.adopted_plan_ref ?? parent.legacy_plan_ref)
+      && d.step_id === parent.current_step_id && !['satisfied', 'cancelled'].includes(d.state)).map(d => d.task_id);
+    const pending = parent.dependencies.filter(d => d.plan_ref === (parent.adopted_plan_ref ?? parent.legacy_plan_ref)
+      && d.step_id === parent.current_step_id && !(d.lifecycle === 'closed' && ['satisfied', 'cancelled'].includes(d.state)));
+    if (pending.length > 1) issues.push(diagnostic('MULTIPLE_DEPENDENCIES_UNSUPPORTED', parent.task_id,
+      'Multiple outstanding derived tasks on one step require manual handling in this version.', { task_ids: pending.map(d => d.task_id) }));
+  }
+  for (const candidate of focus.filter(e => e.returned?.manual)) {
+    const context = candidate.returned, child = result.find(t => t.task_id === context.from_task_id);
+    const entry = all.get(context.entry_ref);
+    const valid = child?.origin?.parent_task_id === candidate.value && child.origin.ref === context.origin_ref
+      && child.origin.parent_plan_ref === context.parent_plan_ref && child.origin.parent_step_id === context.parent_step_id
+      && (context.checkpoint === null || (entry?.task_id === child.task_id
+        && digest(obj(entry.data.return_checkpoint)) === digest(obj(context.checkpoint))));
+    if (!valid) { unassociated.push({ ref: candidate.ref, reason: 'Manual continuation does not match the explicit derived task and retained entry.' }); candidate.returned = null; }
+  }
   const selected = choose('project:focus', focus);
+  if (selected?.conflict) {
+    const conflict = issues.find(i => i.id === selected.conflict);
+    for (const child of result) if (child.return_result?.status === 'returned'
+      && conflict?.candidates.includes(child.return_result.ref)) child.return_result.status = 'focus-conflict';
+  }
   if (selected?.ref) {
     effective.add(selected.ref);
     if (selected.interpretation_ref) effective.add(selected.interpretation_ref);
   }
   const active = result.filter(t => t.lifecycle === 'active');
   const current = selected?.conflict ? null : selected?.value ? active.find(t => t.task_id === selected.value) ?? null : active.length === 1 ? active[0] : null;
+  if (current && selected?.returned) {
+    const returned = selected.returned;
+    const fromTaskId = returned.from_task_id ?? selected.task_id;
+    const returnedChild = result.find(t => t.task_id === fromTaskId);
+    const dependencyState = returnedChild?.dependency.state;
+    const unchanged = digest(workCheckpoint(current, returned.parent_step_id)) === digest(returned.checkpoint);
+    let continuationStatus = unchanged ? 'ready' : 'work-changed';
+    if (dependencyState !== 'satisfied' || current.waiting_on_task_ids.length) continuationStatus = 'dependency-unresolved';
+    if (returnedChild?.lifecycle === 'ambiguous') continuationStatus = 'child-state-unresolved';
+    current.continuation = { from_task_id: fromTaskId, return_ref: selected.ref, dependency_state: dependencyState,
+      plan_ref: returned.parent_plan_ref, step_id: returned.parent_step_id,
+      resume_context: returned.resume_context, status: continuationStatus };
+    if (continuationStatus === 'ready') { current.next_route = 'execute-step'; current.next_mode = null; current.next_action = 'continue-step'; }
+  }
   if (!selected && active.length > 1) issues.push(diagnostic('FOCUS_CHOICE_REQUIRED', null, 'Multiple active tasks; select a work focus without silently closing another task.', { task_ids: active.map(t => t.task_id) }));
   const dedup = [...new Map(unassociated.map(x => [x.ref, x])).values()];
   for (const item of dedup) issues.push(diagnostic('UNASSOCIATED_RECORD', item.ref, item.reason));
@@ -438,6 +674,9 @@ export function taskView(root, input, io) {
   }
   const output = { ...meta(), kind: 'task-view/v1', source_revision: loaded.source_revision, workflow_home: loaded.legacy.home,
     current_task_id: current?.task_id ?? null, current_task: current, tasks: result,
+    focus: { task_id: selected?.value ?? current?.task_id ?? null, ref: selected?.ref ?? null, conflict: selected?.conflict ?? null },
+    next_task_id: current?.task_id ?? null, next_step_id: current?.current_step_id ?? null,
+    next_route: current?.next_route ?? null, next_mode: current?.next_mode ?? null, next_action: current?.next_action ?? null,
     issues, unassociated_records: dedup, health: issues.length || dedup.length ? 'needs-attention' : 'consistent',
     recovery_options: RECOVERY, heads: maxima([...all.values()]).map(e => e.ref), records_scanned: loaded.records.length,
     state_completeness: dedup.length ? 'partial-associations' : issues.length ? 'partial' : 'complete' };
@@ -458,6 +697,10 @@ function render(view) {
     `- Suggested next action: ${clean(current?.next_action ?? 'none')} (advice only)`, '', '## Tasks',
     '| Task | Lifecycle | Plan | Step |', '| --- | --- | --- | --- |',
     ...view.tasks.map(t => `| ${clean(t.display_id ?? t.task_id)} | ${clean(t.lifecycle)} | ${clean(t.plan_status)} | ${clean(t.current_step_id ?? 'none')} |`), '',
+    '## Derived tasks and return positions',
+    ...view.tasks.filter(t => t.origin).map(t => `- ${clean(t.display_id ?? t.task_id)} derives from ${clean(t.origin.parent_task_id)}/${clean(t.origin.parent_step_id)}; dependency=${clean(t.dependency.state)}; return=${clean(t.return_result?.status ?? 'pending')}; policy=${clean(t.origin.return_policy)}`),
+    ...(current?.waiting_on_task_ids.length ? [`- Current step awaits: ${current.waiting_on_task_ids.map(clean).join(', ')} (descriptive, not a development gate)`] : []),
+    ...(current?.continuation ? [`- Continue ${clean(current.continuation.step_id)} after ${clean(current.continuation.from_task_id)}: ${clean(current.continuation.status)}; ${clean(current.continuation.resume_context ?? '')}`] : []), '',
     '## Review, execution and remaining work',
     ...(current?.steps ?? []).map(s => `- ${clean(s.id)}: work=${clean(s.state)}; review=${clean(s.review_status)}; findings=${list(s.findings).length}; tests=${s.tests.length}; source=${clean(s.execution_ref ?? 'none')}`),
     ...view.tasks.flatMap(t => t.dispositions.filter(d => d.action === 'close').map(d => `- ${clean(t.display_id ?? t.task_id)} closed: ${clean(JSON.stringify(d.remaining_work ?? d.gaps ?? d))}`)), '',
@@ -648,6 +891,12 @@ export function taskCommand(root, input, io) {
   }
   const original = structuredClone(input), view = taskView(root, input, io), data = { ...input };
   delete data.action; delete data.idempotency_key; delete data.task_ref; delete data.task_id; delete data.parents;
+  delete data.return_checkpoint; delete data.return_result; delete data.origin_error;
+  delete data.continuation; delete data.continuation_error;
+  if (input.dependency && typeof input.dependency === 'object' && !Array.isArray(input.dependency)) {
+    data.dependency = { ...input.dependency };
+    delete data.dependency.ref;
+  }
   let target = input.task_id ?? input.task_ref;
   const matches = target ? view.tasks.filter(t => t.task_id === target || (label(target) && t.display_id === label(target))) : [];
   let task = target ? matches.length === 1 ? matches[0] : null : view.current_task;
@@ -673,6 +922,24 @@ export function taskCommand(root, input, io) {
   if (action === 'prepare') {
     data.plan = input.plan ?? { title: input.title ?? 'Untitled task', steps: input.steps ?? [] };
     if (!preparingNew) data.base_plan_ref ??= task?.adopted_plan_ref;
+    if (input.origin) {
+      const requested = obj(input.origin), parentRef = requested.parent_task_id ?? requested.parent_task_ref;
+      const parentMatches = view.tasks.filter(t => t.task_id === parentRef || t.display_id === label(parentRef));
+      const parent = parentMatches.length === 1 ? parentMatches[0] : null;
+      data.origin = { parent_task_id: parent?.task_id ?? parentRef,
+        parent_plan_ref: requested.parent_plan_ref ?? parent?.adopted_plan_ref ?? parent?.legacy_plan_ref,
+        parent_step_id: requested.parent_step_id ?? parent?.current_step_id,
+        reason: requested.reason ?? null, handoff: requested.handoff ?? null,
+        return_policy: requested.return_policy ?? 'manual', resume_context: requested.resume_context ?? null };
+      let problem = originProblem(data.origin, { task_id: taskId }, view.tasks);
+      if (!preparingNew) problem = 'Plan revisions cannot create or replace task ancestry; link/correct the original prepared task when recovering real history.';
+      if (!problem && (parent.lifecycle !== 'active' || parent.current_step_id !== data.origin.parent_step_id
+        || (parent.adopted_plan_ref ?? parent.legacy_plan_ref) !== data.origin.parent_plan_ref))
+        problem = 'New derivation must identify the active parent work position; historical relations need explicit link/correct.';
+      if (!problem && view.tasks.some(t => openDependency(t) && sameOriginStep(t.origin, data.origin)))
+        problem = 'This step already has an outstanding derived task; multiple dependencies require manual handling in this version.';
+      if (problem) { data.origin_error = problem; delete data.origin; }
+    }
   }
   if (['execution', 'test'].includes(action) && task?.lifecycle === 'closed') data.historical ??= true;
   if (['execution', 'test', 'step'].includes(action)) {
@@ -685,6 +952,30 @@ export function taskCommand(root, input, io) {
     data.focus = input.focus ?? (!view.current_task || view.current_task_id === taskId || view.current_task.lifecycle === 'closed');
   }
   if (action === 'resume') data.focus = input.focus ?? !view.current_task;
+  if (action === 'focus' && input.return_from) {
+    const childMatches = view.tasks.filter(t => t.task_id === input.return_from || t.display_id === label(input.return_from));
+    const child = childMatches.length === 1 ? childMatches[0] : null;
+    if (child?.origin?.parent_task_id === taskId) {
+      data.return_from = child.task_id;
+      data.continuation = { manual: true, from_task_id: child.task_id, origin_ref: child.origin.ref,
+        parent_plan_ref: child.origin.parent_plan_ref, parent_step_id: child.origin.parent_step_id,
+        entry_ref: child.return_entry?.ref ?? null,
+        checkpoint: child.return_entry?.checkpoint ?? null, dependency_state: child.dependency.state,
+        resume_context: child.origin.resume_context ?? null };
+    } else data.continuation_error = 'return_from must identify a derived task of the selected parent; focus does not invent a relation.';
+  }
+  const entering = action === 'focus' || (['adopt', 'resume'].includes(action) && data.focus === true);
+  if (entering && task?.origin) {
+    const parent = view.tasks.find(t => t.task_id === task.origin.parent_task_id);
+    if (view.current_task_id === parent?.task_id && parent.lifecycle === 'active'
+      && parent.current_step_id === task.origin.parent_step_id
+      && (parent.adopted_plan_ref ?? parent.legacy_plan_ref) === task.origin.parent_plan_ref)
+      data.return_checkpoint = workCheckpoint(parent, task.origin.parent_step_id);
+    else if (view.focus?.task_id === task.task_id && task.return_entry?.ref === view.focus.ref)
+      data.return_checkpoint = task.return_entry.checkpoint;
+  }
+  if (['close', 'dependency'].includes(action) && task?.origin)
+    data.return_result = returnDecision(view, task, data.dependency ?? task.dependency, action === 'close');
   if (action === 'review' && data.stage === 'change' && !data.execution_ref) {
     data.execution_ref = task?.steps.find(s => s.id === (data.step_id ?? task?.current_step_id))?.execution_ref;
   }
@@ -724,5 +1015,8 @@ function operationResult(saved, projection, taskId, issues, event) {
     recorded: saved.recorded, ref: saved.ref, task_id: taskId, task: view?.tasks.find(t => t.task_id === taskId) ?? null,
     association: view ? unresolved ? 'unresolved' : 'applied' : 'not-evaluated',
     projection: { ...projection, view: undefined }, current_task_id: view?.current_task_id ?? null,
+    next_task_id: view?.next_task_id ?? null, next_step_id: view?.next_step_id ?? null,
+    next_route: view?.next_route ?? null, next_mode: view?.next_mode ?? null, next_action: view?.next_action ?? null,
+    return_result: view?.tasks.find(t => t.task_id === taskId)?.return_result ?? null,
     issues: [...issues, ...list(saved.issues), ...pending, ...notApplied, ...list(view?.issues)], recovery_options: RECOVERY };
 }

@@ -8,7 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { task, taskStatus, record, context, read } from '../runtime/vnext/support/assistance.mjs';
+import { task, taskStatus, record, context, read, queryStatus, queryContext } from '../runtime/vnext/support/assistance.mjs';
 import { synchronizeTasks } from '../runtime/vnext/support/task-management.mjs';
 
 const RUNTIME = fileURLToPath(new URL('../runtime/vnext/support/', import.meta.url));
@@ -483,4 +483,508 @@ test('a long journal is rebuilt under a bounded heap without truncating historic
   assert.equal(result.lifecycle, 'active');
   assert.deepEqual(result.heads, [causalRef(count - 1)]);
   assert.deepEqual(result.issues, []);
+});
+
+function derivedFixture(t, returnPolicy = 'auto') {
+  const root = fixture(t);
+  task(root, { action: 'close', task_ref: '004' });
+  const parent = task(root, { action: 'prepare', plan: plan('Original business task') });
+  task(root, { action: 'adopt', task_id: parent.task_id, plan_ref: parent.ref });
+  task(root, { action: 'step', state: 'finished' });
+  const run = task(root, { action: 'execution', result: 'partial', source_revision: 'parent-before-handoff' });
+  task(root, { action: 'review', stage: 'change', execution_ref: run.ref, verdict: 'findings',
+    findings: [{ id: 'F-parent', text: 'Integration still needs a prerequisite' }], provenance: 'self-review' });
+  const before = structuredClone(taskStatus(root).current_task);
+  const child = task(root, { action: 'prepare', plan: plan('Shared contract prerequisite'),
+    origin: { parent_task_ref: parent.task.display_id, reason: 'S2 needs a shared contract repair',
+      handoff: { child_scope: ['shared contract'], parent_remaining_scope: ['integration', 'device validation'] },
+      return_policy: returnPolicy, resume_context: 'Continue S2 integration; retain the finding and device checks.' } });
+  task(root, { action: 'adopt', task_id: child.task_id, plan_ref: child.ref });
+  assert.equal(taskStatus(root).current_task_id, parent.task_id);
+  assert.equal(child.association, 'applied');
+  return { root, parent, child, before, run };
+}
+const satisfied = { state: 'satisfied', summary: 'Shared contract repaired and isolated saving verified', evidence_refs: ['logs/prerequisite.md'] };
+
+test('derived task preserves its parent and returns to the exact unfinished work without finishing or recertifying it', t => {
+  const { root, parent, child, before, run } = derivedFixture(t);
+  const original = bytes(root, run.ref);
+  assert.equal(child.task.origin.parent_task_id, parent.task_id);
+  assert.equal(child.task.origin.parent_plan_ref, parent.ref);
+  assert.equal(child.task.origin.parent_step_id, 'S2');
+  task(root, { action: 'focus', task_id: child.task_id });
+  task(root, { action: 'execution', result: 'prerequisite implemented' });
+  task(root, { action: 'step', state: 'finished' });
+  task(root, { action: 'step', state: 'finished' });
+  const request = { action: 'close', task_id: child.task_id, dependency: satisfied, idempotency_key: 'close-derived-success' };
+  const closed = task(root, request);
+  assert.equal(closed.association, 'applied'); assert.equal(closed.projection.status, 'updated');
+  assert.equal(closed.return_result.status, 'returned');
+  assert.equal(closed.next_task_id, parent.task_id); assert.equal(closed.next_step_id, 'S2');
+  assert.equal(closed.next_route, 'execute-step'); assert.equal(closed.next_action, 'continue-step');
+  const resumed = taskStatus(root).current_task;
+  assert.equal(resumed.task_id, parent.task_id); assert.equal(resumed.lifecycle, 'active');
+  assert.deepEqual(resumed.steps, before.steps); assert.deepEqual(bytes(root, run.ref), original);
+  assert.equal(resumed.continuation.status, 'ready');
+  assert.equal(resumed.steps[1].review_status, 'findings'); assert.equal(resumed.steps[1].state, 'executed');
+  const queryBefore = fs.readdirSync(path.join(root, '.workflow-system/records/events'));
+  const summary = queryStatus(root), selectedChild = queryStatus(root, { task_ref: child.task_id });
+  assert.equal(summary.next_task_id, parent.task_id); assert.equal(summary.next_step_id, 'S2');
+  assert.equal(selectedChild.selection.task_id, child.task_id); assert.equal(selectedChild.next_task_id, parent.task_id);
+  assert.equal(selectedChild.tasks[0].return_result.status, 'returned');
+  assert.equal(queryContext(root).management.next_task_id, parent.task_id);
+  assert.deepEqual(fs.readdirSync(path.join(root, '.workflow-system/records/events')), queryBefore);
+  task(root, { action: 'execution', result: 'continued integration', source_revision: 'parent-after-return' });
+  const continued = taskStatus(root).current_task;
+  assert.equal(continued.continuation.status, 'work-changed'); assert.equal(continued.next_route, 'review-change');
+  const eventCount = fs.readdirSync(path.join(root, '.workflow-system/records/events')).length;
+  assert.equal(task(root, request).ref, closed.ref);
+  assert.equal(fs.readdirSync(path.join(root, '.workflow-system/records/events')).length, eventCount);
+  fs.unlinkSync(path.join(root, '.workflow-system/records/task-view.json'));
+  task(root, { action: 'rebuild' });
+  assert.equal(taskStatus(root).current_task.steps[1].execution.result, 'continued integration');
+  assert.equal(fs.readdirSync(path.join(root, '.workflow-system/records/events')).length, eventCount);
+  task(root, { action: 'dependency', task_id: child.task_id, dependency: { state: 'unresolved', summary: 'A later regression reopened the prerequisite' } });
+  const reopened = taskStatus(root).current_task;
+  assert.equal(reopened.task_id, parent.task_id); assert.equal(reopened.continuation.status, 'dependency-unresolved');
+  assert.deepEqual(reopened.waiting_on_task_ids, [child.task_id]);
+});
+
+test('closure with gaps keeps the dependency unresolved; a later explicit outcome can return without replaying work', t => {
+  const { root, parent, child, before } = derivedFixture(t);
+  task(root, { action: 'focus', task_id: child.task_id });
+  const closed = task(root, { action: 'close', task_id: child.task_id, remaining_work: ['repair not complete'] });
+  assert.equal(closed.return_result.status, 'dependency-unresolved'); assert.equal(closed.current_task_id, null);
+  assert.equal(closed.task.dependency.state, 'unresolved');
+  const outcome = task(root, { action: 'dependency', task_id: child.task_id, dependency: satisfied });
+  assert.equal(outcome.association, 'applied'); assert.equal(outcome.return_result.status, 'returned');
+  assert.equal(taskStatus(root).current_task_id, parent.task_id);
+  assert.deepEqual(taskStatus(root).current_task.steps, before.steps);
+  assert.deepEqual(taskStatus(root).tasks.find(x => x.task_id === child.task_id).dispositions[0].remaining_work, ['repair not complete']);
+});
+
+test('an outcome before closure waits; manual policy and incomplete or cancelled outcomes never imply successful return', t => {
+  const { root, parent, child } = derivedFixture(t, 'manual');
+  task(root, { action: 'focus', task_id: child.task_id });
+  const outcome = task(root, { action: 'dependency', task_id: child.task_id, dependency: satisfied });
+  assert.equal(outcome.return_result.status, 'awaiting-close'); assert.equal(outcome.current_task_id, child.task_id);
+  const closed = task(root, { action: 'close', task_id: child.task_id });
+  assert.equal(closed.return_result.status, 'manual'); assert.equal(closed.current_task_id, null);
+  task(root, { action: 'focus', task_id: parent.task_id, return_from: child.task_id });
+  assert.equal(taskStatus(root).current_task.current_step_id, 'S2');
+  assert.equal(taskStatus(root).current_task.continuation.from_task_id, child.task_id);
+  assert.equal(taskStatus(root).current_task.next_action, 'continue-step');
+  const invalid = task(root, { action: 'dependency', task_id: child.task_id, dependency: { state: 'satisfied' } });
+  assert.equal(invalid.recorded, true); assert.equal(invalid.association, 'unresolved');
+  assert.equal(taskStatus(root).tasks.find(x => x.task_id === child.task_id).dependency.state, 'satisfied');
+  const cancelled = task(root, { action: 'dependency', task_id: child.task_id, dependency: { state: 'cancelled', summary: 'Stopped this prerequisite' } });
+  assert.equal(cancelled.task.dependency.state, 'cancelled'); assert.equal(cancelled.return_result.status, 'dependency-unresolved');
+});
+
+test('adopting with focus captures entry and a previously recorded satisfied outcome returns on close', t => {
+  const { root, parent, child, before } = derivedFixture(t);
+  task(root, { action: 'adopt', task_id: child.task_id, plan_ref: child.ref, focus: true });
+  assert.equal(taskStatus(root).current_task_id, child.task_id);
+  const outcome = task(root, { action: 'dependency', task_id: child.task_id, dependency: satisfied });
+  assert.equal(outcome.return_result.status, 'awaiting-close');
+  const closed = task(root, { action: 'close', task_id: child.task_id });
+  assert.equal(closed.return_result.status, 'returned'); assert.equal(closed.next_task_id, parent.task_id);
+  assert.deepEqual(taskStatus(root).current_task.steps, before.steps);
+});
+
+test('manual return retains unresolved dependency and changed-work context without forging a ready continuation', t => {
+  const { root, parent, child, before } = derivedFixture(t);
+  task(root, { action: 'focus', task_id: child.task_id });
+  task(root, { action: 'close', task_id: child.task_id, remaining_work: ['prerequisite not repaired'] });
+  const returned = task(root, { action: 'focus', task_id: parent.task_id, return_from: child.task.display_id });
+  assert.equal(returned.association, 'applied');
+  const current = taskStatus(root).current_task;
+  assert.equal(current.continuation.status, 'dependency-unresolved');
+  assert.deepEqual(current.waiting_on_task_ids, [child.task_id]); assert.deepEqual(current.steps, before.steps);
+  const unknown = task(root, { action: 'focus', task_id: parent.task_id, return_from: 'unknown-child' });
+  assert.equal(unknown.recorded, true); assert.equal(unknown.association, 'unresolved');
+  assert.equal(taskStatus(root).current_task_id, parent.task_id);
+});
+
+test('linking an existing task origin preserves its identity and original bytes without inventing a past entry', t => {
+  const { root, parent, child } = derivedFixture(t);
+  task(root, { action: 'close', task_id: child.task_id, dependency: { state: 'cancelled' } });
+  const existing = task(root, { action: 'prepare', plan: plan('Already prepared prerequisite') });
+  task(root, { action: 'adopt', task_id: existing.task_id, plan_ref: existing.ref, focus: true });
+  const original = bytes(root, existing.ref);
+  const linked = task(root, { action: 'link', record_ref: existing.ref,
+    event: { action: 'prepare', task_id: existing.task_id, data: { origin: { parent_task_id: parent.task_id,
+      parent_plan_ref: parent.ref, parent_step_id: 'S2', return_policy: 'auto', resume_context: 'Continue retained integration' } } } });
+  assert.equal(linked.association, 'applied'); assert.equal(linked.task.task_id, existing.task_id);
+  assert.equal(linked.task.return_entry, null); assert.deepEqual(bytes(root, existing.ref), original);
+  task(root, { action: 'focus', task_id: parent.task_id });
+  task(root, { action: 'focus', task_id: existing.task_id });
+  const closed = task(root, { action: 'close', task_id: existing.task_id, dependency: satisfied });
+  assert.equal(closed.return_result.status, 'returned'); assert.equal(closed.current_task_id, parent.task_id);
+});
+
+test('automatic return respects new focus, parent lifecycle, revised plans, finished steps and new parent work', async t => {
+  const scenarios = [
+    ['other focus', ({ root }) => {
+      const other = task(root, { action: 'prepare', plan: plan('C') });
+      task(root, { action: 'adopt', task_id: other.task_id, plan_ref: other.ref, focus: true });
+      return other.task_id;
+    }, 'focus-changed'],
+    ['paused parent', ({ root, parent }) => { task(root, { action: 'pause', task_id: parent.task_id }); }, 'parent-changed'],
+    ['closed parent', ({ root, parent }) => { task(root, { action: 'close', task_id: parent.task_id }); }, 'parent-changed'],
+    ['revised plan', ({ root, parent }) => {
+      const revision = task(root, { action: 'prepare', task_id: parent.task_id, plan: plan('A revised') });
+      task(root, { action: 'adopt', task_id: parent.task_id, plan_ref: revision.ref, focus: false });
+    }, 'parent-changed'],
+    ['finished parent step', ({ root, parent }) => { task(root, { action: 'step', task_id: parent.task_id, state: 'finished' }); }, 'parent-changed'],
+    ['new parent execution', ({ root, parent }) => { task(root, { action: 'execution', task_id: parent.task_id, result: 'other work while B runs' }); }, 'parent-changed'],
+  ];
+  for (const [name, change, status] of scenarios) await t.test(name, t => {
+    const setup = derivedFixture(t);
+    task(setup.root, { action: 'focus', task_id: setup.child.task_id });
+    const expectedFocus = change(setup) ?? null;
+    const closed = task(setup.root, { action: 'close', task_id: setup.child.task_id, dependency: satisfied });
+    assert.equal(closed.return_result.status, status); assert.equal(closed.current_task_id, expectedFocus);
+  });
+});
+
+test('entry captures the actual parent work after preparation; entering from another task does not invent a return', t => {
+  const { root, parent, child } = derivedFixture(t);
+  task(root, { action: 'execution', task_id: parent.task_id, result: 'handoff report saved after preparing B' });
+  const actual = structuredClone(taskStatus(root).current_task.steps);
+  task(root, { action: 'focus', task_id: child.task_id });
+  task(root, { action: 'focus', task_id: child.task_id });
+  const closed = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied });
+  assert.equal(closed.return_result.status, 'returned'); assert.deepEqual(taskStatus(root).current_task.steps, actual);
+  task(root, { action: 'resume', task_id: child.task_id, focus: false });
+  const other = task(root, { action: 'prepare', plan: plan('Other work') });
+  task(root, { action: 'adopt', task_id: other.task_id, plan_ref: other.ref, focus: true });
+  task(root, { action: 'focus', task_id: child.task_id });
+  const stopped = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied });
+  assert.equal(stopped.return_result.status, 'no-return-checkpoint'); assert.equal(stopped.current_task_id, null);
+});
+
+test('unsupported nested or multiple derivations retain proposals and report the missing association', t => {
+  const { root, parent, child } = derivedFixture(t);
+  const another = task(root, { action: 'prepare', plan: plan('Second prerequisite'), origin: { parent_task_id: parent.task_id } });
+  assert.equal(another.recorded, true); assert.equal(another.association, 'unresolved'); assert.equal(another.task.origin, null);
+  task(root, { action: 'focus', task_id: child.task_id });
+  const nested = task(root, { action: 'prepare', plan: plan('Nested prerequisite'), origin: { parent_task_id: child.task_id } });
+  assert.equal(nested.recorded, true); assert.equal(nested.association, 'unresolved'); assert.equal(nested.task.origin, null);
+  const badParent = task(root, { action: 'prepare', plan: plan('Unknown origin'), origin: { parent_task_id: 'missing-task' } });
+  assert.equal(badParent.association, 'unresolved');
+  assert.equal(taskStatus(root).current_task_id, child.task_id);
+  const saved = JSON.parse(bytes(root, nested.ref));
+  assert.equal(saved.payload.request.origin.parent_task_id, child.task_id);
+});
+
+test('saved closure and return survive publication failure and idempotent recovery without a second operation', t => {
+  const { root, parent, child } = derivedFixture(t);
+  task(root, { action: 'focus', task_id: child.task_id });
+  const cache = path.join(root, '.workflow-system/records/task-view.json');
+  fs.unlinkSync(cache); fs.mkdirSync(cache);
+  const request = { action: 'close', task_id: child.task_id, dependency: satisfied, idempotency_key: 'return-publication-failure' };
+  const closed = task(root, request);
+  assert.equal(closed.recorded, true); assert.equal(closed.association, 'not-evaluated'); assert.equal(closed.projection.status, 'failed');
+  assert.equal(taskStatus(root).current_task_id, parent.task_id);
+  assert.equal(taskStatus(root).tasks.find(x => x.task_id === child.task_id).return_result.status, 'returned');
+  const count = fs.readdirSync(path.join(root, '.workflow-system/records/events')).length;
+  fs.rmdirSync(cache);
+  assert.equal(task(root, request).ref, closed.ref);
+  assert.equal(fs.readdirSync(path.join(root, '.workflow-system/records/events')).length, count);
+  assert.equal(taskStatus(root).projection.cache, 'current');
+});
+
+test('multiple linked prerequisites are visible and require manual return rather than implicit scheduling', t => {
+  const { root, parent, child } = derivedFixture(t);
+  const other = task(root, { action: 'prepare', plan: plan('Another independently prepared prerequisite') });
+  task(root, { action: 'link', record_ref: other.ref, event: { action: 'prepare', task_id: other.task_id,
+    data: { origin: { parent_task_id: parent.task_id, parent_plan_ref: parent.ref, parent_step_id: 'S2', return_policy: 'manual' } } } });
+  task(root, { action: 'focus', task_id: child.task_id });
+  const closed = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied });
+  assert.equal(closed.return_result.status, 'multiple-dependencies'); assert.equal(closed.current_task_id, null);
+  const actualParent = taskStatus(root).tasks.find(x => x.task_id === parent.task_id);
+  assert.deepEqual(actualParent.waiting_on_task_ids, [other.task_id]);
+  task(root, { action: 'focus', task_id: parent.task_id, return_from: child.task_id });
+  const returned = taskStatus(root);
+  assert.equal(returned.current_task_id, parent.task_id);
+  assert.equal(returned.current_task.continuation.status, 'dependency-unresolved');
+  assert.notEqual(returned.next_action, 'continue-step');
+  assert.deepEqual(returned.current_task.waiting_on_task_ids, [other.task_id]);
+  task(root, { action: 'close', task_id: other.task_id, dependency: satisfied });
+  const prerequisitesDone = taskStatus(root);
+  assert.equal(prerequisitesDone.current_task_id, parent.task_id);
+  assert.equal(prerequisitesDone.current_task.continuation.status, 'ready');
+  assert.deepEqual(prerequisitesDone.current_task.waiting_on_task_ids, []);
+});
+
+test('installed native CLI closes and returns across processes without kernel dependencies or duplicate facts', t => {
+  const { root, parent, child } = derivedFixture(t);
+  task(root, { action: 'focus', task_id: child.task_id });
+  const installed = path.join(root, '.workflow-system/runtime/support');
+  fs.mkdirSync(installed, { recursive: true });
+  for (const name of ['assistance.mjs', 'task-management.mjs']) fs.copyFileSync(path.join(RUNTIME, name), path.join(installed, name));
+  const call = (command, input) => JSON.parse(execFileSync(process.execPath,
+    [path.join(installed, 'assistance.mjs'), command, '--root', root], { input: JSON.stringify(input), encoding: 'utf8' }));
+  const request = { action: 'close', task_id: child.task_id, dependency: satisfied, idempotency_key: 'installed-derived-return' };
+  const closed = call('task', request), summary = call('task-status', {});
+  assert.equal(closed.return_result.status, 'returned'); assert.equal(summary.current_task_id, parent.task_id);
+  assert.equal(summary.next_step_id, 'S2'); assert.equal(summary.next_action, 'continue-step');
+  const count = fs.readdirSync(path.join(root, '.workflow-system/records/events')).length;
+  assert.equal(call('task', request).ref, closed.ref);
+  assert.equal(fs.readdirSync(path.join(root, '.workflow-system/records/events')).length, count);
+});
+
+test('a return to a recognized legacy step survives later plan adoption without rewriting its historical origin', t => {
+  const root = fixture(t), originalParent = taskStatus(root).current_task;
+  const child = task(root, { action: 'prepare', plan: plan('Legacy-step prerequisite'),
+    origin: { parent_task_ref: '004', return_policy: 'auto' } });
+  task(root, { action: 'adopt', task_id: child.task_id, plan_ref: child.ref, focus: true });
+  task(root, { action: 'close', task_id: child.task_id, dependency: satisfied });
+  assert.equal(taskStatus(root).current_task_id, originalParent.task_id);
+  const next = task(root, { action: 'prepare', task_id: originalParent.task_id, plan: plan('Revised parent plan') });
+  task(root, { action: 'adopt', task_id: originalParent.task_id, plan_ref: next.ref, focus: false });
+  const view = taskStatus(root);
+  assert.equal(view.current_task_id, originalParent.task_id); assert.equal(view.current_task.current_step_id, 'S1');
+  assert.equal(view.current_task.continuation.status, 'work-changed');
+  assert.equal(view.tasks.find(x => x.task_id === child.task_id).origin.parent_step_id, 'S3');
+  assert.equal(view.issues.some(i => i.code === 'UNASSOCIATED_RECORD'), false);
+});
+
+test('concurrent focus or parent changes keep alternatives visible and prevent an unambiguous automatic return', async t => {
+  await t.test('concurrent focus', t => {
+    const { root, child } = derivedFixture(t);
+    const other = task(root, { action: 'prepare', plan: plan('C') });
+    task(root, { action: 'adopt', task_id: other.task_id, plan_ref: other.ref, focus: false });
+    task(root, { action: 'focus', task_id: child.task_id });
+    const heads = taskStatus(root).heads;
+    task(root, { action: 'close', task_id: child.task_id, dependency: satisfied, parents: heads });
+    task(root, { action: 'focus', task_id: other.task_id, parents: heads });
+    const view = taskStatus(root);
+    assert.equal(view.current_task_id, null);
+    assert.equal(view.tasks.find(x => x.task_id === child.task_id).return_result.status, 'focus-conflict');
+    assert.ok(view.issues.some(i => i.code === 'RECORD_CONFLICT' && i.field === 'project:focus'));
+  });
+  await t.test('concurrent parent execution', t => {
+    const { root, parent, child } = derivedFixture(t);
+    task(root, { action: 'focus', task_id: child.task_id });
+    const heads = taskStatus(root).heads;
+    const closed = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied, parents: heads });
+    const original = bytes(root, closed.ref);
+    task(root, { action: 'execution', task_id: parent.task_id, result: 'concurrent work', parents: heads });
+    const view = taskStatus(root);
+    assert.equal(view.current_task_id, null);
+    assert.equal(view.tasks.find(x => x.task_id === child.task_id).return_result.status, 'concurrent-parent-change');
+    assert.ok(view.issues.some(i => i.code === 'RETURN_PARENT_CONFLICT'));
+    assert.deepEqual(bytes(root, closed.ref), original);
+    task(root, { action: 'focus', task_id: parent.task_id, return_from: child.task_id });
+    const selected = taskStatus(root);
+    assert.equal(selected.current_task_id, parent.task_id); assert.equal(selected.current_task.continuation.status, 'work-changed');
+    assert.equal(selected.issues.some(i => i.code === 'RETURN_PARENT_CONFLICT'), false);
+  });
+  await t.test('concurrent historical observation', t => {
+    const { root, parent, child, run } = derivedFixture(t);
+    task(root, { action: 'focus', task_id: child.task_id });
+    const heads = taskStatus(root).heads;
+    task(root, { action: 'close', task_id: child.task_id, dependency: satisfied, parents: heads });
+    const historical = task(root, { action: 'execution', task_id: parent.task_id, historical: true,
+      result: 'old failed attempt', parents: heads });
+    const view = taskStatus(root);
+    assert.equal(view.current_task_id, parent.task_id); assert.equal(view.current_task.continuation.status, 'ready');
+    assert.equal(view.current_task.steps[1].execution_ref, run.ref);
+    assert.ok(view.current_task.steps[1].historical_execution_refs.includes(historical.ref));
+    assert.equal(view.issues.some(i => i.code === 'RETURN_PARENT_CONFLICT'), false);
+  });
+});
+
+test('concurrent child lifecycle or prerequisite outcomes suppress return until an explicit choice resolves them', async t => {
+  for (const action of ['resume', 'pause', 'dependency']) await t.test(action, t => {
+    const { root, parent, child, before } = derivedFixture(t);
+    task(root, { action: 'focus', task_id: child.task_id });
+    const heads = taskStatus(root).heads;
+    const closed = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied, parents: heads });
+    const original = bytes(root, closed.ref);
+    const alternative = task(root, { action, task_id: child.task_id, focus: false, parents: heads,
+      ...(action === 'dependency' ? { dependency: { state: 'unresolved', summary: 'The prerequisite remains broken' } } : {}) });
+    const view = taskStatus(root);
+    assert.equal(view.current_task_id, null);
+    assert.ok(view.issues.some(i => i.code === 'RETURN_CHILD_CONFLICT'));
+    assert.deepEqual(view.tasks.find(x => x.task_id === parent.task_id).steps, before.steps);
+    assert.deepEqual(bytes(root, closed.ref), original);
+    task(root, { action: 'focus', task_id: parent.task_id, return_from: child.task_id });
+    const manuallySelected = taskStatus(root);
+    assert.equal(manuallySelected.current_task_id, parent.task_id);
+    assert.notEqual(manuallySelected.current_task.continuation.status, 'ready');
+    assert.notEqual(manuallySelected.next_action, 'continue-step');
+    assert.equal(manuallySelected.issues.some(i => i.code === 'RETURN_CHILD_CONFLICT'), false);
+    assert.ok(manuallySelected.issues.some(i => i.code === 'RECORD_CONFLICT'));
+    assert.equal(JSON.parse(bytes(root, alternative.ref)).payload.request.action, action);
+  });
+});
+
+test('ordered child changes after a completed return preserve its focus and immutable return fact', t => {
+  const { root, parent, child } = derivedFixture(t);
+  task(root, { action: 'focus', task_id: child.task_id });
+  const closed = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied });
+  const original = bytes(root, closed.ref);
+  task(root, { action: 'resume', task_id: child.task_id, focus: false });
+  const resumed = taskStatus(root);
+  assert.equal(resumed.current_task_id, parent.task_id); assert.equal(resumed.current_task.continuation.status, 'ready');
+  assert.equal(resumed.tasks.find(x => x.task_id === child.task_id).lifecycle, 'active');
+  assert.equal(resumed.issues.some(i => i.code === 'RETURN_CHILD_CONFLICT'), false);
+  task(root, { action: 'dependency', task_id: child.task_id, dependency: { state: 'unresolved', summary: 'Later regression' } });
+  const reopened = taskStatus(root);
+  assert.equal(reopened.current_task_id, parent.task_id); assert.equal(reopened.current_task.continuation.status, 'dependency-unresolved');
+  assert.deepEqual(bytes(root, closed.ref), original);
+});
+
+test('selecting a closed fulfilled child alternative restores its return without new execution or focus facts', t => {
+  const { root, parent, child, before } = derivedFixture(t);
+  task(root, { action: 'focus', task_id: child.task_id });
+  const heads = taskStatus(root).heads;
+  const closed = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied, parents: heads });
+  const original = bytes(root, closed.ref);
+  task(root, { action: 'resume', task_id: child.task_id, focus: false, parents: heads });
+  const conflicted = taskStatus(root);
+  assert.equal(conflicted.current_task_id, null);
+  const conflict = conflicted.issues.find(i => i.code === 'RECORD_CONFLICT' && i.field === `${child.task_id}:lifecycle`);
+  assert.ok(conflict);
+  const count = fs.readdirSync(path.join(root, '.workflow-system/records/events')).length;
+  task(root, { action: 'resolve', conflict_id: conflict.id, selected_ref: closed.ref, decision_text: 'Select the completed close and its return' });
+  const selected = taskStatus(root);
+  assert.equal(selected.current_task_id, parent.task_id); assert.equal(selected.current_task.continuation.status, 'ready');
+  assert.deepEqual(selected.current_task.steps, before.steps);
+  assert.equal(selected.issues.some(i => i.code === 'RETURN_CHILD_CONFLICT'), false);
+  assert.equal(fs.readdirSync(path.join(root, '.workflow-system/records/events')).length, count + 1);
+  assert.deepEqual(bytes(root, closed.ref), original);
+});
+
+test('concurrent agreeing child closures retain their common fulfilled return rather than inventing a conflict', t => {
+  const { root, parent, child } = derivedFixture(t);
+  task(root, { action: 'focus', task_id: child.task_id });
+  const heads = taskStatus(root).heads;
+  const first = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied, parents: heads });
+  const original = bytes(root, first.ref);
+  const second = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied, parents: heads });
+  const view = taskStatus(root);
+  assert.equal(view.current_task_id, parent.task_id); assert.equal(view.current_task.continuation.status, 'ready');
+  assert.equal(view.issues.some(i => i.code === 'RETURN_CHILD_CONFLICT'), false);
+  assert.equal(view.health, 'consistent'); assert.equal(second.association, 'applied');
+  assert.equal(second.return_result.status, 'returned'); assert.equal(second.return_result.ref, view.focus.ref);
+  assert.equal(view.current_task.dependencies[0].return_result.status, 'returned');
+  assert.equal(queryStatus(root, { task_ref: child.task_id }).tasks[0].return_result.status, 'returned');
+  const count = fs.readdirSync(path.join(root, '.workflow-system/records/events')).length;
+  task(root, { action: 'rebuild' });
+  assert.equal(taskStatus(root).health, 'consistent');
+  assert.equal(fs.readdirSync(path.join(root, '.workflow-system/records/events')).length, count);
+  assert.deepEqual(bytes(root, first.ref), original);
+});
+
+test('concurrent agreeing outcomes after close expose the actual return without a second result conflict', t => {
+  const { root, parent, child } = derivedFixture(t);
+  task(root, { action: 'focus', task_id: child.task_id });
+  task(root, { action: 'close', task_id: child.task_id });
+  const heads = taskStatus(root).heads;
+  const first = task(root, { action: 'dependency', task_id: child.task_id, dependency: satisfied, parents: heads });
+  const original = bytes(root, first.ref);
+  const second = task(root, { action: 'dependency', task_id: child.task_id, dependency: satisfied, parents: heads });
+  const view = taskStatus(root);
+  assert.equal(view.current_task_id, parent.task_id); assert.equal(view.current_task.continuation.status, 'ready');
+  assert.equal(view.health, 'consistent'); assert.equal(second.association, 'applied');
+  assert.equal(second.return_result.status, 'returned'); assert.equal(second.return_result.ref, view.focus.ref);
+  const later = task(root, { action: 'dependency', task_id: child.task_id,
+    dependency: { state: 'unresolved', summary: 'Ordered later regression' } });
+  assert.equal(later.current_task_id, parent.task_id); assert.equal(later.return_result.status, 'dependency-unresolved');
+  assert.equal(later.return_result.ref, later.ref);
+  assert.equal(taskStatus(root).current_task.continuation.status, 'dependency-unresolved');
+  assert.deepEqual(bytes(root, first.ref), original);
+});
+
+test('resolving a prerequisite alternative derives its return without a second result selection', async t => {
+  for (const state of ['satisfied', 'unresolved']) await t.test(state, t => {
+    const { root, parent, child, before } = derivedFixture(t);
+    task(root, { action: 'focus', task_id: child.task_id });
+    const heads = taskStatus(root).heads;
+    const closed = task(root, { action: 'close', task_id: child.task_id, dependency: satisfied, parents: heads });
+    const alternative = task(root, { action: 'dependency', task_id: child.task_id,
+      dependency: { state: 'unresolved', summary: 'Prerequisite remains broken' }, parents: heads });
+    const original = bytes(root, closed.ref), alternativeBytes = bytes(root, alternative.ref);
+    const conflicted = taskStatus(root);
+    assert.equal(conflicted.current_task_id, null);
+    const conflicts = conflicted.issues.filter(i => i.code === 'RECORD_CONFLICT');
+    assert.deepEqual(conflicts.map(i => i.field), [`${child.task_id}:dependency`]);
+    const count = fs.readdirSync(path.join(root, '.workflow-system/records/events')).length;
+    const selectedRef = state === 'satisfied' ? closed.ref : alternative.ref;
+    task(root, { action: 'resolve', conflict_id: conflicts[0].id, selected_ref: selectedRef,
+      decision_text: `Select the actual ${state} prerequisite result` });
+    const selected = taskStatus(root), selectedChild = selected.tasks.find(x => x.task_id === child.task_id);
+    assert.equal(selected.health, 'consistent'); assert.equal(selectedChild.dependency.state, state);
+    assert.equal(selectedChild.return_result.ref, selectedRef);
+    assert.equal(selectedChild.return_result.status, state === 'satisfied' ? 'returned' : 'dependency-unresolved');
+    if (state === 'satisfied') {
+      assert.equal(selected.current_task_id, parent.task_id); assert.equal(selected.current_task.continuation.status, 'ready');
+      assert.deepEqual(selected.current_task.steps, before.steps);
+      assert.equal(selected.current_task.dependencies[0].return_result.status, 'returned');
+      assert.equal(queryContext(root).management.next_action, 'continue-step');
+    } else {
+      assert.equal(selected.current_task_id, null); assert.equal(selected.next_action, null);
+    }
+    assert.equal(queryStatus(root, { task_ref: child.task_id }).tasks[0].return_result.status, selectedChild.return_result.status);
+    task(root, { action: 'rebuild' });
+    assert.equal(taskStatus(root).health, 'consistent');
+    assert.equal(fs.readdirSync(path.join(root, '.workflow-system/records/events')).length, count + 1);
+    assert.deepEqual(bytes(root, closed.ref), original); assert.deepEqual(bytes(root, alternative.ref), alternativeBytes);
+  });
+});
+
+test('old-plan dependencies do not block derivation or return at a revised plan with the same step ID', async t => {
+  for (const association of ['prepare', 'link']) await t.test(association, t => {
+    const { root, parent, child } = derivedFixture(t);
+    const oldOrigin = structuredClone(child.task.origin), original = bytes(root, child.ref);
+    const revision = task(root, { action: 'prepare', task_id: parent.task_id, plan: plan('A different adopted goal') });
+    task(root, { action: 'adopt', task_id: parent.task_id, plan_ref: revision.ref, focus: true });
+    task(root, { action: 'step', state: 'finished' });
+    const before = taskStatus(root).current_task;
+    assert.equal(before.current_step_id, oldOrigin.parent_step_id);
+    assert.deepEqual(before.waiting_on_task_ids, []);
+    const origin = { parent_task_id: parent.task_id, parent_plan_ref: revision.ref, parent_step_id: 'S2', return_policy: 'auto' };
+    const next = task(root, { action: 'prepare', plan: plan('New plan prerequisite'),
+      ...(association === 'prepare' ? { origin } : {}) });
+    assert.equal(next.association, 'applied');
+    if (association === 'link') {
+      const linked = task(root, { action: 'link', record_ref: next.ref,
+        event: { action: 'prepare', task_id: next.task_id, data: { origin } } });
+      assert.equal(linked.association, 'applied');
+    }
+    task(root, { action: 'adopt', task_id: next.task_id, plan_ref: next.ref, focus: true });
+    const closed = task(root, { action: 'close', task_id: next.task_id, dependency: satisfied });
+    const view = taskStatus(root);
+    assert.equal(closed.return_result.status, 'returned'); assert.equal(closed.next_task_id, parent.task_id);
+    assert.equal(view.current_task.continuation.status, 'ready'); assert.deepEqual(view.current_task.steps, before.steps);
+    assert.equal(view.health, 'consistent'); assert.deepEqual(view.current_task.waiting_on_task_ids, []);
+    const retained = view.tasks.find(x => x.task_id === child.task_id);
+    assert.deepEqual(retained.origin, oldOrigin); assert.equal(retained.dependency.state, 'unresolved');
+    assert.deepEqual(bytes(root, child.ref), original);
+  });
+});
+
+test('nullable retained steps support derivation and task-link recovery without making the live view unavailable', t => {
+  const root = fixture(t);
+  task(root, { action: 'close', task_ref: '004' });
+  const parent = task(root, { action: 'prepare', plan: { title: 'Retained incomplete parent plan', steps: [null] } });
+  task(root, { action: 'adopt', task_id: parent.task_id, plan_ref: parent.ref });
+  const parentBytes = bytes(root, parent.ref);
+  const child = task(root, { action: 'prepare', plan: plan('Known child') });
+  const childBytes = bytes(root, child.ref);
+  const linked = task(root, { action: 'link', record_ref: child.ref, event: { action: 'prepare', task_id: child.task_id,
+    data: { origin: { parent_task_id: parent.task_id, parent_plan_ref: parent.ref, parent_step_id: 'S1', return_policy: 'auto' } } } });
+  assert.equal(linked.association, 'applied'); assert.equal(linked.projection.status, 'updated');
+  assert.equal(taskStatus(root).current_task_id, parent.task_id); assert.equal(context(root, {}).management.current_task.current_step_id, 'S1');
+  assert.equal(queryStatus(root).status, 'available');
+  const corrected = task(root, { action: 'correct', record_ref: child.ref, event: { data: { origin: null } } });
+  assert.equal(corrected.association, 'applied');
+  assert.equal(taskStatus(root).tasks.find(x => x.task_id === child.task_id).origin, null);
+  assert.deepEqual(bytes(root, parent.ref), parentBytes); assert.deepEqual(bytes(root, child.ref), childBytes);
+  const derived = task(root, { action: 'prepare', plan: plan('New child from retained step'), origin: { parent_task_id: parent.task_id } });
+  assert.equal(derived.association, 'applied'); assert.equal(derived.task.origin.parent_step_id, 'S1');
 });

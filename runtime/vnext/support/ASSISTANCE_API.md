@@ -38,6 +38,13 @@ PASS or independent review. A user's review disposition does not edit the review
 
 ## Task queries: full computation, on-demand presentation
 
+Derived prerequisite tasks use explicit origin, entry checkpoint, dependency outcome and
+return policy; full action shapes are in TASK_MANAGEMENT_API.md. Reads and task operations
+expose actual `next_task_id`/`next_step_id` alongside route/mode/action. These describe the
+current focus, which can differ from the affected or explicitly selected task. Summaries
+retain origin, dependency/return state and continuation; closure never implies fulfillment
+or automatic parent-step finish. Focus restoration performs no business commands.
+
 The CLI defaults for `task-status`, `context` and `task {"action":"status"}` are
 now compact. All still rebuild from the entire journal before selecting output;
 this is not an incremental cache, truncated search or change to state semantics.
