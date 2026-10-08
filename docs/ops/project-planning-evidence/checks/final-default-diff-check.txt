@@ -1,0 +1,11 @@
+docs/ops/project-planning-evidence/checks/build-runtime-final.log:20: new blank line at EOF.
+docs/ops/project-planning-evidence/checks/build-runtime.log:20: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/ASSESSMENTS.md:37: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-EXPORT.md:31: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-IMPORT.md:55: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-LEGACY.md:21: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PROJECT.md:37: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/REQUIREMENTS.md:78: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/ASSESSMENTS.md:37: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/PROJECT.md:37: new blank line at EOF.
+runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/REQUIREMENTS.md:78: new blank line at EOF.
