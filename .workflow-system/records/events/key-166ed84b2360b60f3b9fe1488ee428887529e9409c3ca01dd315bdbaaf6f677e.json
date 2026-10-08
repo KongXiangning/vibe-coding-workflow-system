@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T19:19:51.725Z",
+  "payload_sha256": "d0857bb2d4996d93fb67f15b5242aeeba6fd97618eed27160d1a4f6409622a34",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:generation-finish-G2",
+    "request": {
+      "task_ref": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+      "action": "step",
+      "step_id": "G2",
+      "state": "finished",
+      "idempotency_key": "generation-finish-G2",
+      "summary": "Authorized scoped implementation and applicable review completed",
+      "gaps": [
+        "Documented unchanged aggregate failures retained",
+        "No Windows real-host or real-project deployment verification"
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-52c0435c8295f9922c430fbab1fe5239b4dde55e9c8f1f93f1cad8f6e4ad1e68.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+        "step_id": "G2",
+        "state": "finished",
+        "summary": "Authorized scoped implementation and applicable review completed",
+        "gaps": [
+          "Documented unchanged aggregate failures retained",
+          "No Windows real-host or real-project deployment verification"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

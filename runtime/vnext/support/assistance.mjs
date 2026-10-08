@@ -6,7 +6,8 @@ import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { taskCommand, taskStatus as buildTaskStatus, synchronizeTasks } from './task-management.mjs';
+import { taskCommand, taskStatus as buildTaskStatus, synchronizeTasks, readTaskDisplay } from './task-management.mjs';
+import { decodeObservation, MAX_LOGICAL_TASK_EVENT_BYTES } from './task-event-codec.mjs';
 import { storeRead, storeReadFile, storeStat, storeExists, storeList, storeReserve, storePublishFile, archiveCommand, archiveInventory } from './record-storage.mjs';
 
 export const COMMANDS = ['context', 'record', 'snapshot', 'read', 'find', 'task', 'task-status', 'git-checkpoint', 'archive'];
@@ -85,26 +86,47 @@ function evidenceObjectPaths(digest, home) {
   if (!/^[a-f0-9]{64}$/.test(digest ?? '')) throw failure('INVALID_DIGEST', 'A SHA-256 object reference must have 64 lowercase hexadecimal characters.');
   return [`${STORE}/evidence-objects/${digest}.blob`, `${home}/evidence-objects/${digest}.blob`];
 }
+function verifyExistingBytes(root, ref, digest, declaredSize) {
+  const metadata = storeStat(root, ref);
+  if (metadata.sha256 !== digest) throw failure('OBJECT_CORRUPT', `Preserved object differs: ${ref}`);
+  if (declaredSize !== undefined && (!Number.isSafeInteger(declaredSize) || declaredSize < 0 || declaredSize !== metadata.size))
+    throw failure('REFERENCE_SIZE_MISMATCH', `Declared evidence size differs: ${ref}`);
+  // Reuse asserts the complete preserved body exists; a zero-byte metadata probe
+  // cannot establish this for a compressed archive.
+  if (metadata.storage === 'archive') {
+    const hash = createHash('sha256'), pageBytes = 16 * 1024 * 1024;
+    if (metadata.size === 0) storeReadFile(root, ref);
+    for (let offset = 0; offset < metadata.size; offset += pageBytes)
+      hash.update(storeRead(root, ref, { offset, length: Math.min(pageBytes, metadata.size - offset), expectedSha256: digest }).bytes);
+    if (hash.digest('hex') !== digest) throw failure('OBJECT_CORRUPT', `Preserved object differs: ${ref}`);
+  }
+  return metadata;
+}
 function preserved(root, digest, home) {
   for (const candidate of evidenceObjectPaths(digest, home)) {
-    let metadata;
-    try { metadata = storeStat(root, candidate); }
-    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
-    if (metadata.sha256 !== digest) throw failure('OBJECT_CORRUPT', `Preserved object differs: ${candidate}`);
-    // Snapshot reuse asserts availability of the entire evidence object, unlike
-    // a paged read. Verify every archived chunk and the reconstructed full hash.
-    if (metadata.storage === 'archive') {
-      const hash = createHash('sha256'), pageBytes = 16 * 1024 * 1024;
-      if (metadata.size === 0) storeReadFile(root, candidate); // Validate the encoded empty chunk too.
-      for (let offset = 0; offset < metadata.size; offset += pageBytes) {
-        const page = storeRead(root, candidate, { offset, length: Math.min(pageBytes, metadata.size - offset), expectedSha256: digest });
-        hash.update(page.bytes);
-      }
-      if (hash.digest('hex') !== digest) throw failure('OBJECT_CORRUPT', `Preserved object differs: ${candidate}`);
-    }
-    return candidate;
+    try { verifyExistingBytes(root, candidate, digest); return candidate; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   throw failure('HISTORICAL_OBJECT_UNAVAILABLE', `No preserved object for ${digest}; a digest cannot reconstruct missing bytes.`);
+}
+function fixedEvidenceReference(root, spec, requestedHome) {
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)
+    || Object.keys(spec).some(k => !['ref', 'sha256', 'size', 'label', 'purpose', 'role', 'workflow_home'].includes(k))
+    || !/^[a-f0-9]{64}$/.test(spec.sha256 ?? ''))
+    throw failure('INVALID_EVIDENCE_REFERENCE', 'Use an existing immutable ref with SHA256 (or a known CAS SHA256), optional size/label/purpose/role/workflow_home; live paths belong in files.');
+  const { home, issues } = workflowHome(root, spec.workflow_home ?? requestedHome);
+  let ref;
+  if (spec.ref !== undefined) {
+    ref = logicalRef(root, spec.ref);
+    const fact = /^\.workflow-system\/records\/(?:events\/[^/]+\.json|attachments\/[^/]+\.json|legacy\/current-[a-f0-9]{64}\.md)$/.test(ref);
+    const objectDigest = /(?:^|\/)evidence-objects\/([a-f0-9]{64})\.blob$/.exec(ref)?.[1];
+    if (!fact && objectDigest !== spec.sha256)
+      throw failure('MUTABLE_EVIDENCE_REFERENCE', 'A live document path is not a fixed historical identity; snapshot it first, then reuse its returned ref and SHA256.');
+  } else ref = preserved(root, spec.sha256, home);
+  const meta = verifyExistingBytes(root, ref, spec.sha256, spec.size);
+  return { status: 'referenced', kind: 'fixed-evidence-reference/v1', ref, sha256: spec.sha256, size: meta.size,
+    request: spec, storage: meta.storage, live_source_read: false, verification: 'whole-file',
+    current_applicability: 'not-evaluated', issues };
 }
 export function snapshot(root, input) {
   const { home, issues } = workflowHome(root, input.workflow_home);
@@ -164,6 +186,14 @@ function recordObservation(root, input) {
         try { attachments.push(snapshot(root, typeof spec === 'string' ? { path: spec, workflow_home: payload.workflow_home } : { workflow_home: payload.workflow_home, ...spec })); }
         catch (error) { attachments.push({ status: 'unavailable', request: spec, ...issue(error) }); }
       }
+      if (payload.evidence_refs !== undefined) {
+        if (!Array.isArray(payload.evidence_refs)) attachments.push({ status: 'unavailable', request: payload.evidence_refs,
+          code: 'INVALID_EVIDENCE_REFERENCES', message: 'evidence_refs must be an array; the original request was retained.' });
+        else for (const spec of payload.evidence_refs) {
+          try { attachments.push(fixedEvidenceReference(root, spec, payload.workflow_home)); }
+          catch (error) { attachments.push({ status: 'unavailable', request: spec, ...issue(error) }); }
+        }
+      }
       let attachmentsRef = null;
       if (attachments.length) {
         attachmentsRef = `${STORE}/attachments/${id}.json`;
@@ -173,13 +203,21 @@ function recordObservation(root, input) {
       return { ...base(), status: 'recorded', recorded: true, ref, sha256: sha(json(event)),
         attachments_ref: attachmentsRef, attachments, issues };
     }
-    let previous;
-    try { previous = JSON.parse(storeReadFile(root, ref).toString('utf8')); }
+    let previous, validWire = false, sameRequest = false;
+    try {
+      previous = JSON.parse(storeReadFile(root, ref).toString('utf8'));
+      validWire = sha(JSON.stringify(stable(previous.payload))) === previous.payload_sha256;
+      if (!validWire) throw failure('EVENT_DIGEST_MISMATCH', 'Observation wire payload digest does not match.');
+      if (previous.payload_sha256 !== payloadDigest && payload.kind === 'task-event' && previous.payload?.kind === 'task-event'
+        && payload.request && previous.payload.request
+        && JSON.stringify(stable(payload.request)) === JSON.stringify(stable(previous.payload.request))) {
+        decodeObservation(previous);
+        decodeObservation({ payload, payload_sha256: payloadDigest });
+        sameRequest = true;
+      }
+    }
     catch (error) { issues.push({ ...issue(error), unreadable_ref: ref }); }
-    const sameRequest = payload.kind === 'task-event' && previous?.payload?.kind === 'task-event'
-      && payload.request && previous.payload.request
-      && JSON.stringify(stable(payload.request)) === JSON.stringify(stable(previous.payload.request));
-    if (previous && sha(JSON.stringify(stable(previous.payload))) === previous.payload_sha256
+    if (validWire
       && (previous.payload_sha256 === payloadDigest || sameRequest)) {
       const a = `${STORE}/attachments/${id}.json`;
       return { ...base(), status: 'already-recorded', recorded: true, ref,
@@ -211,7 +249,11 @@ export function record(root, input) {
   const saved = recordObservation(root, input);
   try {
     const projection = synchronizeTasks(root, input && typeof input === 'object' ? input : {}, taskIO());
-    return { ...saved, management: { ...projection, view: undefined },
+    const recordIssues = projection.view?.issues.filter(i => i.ref === saved.ref
+      && (i.code?.startsWith('TASK_EVENT_') || ['RECORD_UNREADABLE', 'EVENT_VERSION_UNSUPPORTED'].includes(i.code))) ?? [];
+    const diagnostics = recordIssues.length ? { association: 'unresolved',
+      issues: [...new Map([...(projection.issues ?? []), ...recordIssues].map(i => [JSON.stringify(stable(i)), i])).values()] } : {};
+    return { ...saved, management: { ...projection, view: undefined, ...diagnostics },
       current_task_id: projection.view?.current_task_id ?? null };
   } catch (error) {
     return { ...saved, management: { status: 'failed', ...issue(error), recovery_options: ['rebuild', 'defer'] } };
@@ -219,6 +261,21 @@ export function record(root, input) {
 }
 export function read(root, input) {
   const { home, issues } = workflowHome(root, input.workflow_home);
+  if (input.format === 'logical-task-event') {
+    if (input.sha256 || (input.offset !== undefined && input.offset !== 0))
+      throw failure('TASK_EVENT_READ_OPTIONS', 'A logical task-event read needs one event ref and has no byte offset or evidence-object digest selector.');
+    const ref = logicalRef(root, input.path ?? input.ref), bytes = storeReadFile(root, ref);
+    const event = JSON.parse(bytes.toString('utf8')), decoded = decodeObservation(event);
+    if (decoded.payload.kind !== 'task-event' || decoded.payload.task_event?.version !== 1)
+      throw failure('TASK_EVENT_READ_KIND', 'The selected observation is not a supported task event; use the raw paged read.');
+    const logicalBytes = Buffer.byteLength(JSON.stringify(decoded.payload));
+    const limit = clamp(input.max_bytes, MAX_LOGICAL_TASK_EVENT_BYTES, MAX_LOGICAL_TASK_EVENT_BYTES);
+    if (logicalBytes > limit)
+      throw failure('TASK_EVENT_EXPANSION_LIMIT', `Logical task payload exceeds the requested ${limit}-byte limit; use the raw paged read.`);
+    return { ...base(), status: 'read', format: 'logical-task-event', ref, wire_size: bytes.length,
+      wire_sha256: sha(bytes), logical_payload_bytes: logicalBytes, ...decoded, issues,
+      note: 'Payload is the complete logical v1 task event. Wire hashes describe the unchanged stored event; logical_payload_sha256 describes the reconstructed payload. Default read returns original bytes.' };
+  }
   let ref = input.path ?? input.ref, result;
   const offset = Number.isSafeInteger(input.offset) && input.offset >= 0 ? input.offset : 0;
   const options = { offset, length: clamp(input.max_bytes, 8192, 65536), expectedSha256: input.sha256 };
@@ -237,7 +294,7 @@ export function read(root, input) {
   }
   result ??= storeRead(root, logicalRef(root, ref), options);
   const page = result.bytes;
-  return { ...base(), status: 'read', ref, sha256: input.sha256 ?? null, size: result.size, offset,
+  return { ...base(), status: 'read', ref, sha256: input.sha256 ?? null, actual_sha256: result.sha256, size: result.size, offset,
     next_offset: offset + page.length < result.size ? offset + page.length : null,
     encoding: 'base64', data: page.toString('base64'), text_preview: page.toString('utf8'),
     storage: result.storage, verification: result.verification, read_metrics: result.metrics,
@@ -400,7 +457,7 @@ function presentStatus(view, input, options) {
   const counts = {};
   for (const task of view.tasks) counts[task.lifecycle] = (counts[task.lifecycle] ?? 0) + 1;
   const output = { ...base(), kind: 'task-query/v1', detail: options.detail, status: view.status,
-    source_revision: view.source_revision, view_revision: view.view_revision, workflow_home: view.workflow_home,
+    source_revision: view.source_revision, view_revision: view.view_revision, display_revision: view.display_revision, workflow_home: view.workflow_home,
     current_task_id: view.current_task_id,
     focus: view.focus, next_task_id: view.next_task_id, next_step_id: view.next_step_id,
     next_route: view.next_route, next_mode: view.next_mode, next_action: view.next_action,
@@ -560,6 +617,17 @@ function checkpointObjectPath(root, ref) {
   const home = path.posix.dirname(directory);
   return evidenceObjectPaths(digest, home).map(p => checkpointPath(root, p)).includes(target) ? target : null;
 }
+function checkpointVisitReferences(value, visit) {
+  if (Array.isArray(value)) { for (const child of value) checkpointVisitReferences(child, visit); }
+  else if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'ref' || key.endsWith('_ref') || ['parents', 'execution_refs'].includes(key))
+        for (const ref of Array.isArray(child) ? child : [child]) if (typeof ref === 'string') visit(ref, key === 'ref' ? value : null);
+      checkpointVisitReferences(child, visit);
+    }
+  }
+}
+const checkpointFixedRecord = ref => /^\.workflow-system\/records\/(?:events\/[^/]+\.json|attachments\/[^/]+\.json|legacy\/current-[a-f0-9]{64}\.md)$/.test(ref);
 function checkpointInventory(root, display, business = []) {
   const files = new Map(), issues = [], pending = [STORE];
   while (pending.length) {
@@ -578,7 +646,7 @@ function checkpointInventory(root, display, business = []) {
   const archived = new Map(archives.records.map(record => [record.ref, record]));
   const logicalFiles = new Map(files);
   for (const ref of archived.keys()) logicalFiles.set(ref, checkpointRole(ref, display));
-  // Follow typed attachment refs, not arbitrary text or a scan of the old workflow home.
+  // Follow verified typed refs, not arbitrary report text or a scan of the old workflow home.
   const objects = new Set(), referenceIssues = [];
   function includeObject(ref, from) {
     try {
@@ -592,11 +660,19 @@ function checkpointInventory(root, display, business = []) {
     } catch (error) { if (error.code !== 'ENOENT') referenceIssues.push({ ...issue(error), from, path: ref }); }
   }
   for (const [ref, role] of logicalFiles) {
-    if (role !== 'fact' || !ref.startsWith(`${STORE}/attachments/`)) continue;
+    if (role !== 'fact' || !ref.endsWith('.json')) continue;
     try {
       const value = JSON.parse(storeReadFile(root, ref).toString('utf8'));
-      for (const attachment of Array.isArray(value.attachments) ? value.attachments : [])
-        if (attachment.status !== 'unavailable' && attachment.ref) includeObject(attachment.ref, ref);
+      if (ref.startsWith(`${STORE}/attachments/`)) {
+        for (const attachment of Array.isArray(value.attachments) ? value.attachments : [])
+          if (attachment.status !== 'unavailable' && attachment.ref
+            && !(attachment.kind === 'fixed-evidence-reference/v1' && checkpointFixedRecord(attachment.ref))) includeObject(attachment.ref, ref);
+      } else if (ref.startsWith(`${STORE}/events/`)) {
+        const decoded = decodeObservation(value);
+        checkpointVisitReferences(decoded.payload.kind === 'task-event' ? decoded.payload.task_event?.data : null, target => {
+          if (/(?:^|\/)evidence-objects\/[a-f0-9]{64}\.blob$/.test(target)) includeObject(target, ref);
+        });
+      }
     } catch { /* The reference check reports unreadable manifests without discarding their bytes. */ }
   }
   for (const ref of business) if (checkpointObjectPath(root, ref)) includeObject(ref, null);
@@ -659,15 +735,21 @@ function checkpointPolicy(root, home, generatedDisplay, evidenceObjects = []) {
   return { edits, paths, issues };
 }
 function checkpointReferences(root, inventory, selected, read = ref => storeReadFile(root, ref)) {
-  const issues = [...inventory.reference_issues], check = (ref, from, attachment = false) => {
-    if (typeof ref !== 'string' || (!attachment && !ref.startsWith(`${STORE}/`))) return;
+  const issues = [...inventory.reference_issues], check = (ref, from, attachment = false, taskData = false, fixed = false) => {
+    if (typeof ref !== 'string') return;
+    if (!attachment && !ref.startsWith(`${STORE}/`)
+      && !(taskData && /(?:^|\/)evidence-objects\/[a-f0-9]{64}\.blob$/.test(ref))) return;
     try {
+      const object = checkpointObjectPath(root, ref);
+      if (!attachment && !ref.startsWith(`${STORE}/`) && !object) return;
       const target = checkpointPath(root, ref);
-      if (attachment && !checkpointObjectPath(root, target)) {
+      if (attachment && !object && !(fixed && checkpointFixedRecord(target))) {
         issues.push({ code: 'ATTACHMENT_OBJECT_REF_UNSUPPORTED', from, path: target }); return;
       }
       if (!(inventory.logicalFiles ?? inventory.files).has(target)) issues.push({ code: 'REFERENCE_MISSING', from, path: target });
       else if (!selected.has(target)) issues.push({ code: 'REFERENCE_NOT_SELECTED', from, path: target });
+      if (object && selected.has(target) && selected.get(target)?.sha256 !== /\/([a-f0-9]{64})\.blob$/.exec(target)?.[1])
+        issues.push({ code: 'PRESERVED_DIGEST_MISMATCH', from, path: target });
       return target;
     } catch (error) { issues.push({ ...issue(error), from, path: ref }); }
   };
@@ -683,28 +765,25 @@ function checkpointReferences(root, inventory, selected, read = ref => storeRead
       }
       const value = JSON.parse(read(ref).toString('utf8'));
       if (ref.startsWith(`${STORE}/events/`)) {
-        if (!value.payload || sha(JSON.stringify(stable(value.payload))) !== value.payload_sha256)
-          issues.push({ code: 'EVENT_DIGEST_MISMATCH', path: ref });
-        const visit = value => {
-          if (Array.isArray(value)) { for (const v of value) visit(v); }
-          else if (value && typeof value === 'object') {
-            for (const [k, v] of Object.entries(value)) {
-              if (k === 'ref' || k.endsWith('_ref') || ['parents', 'execution_refs'].includes(k)) {
-                for (const item of Array.isArray(v) ? v : [v]) check(item, ref);
-              }
-              visit(v);
-            }
-          }
-        };
-        visit(value.payload);
-        if (Array.isArray(value.payload?.files) && value.payload.files.length)
+        // The wire digest and codec version must be valid before data pointers are
+        // interpreted. The same check runs against actual index/commit blob bytes.
+        const { payload } = decodeObservation(value);
+        checkpointVisitReferences(payload, target => check(target, ref));
+        checkpointVisitReferences(payload.kind === 'task-event' ? payload.task_event?.data : null, (target, reference) => {
+          const checked = check(target, ref, false, true), object = checked && checkpointObjectPath(root, checked) && selected.get(checked);
+          if (object && reference && ((reference.sha256 !== undefined && reference.sha256 !== object.sha256)
+            || (reference.size !== undefined && reference.size !== object.size)))
+            issues.push({ code: 'REFERENCE_METADATA_MISMATCH', from: ref, path: checked });
+        });
+        if ((Array.isArray(payload?.files) && payload.files.length)
+          || (payload.evidence_refs !== undefined && (!Array.isArray(payload.evidence_refs) || payload.evidence_refs.length)))
           check(`${STORE}/attachments/${path.posix.basename(ref)}`, ref);
       } else if (ref.startsWith(`${STORE}/attachments/`)) {
         check(value.event_ref, ref);
         for (const attachment of Array.isArray(value.attachments) ? value.attachments : []) {
           if (attachment.status === 'unavailable') issues.push({ code: 'RETAINED_ATTACHMENT_UNAVAILABLE', path: ref, request: attachment.request });
           else {
-            const target = check(attachment.ref, ref, true);
+            const target = check(attachment.ref, ref, true, false, attachment.kind === 'fixed-evidence-reference/v1');
             if (!attachment.ref) issues.push({ code: 'ATTACHMENT_REF_MISSING', path: ref });
             const object = selected.get(target);
             const digest = typeof target === 'string' ? /\/([a-f0-9]{64})\.blob$/.exec(target)?.[1] : null;
@@ -718,7 +797,7 @@ function checkpointReferences(root, inventory, selected, read = ref => storeRead
         const original = selected.get(value.ref);
         if (original && value.sha256 !== original.sha256) issues.push({ code: 'BASELINE_DIGEST_MISMATCH', path: ref });
       }
-    } catch (error) { issues.push({ code: 'RETAINED_RECORD_UNREADABLE', path: ref, message: error.message }); }
+    } catch (error) { issues.push({ code: error.code ?? 'RETAINED_RECORD_UNREADABLE', path: ref, message: error.message }); }
   }
   return issues;
 }
@@ -808,11 +887,9 @@ export function gitCheckpoint(root, input = {}) {
   const { home, issues: homeIssues } = workflowHome(root, input.workflow_home), display = `${home}/CURRENT_TASK.md`;
   let generatedDisplay = false, displayHasMarker = false;
   try {
-    const bytes = fs.readFileSync(local(root, display)), text = bytes.toString('utf8');
-    displayHasMarker = text.includes('<!-- vnext-task-view/v1 -->');
-    const revision = /^view_revision: ([a-f0-9]{64})$/m.exec(text)?.[1];
-    generatedDisplay = text.includes('<!-- vnext-task-view/v1 -->') && !!revision
-      && fs.readFileSync(local(root, `${STORE}/task-views/${revision}.md`)).equals(bytes);
+    const published = readTaskDisplay(root, display, { local });
+    displayHasMarker = published.managed;
+    generatedDisplay = published.verified;
   } catch (error) { if (error.code !== 'ENOENT') homeIssues.push({ ...issue(error), path: display }); }
   const inventory = checkpointInventory(root, display, source === 'worktree' ? business : []), before = checkpointTree(root, head), index = checkpointIndex(root);
   const symlinks = checkpointGit(root, ['config', '--bool', 'core.symlinks'], undefined, [0, 1]).stdout.trim() !== 'false';
@@ -1026,12 +1103,11 @@ function verifyCheckpoint(root, input, head, algorithm) {
   for (const ref of [...plan.delete_paths, ...plan.untrack_paths]) if (target.has(ref)) problems.push({ code: 'PLANNED_INDEX_REMOVAL_MISSING', path: ref });
   for (const f of plan.untrack_files ?? []) {
     try {
-      if (checkpointFile(root, normalize(f.path), algorithm).sha256 !== f.sha256) {
+      if (checkpointFile(root, normalize(f.path), algorithm).sha256 !== f.sha256
+        || f.path === `${plan.workflow_home}/CURRENT_TASK.md`) {
         let stillGenerated = false;
         if (f.path === `${plan.workflow_home}/CURRENT_TASK.md`) {
-          const bytes = fs.readFileSync(local(root, f.path)), text = bytes.toString('utf8');
-          const revision = /^view_revision: ([a-f0-9]{64})$/m.exec(text)?.[1];
-          try { stillGenerated = text.includes('<!-- vnext-task-view/v1 -->') && !!revision && fs.readFileSync(local(root, `${STORE}/task-views/${revision}.md`)).equals(bytes); } catch { /* Not a recognized projection. */ }
+          try { stillGenerated = readTaskDisplay(root, f.path, { local }).verified; } catch { /* Not a recognized projection. */ }
         }
         if (!stillGenerated) problems.push({ code: 'UNTRACKED_SOURCE_CHANGED', path: f.path });
       }

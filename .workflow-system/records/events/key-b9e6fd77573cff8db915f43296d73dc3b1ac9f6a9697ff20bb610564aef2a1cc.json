@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T19:19:51.835Z",
+  "payload_sha256": "4be8519ff824b707f706e0a523edf874b1611c2cc36fc456d9ea1e6a6ef9a8d2",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:generation-close-20261008",
+    "request": {
+      "action": "close",
+      "task_ref": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "idempotency_key": "generation-close-20261008",
+      "summary": "Generation-side source implementation and scoped verification complete; local recoverable delivery only",
+      "remaining_work": [
+        "Real-project upgrade/cleanup and remote publication need separate authorization"
+      ],
+      "gaps": [
+        "Aggregate is not all-green; validated unchanged baseline/host failures remain",
+        "Existing unrelated CURRENT_TASK display retained rather than overwritten"
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-b89471bcd00dd32912214b30e081bc252dc3df8d0fa82ffd3868ff60f2d27153.json"
+      ],
+      "data": {
+        "summary": "Generation-side source implementation and scoped verification complete; local recoverable delivery only",
+        "remaining_work": [
+          "Real-project upgrade/cleanup and remote publication need separate authorization"
+        ],
+        "gaps": [
+          "Aggregate is not all-green; validated unchanged baseline/host failures remain",
+          "Existing unrelated CURRENT_TASK display retained rather than overwritten"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

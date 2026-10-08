@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T18:49:01.676Z",
+  "payload_sha256": "0e43d54698774824ddfc8882baf251199c1eb9a7ace9b01770c60cab947cf765",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-generation-20261008",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "record-generation-20261008",
+      "title": "记录生成端三项减量",
+      "plan": {
+        "title": "记录生成端三项减量",
+        "steps": [
+          {
+            "id": "G1",
+            "title": "固定证据引用与新运行捕获边界"
+          },
+          {
+            "id": "G2",
+            "title": "事件内正文复用与语义展示revision"
+          },
+          {
+            "id": "G3",
+            "title": "独立审查、隔离量化与兼容交付"
+          }
+        ],
+        "scope": {
+          "baseline": "4266b895d83907c17a59e0449033db3cc93b3f90",
+          "design": "docs/product/vnext-record-generation.md",
+          "retain": [
+            "distinct runs",
+            "failures",
+            "user decisions",
+            "database before/after"
+          ],
+          "excluded": [
+            "rewrite old records",
+            "real project cleanup",
+            "push",
+            "release"
+          ]
+        }
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-3d824fa4bfe0190b4e66f6a1b5f202070df6291edc5c7af44dd6fffcd6265099.json"
+      ],
+      "data": {
+        "title": "记录生成端三项减量",
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-013"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "c8bbfd75ea9fbedcb03c72b3219d93aa5dc5d8e630e46ff5b0f6eca7b497eb7d",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

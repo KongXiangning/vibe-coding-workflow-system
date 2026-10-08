@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T18:49:01.743Z",
+  "payload_sha256": "4d6b4c162a94e6dac3074e13ae70fd240ebfe1c6f33f900e04bdb0b65a2c7469",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-generation-adopt-20261008",
+    "request": {
+      "action": "adopt",
+      "task_ref": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+      "idempotency_key": "record-generation-adopt-20261008",
+      "focus": false,
+      "decision": "用户明确要求实施固定旧材料引用、事件正文单份及语义展示发布；不同运行和状态仍需保留。"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+        "focus": false,
+        "decision": "用户明确要求实施固定旧材料引用、事件正文单份及语义展示发布；不同运行和状态仍需保留。",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

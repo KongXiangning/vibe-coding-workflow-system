@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T19:19:51.449Z",
+  "payload_sha256": "ddd3ac1c67f8188984f568e67e231a71f06aa52be59975344e162d334ffdb677",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:generation-execution-G3",
+    "request": {
+      "task_ref": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+      "action": "execution",
+      "step_id": "G3",
+      "idempotency_key": "generation-execution-G3",
+      "result": "completed",
+      "summary": "Native189/189, installed5/5, checkpoint47/47, real-sample semantics and independent review complete; aggregate baseline differences explicitly retained",
+      "source_revision": "4266b895 plus frozen reviewed generation-side source",
+      "evidence_ref": "docs/ops/vnext-record-generation-validation.md"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-7b4c784648d1b6828b90d3b435e58b6eeeb1f515c0268ca808ebc607017dfe2c.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+        "step_id": "G3",
+        "result": "completed",
+        "summary": "Native189/189, installed5/5, checkpoint47/47, real-sample semantics and independent review complete; aggregate baseline differences explicitly retained",
+        "source_revision": "4266b895 plus frozen reviewed generation-side source",
+        "evidence_ref": "docs/ops/vnext-record-generation-validation.md"
+      }
+    }
+  },
+  "issues": []
+}

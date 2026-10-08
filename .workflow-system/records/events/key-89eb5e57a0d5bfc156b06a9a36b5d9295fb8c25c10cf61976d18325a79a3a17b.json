@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T19:19:51.560Z",
+  "payload_sha256": "c8909f544251ff8feb58d2e0e76b378a60c9b8f36bc5de109cf36c9ee36dc98f",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:generation-relevant-checks",
+    "request": {
+      "task_ref": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+      "action": "test",
+      "step_id": "G3",
+      "idempotency_key": "generation-relevant-checks",
+      "result": "passed",
+      "command": "Native assistance 189 + installed consumers 5 + checkpoint 47 + independent focused review",
+      "summary": "Exact selected checks passed; scope and logs recorded in validation document"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-33914b9463b25a9e7f0bd6fb3cb555dbda292c25c3ab53811f92bb95066ab4c7.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+        "step_id": "G3",
+        "result": "passed",
+        "command": "Native assistance 189 + installed consumers 5 + checkpoint 47 + independent focused review",
+        "summary": "Exact selected checks passed; scope and logs recorded in validation document"
+      }
+    }
+  },
+  "issues": []
+}

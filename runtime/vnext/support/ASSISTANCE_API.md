@@ -433,3 +433,95 @@ Quarantine alone reduces files in the active record directories but does not sav
 project bytes. Report archive bytes, quarantine bytes and final retained bytes separately.
 Reclaim saves physical duplicate files while preserving every logical fact in the archive;
 it does not erase old Git blobs or promise an equal reduction of `.git` history.
+
+## Generation-side evidence and display reduction
+
+### Fixed material versus this run's capture
+
+`record` and `task` accept `evidence_refs`, an array of immutable `{ref, sha256}`
+identities, or `{sha256}` for an existing content-addressed object. Optional fields are
+`size`, `label`, `purpose`, `role`, and `workflow_home`. `ref` may identify an existing
+record event/attachment, preserved legacy current baseline, or a content-addressed
+`evidence-objects/<sha256>.blob`; a mutable business document path is rejected.
+Obtain the actual identity from a record/snapshot/attachment result, the raw read's
+`actual_sha256`, or a logical task-event read's `wire_sha256`.
+
+The original observation is saved first. Each reference is fully byte-verified and
+associated with this event in its attachment manifest as `status: referenced`,
+`kind: fixed-evidence-reference/v1`, with `live_source_read: false`. No live source
+is recaptured and no new evidence blob is created for that reference. Missing/corrupt,
+wrong-size or invalid references produce explicit unavailable attachment entries;
+they are never silently replaced with live files. A same-request retry reuses the old
+event and manifest rather than creating another run.
+
+`files` retains its existing meaning: capture the complete, explicitly requested current
+bytes. The Runtime never crops a cumulative report, infers that similar runs are redundant,
+or discards different failures, decisions, uncommitted states or database before/after
+results. Use fixed old identities plus this run's necessary `files`; choosing those
+materials is explicit caller/Skill policy, not automatic content inference.
+
+Example record input:
+
+```json
+{"kind":"test-run","idempotency_key":"actual-run-2","body":{"run":"2","result":"failed"},"evidence_refs":[{"ref":".workflow-system/records/evidence-objects/<actual-sha256>.blob","sha256":"<actual-sha256>","role":"fixed-baseline"}],"files":["reports/run-2.txt"]}
+```
+
+### One full report, unchanged logical request
+
+New task-generated events may use `task_event.version: 2` with
+`data_encoding.kind: request-json-pointers`. The complete original request remains
+inside this same event; repeated long data subtrees refer to that request through
+validated event-local JSON pointers and its canonical request SHA256. No extra body
+file or mutable external lookup is introduced. Encoding is used only if the complete
+stored event becomes smaller and self-decoding exactly recovers the logical v1 payload;
+otherwise it retains v1. Arbitrary raw `record` inputs are not rewritten.
+
+The stored `payload_sha256` describes wire bytes' payload, not the hydrated logical
+payload. Readers verify that digest first, then resolve only supported own-property
+pointers. Bad/unknown versions, invalid paths, request mismatch or expansion limits
+are explicit diagnostics; original bytes remain available. Old v1 bytes and IDs are
+not rewritten. Replays compare the complete original request identity, so changed
+heads or focus do not rewrite the first observation.
+
+Default `read` remains original byte paging. For an explicit complete semantic view:
+
+```json
+{"ref":".workflow-system/records/events/<actual-event>.json","format":"logical-task-event"}
+```
+
+It returns the logical v1 `payload`, `wire_size`, `wire_sha256`, `wire_payload_sha256`,
+`logical_payload_sha256`, `request_sha256`, and `encoded`. Default/maximum expansion is
+64MiB and at most 4,096 pointer references; `max_bytes` can further limit the returned
+logical payload. This format accepts no byte offset or evidence-object SHA selector.
+Raw paged reading remains available when a complete logical read is too large.
+The entire report remains searchable in events-only `find`, because it remains in request.
+Older Runtime versions are not consumers of the new task v2 encoding: upgrade readers
+or explicitly export the verified logical view, rather than interpreting the wire template.
+
+### CURRENT_TASK semantic identity
+
+New derived displays use `schema_version: 2`, `kind: vnext-task-view`, a `display_revision`,
+and the v2 marker. Their canonical text contains no volatile fact source/view revisions.
+`task-status`, `context` and the mutable `task-view.json` still carry current fact revisions;
+`display_revision` identifies only the displayed semantic content.
+
+An ordinary fact append that changes source/view revision but not displayed meaning updates
+the cache without creating another task-view snapshot, renaming CURRENT_TASK or producing
+recovery copies. `projection.display: unchanged` describes that write result. Read-only
+status may report display `current` with `display_comparison: semantic-content`; it does
+not claim a retained v1 header contains the newest fact revision. Known v1 baselines remain
+byte-exact until a real displayed change warrants v2 publication.
+
+Current bytes must match an actual readable published baseline before overwrite. Missing
+baselines are not generated to legitimize user content; unknown formats and edits remain
+drift. Real publications keep old-inode capture and late-editor-write protection. Existing
+view snapshots and recovery originals are not deleted, and no per-revision pointer files
+are created. Querying status remains read-only; this is not a new task state or admission.
+
+### Short store-lock contention
+
+A live record-store writer may be awaited for up to two seconds, measured with a monotonic
+clock, before acquiring the original exclusive lock. Only the unacquired lock is retried;
+no business operation or write callback is replayed. Timeout remains `STORE_BUSY`, and dead
+owners still require explicit recovery. This bounded contention improvement does not steal
+locks or change archive reclamation permission.

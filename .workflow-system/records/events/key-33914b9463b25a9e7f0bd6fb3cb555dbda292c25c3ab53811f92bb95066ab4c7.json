@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T19:19:51.505Z",
+  "payload_sha256": "e3246309c34331007afe19e9dc54b0105d143333f1f84fcb01a3f634b65ad6ac",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:generation-review-G3",
+    "request": {
+      "task_ref": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+      "action": "review",
+      "stage": "change",
+      "step_id": "G3",
+      "execution_ref": ".workflow-system/records/events/key-35003ee7c3edab6c48f416380af65a03d8242774082339ba41a99883e0e71095.json",
+      "idempotency_key": "generation-review-G3",
+      "verdict": "pass",
+      "reviewer": "independent source and behavioral review",
+      "summary": "Scoped generation behavior and preservation reviewed. ABA lock deadline issue repaired and independently rechecked; no confirmed blocking finding remains. Not a full-platform or aggregate pass.",
+      "findings": []
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-35003ee7c3edab6c48f416380af65a03d8242774082339ba41a99883e0e71095.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+        "stage": "change",
+        "step_id": "G3",
+        "execution_ref": ".workflow-system/records/events/key-35003ee7c3edab6c48f416380af65a03d8242774082339ba41a99883e0e71095.json",
+        "verdict": "pass",
+        "reviewer": "independent source and behavioral review",
+        "summary": "Scoped generation behavior and preservation reviewed. ABA lock deadline issue repaired and independently rechecked; no confirmed blocking finding remains. Not a full-platform or aggregate pass.",
+        "findings": []
+      }
+    }
+  },
+  "issues": []
+}

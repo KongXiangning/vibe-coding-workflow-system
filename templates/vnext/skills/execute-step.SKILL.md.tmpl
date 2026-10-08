@@ -181,3 +181,26 @@ advice, not permission or the only allowed next action. Do not invoke it solely
 because it was recommended or widen validation or external effects without authorization.
 
 terminal_boundary: public-entry-terminal/v1
+
+## Minimum sufficient new capture
+
+Keep already saved material by its fixed event/object ref and SHA256. For an existing
+material reused in this run, put its immutable identity in `evidence_refs` (with its role
+or purpose), and put only this run's required new output paths in `files`. The service
+verifies referenced bytes and keeps this run's association without reading the old live
+source again. Read the prior attachment manifest or snapshot result to obtain the real
+ref/digest; never invent a digest or use a mutable document pathname as historical identity.
+
+Do not routinely capture another complete task-status output or a growing bundle of all
+past reports. Prefer references to the retained plan/decision/baseline and a report for
+the actual current run. This is a selection convention, not permission to omit an explicitly
+requested full capture. If a cumulative report itself is required evidence, capture its
+complete current bytes; do not silently crop it, synthesize a delta, or relabel an old object.
+
+Different test runs, failures, user decisions and database before/after states remain
+separate observations with their actual provenance, even when content looks similar.
+Changed files, uncommitted intermediate states and new output must not reuse an old
+reference as if it described current bytes. Exact-byte CAS reuse does not merge run identity
+or imply current applicability. A missing or corrupt reference is an explicit evidence gap;
+retain that failure and the original observation rather than automatically capturing a
+new current file under the old identity.

@@ -114,6 +114,7 @@ test('the installed native entry works without kernel/dependencies; concurrent r
   fs.mkdirSync(path.dirname(installed), { recursive: true }); fs.copyFileSync(runtime, installed);
   fs.copyFileSync(path.join(path.dirname(runtime), 'task-management.mjs'), path.join(path.dirname(installed), 'task-management.mjs'));
   fs.copyFileSync(path.join(path.dirname(runtime), 'record-storage.mjs'), path.join(path.dirname(installed), 'record-storage.mjs'));
+  fs.copyFileSync(path.join(path.dirname(runtime), 'task-event-codec.mjs'), path.join(path.dirname(installed), 'task-event-codec.mjs'));
   const call = payload => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [installed, 'record', '--root', root]);
     let stdout = '', stderr = '';
@@ -301,6 +302,7 @@ test('installed CLI defaults to compact queries, supports full compatibility and
   fs.copyFileSync(runtime, installed);
   fs.copyFileSync(path.join(path.dirname(runtime), 'task-management.mjs'), path.join(path.dirname(installed), 'task-management.mjs'));
   fs.copyFileSync(path.join(path.dirname(runtime), 'record-storage.mjs'), path.join(path.dirname(installed), 'record-storage.mjs'));
+  fs.copyFileSync(path.join(path.dirname(runtime), 'task-event-codec.mjs'), path.join(path.dirname(installed), 'task-event-codec.mjs'));
   const call = (command, input = {}, status = 0) => {
     const result = spawnSync(process.execPath, [installed, command, '--root', root],
       { input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });

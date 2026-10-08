@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T19:19:51.335Z",
+  "payload_sha256": "458fdc74608127e0d1f6473cd4a1543ea663cde0f72a2237b9bc59fd731884ab",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:generation-execution-G2",
+    "request": {
+      "task_ref": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+      "action": "execution",
+      "step_id": "G2",
+      "idempotency_key": "generation-execution-G2",
+      "result": "completed",
+      "summary": "Task event request-local v2 encoding and semantic CURRENT_TASK display identity implemented with old-byte compatibility",
+      "source_revision": "4266b895 plus frozen reviewed generation-side source",
+      "evidence_ref": "docs/ops/vnext-record-generation-validation.md"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-dcbd20feafa3fccf36b201588848897214e2e9f2c4cfc836e0f4677e5b12eac9.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+        "step_id": "G2",
+        "result": "completed",
+        "summary": "Task event request-local v2 encoding and semantic CURRENT_TASK display identity implemented with old-byte compatibility",
+        "source_revision": "4266b895 plus frozen reviewed generation-side source",
+        "evidence_ref": "docs/ops/vnext-record-generation-validation.md"
+      }
+    }
+  },
+  "issues": []
+}

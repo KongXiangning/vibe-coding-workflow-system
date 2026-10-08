@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T19:19:51.614Z",
+  "payload_sha256": "aa15c44974acf86cfaab0d609bbe8cdfddfbca2533aaa5ee1cfab5314b59cb4e",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:generation-aggregate-check",
+    "request": {
+      "task_ref": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+      "action": "test",
+      "step_id": "G3",
+      "idempotency_key": "generation-aggregate-check",
+      "result": "failed",
+      "command": "bun run test:workflow-all",
+      "summary": "Runtime group 295 pass / 7 fail then aggregate stopped. Same seven baseline failures: one obsolete CLI expectation, six sandbox temporary Git-root guard cases. No unrelated guard/test changes or fake PASS."
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-d32dc8f85d1d1671de7ccc9e6b7498d9",
+      "parents": [
+        ".workflow-system/records/events/key-89eb5e57a0d5bfc156b06a9a36b5d9295fb8c25c10cf61976d18325a79a3a17b.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-35973f2e19da76cd62f7deda884c752e6808abeb2d57d1b5534eef4b5673f859.json",
+        "step_id": "G3",
+        "result": "failed",
+        "command": "bun run test:workflow-all",
+        "summary": "Runtime group 295 pass / 7 fail then aggregate stopped. Same seven baseline failures: one obsolete CLI expectation, six sandbox temporary Git-root guard cases. No unrelated guard/test changes or fake PASS."
+      }
+    }
+  },
+  "issues": []
+}

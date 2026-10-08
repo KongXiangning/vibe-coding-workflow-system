@@ -195,7 +195,7 @@ test('causal conflicting adoptions need a choice; supplementation/correction pre
 test('installed native CLI allocates stable noncolliding tasks and exact concurrent retries do not duplicate adoption', async t => {
   const root = fixture(t); task(root, { action: 'close', task_ref: '004' });
   const directory = path.join(root, '.workflow-system/runtime/support'); fs.mkdirSync(directory, { recursive: true });
-  for (const name of ['assistance.mjs', 'task-management.mjs', 'record-storage.mjs']) fs.copyFileSync(path.join(RUNTIME, name), path.join(directory, name));
+  for (const name of ['assistance.mjs', 'task-management.mjs', 'task-event-codec.mjs', 'record-storage.mjs']) fs.copyFileSync(path.join(RUNTIME, name), path.join(directory, name));
   const call = input => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(directory, 'assistance.mjs'), 'task', '--root', root]);
     let out = '', err = ''; child.stdout.on('data', x => out += x); child.stderr.on('data', x => err += x);
@@ -723,7 +723,7 @@ test('installed native CLI closes and returns across processes without kernel de
   task(root, { action: 'focus', task_id: child.task_id });
   const installed = path.join(root, '.workflow-system/runtime/support');
   fs.mkdirSync(installed, { recursive: true });
-  for (const name of ['assistance.mjs', 'task-management.mjs', 'record-storage.mjs']) fs.copyFileSync(path.join(RUNTIME, name), path.join(installed, name));
+  for (const name of ['assistance.mjs', 'task-management.mjs', 'task-event-codec.mjs', 'record-storage.mjs']) fs.copyFileSync(path.join(RUNTIME, name), path.join(installed, name));
   const call = (command, input) => JSON.parse(execFileSync(process.execPath,
     [path.join(installed, 'assistance.mjs'), command, '--root', root], { input: JSON.stringify(input), encoding: 'utf8' }));
   const request = { action: 'close', task_id: child.task_id, dependency: satisfied, idempotency_key: 'installed-derived-return' };

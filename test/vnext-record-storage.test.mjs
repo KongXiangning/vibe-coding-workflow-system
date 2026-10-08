@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import fsMutable from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { createHash, randomBytes } from 'node:crypto';
@@ -328,4 +330,47 @@ test('an uncooperative file publication race cannot turn a different-byte append
     catch(e) {console.log(JSON.stringify({code:e.code}));}`], { encoding: 'utf8' });
   assert.equal(child.status, 0, child.stderr); assert.equal(JSON.parse(child.stdout).code, 'APPEND_CONFLICT');
   assert.equal(fs.readFileSync(path.join(root, target), 'utf8'), 'external bytes');
+});
+
+test('brief live-writer contention waits for the owner to release without replaying the append', async t => {
+  const root=fixture(t), lock=path.join(root,`${STORE}/.record-store-locks/store.lock`);
+  const script=`import fs from 'node:fs';import path from 'node:path';import os from 'node:os';
+    const lock=process.argv[1];fs.mkdirSync(path.dirname(lock),{recursive:true});
+    fs.writeFileSync(lock,JSON.stringify({pid:process.pid,host:os.hostname(),id:'short-live-writer'}));
+    process.stdout.write('ready\\n');setTimeout(()=>fs.unlinkSync(lock),150);`;
+  const child=spawn(process.execPath,['--input-type=module','-e',script,lock]);
+  const completed=new Promise((resolve,reject)=>{let stderr='';child.stderr.on('data',b=>stderr+=b);child.on('error',reject);child.on('close',code=>code===0?resolve():reject(new Error(stderr)));});
+  await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);});
+  const target=ref('waited-once'), body=Buffer.from('retained once after contention');
+  assert.deepEqual(storeAppend(root,target,body),{created:true});
+  assert.deepEqual(storeAppend(root,target,body),{created:false});
+  assert.deepEqual(storeReadFile(root,target),body);
+  await completed;
+});
+
+test('bounded waiting keeps a live owner intact and still reports STORE_BUSY on timeout', t => {
+  const root=fixture(t), lock=`${STORE}/.record-store-locks/store.lock`;
+  const owner=json({pid:process.pid,host:os.hostname(),id:'held-live-owner'});put(root,lock,owner);
+  assert.throws(()=>storeAppend(root,ref('not-written'),Buffer.from('must remain unsaved')),error=>error.code==='STORE_BUSY'&&/bounded waiting/.test(error.message));
+  assert.deepEqual(fs.readFileSync(path.join(root,lock)),owner);
+  assert.equal(fs.existsSync(path.join(root,ref('not-written'))),false);
+});
+
+
+test('repeated EEXIST-to-ENOENT owner races share the original bounded deadline', t => {
+  const root=fixture(t), lock=path.join(root,`${STORE}/.record-store-locks/store.lock`);
+  const original=fsMutable.linkSync,sleeper=new Int32Array(new SharedArrayBuffer(4));let attempts=0;
+  const mocked=t.mock.method(fsMutable,'linkSync',(source,destination,...rest)=>{
+    if(destination===lock && attempts++<260){
+      Atomics.wait(sleeper,0,0,10);
+      throw Object.assign(new Error('Another owner won publication then released before lookup'),{code:'EEXIST'});
+    }
+    return original(source,destination,...rest);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(()=>storeReserve(root,ref('deadline-not-written'),'body'),error=>error.code==='STORE_BUSY');
+    assert.ok(attempts<260,'contention did not bypass the shared monotonic deadline');
+    assert.equal(fs.existsSync(path.join(root,ref('deadline-not-written'))),false);
+  } finally {mocked.mock.restore();syncBuiltinESMExports();}
 });

@@ -122,6 +122,10 @@ function lockSuccessor(root, ref, raw) {
 }
 function withLock(root, fn) {
   ensureDir(root, LOCKS);
+  // Brief live-writer contention is normal during concurrent event/label publication.
+  // Wait within this operation; never steal a lock or replay business work.
+  const deadline = process.hrtime.bigint() + 2_000_000_000n;
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
   const owner = { pid: process.pid, host: hostname(), id: randomUUID() }, bytes = json(owner);
   const temp = `${LOCKS}/owner-${owner.id}.tmp`;
   immutableFile(root, temp, bytes);
@@ -133,10 +137,23 @@ function withLock(root, fn) {
       catch (e) {
         if (e.code !== 'EEXIST') throw e;
         let current;
-        try { current = lockOwner(root, ref); } catch (readError) { if (readError.code === 'ENOENT') { depth--; continue; } throw readError; }
-        const successor = lockSuccessor(root, ref, current.raw);
-        if (!successor || !dead(current.owner)) throw error('STORE_BUSY', `Record storage is busy. A dead owner requires explicit archive recover-lock: ${ref}`);
-        ref = successor;
+        try { current = lockOwner(root, ref); }
+        catch (readError) {
+          if (readError.code === 'ENOENT') {
+            if (process.hrtime.bigint() >= deadline)
+              throw error('STORE_BUSY', `Record storage kept changing owners past bounded waiting; no lock was stolen: ${ref}`);
+            depth--; continue;
+          }
+          throw readError;
+        }
+        const successor = lockSuccessor(root, ref, current.raw), abandoned = dead(current.owner);
+        if (successor && abandoned) { ref = successor; continue; }
+        if (!abandoned && process.hrtime.bigint() < deadline) {
+          Atomics.wait(sleeper, 0, 0, 10); depth--; continue;
+        }
+        throw error('STORE_BUSY', abandoned
+          ? `A dead record-store owner requires explicit archive recover-lock: ${ref}`
+          : `Record storage remained busy after bounded waiting; no lock was stolen: ${ref}`);
       }
     }
     requireThat(acquired, 'Lock recovery chain exceeds its bound; inspect lock state.', 'STORE_BUSY');

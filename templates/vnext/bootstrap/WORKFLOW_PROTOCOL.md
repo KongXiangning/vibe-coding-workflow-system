@@ -244,3 +244,18 @@ Verify actual staged/committed record bytes and exact path scope. A mismatch is
 not successful persistence; independent authorized business work remains possible.
 After the commit, only read Git and report residual/new/excluded records. Do not
 write or recursively commit an event recording the checkpoint's own SHA.
+
+## Fixed evidence references and new captures
+
+Reuse already retained material through its immutable ref and SHA256. `evidence_refs`
+keeps the material's role in the current observation while verifying its preserved bytes;
+it does not read or certify the current live source. Use `files` for this run's necessary
+new reports, logs, decisions and before/after state. Obtain identities from an actual
+record/snapshot/attachment or byte read; a path alone is not a historical identity.
+
+Do not routinely recapture complete task-status output or a cumulative collection of
+all previous reports. Keep fixed references and record the necessary new evidence for
+this run. This convention never removes an explicit request to capture a complete file,
+changes a failure into success, merges distinct runs or decisions, or drops changed and
+uncommitted intermediate state because it resembles previous content. A missing/corrupt
+reference remains a reported gap; do not substitute live bytes under an old digest.

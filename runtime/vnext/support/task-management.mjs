@@ -4,10 +4,13 @@ import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { encodeTaskPayload, decodeObservation } from './task-event-codec.mjs';
 
 const STORE = '.workflow-system/records';
 const CACHE = `${STORE}/task-view.json`;
-const MARKER = '<!-- vnext-task-view/v1 -->';
+const MARKER = '<!-- vnext-task-view/v2 -->';
+const LEGACY_MARKER = '<!-- vnext-task-view/v1 -->';
+const managedDisplay = text => /<!--\s*vnext-task-view\b/.test(text);
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])])) : value;
 const digest = value => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(stable(value))).digest('hex');
@@ -148,7 +151,7 @@ function legacySource(root, io, requestedHome) {
   }
   try {
     const bytes = readFile(root, current, io);
-    if (bytes.toString('utf8').includes(MARKER)) return { home, issues };
+    if (managedDisplay(bytes.toString('utf8'))) return { home, issues };
     return { home, ref: current, bytes, persisted: false, identity: legacyIdentity(bytes, current), issues };
   } catch (e) { return { home, issues: e.code === 'ENOENT' ? issues : [...issues, diagnostic('LEGACY_BASELINE_UNAVAILABLE', current, errorInfo(e).message)] }; }
 }
@@ -170,9 +173,9 @@ function readInputs(root, io, input) {
       const bytes = readFile(root, ref, io);
       hashes.push([ref, digest(bytes)]);
       const event = JSON.parse(bytes);
-      if (!event.payload || digest(event.payload) !== event.payload_sha256) throw new Error('Observation payload digest does not match.');
-      records.push({ ref, ...event });
-    } catch (e) { issues.push(diagnostic('RECORD_UNREADABLE', ref, errorInfo(e).message)); }
+      const decoded = decodeObservation(event);
+      records.push({ ref, ...event, payload: decoded.payload });
+    } catch (e) { issues.push(diagnostic(e.code?.startsWith('TASK_EVENT_') || e.code === 'EVENT_VERSION_UNSUPPORTED' ? e.code : 'RECORD_UNREADABLE', ref, errorInfo(e).message)); }
   }
   let labels = [];
   try {
@@ -681,16 +684,15 @@ export function taskView(root, input, io) {
     issues, unassociated_records: dedup, health: issues.length || dedup.length ? 'needs-attention' : 'consistent',
     recovery_options: RECOVERY, heads: maxima([...all.values()]).map(e => e.ref), records_scanned: loaded.records.length,
     state_completeness: dedup.length ? 'partial-associations' : issues.length ? 'partial' : 'complete' };
-  const view = { ...output, view_revision: digest(output) };
+  const view = { ...output, view_revision: digest(output), display_revision: digest(renderBody(output)) };
   Object.defineProperty(view, 'effective_refs', { value: effective });
   return view;
 }
 
-function render(view) {
+function renderBody(view, legacySourceRevision) {
   const current = view.current_task;
   const clean = value => String(value ?? '').replace(/[\r\n|]/g, ' ');
-  return ['---', 'schema_version: 1', 'kind: vnext-task-view', `source_revision: ${view.source_revision}`, `view_revision: ${view.view_revision}`, '---', MARKER,
-    '# CURRENT_TASK', '', '> Generated management view, not execution permission or verification.',
+  return ['# CURRENT_TASK', '', '> Generated management view, not execution permission or verification.',
     '> Query assistance.mjs task-status/context for the current journal state; do not parse this with the legacy task kernel.', '',
     '## Current work', current ? `- Task: ${clean(current.display_id)} (${clean(current.task_id)}) — ${clean(current.title)}` : '- No unambiguous active work focus.',
     `- Adopted plan: ${clean(current?.adopted_plan_ref ?? 'none')}`, `- Step: ${clean(current?.current_step_id ?? 'none')}`,
@@ -705,11 +707,50 @@ function render(view) {
     '## Review, execution and remaining work',
     ...(current?.steps ?? []).map(s => `- ${clean(s.id)}: work=${clean(s.state)}; review=${clean(s.review_status)}; findings=${list(s.findings).length}; tests=${s.tests.length}; source=${clean(s.execution_ref ?? 'none')}`),
     ...view.tasks.flatMap(t => t.dispositions.filter(d => d.action === 'close').map(d => `- ${clean(t.display_id ?? t.task_id)} closed: ${clean(JSON.stringify(d.remaining_work ?? d.gaps ?? d))}`)), '',
-    '## Management status', `- Source: ${view.source_revision}`, `- Health: ${view.health}`,
+    '## Management status', legacySourceRevision ? `- Source: ${legacySourceRevision}`
+      : '- Display revision identifies this derived display only; query task-status/context for current source/view revisions.', `- Health: ${view.health}`,
     `- Unassociated observations: ${view.unassociated_records.length}`,
     ...view.issues.map(i => `- ${clean(i.id)}: ${clean(i.message)}${i.deferred_by ? ' (deferred, not resolved)' : ''}`),
     '- Recover with task rebuild/link/correct/resolve/defer. Rebuilding never reruns business commands.', '',
   ].join('\n');
+}
+function render(view, legacy) {
+  if (legacy) return ['---', 'schema_version: 1', 'kind: vnext-task-view',
+    `source_revision: ${legacy.source_revision}`, `view_revision: ${legacy.revision}`, '---', LEGACY_MARKER,
+    renderBody(view, legacy.source_revision)].join('\n');
+  return ['---', 'schema_version: 2', 'kind: vnext-task-view',
+    `display_revision: ${view.display_revision}`, '---', MARKER, renderBody(view)].join('\n');
+}
+/** A display is derived only when its known format and actual published bytes agree. */
+export function readTaskDisplay(root, ref, io) {
+  const bytes = readFile(root, ref, io), text = bytes.toString('utf8');
+  const result = { bytes, managed: managedDisplay(text), format: null, revision: null, snapshot_ref: null, verified: false };
+  if (!result.managed) return result;
+  const v2 = /^---\nschema_version: 2\nkind: vnext-task-view\ndisplay_revision: ([a-f0-9]{64})\n---\n<!-- vnext-task-view\/v2 -->\n([\s\S]*)$/.exec(text);
+  const v1 = /^---\nschema_version: 1\nkind: vnext-task-view\nsource_revision: ([a-f0-9]{64})\nview_revision: ([a-f0-9]{64})\n---\n<!-- vnext-task-view\/v1 -->\n([\s\S]*)$/.exec(text);
+  if (v2) { result.format = 'v2'; result.revision = v2[1]; }
+  else if (v1) { result.format = 'v1'; result.source_revision = v1[1]; result.revision = v1[2]; }
+  else {
+    result.format = 'unknown';
+    result.issue = diagnostic('CURRENT_TASK_FORMAT_UNRECOGNIZED', ref, 'Current display has an unknown or invalid managed-view format; its baseline cannot be inferred.');
+    return result;
+  }
+  if (v2 && digest(v2[2]) !== result.revision) {
+    result.issue = diagnostic('CURRENT_TASK_DISPLAY_DIGEST_MISMATCH', ref, 'Current display content differs from its semantic display revision.');
+    return result;
+  }
+  result.snapshot_ref = `${STORE}/task-views/${result.revision}.md`;
+  try {
+    result.verified = readFile(root, result.snapshot_ref, io).equals(bytes);
+    if (!result.verified) result.issue = diagnostic('CURRENT_TASK_BASELINE_MISMATCH', ref, 'Current display differs from its published baseline.', { snapshot_ref: result.snapshot_ref });
+  } catch (e) {
+    result.issue = diagnostic('CURRENT_TASK_BASELINE_UNAVAILABLE', ref, 'The published display baseline cannot be read; current display is not verified.',
+      { snapshot_ref: result.snapshot_ref, error: errorInfo(e) });
+  }
+  return result;
+}
+function sameDisplay(view, display) {
+  return display.verified && display.bytes.equals(Buffer.from(render(view, display.format === 'v1' ? display : undefined)));
 }
 function atomicReplace(root, ref, bytes, io) {
   const file = io.local(root, ref); fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -804,23 +845,33 @@ export function synchronizeTasks(root, input, io) {
       for (const pending of view.tasks.filter(t => !t.display_id)) allocateLabel(root, pending.task_id, {}, view, io);
       if (view.tasks.some(t => !t.display_id)) view = taskView(root, input, io);
       const text = render(view);
-      const snapshotRef = `${STORE}/task-views/${view.view_revision}.md`;
-      io.publish(root, snapshotRef, text);
       atomicReplace(root, CACHE, json(view), io);
       const target = `${view.workflow_home}/CURRENT_TASK.md`;
-      let previous = null;
-      try { previous = readFile(root, target, io); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-      let replaceable = previous === null;
-      if (previous?.toString().includes(MARKER)) {
-        const revision = /^view_revision: ([a-f0-9]{64})$/m.exec(previous.toString())?.[1];
-        try { replaceable = readFile(root, `${STORE}/task-views/${revision}.md`, io).equals(previous); } catch { replaceable = false; }
-      } else if (previous) {
+      let display = null;
+      try { display = readTaskDisplay(root, target, io); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+      const previous = display?.bytes ?? null;
+      let replaceable = display === null || display.verified;
+      if (display && !display.managed) {
         const baseline = legacySource(root, io, view.workflow_home);
         replaceable = !!legacyIdentity(previous, target) && !!baseline.bytes?.equals(previous);
       }
       if (!view.tasks.length) return { status: 'updated', cache_ref: CACHE, display: 'retained-no-managed-task', view };
       if (!replaceable && input.overwrite_display !== true) return { status: 'partial', cache_ref: CACHE, display: 'drift', view,
-        issues: [diagnostic('CURRENT_TASK_DRIFT', target, 'Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it.')] };
+        issues: [diagnostic('CURRENT_TASK_DRIFT', target, 'Current display has unrecognized/user-modified content. Live task-status is current; choose rebuild with overwrite_display to preserve and replace it.'),
+          ...(display?.issue ? [display.issue] : [])] };
+      // A fact revision is not a display revision. Retain a verified, semantically equal
+      // v1 display byte-for-byte until an actual displayed change warrants upgrading it.
+      if (display && sameDisplay(view, display)) {
+        if (!readFile(root, target, io).equals(previous)) return { status: 'partial', cache_ref: CACHE, display: 'drift', view,
+          issues: [diagnostic('CURRENT_TASK_DRIFT', target, 'Current display changed during validation; its bytes were not replaced.')] };
+        return { status: 'updated', cache_ref: CACHE, display: 'unchanged', display_ref: target, view };
+      }
+      // Never create a missing baseline before checking CURRENT_TASK against history:
+      // doing so could falsely bless an unverified display as generated content.
+      const snapshotRef = `${STORE}/task-views/${view.display_revision}.md`;
+      io.publish(root, snapshotRef, text);
+      if (!readFile(root, snapshotRef, io).equals(Buffer.from(text)))
+        throw Object.assign(new Error('Existing display baseline differs from the canonical display; retained bytes were not overwritten.'), { code: 'DISPLAY_BASELINE_CONFLICT' });
       const publication = publishDisplay(root, target, text, previous, io);
       if (publication.status === 'drift' || !readFile(root, target, io).equals(Buffer.from(text))) return { status: 'partial', cache_ref: CACHE, display: 'drift', view,
         preserved_display_ref: publication.preserved_display_ref,
@@ -832,18 +883,22 @@ export function synchronizeTasks(root, input, io) {
 export function taskStatus(root, input, io) {
   const view = taskView(root, input, io);
   let cache = 'missing';
-  try { const saved = JSON.parse(readFile(root, CACHE, io)); cache = saved.source_revision === view.source_revision && saved.view_revision === view.view_revision ? 'current' : 'stale'; }
+  try { const saved = JSON.parse(readFile(root, CACHE, io)); cache = saved.source_revision === view.source_revision && saved.view_revision === view.view_revision
+    && saved.display_revision === view.display_revision ? 'current' : 'stale'; }
   catch (e) { if (e.code !== 'ENOENT') cache = 'unreadable'; }
-  let display = 'missing';
-  try { const text = readFile(root, `${view.workflow_home}/CURRENT_TASK.md`, io).toString(); display = text === render(view) ? 'current' : text.includes(MARKER) ? 'stale-or-edited' : 'legacy'; }
-  catch (e) { if (e.code !== 'ENOENT') display = 'unreadable'; }
+  let display = 'missing', displayIssue, displayFormat = null;
+  try {
+    const saved = readTaskDisplay(root, `${view.workflow_home}/CURRENT_TASK.md`, io);
+    display = sameDisplay(view, saved) ? 'current' : saved.managed ? 'stale-or-edited' : 'legacy';
+    displayIssue = saved.issue; displayFormat = saved.format;
+  } catch (e) { if (e.code !== 'ENOENT') { display = 'unreadable'; displayIssue = errorInfo(e); } }
   if (input.task_ref) {
     const matches = view.tasks.filter(t => t.task_id === input.task_ref || (label(input.task_ref) && t.display_id === label(input.task_ref)));
     view.selected_task = matches.length === 1 ? matches[0] : null;
     if (matches.length !== 1) view.issues.push(diagnostic('TASK_SELECTION_UNRESOLVED', input.task_ref, 'No unique task matches this reference; inspect candidates or link the saved plan.'));
   }
-  return { ...view, status: 'available', projection: { cache, display, read_only_rebuilt: true },
-    note: 'Computed from retained facts, not a stale CURRENT_TASK or a first page of search hits. A partial association is reported, never interpreted as approval or absence of work.' };
+  return { ...view, status: 'available', projection: { cache, display, display_format: displayFormat, display_comparison: 'semantic-content', ...(displayIssue ? { display_issue: displayIssue } : {}), read_only_rebuilt: true },
+    note: 'Computed from retained facts, not a stale CURRENT_TASK or a first page of search hits. Display freshness compares displayed meaning; retained v1 revision stamps are historical. A partial association is reported, never interpreted as approval or absence of work.' };
 }
 function allocateLabel(root, taskId, input, view, io) {
   const existing = files(root, `${STORE}/task-labels`, io, '.json');
@@ -985,9 +1040,13 @@ export function taskCommand(root, input, io) {
   const requestKey = input.idempotency_key;
   if (requestKey) {
     for (const ref of files(root, `${STORE}/events`, io, '.json')) {
-      let p; try { const row = JSON.parse(readFile(root, ref, io)); if (digest(row.payload) !== row.payload_sha256) continue; p = row.payload; } catch { continue; }
+      let row, p; try { row = JSON.parse(readFile(root, ref, io)); p = decodeObservation(row).payload; } catch { continue; }
       if (p?.kind === 'task-event' && p.request?.idempotency_key === requestKey && digest(p.request) === digest(original)) {
-        const saved = io.record(root, p), projection = synchronizeTasks(root, input, io);
+        // This exact immutable event has already been read and verified. Re-submitting
+        // its payload at the primary key can create another conflict when that key is
+        // corrupt or incompatible; preserve the first available event's actual ref.
+        const saved = { recorded: true, status: 'already-recorded', ref, issues: row.issues ?? [] };
+        const projection = synchronizeTasks(root, input, io);
         return operationResult(saved, projection, p.task_event.task_id, issues, p.task_event);
       }
     }
@@ -995,10 +1054,10 @@ export function taskCommand(root, input, io) {
   if (action === 'resolve' && !view.issues.some(i => i.code === 'RECORD_CONFLICT' && i.id === data.conflict_id && i.candidates.includes(data.selected_ref))) {
     data.association_error = 'The conflict/selection is not present in the current view; inspect the actual alternatives.';
   }
-  const payload = { kind: 'task-event', idempotency_key: requestKey ? `task:${requestKey}` : undefined, request: original, files: input.files, workflow_home: input.workflow_home,
+  const payload = { kind: 'task-event', idempotency_key: requestKey ? `task:${requestKey}` : undefined, request: original, files: input.files, evidence_refs: input.evidence_refs, workflow_home: input.workflow_home,
     task_event: { version: 1, action, task_id: taskId, parents: input.parents ?? view.heads, data } };
   // Unknown action or incomplete association does not lose the original request.
-  const saved = io.record(root, payload), projection = synchronizeTasks(root, input, io);
+  const saved = io.record(root, encodeTaskPayload(payload)), projection = synchronizeTasks(root, input, io);
   return operationResult(saved, projection, taskId, issues, payload.task_event);
 }
 function operationResult(saved, projection, taskId, issues, event) {
