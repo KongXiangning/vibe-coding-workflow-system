@@ -1,0 +1,43 @@
+{
+  "kind": "product-maintenance-result/v1",
+  "action": "read",
+  "development_gate": false,
+  "qualification": "not-evaluated",
+  "task_operations": "not-performed",
+  "status": "not-enabled",
+  "project_id": null,
+  "working_copy": {
+    "root": "/workspace/shared/project-planning-20261008/packed-target",
+    "identity": "/workspace/shared/project-planning-20261008/packed-target"
+  },
+  "read_at": "2026-10-08T03:48:41.105Z",
+  "manifest": null,
+  "manifest_path": ".workflow-system/PRODUCT.yaml",
+  "manifest_sha256": null,
+  "documents": [],
+  "usable_items": [],
+  "unusable_items": [],
+  "reverse_relations": [],
+  "plan_tasks": [],
+  "discussions": [],
+  "impact": null,
+  "sources": [],
+  "diagnostics": [
+    {
+      "code": "NOT_ENABLED",
+      "path": ".workflow-system/PRODUCT.yaml",
+      "message": "No product manifest; normal task work may continue",
+      "severity": "warning"
+    }
+  ],
+  "coverage": {
+    "complete": false,
+    "files_read": 0,
+    "bytes_read": 0,
+    "enumeration": "managed_paths only; sources are read only by explicit reference",
+    "omitted": [],
+    "selection": "all-enumerated-items",
+    "source_bodies": "not-read"
+  },
+  "task_status": "not-computed; use existing assistance only when actual task state is needed"
+}

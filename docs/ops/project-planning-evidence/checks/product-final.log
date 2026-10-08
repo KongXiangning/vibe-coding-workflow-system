@@ -1,0 +1,49 @@
+bun test v1.3.10 (30e609e0)
+
+test/product-maintenance-install.test.ts:
+(pass) installed maintenance assets execute with Node and upgrade preserves all target-owned business bytes [16731.79ms]
+
+test/product-maintenance.test.ts:
+(pass) F01 whole candidates protect identity and v1 migration while explicit deletion and ordinary edits work [62.61ms]
+(pass) F01 F02 dismissed links and bindings resist content, reordered/repeated sources and equivalent IDs [169.10ms]
+(pass) F03 remove_fields alone removes optional selection, is idempotent, and cannot remove required identity [21.93ms]
+(pass) F04 missing registered/selected paths and Windows junctions retain omissions without stopping independent reads [13.96ms]
+(pass) F05 whole candidate repairs only changed malformed item and keeps another malformed item exact [23.15ms]
+(pass) F06 localized bodies reject root boundaries and swallowed neighbors while AST pseudo headings and file appendices work [32.91ms]
+(pass) R01 inline double-star globs preserve recursive matching without visiting unrelated junctions [22.46ms]
+(pass) R02 malformed old sources allow explicit reassociation but cannot supply a new basis themselves [111.54ms]
+(pass) R03 explicit relation removal repairs null members while preserving valid relations and raw history [123.41ms]
+(pass) R04 directories at explicit file paths are omitted while glob directory prefixes remain readable [7.18ms]
+(pass) C01 repairing unknown source fields preserves dismissal while current explicit reversal remains legal [200.31ms]
+(pass) C02 existing active relations do not block unrelated maintenance but new equivalent activation still needs its basis [223.14ms]
+(pass) Review R1 whole candidates validate YAML syntax changes and permit exact malformed-item repairs [50.28ms]
+(pass) Review R2 dismissed history is matched once by identity while explicit partial removals and reversals remain legal [344.08ms]
+(pass) Review R3 selected globs retain registered concrete files only within the requested scope [20.31ms]
+(pass) Review R4 required glob prefixes must be directories without misclassifying ordinary wildcard files [20.14ms]
+(pass) D01 append supplies Markdown boundaries while preserving original body bytes and malformed neighbors [193.42ms]
+(pass) D02 duplicate active history permits unrelated edits without exempting actual reactivation [199.66ms]
+(pass) C03 append preserves malformed neighbors in block and flow YAML including comments and original bytes [137.00ms]
+(pass) inventory is partial, all scopes and delivered current requirements survive without tasks [3.27ms]
+(pass) AST ignores code, quotes and lists; a bad item does not hide its neighbors [3.16ms]
+(pass) unsafe YAML is locally rejected, including duplicates, aliases, custom tags and non-finite values [6.80ms]
+(pass) duplicate global identity is ambiguous and byte limits reveal incomplete coverage [6.64ms]
+(pass) definition hash normalizes line endings and excludes task, plan, discussion and assessment metadata [2.96ms]
+(pass) localized update retains malformed neighbor bytes and untouched business exceptions [6.54ms]
+(pass) append and v1 explicit migration preserve existing content and IDs [13.64ms]
+(pass) conflict and partial file failure never overwrite newer user bytes [11.06ms]
+(pass) capture retains original bytes once, conflict does not overwrite, URI remains unarchived [8.31ms]
+(pass) paged source bytes, changed historical digest and exact item/section locators are reported [10.78ms]
+(pass) path traversal, excluded files, symlinks and frozen targets stop only the specific I/O [8.29ms]
+(pass) E6 keeps one requirement and stable work items; task binding retry has no task operations [19.50ms]
+(pass) planning samples preserve no-plan prose, independent plan order, cross-stage coverage and open scope [51.28ms]
+(pass) cyclic/withdrawn predecessors are visible diagnostics; retired targets stay retired [3.33ms]
+(pass) new failure is visible with unchanged definition and original PASS; recall never adopts discussion [29.06ms]
+(pass) same project ID in distinct worktrees never merges bytes; paused and missing entry do not create gates [5.50ms]
+(pass) dismissed retry cannot reactivate without a new basis; newly introduced root heading is rejected [12.63ms]
+(pass) unknown prototype-looking fields, nonfinite request values and write size bounds are real diagnostics [4.41ms]
+(pass) bundled Node helper coordinates racing writers and runs without source dependencies [271.30ms]
+
+ 39 pass
+ 0 fail
+ 1243 expect() calls
+Ran 39 tests across 2 files. [19.44s]

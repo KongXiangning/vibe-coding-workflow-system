@@ -44,4 +44,40 @@ export function buildProductAssets(root: string): void {
   const raw = fs.readFileSync(path.join(support, 'examples/e6/docs/product/raw/selected.txt'));
   const rawRef = { kind: 'file', path: 'docs/product/raw/selected.txt', sha256: createHash('sha256').update(raw).digest('hex') };
   write('examples/e6/docs/product/DISCUSSIONS.md', newDocument([{ metadata: { type: 'discussion', id: 'DISC-E6', raw_ref: rawRef, submitted_at: '2026-10-04T00:00:00Z', origin: { channel: 'unknown', occurred_at: null }, record_state: 'active', links: [{ id: 'L-IMPORT', relation: 'discusses', target: 'REQ-IMPORT', origin: 'inferred', state: 'active', reason: '仅示例同一导入主题，未采纳备选观点', sources: [{ ...rawRef, lines: { start: 1, end: 1 } }] }] }, body: '## [DISC-E6] 示例讨论\n### 整理摘要\n三设备是备选，不是本期任务。\n### 议题与未决问题\n本夹具只演示离线召回和来源位置，不是实际 Agent 行为证据。\n' }], '离线讨论示例'));
+  buildPlanningExamples(root, write);
+}
+
+// Consumer inputs only: these synthetic decisions are not host semantic acceptance evidence.
+function buildPlanningExamples(root: string, write: (relative: string, content: string) => void): void {
+  write('examples/planning/README.md', fs.readFileSync(path.join(root, 'docs/product/project-maintenance/examples/planning-consumption.md'), 'utf8'));
+  const source = (text: string) => ({ kind: 'text', text, label: '虚构消费样例，非用户决定' });
+  const document = (metadata: ObjectValue, title: string, sections: string[]) => ({ metadata, body: `## [${metadata.id}] ${title}\n${sectionsByType[metadata.type]!.map((name, i) => `### ${name}\n${sections[i]}`).join('\n')}\n` });
+  const binding = { id: 'B-BASE', task: { task_id: 'example-closed-base-task', source: source('合成历史：基础导入 task 已关闭，只覆盖单设备有效输入；不是当前任务状态查询。') }, role: 'implementation', coverage: '单设备有效输入的基础导入', origin: 'declared', state: 'active' };
+  const requirements = [
+    document({ type: 'requirement', id: 'REQ-IMPORT', scope: 'current', assessment_id: 'AS-BASE', task_bindings: [binding] }, '完整导入要求', ['处理有效输入、错误输入及新增双设备输入。', '保留已交付的单设备行为；本轮不新增文件格式。', '分别检查单设备、错误输入、双设备；历史单设备 PASS 不能代替其余检查。']),
+    document({ type: 'requirement', id: 'REQ-AUDIT', scope: 'current' }, '共享审计约束', ['记录导入结果及错误，日志不得包含原始个人数据。', '跨所有导入阶段有效；没有独立工作项不等于遗漏。', '按实际日志核对脱敏和结果定位。']),
+    document({ type: 'requirement', id: 'REQ-EXPORT', scope: 'planned' }, '后续导出', ['按已知格式导出处理结果。', '尚未进入近期安排，需求仍然保留。', '交付前核对约定格式，当前未验证。']),
+    document({ type: 'requirement', id: 'REQ-STREAM', scope: 'candidate' }, '流式输入候选', ['是否需要流式输入尚未决定。', '不是已采纳工作。', '尚无已采纳验收要求。']),
+    document({ type: 'requirement', id: 'REQ-LEGACY', scope: 'retired' }, '退出的旧格式', ['旧格式导入的历史范围。', '退出当前范围不等于已交付，也不恢复旧工作。', '仅保留历史约定，当前不作交付结论。']),
+  ];
+  const assessment = document({ type: 'assessment', id: 'AS-BASE', target: 'REQ-IMPORT', target_basis: { kind: 'file', path: 'docs/product/REQUIREMENTS.md', item_id: 'REQ-IMPORT', note: '未保存原需求字节，当前需求已增加双设备范围' }, target_definition_sha256: null, checked_at: '2026-10-01T00:00:00Z', subject: { kind: 'unknown', value: null }, implementation: 'partial-reported', verification: 'pass-reported', sources: [source('历史报告仅称单设备有效输入通过，代码版本未知。')], pending_sources: [source('新增双设备范围及错误输入反馈尚待核对。')] }, '历史局部检查', ['只有单设备有效输入。', '历史 task 关闭及局部 PASS 仅作为原范围资料，具体实现版本未知。', '新增双设备、错误输入及共享审计要求仍待核对。']);
+  for (const variant of ['no-plan', 'multiple-plans']) {
+    const prefix = `examples/planning/${variant}`;
+    const project = document({ type: 'project', id: 'PROJECT-SELECT', inventory: { state: 'partial', checked_sources: [source('本轮已读取导入与审计要求及历史局部报告。')], unreviewed_sources: [source('其余业务资料尚未核对。')] } }, '规划消费示例', ['导入业务示例，完整需求与近期工作分开。', '已核对导入与共享审计；其余业务未知，字节读取完整不代表全项目盘点完成。']);
+    project.body += variant === 'no-plan'
+      ? '\n### 本轮选取与未决事项\n历史只报告单设备基础工作；本轮建议先核对错误输入，再按范围准备双设备工作，因为新反馈影响可靠导入。无总体 plan，选取建议尚不授权执行；共享审计、后续导出及候选流式输入仍保留。依据为 REQ-IMPORT、REQ-AUDIT 和 AS-BASE；未核对范围见 inventory。\n'
+      : '\n### 规划阅读说明\n采用混合方式，近期导入工作见 PLAN-IMPORT，远期仍保留粗略阶段。PLAN-EXPORT 是另一个候选范围，PLAN-LEGACY 仅作历史；分别展示，不合并。调用者可明确选择 PLAN-IMPORT，此选择不写入新配置字段。\n';
+    write(`${prefix}/.workflow-system/PRODUCT.yaml`, stringify({ schema: 'vnext-product-manifest/v2', project_id: `example-planning-${variant}`, entry: 'docs/product/PROJECT.md', managed_paths: ['docs/product/*.md'], source_paths: [], capture_paths: [], exclude_paths: [], maintenance: 'enabled' }));
+    write(`${prefix}/docs/product/PROJECT.md`, newDocument([project, document({ type: 'goal', id: 'GOAL-RELIABLE', scope: 'current' }, '可靠导入', ['可靠处理已约定输入。', '范围由完整需求表达，不缩成当前 task。'])], '虚构规划消费样例'));
+    write(`${prefix}/docs/product/REQUIREMENTS.md`, newDocument(requirements, '完整需求，非剩余待办'));
+    write(`${prefix}/docs/product/ASSESSMENTS.md`, newDocument([assessment], '虚构历史局部报告'));
+  }
+  const work = (id: string, stage: string, target: string, coverage: string) => ({ id, title: coverage, outcome: `取得${coverage}的实际结果`, scope: coverage, targets: [{ target, coverage }], state: 'included', origin: 'initial', stage });
+  const prefix = 'examples/planning/multiple-plans/docs/product';
+  const plan = document({ type: 'plan', id: 'PLAN-IMPORT', intent_state: 'adopted', targets: [{ target: 'REQ-IMPORT', coverage: '导入范围按近期及后续阶段逐步展开，受共享审计约束' }], work_items: [work('W-VERIFY', '近期核对', 'REQ-IMPORT', '错误输入反馈与既有单设备覆盖'), work('W-BASE', '近期实施', 'REQ-IMPORT', '双设备输入的近期局部工作'), { ...work('W-RELEASE', '后续交付', 'REQ-IMPORT', '其余输入与集成复验，细节待核对'), depends_on: [{ item_id: 'W-BASE', kind: 'prerequisite', reason: '集成复验需要相关双设备行为真实可用；task 关闭不证明满足' }] }] }, '混合式导入安排', ['近期范围具体，后续交付阶段保留粗略安排，未说明依赖的工作可否并行尚未核对。', '按原数组展示 W-VERIFY、W-BASE、W-RELEASE；同一导入需求跨阶段覆盖。共享审计约束适用于每项，不另造审计工作项。', '远期细节和当前代码适用性未核对；数组顺序不是新增依赖。']);
+  const candidate = document({ type: 'plan', id: 'PLAN-EXPORT', intent_state: 'proposed', targets: [{ target: 'REQ-EXPORT', coverage: '后续导出候选范围' }], work_items: [work('W-RELEASE', '后续候选', 'REQ-EXPORT', '导出方案与验收范围核对')] }, '另一个候选计划', ['候选尚未采用，不替代已采用导入安排。', 'W-RELEASE 在此 plan 有独立身份，不与 PLAN-IMPORT 的同名工作项合并。', '未决定启动时点；不按文档修改时间采纳。']);
+  const retired = document({ type: 'plan', id: 'PLAN-LEGACY', intent_state: 'retired', targets: [{ target: 'REQ-LEGACY', coverage: '已退出的旧格式范围' }], work_items: [] }, '历史计划', ['保留原范围供历史阅读。', '当前不再分解；退出不代表完成。', '不会因打开页面自动恢复。']);
+  write(`${prefix}/PLAN-IMPORT.md`, newDocument([plan], '已采用的局部安排'));
+  write(`${prefix}/PLAN-EXPORT.md`, newDocument([candidate], '独立候选安排'));
+  write(`${prefix}/PLAN-LEGACY.md`, newDocument([retired], '历史安排'));
 }

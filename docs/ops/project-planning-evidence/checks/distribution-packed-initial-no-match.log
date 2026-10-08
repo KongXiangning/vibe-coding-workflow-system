@@ -1,0 +1,9 @@
+bun test v1.3.10 (30e609e0)
+The following filters did not match any test files:
+ test/vibe-governance-distribution.test.ts
+327 files were searched [23.00ms]
+
+note: Tests need ".test", "_test_", ".spec" or "_spec_" in the filename (ex: "MyApp.test.ts")
+note: To treat the "test/vibe-governance-distribution.test.ts" filter as a path, run "bun test ./test/vibe-governance-distribution.test.ts"
+
+Learn more about bun test: https://bun.com/docs/cli/test

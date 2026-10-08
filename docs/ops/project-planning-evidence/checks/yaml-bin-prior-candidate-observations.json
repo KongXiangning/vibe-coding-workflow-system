@@ -1,0 +1,38 @@
+[
+  {
+    "root": "/workspace/shared/merge-main-maintenance-20261007/integration/combined-run-mRNxGA/main-combined",
+    "link": "/workspace/shared/merge-main-maintenance-20261007/integration/combined-run-mRNxGA/main-combined/.workflow-system/runtime/node_modules/.bin/yaml",
+    "is_symlink": true,
+    "target": "/tmp/.workflow-vnext-runtime-stage-KcyZc9/project/.workflow-system/runtime/node_modules/yaml/bin.mjs",
+    "target_exists": false,
+    "distribution_version": "0.24.1",
+    "manifest_digest": "b524b2f45bd453bfb564ac54d2cb855de94e1d456abda007950292df54d12f4a"
+  },
+  {
+    "root": "/workspace/shared/host-acceptance-20261007/fixtures/goals",
+    "link": "/workspace/shared/host-acceptance-20261007/fixtures/goals/.workflow-system/runtime/node_modules/.bin/yaml",
+    "is_symlink": true,
+    "target": "/tmp/.workflow-vnext-runtime-stage-u3KVQp/project/.workflow-system/runtime/node_modules/yaml/bin.mjs",
+    "target_exists": false,
+    "distribution_version": "0.24.1",
+    "manifest_digest": "df0423587c7d0676dc59007d9a23b7e9510a4f0a4d257d0d2b3fb1f8c2741e50"
+  },
+  {
+    "root": "/workspace/shared/project-planning-20261008/host-selection",
+    "link": "/workspace/shared/project-planning-20261008/host-selection/.workflow-system/runtime/node_modules/.bin/yaml",
+    "is_symlink": true,
+    "target": "/tmp/.workflow-vnext-runtime-stage-d009kE/project/.workflow-system/runtime/node_modules/yaml/bin.mjs",
+    "target_exists": false,
+    "distribution_version": "0.24.1",
+    "manifest_digest": "c9f810f7d04edf6a7193d9d820678e76608e83916bd9525f12996ad12c3b30e6"
+  },
+  {
+    "root": "/workspace/shared/project-planning-20261008/install-final",
+    "link": "/workspace/shared/project-planning-20261008/install-final/.workflow-system/runtime/node_modules/.bin/yaml",
+    "is_symlink": true,
+    "target": "/tmp/.workflow-vnext-runtime-stage-H5sCL9/project/.workflow-system/runtime/node_modules/yaml/bin.mjs",
+    "target_exists": false,
+    "distribution_version": "0.24.1",
+    "manifest_digest": "5d9bafc597790d81b6e639418a72e0f6d334b45da6ae2824cc9b145941ef83d7"
+  }
+]

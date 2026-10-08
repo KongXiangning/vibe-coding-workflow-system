@@ -18,7 +18,7 @@ test('installed maintenance assets execute with Node and upgrade preserves all t
   const support = path.join(root, '.workflow-system/runtime/support/product-maintenance');
   const helper = path.join(root, '.workflow-system/runtime/support/product-maintenance.js');
   expect(fs.existsSync(path.join(root, '.agents/skills/maintain-project/SKILL.md'))).toBe(true);
-  for (const asset of ['API.md', 'contract.md', 'references/inventory.md', 'references/update.md', 'references/plan.md', 'references/discussion.md', 'references/reconcile.md', 'references/recovery.md', 'templates/PRODUCT.yaml', 'templates/PROJECT.md', 'schemas/product-doc-v1.json', 'schemas/product-doc-v2.json', 'schemas/product-manifest-v1.json', 'schemas/product-manifest-v2.json', 'schemas/request-v1.json', 'offline-reader.js']) expect(fs.existsSync(path.join(support, asset))).toBe(true);
+  for (const asset of ['API.md', 'contract.md', 'references/inventory.md', 'references/update.md', 'references/plan.md', 'references/discussion.md', 'references/reconcile.md', 'references/recovery.md', 'templates/PRODUCT.yaml', 'templates/PROJECT.md', 'schemas/product-doc-v1.json', 'schemas/product-doc-v2.json', 'schemas/product-manifest-v1.json', 'schemas/product-manifest-v2.json', 'schemas/request-v1.json', 'offline-reader.js', 'examples/planning/README.md', 'examples/planning/no-plan/.workflow-system/PRODUCT.yaml', 'examples/planning/multiple-plans/.workflow-system/PRODUCT.yaml']) expect(fs.existsSync(path.join(support, asset))).toBe(true);
   const invoke = (action: string, input: any = {}) => JSON.parse(execFileSync('node', [helper, action, '--root', root], { encoding: 'utf8', input: JSON.stringify(input) }));
   expect(invoke('read').status).toBe('not-enabled'); expect(fs.existsSync(path.join(root, '.workflow-system/PRODUCT.yaml'))).toBe(false);
   const example = path.join(support, 'examples/e6');
@@ -214,6 +214,49 @@ test('installed maintenance assets execute with Node and upgrade preserves all t
   const result = JSON.parse(execFileSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' }));
   expect(fs.existsSync(path.join(offline, '.workflow-system/runtime'))).toBe(false); expect(fs.existsSync(path.join(offline, 'node_modules'))).toBe(false);
   expect(result.items.map((i: any) => i.type)).toContain('discussion'); expect(result.plan_tasks[0].work_items).toHaveLength(4); expect(result.task_states).toContain('not-computed');
+  // Consume the exact installed samples through both Node entrypoints, without a task service.
+  for (const variant of ['no-plan', 'multiple-plans']) {
+    const planning = fs.mkdtempSync(path.join(os.tmpdir(), 'product-planning-offline-')); roots.push(planning);
+    fs.cpSync(path.join(support, 'examples/planning', variant), planning, { recursive: true });
+    const reader = path.join(planning, 'offline-reader.mjs'); fs.copyFileSync(path.join(support, 'offline-reader.js'), reader);
+    const requirementBytes = fs.readFileSync(path.join(planning, 'docs/product/REQUIREMENTS.md'));
+    const invokePlanning = (input: any = {}) => {
+      const child = spawnSync('node', [helper, 'read', '--root', planning], { encoding: 'utf8', input: JSON.stringify(input) });
+      return { exit: child.status, result: JSON.parse(child.stdout) };
+    };
+    const installedRead = invokePlanning({ detail: 'items' }); expect(installedRead.exit).toBe(0);
+    const consumer = JSON.parse(execFileSync('node', [reader, planning], { encoding: 'utf8' }));
+    const content = (items: any[]) => items.map(item => ({ id: item.id, metadata: item.metadata, body: item.body }));
+    expect(content(consumer.items)).toEqual(content(installedRead.result.usable_items));
+    expect(consumer.plan_tasks).toEqual(installedRead.result.plan_tasks);
+    expect(consumer.items.filter((item: any) => item.type === 'requirement').map((item: any) => item.metadata.scope)).toEqual(['current', 'current', 'planned', 'candidate', 'retired']);
+    expect(consumer.items.find((item: any) => item.id === 'PROJECT-SELECT').metadata.inventory.state).toBe('partial');
+    expect(consumer.items.find((item: any) => item.id === 'AS-BASE').metadata.pending_sources).toHaveLength(1);
+    expect(consumer.diagnostics.map((d: any) => d.code).sort()).toEqual(['DEFINITION_UNKNOWN', 'PENDING_SOURCES']);
+    expect(consumer.task_states).toContain('not-computed'); expect(installedRead.result.task_status).toContain('not-computed');
+    if (variant === 'no-plan') {
+      expect(consumer.plan_tasks).toEqual([]); expect(consumer.items.some((item: any) => item.type === 'plan')).toBe(false);
+      expect(consumer.items.find((item: any) => item.id === 'PROJECT-SELECT').body).toContain('### 本轮选取与未决事项');
+    } else {
+      expect(consumer.items.filter((item: any) => item.type === 'plan').map((item: any) => [item.id, item.metadata.intent_state])).toEqual([['PLAN-EXPORT', 'proposed'], ['PLAN-IMPORT', 'adopted'], ['PLAN-LEGACY', 'retired']]);
+      const work = consumer.items.find((item: any) => item.id === 'PLAN-IMPORT').metadata.work_items;
+      expect(work.map((item: any) => item.id)).toEqual(['W-VERIFY', 'W-BASE', 'W-RELEASE']);
+      expect(work.map((item: any) => item.stage)).toEqual(['近期核对', '近期实施', '后续交付']);
+      expect(work.flatMap((item: any) => item.targets).map((target: any) => target.target)).toEqual(['REQ-IMPORT', 'REQ-IMPORT', 'REQ-IMPORT']);
+      expect(work[0].depends_on).toBeUndefined(); expect(work[1].depends_on).toBeUndefined();
+    }
+    const selectedRead = invokePlanning({ paths: ['docs/product/REQUIREMENTS.md'], detail: 'items' });
+    expect(selectedRead.exit).toBe(0); expect(selectedRead.result.coverage.paths).toEqual(['docs/product/REQUIREMENTS.md']);
+    expect(selectedRead.result.usable_items.every((item: any) => item.type === 'requirement')).toBe(true);
+    fs.writeFileSync(path.join(planning, '.workflow-system/PRODUCT.yaml'), stringify({ ...installedRead.result.manifest, managed_paths: [...installedRead.result.manifest.managed_paths, 'docs/product/UNREAD.md'] }));
+    const partialNode = invokePlanning({ detail: 'items' }); expect(partialNode.exit).toBe(1); expect(partialNode.result.coverage.complete).toBe(false);
+    const partialReader = spawnSync('node', [reader, planning], { encoding: 'utf8' }), partialConsumer = JSON.parse(partialReader.stdout);
+    expect(partialReader.status).toBe(1); expect(partialConsumer.coverage.complete).toBe(false);
+    expect(partialConsumer.coverage.omitted).toEqual(['docs/product/UNREAD.md']);
+    expect(content(partialConsumer.items)).toEqual(content(consumer.items));
+    expect(fs.readFileSync(path.join(planning, 'docs/product/REQUIREMENTS.md'))).toEqual(requirementBytes);
+    for (const absent of ['.workflow-system/runtime', '.workflow-system/records', 'node_modules']) expect(fs.existsSync(path.join(planning, absent))).toBe(false);
+  }
   fs.copyFileSync(appendFile, path.join(offline, appendPath));
   const offlineAppend = JSON.parse(execFileSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' }));
   expect(offlineAppend.items.map((i: any) => i.id)).toContain('REQ-ADDED'); expect(offlineAppend.diagnostics.some((d: any) => d.item_id === 'REQ-KEEP' && d.severity === 'error')).toBe(true);

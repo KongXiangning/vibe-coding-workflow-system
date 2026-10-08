@@ -1,0 +1,7 @@
+{
+  "allowed": true,
+  "normalizedSourceRoot": "/workspace/shared/project-planning-20261008/packed-consumer/node_modules/vibe-governance/payload/migration-source",
+  "normalizedTargetRoot": "/workspace/shared/project-planning-20261008/packed-target",
+  "sourceGitRoot": "/workspace/shared/project-planning-20261008/packed-consumer",
+  "targetGitRoot": "/workspace/shared/project-planning-20261008/packed-target"
+}

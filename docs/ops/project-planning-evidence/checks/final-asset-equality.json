@@ -1,0 +1,196 @@
+{
+  "source_baseline": "84589392b27394cd6fcce16d6029f37faed2b962",
+  "installed_root": "/workspace/shared/project-planning-20261008/install-final",
+  "all_equal": true,
+  "count": 45,
+  "assets": {
+    "API.md": {
+      "source_sha256": "e41f1cf66fb34ec4ae32eeef2c0f3fdb0446fe0930c5fc2f8b059b8af7b76911",
+      "installed_sha256": "e41f1cf66fb34ec4ae32eeef2c0f3fdb0446fe0930c5fc2f8b059b8af7b76911"
+    },
+    "contract.md": {
+      "source_sha256": "0709290da8f151d1b1cbb75d03eca4cac75499174490a50b9aa4620b319a4cf0",
+      "installed_sha256": "0709290da8f151d1b1cbb75d03eca4cac75499174490a50b9aa4620b319a4cf0"
+    },
+    "examples/e6/.workflow-system/PRODUCT.yaml": {
+      "source_sha256": "401bf406938b0b7747fffdd7d207e303cfbcef8fd91c4d2201b02ca2fc2e4397",
+      "installed_sha256": "401bf406938b0b7747fffdd7d207e303cfbcef8fd91c4d2201b02ca2fc2e4397"
+    },
+    "examples/e6/docs/product/ASSESSMENTS.md": {
+      "source_sha256": "8217e22ce42eec46d69dcc6176f61a9777e9d964ac5aaf483014340418e4f122",
+      "installed_sha256": "8217e22ce42eec46d69dcc6176f61a9777e9d964ac5aaf483014340418e4f122"
+    },
+    "examples/e6/docs/product/DISCUSSIONS.md": {
+      "source_sha256": "5a79534c3b3310784ab84db7b05d32312a9c0355fae916564d4ecbe99ff3baa2",
+      "installed_sha256": "5a79534c3b3310784ab84db7b05d32312a9c0355fae916564d4ecbe99ff3baa2"
+    },
+    "examples/e6/docs/product/PLAN.md": {
+      "source_sha256": "94d2f1ff0a5ba072182e40977dd1b3af7086abb519f00cef1b12a552486aa56c",
+      "installed_sha256": "94d2f1ff0a5ba072182e40977dd1b3af7086abb519f00cef1b12a552486aa56c"
+    },
+    "examples/e6/docs/product/PROJECT.md": {
+      "source_sha256": "0daefbd95295abec8f45556a51852e3d41ff4b57409f3c81d115101864a812ab",
+      "installed_sha256": "0daefbd95295abec8f45556a51852e3d41ff4b57409f3c81d115101864a812ab"
+    },
+    "examples/e6/docs/product/REQUIREMENTS.md": {
+      "source_sha256": "d05bd910f9930f8e55a5db9ddd98dd7ecb0e4a4bb47f3a3fe50c9f645a35bb2a",
+      "installed_sha256": "d05bd910f9930f8e55a5db9ddd98dd7ecb0e4a4bb47f3a3fe50c9f645a35bb2a"
+    },
+    "examples/e6/docs/product/raw/selected.txt": {
+      "source_sha256": "38062e5560c2a12d5ddf875c0453791f0a22cd9bf4786d0f21d066f2d421020a",
+      "installed_sha256": "38062e5560c2a12d5ddf875c0453791f0a22cd9bf4786d0f21d066f2d421020a"
+    },
+    "examples/planning/README.md": {
+      "source_sha256": "ef88a9c93a6e354b5842500390351789dffed6d351ac6f83610dbe1a095f00d4",
+      "installed_sha256": "ef88a9c93a6e354b5842500390351789dffed6d351ac6f83610dbe1a095f00d4"
+    },
+    "examples/planning/multiple-plans/.workflow-system/PRODUCT.yaml": {
+      "source_sha256": "d56c106cba540d643c5b70308c3efd44ddd12a77df565d5f247370797f608169",
+      "installed_sha256": "d56c106cba540d643c5b70308c3efd44ddd12a77df565d5f247370797f608169"
+    },
+    "examples/planning/multiple-plans/docs/product/ASSESSMENTS.md": {
+      "source_sha256": "3b82295669c61ffd2e1af350d780054bbe33ce18cd8f216f0e9c79cf5d9cccc4",
+      "installed_sha256": "3b82295669c61ffd2e1af350d780054bbe33ce18cd8f216f0e9c79cf5d9cccc4"
+    },
+    "examples/planning/multiple-plans/docs/product/PLAN-EXPORT.md": {
+      "source_sha256": "73a173b91b93a738d9527e291139a2c1d3afa24ac3ae5d369f205e15e82fe706",
+      "installed_sha256": "73a173b91b93a738d9527e291139a2c1d3afa24ac3ae5d369f205e15e82fe706"
+    },
+    "examples/planning/multiple-plans/docs/product/PLAN-IMPORT.md": {
+      "source_sha256": "775265f4a8d4c9691ce6f4e01a3517a7ecc3096925204c977a0f34489f3ce462",
+      "installed_sha256": "775265f4a8d4c9691ce6f4e01a3517a7ecc3096925204c977a0f34489f3ce462"
+    },
+    "examples/planning/multiple-plans/docs/product/PLAN-LEGACY.md": {
+      "source_sha256": "0597b99ec0ed23bbfb0e7f43c44b4d5d57eaced56030922d9a8c36c814a387a1",
+      "installed_sha256": "0597b99ec0ed23bbfb0e7f43c44b4d5d57eaced56030922d9a8c36c814a387a1"
+    },
+    "examples/planning/multiple-plans/docs/product/PROJECT.md": {
+      "source_sha256": "74d746ede2ced024471500cd71f23eb3449b373708b60f891754faf7e4533a7c",
+      "installed_sha256": "74d746ede2ced024471500cd71f23eb3449b373708b60f891754faf7e4533a7c"
+    },
+    "examples/planning/multiple-plans/docs/product/REQUIREMENTS.md": {
+      "source_sha256": "d74e7e5e59e9b304fc5751232de91e22ba7a749bd218c76445fa12ec36d6ddcf",
+      "installed_sha256": "d74e7e5e59e9b304fc5751232de91e22ba7a749bd218c76445fa12ec36d6ddcf"
+    },
+    "examples/planning/no-plan/.workflow-system/PRODUCT.yaml": {
+      "source_sha256": "6fc16da5af896641aff8d2e3d5e6ccd6922a356b8425ac56aa0ea31ee6334066",
+      "installed_sha256": "6fc16da5af896641aff8d2e3d5e6ccd6922a356b8425ac56aa0ea31ee6334066"
+    },
+    "examples/planning/no-plan/docs/product/ASSESSMENTS.md": {
+      "source_sha256": "3b82295669c61ffd2e1af350d780054bbe33ce18cd8f216f0e9c79cf5d9cccc4",
+      "installed_sha256": "3b82295669c61ffd2e1af350d780054bbe33ce18cd8f216f0e9c79cf5d9cccc4"
+    },
+    "examples/planning/no-plan/docs/product/PROJECT.md": {
+      "source_sha256": "feec5b0016cd5d53793d5ef2aec84e0d266f63bc595ff566c38dcbc750a2ee94",
+      "installed_sha256": "feec5b0016cd5d53793d5ef2aec84e0d266f63bc595ff566c38dcbc750a2ee94"
+    },
+    "examples/planning/no-plan/docs/product/REQUIREMENTS.md": {
+      "source_sha256": "d74e7e5e59e9b304fc5751232de91e22ba7a749bd218c76445fa12ec36d6ddcf",
+      "installed_sha256": "d74e7e5e59e9b304fc5751232de91e22ba7a749bd218c76445fa12ec36d6ddcf"
+    },
+    "offline-reader.js": {
+      "source_sha256": "bdcf6e071e67f60aa9707057b3fd3fd6f21a8c6785bb94944fc5b95aa0c6d8f6",
+      "installed_sha256": "bdcf6e071e67f60aa9707057b3fd3fd6f21a8c6785bb94944fc5b95aa0c6d8f6"
+    },
+    "references/discussion.md": {
+      "source_sha256": "e80637f670356897bab32345347c8673fe46fde9a2e7cd15c5670f4bb59a756f",
+      "installed_sha256": "e80637f670356897bab32345347c8673fe46fde9a2e7cd15c5670f4bb59a756f"
+    },
+    "references/inventory.md": {
+      "source_sha256": "e0a5094e4db4a676c4faa3bede67947779352b804fcb63c62dfa982ec7d3db20",
+      "installed_sha256": "e0a5094e4db4a676c4faa3bede67947779352b804fcb63c62dfa982ec7d3db20"
+    },
+    "references/plan.md": {
+      "source_sha256": "effbc7f5e400e40f549201e8aaccfe346092d67a190133390228e86f65c22420",
+      "installed_sha256": "effbc7f5e400e40f549201e8aaccfe346092d67a190133390228e86f65c22420"
+    },
+    "references/reconcile.md": {
+      "source_sha256": "e0863363d46bd3b1289cd20c0ebc6bb4154ff61030eb4a194494c2635c3fd1d3",
+      "installed_sha256": "e0863363d46bd3b1289cd20c0ebc6bb4154ff61030eb4a194494c2635c3fd1d3"
+    },
+    "references/recovery.md": {
+      "source_sha256": "87741e9a3423bef07f5d4dede735b39cff65777d60fe99615613412847c58916",
+      "installed_sha256": "87741e9a3423bef07f5d4dede735b39cff65777d60fe99615613412847c58916"
+    },
+    "references/update.md": {
+      "source_sha256": "b306db54aef0e7c428a32201ddb3be9e62cda6eec5ec3cffd08eaecb2f6c499d",
+      "installed_sha256": "b306db54aef0e7c428a32201ddb3be9e62cda6eec5ec3cffd08eaecb2f6c499d"
+    },
+    "schemas/product-doc-v1.json": {
+      "source_sha256": "1d341ee1782e9b4c7c24eaf1b2af344a73445e5ac1356d488ff0915307d5cf4b",
+      "installed_sha256": "1d341ee1782e9b4c7c24eaf1b2af344a73445e5ac1356d488ff0915307d5cf4b"
+    },
+    "schemas/product-doc-v2.json": {
+      "source_sha256": "a628cc443f5bdc1495e8d8ae3e9c5c40e7e31eab2278e6bd1442fa31d58e40ce",
+      "installed_sha256": "a628cc443f5bdc1495e8d8ae3e9c5c40e7e31eab2278e6bd1442fa31d58e40ce"
+    },
+    "schemas/product-manifest-v1.json": {
+      "source_sha256": "b870b60e82d96bcc1fccaf9fbfad6291b0af66c308e9b497155931bf089a73a5",
+      "installed_sha256": "b870b60e82d96bcc1fccaf9fbfad6291b0af66c308e9b497155931bf089a73a5"
+    },
+    "schemas/product-manifest-v2.json": {
+      "source_sha256": "5346e5f45aced8bb82fd613febffaa9186a7a914f9d4cad974c71aa075fbd9a6",
+      "installed_sha256": "5346e5f45aced8bb82fd613febffaa9186a7a914f9d4cad974c71aa075fbd9a6"
+    },
+    "schemas/request-v1.json": {
+      "source_sha256": "28eb1cd90db044c58bfe5a00422a9435c6a9ebe30772e900e77d35d670c2802d",
+      "installed_sha256": "28eb1cd90db044c58bfe5a00422a9435c6a9ebe30772e900e77d35d670c2802d"
+    },
+    "schemas/result-v1.json": {
+      "source_sha256": "d7f2630869ae40acf2b7db0d0e6d58c5f07586873bdade3e0c19d56874e1fcda",
+      "installed_sha256": "d7f2630869ae40acf2b7db0d0e6d58c5f07586873bdade3e0c19d56874e1fcda"
+    },
+    "templates/ASSESSMENT.md": {
+      "source_sha256": "495b143c764384d0c10f3d3f939c292962152e464670bf98d696963035af85fb",
+      "installed_sha256": "495b143c764384d0c10f3d3f939c292962152e464670bf98d696963035af85fb"
+    },
+    "templates/CHANGE.md": {
+      "source_sha256": "6c66e0ab3afa190786590f7a28a329d0151d1a3d5b84b32c6324e61f31badc4c",
+      "installed_sha256": "6c66e0ab3afa190786590f7a28a329d0151d1a3d5b84b32c6324e61f31badc4c"
+    },
+    "templates/DESIGN.md": {
+      "source_sha256": "d04554829b293c9ccdcdbb06ec0c3c6eb723427177311172eb5deee897b07e45",
+      "installed_sha256": "d04554829b293c9ccdcdbb06ec0c3c6eb723427177311172eb5deee897b07e45"
+    },
+    "templates/DISCUSSION.md": {
+      "source_sha256": "0f76ea57eac316366d7b5717bd6045d50a23ae57228cc8c481ec6c605b49e591",
+      "installed_sha256": "0f76ea57eac316366d7b5717bd6045d50a23ae57228cc8c481ec6c605b49e591"
+    },
+    "templates/GOAL.md": {
+      "source_sha256": "8d08674f5400e414639a18605185ff7c82307f53571165dccd82ff009b045e85",
+      "installed_sha256": "8d08674f5400e414639a18605185ff7c82307f53571165dccd82ff009b045e85"
+    },
+    "templates/MODULE.md": {
+      "source_sha256": "30d56b5594bd78b9c8525cd347dd117df31f76fd718e852fb473b15793d24206",
+      "installed_sha256": "30d56b5594bd78b9c8525cd347dd117df31f76fd718e852fb473b15793d24206"
+    },
+    "templates/PLAN.md": {
+      "source_sha256": "e129722ef71a7d40c5caa7ff082194b9684a7a9dac1b61674b91b948e94de93f",
+      "installed_sha256": "e129722ef71a7d40c5caa7ff082194b9684a7a9dac1b61674b91b948e94de93f"
+    },
+    "templates/PRODUCT.yaml": {
+      "source_sha256": "631827f1660c9e66ec80a61137e81ff3295dca843823219f1c7fda8a910b5197",
+      "installed_sha256": "631827f1660c9e66ec80a61137e81ff3295dca843823219f1c7fda8a910b5197"
+    },
+    "templates/PROJECT.md": {
+      "source_sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038",
+      "installed_sha256": "0d1b131aea3aea4c54c3816409b31c3d90f398e676fe677e2115a1d1076d9038"
+    },
+    "templates/REQUIREMENTS.md": {
+      "source_sha256": "51c239d38ac54e7b683abb691a1fffb1532feace08ca3f8147ad10152b55eb45",
+      "installed_sha256": "51c239d38ac54e7b683abb691a1fffb1532feace08ca3f8147ad10152b55eb45"
+    },
+    "helper": {
+      "source_sha256": "f70c25a6d3ea282805295fb093eaff7b1585e2285a2fee0a4bab51c1af43c17f",
+      "installed_sha256": "f70c25a6d3ea282805295fb093eaff7b1585e2285a2fee0a4bab51c1af43c17f"
+    }
+  },
+  "installed_skill": {
+    "path": ".agents/skills/maintain-project/SKILL.md",
+    "sha256": "73267bd9503e810b07b1541a6f124486889b280048780f60dc233dea2f08ebe0"
+  },
+  "installed_protocol": {
+    "path": ".workflow-system/WORKFLOW_PROTOCOL.md",
+    "sha256": "95b017fd3ef690ab71f342874f90efd5e8c5041e0bbf6ff52106d488d8cb6fc2"
+  }
+}

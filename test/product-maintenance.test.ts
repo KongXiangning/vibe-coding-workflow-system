@@ -8,6 +8,7 @@ import { run } from '../runtime/vnext/src/product-maintenance/cli';
 import { parseProduct, requirementDigest, sha256 } from '../runtime/vnext/src/product-maintenance/parser';
 import { newDocument } from '../runtime/vnext/src/product-maintenance/writer';
 import { type ObjectValue } from '../runtime/vnext/src/product-maintenance/model';
+import { buildProductAssets } from '../scripts/product-maintenance-assets';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -618,6 +619,60 @@ test('E6 keeps one requirement and stable work items; task binding retry has no 
   expect(run('apply', root, { files: [operation] }).files[0].status).toBe('unchanged');
   expect(run('apply', root, { files: [operation] }).task_operations).toBe('not-performed');
   expect(fs.existsSync(path.join(root, '.workflow-system/records'))).toBe(false);
+});
+test('planning samples preserve no-plan prose, independent plan order, cross-stage coverage and open scope', () => {
+  const assets = fs.mkdtempSync(path.join(os.tmpdir(), 'product-consumer-assets-')); roots.push(assets);
+  for (const file of ['document-contract.md', 'examples/e6-repair.md', 'examples/planning-consumption.md']) {
+    put(assets, `docs/product/project-maintenance/${file}`, fs.readFileSync(path.resolve(import.meta.dir, '../docs/product/project-maintenance', file)));
+  }
+  fs.mkdirSync(path.join(assets, 'runtime/vnext/support/product-maintenance'), { recursive: true });
+  buildProductAssets(assets);
+  const example = path.join(assets, 'runtime/vnext/support/product-maintenance/examples/planning');
+  const find = (read: any, id: string) => read.usable_items.find((item: any) => item.id === id);
+  const scopes = [['REQ-IMPORT', 'current'], ['REQ-AUDIT', 'current'], ['REQ-EXPORT', 'planned'], ['REQ-STREAM', 'candidate'], ['REQ-LEGACY', 'retired']];
+  for (const variant of ['no-plan', 'multiple-plans']) {
+    const root = path.join(example, variant), read = run('read', root, { detail: 'items' });
+    expect(read.status).toBe('available'); expect(read.coverage.complete).toBe(true);
+    expect(read.usable_items.filter((item: any) => item.type === 'requirement').map((item: any) => [item.id, item.metadata.scope])).toEqual(scopes);
+    expect(find(read, 'PROJECT-SELECT').metadata.inventory.state).toBe('partial');
+    expect(find(read, 'AS-BASE').metadata.implementation).toBe('partial-reported');
+    expect(find(read, 'AS-BASE').metadata.verification).toBe('pass-reported');
+    expect(find(read, 'AS-BASE').metadata.pending_sources).toHaveLength(1);
+    expect(read.diagnostics.filter((d: any) => !['DEFINITION_UNKNOWN', 'PENDING_SOURCES'].includes(d.code))).toEqual([]);
+    expect(read.task_status).toContain('not-computed'); expect(read.task_operations).toBe('not-performed');
+    expect(find(read, 'REQ-IMPORT').metadata.task_bindings[0].plan_items).toBeUndefined();
+    expect(find(read, 'REQ-AUDIT').metadata.task_bindings).toBeUndefined();
+    const projectSource = parseProduct(get(root, 'docs/product/PROJECT.md').toString(), 'docs/product/PROJECT.md').items.find(item => item.id === 'PROJECT-SELECT')!;
+    expect(find(read, 'PROJECT-SELECT').body).toBe(projectSource.body);
+    expect(find(run('read', root), 'PROJECT-SELECT').body).toBeUndefined();
+    const selected = run('read', root, { paths: ['docs/product/REQUIREMENTS.md'], detail: 'items' });
+    expect(selected.coverage.complete).toBe(true); expect(selected.coverage.paths).toEqual(['docs/product/REQUIREMENTS.md']);
+    expect(selected.usable_items.map((item: any) => item.type)).toEqual(scopes.map(() => 'requirement'));
+    expect(selected.sources).toEqual([]); expect(selected.coverage.source_bodies).toBe('not-read');
+    const limited = run('read', root, { max_files: 1, detail: 'items' });
+    expect(limited.coverage.complete).toBe(false); expect(limited.coverage.omitted.length).toBeGreaterThan(0);
+    expect(limited.usable_items.length).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(root, '.workflow-system/records'))).toBe(false);
+  }
+  const noPlan = run('read', path.join(example, 'no-plan'), { detail: 'items' });
+  expect(noPlan.usable_items.some((item: any) => item.type === 'plan')).toBe(false); expect(noPlan.plan_tasks).toEqual([]);
+  expect(find(noPlan, 'PROJECT-SELECT').body).toContain('### 本轮选取与未决事项');
+  const root = path.join(example, 'multiple-plans');
+  fs.utimesSync(path.join(root, 'docs/product/PLAN-IMPORT.md'), new Date('2026-01-01'), new Date('2026-01-01'));
+  fs.utimesSync(path.join(root, 'docs/product/PLAN-EXPORT.md'), new Date('2026-10-08'), new Date('2026-10-08'));
+  const read = run('read', root, { detail: 'items' });
+  expect(read.usable_items.filter((item: any) => item.type === 'plan').map((item: any) => [item.id, item.metadata.intent_state])).toEqual([['PLAN-EXPORT', 'proposed'], ['PLAN-IMPORT', 'adopted'], ['PLAN-LEGACY', 'retired']]);
+  const selectedPlan = find(read, 'PLAN-IMPORT');
+  const originalPlan = parseProduct(get(root, 'docs/product/PLAN-IMPORT.md').toString(), 'docs/product/PLAN-IMPORT.md').items[0]!;
+  expect(selectedPlan.metadata).toEqual(originalPlan.metadata); expect(selectedPlan.body).toBe(originalPlan.body);
+  expect(selectedPlan.metadata.work_items.map((work: any) => [work.id, work.stage])).toEqual([['W-VERIFY', '近期核对'], ['W-BASE', '近期实施'], ['W-RELEASE', '后续交付']]);
+  expect(selectedPlan.metadata.work_items.flatMap((work: any) => work.targets).map((target: any) => target.target)).toEqual(['REQ-IMPORT', 'REQ-IMPORT', 'REQ-IMPORT']);
+  expect(selectedPlan.metadata.work_items[0].depends_on).toBeUndefined(); expect(selectedPlan.metadata.work_items[1].depends_on).toBeUndefined();
+  expect(selectedPlan.metadata.work_items[2].depends_on.map((dependency: any) => [dependency.item_id, dependency.kind])).toEqual([['W-BASE', 'prerequisite']]);
+  expect(read.plan_tasks.find((plan: any) => plan.plan_id === 'PLAN-IMPORT').work_items.map((work: any) => work.work_item_id)).toEqual(['W-VERIFY', 'W-BASE', 'W-RELEASE']);
+  expect(read.plan_tasks.find((plan: any) => plan.plan_id === 'PLAN-EXPORT').work_items.map((work: any) => work.work_item_id)).toEqual(['W-RELEASE']);
+  expect(read.plan_tasks.flatMap((plan: any) => plan.work_items).every((work: any) => work.bindings.length === 0)).toBe(true);
+  expect(read.reverse_relations.filter((relation: any) => relation.relation === 'plan-target').map((relation: any) => [relation.owner, relation.target])).toEqual([['PLAN-EXPORT', 'REQ-EXPORT'], ['PLAN-IMPORT', 'REQ-IMPORT'], ['PLAN-LEGACY', 'REQ-LEGACY']]);
 });
 test('cyclic/withdrawn predecessors are visible diagnostics; retired targets stay retired', () => {
   const root = fixture([req('REQ-A', { scope: 'retired' })]);

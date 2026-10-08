@@ -1,0 +1,34 @@
+{
+  "host-selection": {
+    ".agents/skills/maintain-project/SKILL.md": "73267bd9503e810b07b1541a6f124486889b280048780f60dc233dea2f08ebe0",
+    ".workflow-system/runtime/support/product-maintenance.js": "f70c25a6d3ea282805295fb093eaff7b1585e2285a2fee0a4bab51c1af43c17f",
+    ".workflow-system/runtime/support/product-maintenance/references/plan.md": "effbc7f5e400e40f549201e8aaccfe346092d67a190133390228e86f65c22420",
+    ".workflow-system/runtime/support/product-maintenance/references/inventory.md": "e0a5094e4db4a676c4faa3bede67947779352b804fcb63c62dfa982ec7d3db20",
+    ".workflow-system/runtime/support/product-maintenance/references/reconcile.md": "e0863363d46bd3b1289cd20c0ebc6bb4154ff61030eb4a194494c2635c3fd1d3",
+    ".workflow-system/runtime/support/product-maintenance/contract.md": "edc85a20fbd7268862d7414116b35907e858a2578330b92a1108198dc72c8bfb"
+  },
+  "host-evolution": {
+    ".agents/skills/maintain-project/SKILL.md": "73267bd9503e810b07b1541a6f124486889b280048780f60dc233dea2f08ebe0",
+    ".workflow-system/runtime/support/product-maintenance.js": "f70c25a6d3ea282805295fb093eaff7b1585e2285a2fee0a4bab51c1af43c17f",
+    ".workflow-system/runtime/support/product-maintenance/references/plan.md": "effbc7f5e400e40f549201e8aaccfe346092d67a190133390228e86f65c22420",
+    ".workflow-system/runtime/support/product-maintenance/references/inventory.md": "e0a5094e4db4a676c4faa3bede67947779352b804fcb63c62dfa982ec7d3db20",
+    ".workflow-system/runtime/support/product-maintenance/references/reconcile.md": "e0863363d46bd3b1289cd20c0ebc6bb4154ff61030eb4a194494c2635c3fd1d3",
+    ".workflow-system/runtime/support/product-maintenance/contract.md": "edc85a20fbd7268862d7414116b35907e858a2578330b92a1108198dc72c8bfb"
+  },
+  "install-final": {
+    ".agents/skills/maintain-project/SKILL.md": "73267bd9503e810b07b1541a6f124486889b280048780f60dc233dea2f08ebe0",
+    ".workflow-system/runtime/support/product-maintenance.js": "f70c25a6d3ea282805295fb093eaff7b1585e2285a2fee0a4bab51c1af43c17f",
+    ".workflow-system/runtime/support/product-maintenance/references/plan.md": "effbc7f5e400e40f549201e8aaccfe346092d67a190133390228e86f65c22420",
+    ".workflow-system/runtime/support/product-maintenance/references/inventory.md": "e0a5094e4db4a676c4faa3bede67947779352b804fcb63c62dfa982ec7d3db20",
+    ".workflow-system/runtime/support/product-maintenance/references/reconcile.md": "e0863363d46bd3b1289cd20c0ebc6bb4154ff61030eb4a194494c2635c3fd1d3",
+    ".workflow-system/runtime/support/product-maintenance/contract.md": "0709290da8f151d1b1cbb75d03eca4cac75499174490a50b9aa4620b319a4cf0"
+  },
+  "packed-target": {
+    ".agents/skills/maintain-project/SKILL.md": "73267bd9503e810b07b1541a6f124486889b280048780f60dc233dea2f08ebe0",
+    ".workflow-system/runtime/support/product-maintenance.js": "f70c25a6d3ea282805295fb093eaff7b1585e2285a2fee0a4bab51c1af43c17f",
+    ".workflow-system/runtime/support/product-maintenance/references/plan.md": "effbc7f5e400e40f549201e8aaccfe346092d67a190133390228e86f65c22420",
+    ".workflow-system/runtime/support/product-maintenance/references/inventory.md": "e0a5094e4db4a676c4faa3bede67947779352b804fcb63c62dfa982ec7d3db20",
+    ".workflow-system/runtime/support/product-maintenance/references/reconcile.md": "e0863363d46bd3b1289cd20c0ebc6bb4154ff61030eb4a194494c2635c3fd1d3",
+    ".workflow-system/runtime/support/product-maintenance/contract.md": "0709290da8f151d1b1cbb75d03eca4cac75499174490a50b9aa4620b319a4cf0"
+  }
+}

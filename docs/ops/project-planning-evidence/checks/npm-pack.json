@@ -1,0 +1,1381 @@
+[
+  {
+    "id": "vibe-governance@0.24.1",
+    "name": "vibe-governance",
+    "version": "0.24.1",
+    "size": 2842269,
+    "unpackedSize": 14068732,
+    "shasum": "b30e103e9713ac3aafeb1f763fb90d338ad1baec",
+    "integrity": "sha512-5EWqabW8Btvb4b9RpB2ScLjLednR6gRiOyG9WAqnyAq+7b1OIngogz7MRRSRUHxOwWxEbjRUreeGCUV2pDX6lQ==",
+    "filename": "vibe-governance-0.24.1.tgz",
+    "files": [
+      {
+        "path": "README.md",
+        "size": 5222,
+        "mode": 420
+      },
+      {
+        "path": "dist/cli.js",
+        "size": 817157,
+        "mode": 493
+      },
+      {
+        "path": "package.json",
+        "size": 362,
+        "mode": 420
+      },
+      {
+        "path": "payload/distribution-manifest.json",
+        "size": 34558,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/.workflow-system/vnext/RUNTIME_CONTRACT.yaml",
+        "size": 53706,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/.workflow-system/vnext/SOURCE_CONTRACT.yaml",
+        "size": 50431,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/dist/cli.js",
+        "size": 2150683,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/dist/install-tools.js",
+        "size": 97661,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/dist/product-maintenance.js",
+        "size": 564618,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/package-lock.json",
+        "size": 782,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/package.json",
+        "size": 192,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/artifact-checkpoints.ts",
+        "size": 9586,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/authority-domain-transaction.ts",
+        "size": 13160,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/bootstrap-support.ts",
+        "size": 94466,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/bootstrap.ts",
+        "size": 25087,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/cli.ts",
+        "size": 5493,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/current-task.ts",
+        "size": 187,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/entry-output.ts",
+        "size": 3086,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/entry-recovery.ts",
+        "size": 5361,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/entry-runner.ts",
+        "size": 15337,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/evidence-lineage.ts",
+        "size": 5412,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/execute-step-adapter.ts",
+        "size": 140284,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/execution-admission.ts",
+        "size": 10887,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/file-context-cli.ts",
+        "size": 998,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/file-context.ts",
+        "size": 9707,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/finding-queue-transaction.ts",
+        "size": 215,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/host-guidance.ts",
+        "size": 8999,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/install-tools-cli.ts",
+        "size": 446,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/install-tools.ts",
+        "size": 7322,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/kernel.ts",
+        "size": 1489650,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/migration-preservation.ts",
+        "size": 5226,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/migration-provenance.ts",
+        "size": 29677,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/mutation-authority.ts",
+        "size": 28378,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/mutation-scope.ts",
+        "size": 44932,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/operation-semantics.ts",
+        "size": 1536,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/prepare-task-adapter.ts",
+        "size": 59079,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/catalog.ts",
+        "size": 6620,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/cli.ts",
+        "size": 7178,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/model.ts",
+        "size": 2000,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/offline-reader.ts",
+        "size": 1192,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/parser.ts",
+        "size": 9680,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/paths.ts",
+        "size": 7356,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/plans.ts",
+        "size": 10892,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/references.ts",
+        "size": 7517,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/schemas.ts",
+        "size": 13585,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/product-maintenance/writer.ts",
+        "size": 29550,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/project-documents.ts",
+        "size": 2685,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/review-change-adapter.ts",
+        "size": 62669,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/review-preimage-store.ts",
+        "size": 9736,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/rg-tool.ts",
+        "size": 2648,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/runtime-io.ts",
+        "size": 6184,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/scoped-tree-hash.ts",
+        "size": 5213,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/status-schema.ts",
+        "size": 1830,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-context.ts",
+        "size": 100905,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-evolution-io.ts",
+        "size": 19042,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-identity.ts",
+        "size": 11167,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-projection-v3.ts",
+        "size": 3732,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-projection.ts",
+        "size": 14024,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-recovery.ts",
+        "size": 1191,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-state-transaction.ts",
+        "size": 641,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-steps.ts",
+        "size": 9357,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-storage-metrics.ts",
+        "size": 24827,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/task-store.ts",
+        "size": 150711,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/src/user-decision-adapter.ts",
+        "size": 9719,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/ASSISTANCE_API.md",
+        "size": 24812,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/assistance.mjs",
+        "size": 65976,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/bootstrap/CURRENT_TASK.md.tmpl",
+        "size": 1969,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/CONTEXT_API.md",
+        "size": 96325,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md",
+        "size": 52614,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/API.md",
+        "size": 13805,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/contract.md",
+        "size": 28789,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/e6/.workflow-system/PRODUCT.yaml",
+        "size": 234,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/e6/docs/product/ASSESSMENTS.md",
+        "size": 1346,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/e6/docs/product/DISCUSSIONS.md",
+        "size": 1011,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/e6/docs/product/PLAN.md",
+        "size": 2368,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/e6/docs/product/PROJECT.md",
+        "size": 1090,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/e6/docs/product/raw/selected.txt",
+        "size": 136,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/e6/docs/product/REQUIREMENTS.md",
+        "size": 2687,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/.workflow-system/PRODUCT.yaml",
+        "size": 220,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/ASSESSMENTS.md",
+        "size": 1119,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-EXPORT.md",
+        "size": 911,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-IMPORT.md",
+        "size": 2125,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-LEGACY.md",
+        "size": 446,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PROJECT.md",
+        "size": 1217,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/REQUIREMENTS.md",
+        "size": 2087,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/no-plan/.workflow-system/PRODUCT.yaml",
+        "size": 213,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/ASSESSMENTS.md",
+        "size": 1119,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/PROJECT.md",
+        "size": 1306,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/REQUIREMENTS.md",
+        "size": 2087,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/examples/planning/README.md",
+        "size": 4012,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/offline-reader.js",
+        "size": 523247,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/references/discussion.md",
+        "size": 3748,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/references/inventory.md",
+        "size": 5513,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/references/plan.md",
+        "size": 7466,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/references/reconcile.md",
+        "size": 5089,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/references/recovery.md",
+        "size": 6036,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/references/update.md",
+        "size": 3890,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/schemas/product-doc-v1.json",
+        "size": 31036,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/schemas/product-doc-v2.json",
+        "size": 33799,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/schemas/product-manifest-v1.json",
+        "size": 1286,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/schemas/product-manifest-v2.json",
+        "size": 1460,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/schemas/request-v1.json",
+        "size": 17987,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/schemas/result-v1.json",
+        "size": 1792,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/ASSESSMENT.md",
+        "size": 773,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/CHANGE.md",
+        "size": 621,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/DESIGN.md",
+        "size": 487,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/DISCUSSION.md",
+        "size": 735,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/GOAL.md",
+        "size": 363,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/MODULE.md",
+        "size": 365,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/PLAN.md",
+        "size": 589,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/PRODUCT.yaml",
+        "size": 457,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/PROJECT.md",
+        "size": 593,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/product-maintenance/templates/REQUIREMENTS.md",
+        "size": 477,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/TASK_MANAGEMENT_API.md",
+        "size": 20440,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/runtime/vnext/support/task-management.mjs",
+        "size": 72756,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/adopt-existing-project.SKILL.md.tmpl",
+        "size": 5295,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/archive-task.SKILL.md.tmpl",
+        "size": 6607,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/capture-lessons.SKILL.md.tmpl",
+        "size": 4454,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/capture-work-item.SKILL.md.tmpl",
+        "size": 10350,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/classify-decisions.SKILL.md.tmpl",
+        "size": 3890,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/close-current-task.SKILL.md.tmpl",
+        "size": 3934,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/continue-current-step.SKILL.md.tmpl",
+        "size": 4185,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/create-current-task.SKILL.md.tmpl",
+        "size": 12354,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/debug-and-fix-current-task.SKILL.md.tmpl",
+        "size": 4205,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/decompose-task.SKILL.md.tmpl",
+        "size": 6099,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/design-baseline-init.SKILL.md.tmpl",
+        "size": 4410,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/execute-current-task.SKILL.md.tmpl",
+        "size": 5507,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/greenfield-init.SKILL.md.tmpl",
+        "size": 5095,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/implement-current-step.SKILL.md.tmpl",
+        "size": 14647,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/interrupt-current-task.SKILL.md.tmpl",
+        "size": 9832,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/investigate-root-cause.SKILL.md.tmpl",
+        "size": 20087,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/legacy-inventory.SKILL.md.tmpl",
+        "size": 4660,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/lock-scope.SKILL.md.tmpl",
+        "size": 9504,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/pause-current-task.SKILL.md.tmpl",
+        "size": 10285,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/plan-implementation.SKILL.md.tmpl",
+        "size": 12698,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/prepare-delivery-summary.SKILL.md.tmpl",
+        "size": 5884,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/realign-workflow-assets.SKILL.md.tmpl",
+        "size": 10802,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/resume-interrupted-task.SKILL.md.tmpl",
+        "size": 9417,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/resume-paused-task.SKILL.md.tmpl",
+        "size": 8226,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/review-current-diff.SKILL.md.tmpl",
+        "size": 4316,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/review-current-task.SKILL.md.tmpl",
+        "size": 13988,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/review-diff.SKILL.md.tmpl",
+        "size": 15552,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/review-implementation.SKILL.md.tmpl",
+        "size": 18956,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/run-regression.SKILL.md.tmpl",
+        "size": 20464,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/supersede-current-task.SKILL.md.tmpl",
+        "size": 11617,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/sync-contracts.SKILL.md.tmpl",
+        "size": 4631,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/sync-current-task.SKILL.md.tmpl",
+        "size": 4228,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/sync-decisions.SKILL.md.tmpl",
+        "size": 4438,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/sync-host-guidance.SKILL.md.tmpl",
+        "size": 6567,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/sync-review-findings.SKILL.md.tmpl",
+        "size": 12621,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/sync-status.SKILL.md.tmpl",
+        "size": 5550,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/skills/verify-contracts.SKILL.md.tmpl",
+        "size": 5696,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/bootstrap/CURRENT_TASK.md",
+        "size": 1969,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/bootstrap/FILE_SCHEMAS.md",
+        "size": 58957,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/bootstrap/TASK_STORE.gitattributes",
+        "size": 264,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/bootstrap/test-admission-policy.md",
+        "size": 4660,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md",
+        "size": 15503,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/bootstrap-project.SKILL.md.tmpl",
+        "size": 6058,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/capture-work-item.SKILL.md.tmpl",
+        "size": 4943,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/close-task.SKILL.md.tmpl",
+        "size": 7704,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/debug-task.SKILL.md.tmpl",
+        "size": 6124,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/execute-step.SKILL.md.tmpl",
+        "size": 10325,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/git-commit.SKILL.md.tmpl",
+        "size": 7899,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/maintain-project.SKILL.md.tmpl",
+        "size": 5826,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/prepare-task.SKILL.md.tmpl",
+        "size": 9413,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/review-change.SKILL.md.tmpl",
+        "size": 7121,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/review-draft.SKILL.md.tmpl",
+        "size": 6163,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/task-lifecycle.SKILL.md.tmpl",
+        "size": 7018,
+        "mode": 420
+      },
+      {
+        "path": "payload/migration-source/templates/vnext/skills/validate-change.SKILL.md.tmpl",
+        "size": 5966,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/.workflow-system/vnext/RUNTIME_CONTRACT.yaml",
+        "size": 53706,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/.workflow-system/vnext/SOURCE_CONTRACT.yaml",
+        "size": 50431,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/dist/cli.js",
+        "size": 2150683,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/dist/install-tools.js",
+        "size": 97661,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/dist/product-maintenance.js",
+        "size": 564618,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/package-lock.json",
+        "size": 782,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/package.json",
+        "size": 192,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/artifact-checkpoints.ts",
+        "size": 9586,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/bootstrap-support.ts",
+        "size": 94466,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/bootstrap.ts",
+        "size": 25087,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/cli.ts",
+        "size": 5493,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/current-task.ts",
+        "size": 187,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/evidence-lineage.ts",
+        "size": 5412,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/execution-admission.ts",
+        "size": 10887,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/file-context-cli.ts",
+        "size": 998,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/file-context.ts",
+        "size": 9707,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/finding-queue-transaction.ts",
+        "size": 215,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/host-guidance.ts",
+        "size": 8999,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/install-tools-cli.ts",
+        "size": 446,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/install-tools.ts",
+        "size": 7322,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/kernel.ts",
+        "size": 1489650,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/migration-preservation.ts",
+        "size": 5226,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/migration-provenance.ts",
+        "size": 29677,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/mutation-scope.ts",
+        "size": 44932,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/project-documents.ts",
+        "size": 2685,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/rg-tool.ts",
+        "size": 2648,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/runtime-io.ts",
+        "size": 6184,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/scoped-tree-hash.ts",
+        "size": 5213,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/status-schema.ts",
+        "size": 1830,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/task-context.ts",
+        "size": 100905,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/task-identity.ts",
+        "size": 11167,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/task-recovery.ts",
+        "size": 1191,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/task-state-transaction.ts",
+        "size": 641,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/task-steps.ts",
+        "size": 9357,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/src/task-store.ts",
+        "size": 150711,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/ASSISTANCE_API.md",
+        "size": 24812,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/assistance.mjs",
+        "size": 65976,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/bootstrap/CURRENT_TASK.md.tmpl",
+        "size": 1969,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/CONTEXT_API.md",
+        "size": 96325,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/CONTEXT_THIRD_PARTY_NOTICES.md",
+        "size": 52614,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/API.md",
+        "size": 13805,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/contract.md",
+        "size": 28789,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/.workflow-system/PRODUCT.yaml",
+        "size": 234,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/ASSESSMENTS.md",
+        "size": 1346,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/DISCUSSIONS.md",
+        "size": 1011,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/PLAN.md",
+        "size": 2368,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/PROJECT.md",
+        "size": 1090,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/raw/selected.txt",
+        "size": 136,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/e6/docs/product/REQUIREMENTS.md",
+        "size": 2687,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/.workflow-system/PRODUCT.yaml",
+        "size": 220,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/ASSESSMENTS.md",
+        "size": 1119,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-EXPORT.md",
+        "size": 911,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-IMPORT.md",
+        "size": 2125,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PLAN-LEGACY.md",
+        "size": 446,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/PROJECT.md",
+        "size": 1217,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/multiple-plans/docs/product/REQUIREMENTS.md",
+        "size": 2087,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/no-plan/.workflow-system/PRODUCT.yaml",
+        "size": 213,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/ASSESSMENTS.md",
+        "size": 1119,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/PROJECT.md",
+        "size": 1306,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/no-plan/docs/product/REQUIREMENTS.md",
+        "size": 2087,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/examples/planning/README.md",
+        "size": 4012,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/offline-reader.js",
+        "size": 523247,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/references/discussion.md",
+        "size": 3748,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/references/inventory.md",
+        "size": 5513,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/references/plan.md",
+        "size": 7466,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/references/reconcile.md",
+        "size": 5089,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/references/recovery.md",
+        "size": 6036,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/references/update.md",
+        "size": 3890,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/schemas/product-doc-v1.json",
+        "size": 31036,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/schemas/product-doc-v2.json",
+        "size": 33799,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/schemas/product-manifest-v1.json",
+        "size": 1286,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/schemas/product-manifest-v2.json",
+        "size": 1460,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/schemas/request-v1.json",
+        "size": 17987,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/schemas/result-v1.json",
+        "size": 1792,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/ASSESSMENT.md",
+        "size": 773,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/CHANGE.md",
+        "size": 621,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/DESIGN.md",
+        "size": 487,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/DISCUSSION.md",
+        "size": 735,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/GOAL.md",
+        "size": 363,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/MODULE.md",
+        "size": 365,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/PLAN.md",
+        "size": 589,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/PRODUCT.yaml",
+        "size": 457,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/PROJECT.md",
+        "size": 593,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/product-maintenance/templates/REQUIREMENTS.md",
+        "size": 477,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/TASK_MANAGEMENT_API.md",
+        "size": 20440,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/runtime/vnext/support/task-management.mjs",
+        "size": 72756,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/bootstrap/CURRENT_TASK.md",
+        "size": 1969,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/bootstrap/FILE_SCHEMAS.md",
+        "size": 58957,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/bootstrap/TASK_STORE.gitattributes",
+        "size": 264,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/bootstrap/test-admission-policy.md",
+        "size": 4660,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md",
+        "size": 15503,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/bootstrap-project.SKILL.md.tmpl",
+        "size": 6058,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/capture-work-item.SKILL.md.tmpl",
+        "size": 4943,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/close-task.SKILL.md.tmpl",
+        "size": 7704,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/debug-task.SKILL.md.tmpl",
+        "size": 6124,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/execute-step.SKILL.md.tmpl",
+        "size": 10325,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/git-commit.SKILL.md.tmpl",
+        "size": 7899,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/maintain-project.SKILL.md.tmpl",
+        "size": 5826,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/prepare-task.SKILL.md.tmpl",
+        "size": 9413,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/review-change.SKILL.md.tmpl",
+        "size": 7121,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/review-draft.SKILL.md.tmpl",
+        "size": 6163,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/task-lifecycle.SKILL.md.tmpl",
+        "size": 7018,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/templates/vnext/skills/validate-change.SKILL.md.tmpl",
+        "size": 5966,
+        "mode": 420
+      },
+      {
+        "path": "payload/vnext-bundle/vnext-bundle.json",
+        "size": 33168,
+        "mode": 420
+      }
+    ],
+    "entryCount": 273,
+    "bundled": []
+  }
+]

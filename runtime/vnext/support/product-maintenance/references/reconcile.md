@@ -56,3 +56,17 @@ or new formats do not automatically contradict every historical report. New fail
 with unchanged definition must remain pending or be reconciled; repair close never
 changes this. Unaffected parts of C may continue under the existing instruction while
 the real data prerequisite of affected parts remains unsatisfied.
+
+For sufficiency, contradictions and prerequisite candidates use the shared analysis in
+inventory.md. Delivery evidence and material sufficiency answer different questions;
+assessment is not a documentation score. Reuse earlier dispositions and preserve the
+unread/contradictory/current-necessary/future-optional distinctions in their actual scope.
+
+For next-work selection compare the current complete requirements against actual delivered
+and verified coverage, including newly added/modified scope after partial delivery. Keep
+historical facts and unknown implementation applicability; do not subtract requirements
+because tasks closed or count tasks to compute the remainder. Split/merged requirements
+and tightened or restored acceptance need their own current-scope check; old bindings and
+PASS stay historical evidence, not automatic certification of each destination or restored
+text. Use plan.md to arrange or directly prepare authorized nearby work, with or without
+a plan. A partial read establishes only its stated scope, not a complete remaining backlog.

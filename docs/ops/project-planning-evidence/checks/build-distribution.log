@@ -1,0 +1,7 @@
+$ bun run scripts/build-vibe-governance-distribution.ts
+{
+  "package_root": "/workspace/shared/merge-main-maintenance-20261007/repo/packages/vibe-governance",
+  "manifest_digest": "c9f810f7d04edf6a7193d9d820678e76608e83916bd9525f12996ad12c3b30e6",
+  "distribution_version": "0.24.1",
+  "bundle_id": "bundle-ffcf98de7ec0517c99de5d93"
+}

@@ -1,5 +1,7 @@
 # maintain-project 首版交付记录
 
+> 2026-10-08，已从 `84589392` 实施项目规划与持续选取增量：三种策略、共享资料充分性／前提候选分析、消费约定和样例，以及两组安装后真实宿主增量链。实际检查、独立复审、原 packed 用例环境失败与既有辅助链接问题见[本轮交付证据](project-planning-evidence/README.md)。本轮未发布或向真实项目安装；本地提交身份以交付包报告为准，不继承下文历史通过数。
+
 > 2026-10-05 本轮可靠性修复已在 `project-goals-requirements` / `codex/maintain-project-v1` 工作副本实施，基线及当前 HEAD 为 `20ba0275270493b94b4f02eca33cc3b8c38b198d`。本地候选 `0.24.1`，未提交、推送、发布或部署。本轮 F01～F06 原行为/修后正反证据、S01～S13 映射、53 项实际测试、四层交付和具体未执行项见 [本轮交付证据](project-maintenance-hardening-evidence/README.md)。
 >
 > 同日后续审查发现的 R01～R04 已按用户决定修复，最终候选结果见 [四项 P2 修复](project-maintenance-hardening-evidence/README.md#后续四项-p2-修复)：本次 48 项不同测试通过，包含原 24 项产品回归；此前测试数和产物摘要保留为历史。

@@ -1,0 +1,44 @@
+bun test v1.3.10 (30e609e0)
+
+test/vibe-governance-distribution.test.ts:
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+216 |       cwd: npmEnvironment,
+217 |       encoding: 'utf8',
+218 |       shell: process.platform === 'win32',
+219 |     });
+220 |     expect(cli.error).toBeUndefined();
+221 |     if (cli.status !== 0) throw new Error(`Installed vibe-governance bin failed (status=${cli.status}): stdout=${cli.stdout}\nstderr=${cli.stderr}`);
+                                                                                                                                                         ^
+error: Installed vibe-governance bin failed (status=1): stdout={
+  "operation": "install",
+  "status": "rejected",
+  "target_root": "/tmp/vibe-governance-fresh-target-4kc1hZ",
+  "distribution_version": "0.24.1",
+  "classification": {
+    "state": "uninstalled",
+    "version": null,
+    "valid": true,
+    "reasons": []
+  },
+  "planned_writes": [],
+  "planned_deletes": [],
+  "blockers": [
+    {
+      "code": "TARGET_ROOT_DENIED",
+      "message": "Target root cannot share the same Git root as the workflow-system source root.",
+      "path": "/tmp/vibe-governance-fresh-target-4kc1hZ"
+    }
+  ],
+  "warnings": [],
+  "read_back_verified": false
+}
+
+stderr=
+      at <anonymous> (/workspace/shared/merge-main-maintenance-20261007/repo/test/vibe-governance-distribution.test.ts:221:148)
+(fail) Vibe Governance Distribution / Installer > packed npm distribution installs and executes its published bin [8457.86ms]
+
+ 0 pass
+ 25 filtered out
+ 1 fail
+ 5 expect() calls
+Ran 1 test across 1 file. [9.68s]

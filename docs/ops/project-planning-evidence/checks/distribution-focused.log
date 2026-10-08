@@ -1,0 +1,15 @@
+bun test v1.3.10 (30e609e0)
+
+test/vibe-governance-distribution.test.ts:
+(pass) Vibe Governance Distribution / Installer > release builder enforces Distribution and Runtime lockstep versions [50.15ms]
+(pass) Vibe Governance Distribution / Installer > portable release identity does not depend on the staging directory [968.75ms]
+warning: in the working copy of '.gitattributes', LF will be replaced by CRLF the next time Git touches it
+(pass) Vibe Governance Distribution / Installer > fresh Node install promotes complete software and leaves governance unbootstrapped [2180.62ms]
+(pass) Vibe Governance Distribution / Installer > same-version install is a read-back no-op and managed drift fails closed [4105.36ms]
+(pass) Vibe Governance Distribution / Installer > install reports upgrade-required and explicit upgrade promotes an older vNext state [2870.93ms]
+
+ 5 pass
+ 21 filtered out
+ 0 fail
+ 151 expect() calls
+Ran 5 tests across 1 file. [11.13s]

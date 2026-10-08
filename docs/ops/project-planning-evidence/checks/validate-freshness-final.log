@@ -1,0 +1,6 @@
+$ bun run scripts/check-freshness.ts
+✓ workflow-skills: fresh
+✓ workflow-docs: fresh
+✓ registry: fresh
+
+All generators are fresh.

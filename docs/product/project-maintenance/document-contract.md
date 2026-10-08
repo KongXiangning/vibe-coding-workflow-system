@@ -153,9 +153,21 @@ design.adopted 是采用的目标方案，不是代码状态。正文中的用�
 | replaces | 否／工作项 ID 数组 | 同计划拆分／合并／替代去向；旧项保留 withdrawn，不静默重用身份。 |
 | sources | 否／SourceRef 数组 | 原计划、插入依据及必要历史。added 应能说明来由，缺来源显示依据不足。 |
 
-数组顺序用于展示；没有显式依赖时不能从顺序推断因果或强制串行。环、悬空、withdrawn 前置项都要诊断，但仍显示原安排。计划不能用“前项 task 已关闭”证明实际工程前提满足。
+数组顺序用于展示；没有显式依赖时不能从顺序推断因果或强制串行，也不能据此声称已确认可并行。环、悬空、withdrawn 前置项都要诊断，但仍显示原安排。计划不能用“前项 task 已关闭”证明实际工程前提满足。
 
 work item 不必立即有 task，也不强制永久一对一。task 创建后，关联只保存在相关 goal／requirement 的 TaskBinding，plan 的工作项反向计算任务列表；不在 plan 再保存 task ID 数组或任务状态副本。没有项目计划的直接 task 关联完全合法。
+
+### 4.1 业务范围与规划的消费规则
+
+预先规划、持续选取、混合是使用策略，不是新字段或 Runtime 模式。无 plan 的项目同样展示已读到的完整业务范围，包括 current／planned／candidate／retired、已交付要求、无 task／无工作项的要求和共享约束；条目的阅读顺序不代表实施顺序。需要持久保存的动态选取结论、来源及未决项可写在 project 正文，消费者原样展示，不自行从正文计算语义上的剩余待办或另建权威 backlog。已有适用 plan 时，同一结论只在该 plan 维护，不要求复制到 project。
+
+调用者明确选定某 plan 时，展示该条目的 targets、intent_state、正文及 work_items 的原数组顺序、stage、范围和覆盖；不要拓扑排序后冒充原安排，也不把阶段转成完成状态。plan_tasks 只是按 `(plan_id, work_item_id)` 反查绑定的辅助结果，不能代替工作项元数据或完整需求。跨阶段需求可由多个工作项分别表达覆盖，不给该需求分配唯一实施或完成名次。
+
+多个 plan 分别展示各自范围和 proposed／adopted／retired 状态。adopted 不等于唯一全项目当前计划；选定来自当前调用者的明确范围或选择，不从修改时间、文件名、数组首项或最新候选推断，也不自动合并计划。没有直接工作项／TaskBinding 关联只表示没有该关系，不能断言业务遗漏；覆盖仍需读取目标、需求、计划正文及范围化依据核对。
+
+复用 read 的 `detail: items` 获取完整原文和定位；默认摘要不含 body，不能以此断言没有动态选取结论。离线样例输出 items 的 body 与 metadata，不调用模型、Runtime 或 journal。coverage.complete 只表示本次选定路径的枚举与字节读取，须同时保留 paths、omitted 及诊断；read 另保留 selection，离线样例默认读取入口登记范围。局部读取完整不等于全项目已盘点。结构不可用或未读到的范围保持未知，task 关闭、已有绑定、旧 PASS 及摘要无变化均不升级为当前完整覆盖／交付。
+
+随安装包的 examples/e6 演示预先规划及插入修复，examples/planning/no-plan 与 examples/planning/multiple-plans 演示持续选取、混合、多计划和跨阶段消费。它们是虚构的离线输入；消费测试验证原文、关系、顺序和读取边界，不证明宿主 Agent 的语义判断或 TraceLens 页面已实现。
 
 ## 5. TaskRef、PlanItemRef 与 TaskBinding
 
