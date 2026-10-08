@@ -23,6 +23,7 @@
 | 3 | [实现方案](../../ops/vnext-project-maintenance-implementation.md) | main 接入点、模块、六项扩展的算法、分发与实施切片 |
 | 4 | [验收与交付](../../ops/vnext-project-maintenance-validation.md) | 行为矩阵、检查选择和交付证据 |
 | 按需 | [规划消费样例](examples/planning-consumption.md) | 无 plan、多计划、跨阶段及部分读取的展示边界 |
+| 按需 | [TraceLens 模板与解析交接](../../guides/tracelens-product-documents.md) | 成果清单、模板、字段速查、展示映射和可复制的九类条目样例 |
 | 按需 | [E6 修复场景](examples/e6-repair.md) | 原计划三项、计划外修复、外部失败、历史关联的贯通示例 |
 
 需求定义“要做什么”，契约定义机器可交换内容；实现方案中的建议源码组织允许在同等边界下调整。不能通过改写验收、缩减能力或把真实功能替换成静态样例宣布完成。必要的长期实现决定写回对应文档，不新建同义权威副本。

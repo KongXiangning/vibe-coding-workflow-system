@@ -71,6 +71,8 @@ JSON 从 stdin 输入，JSON 从 stdout 返回。初次只读可输入 `{"detail
 
 ## 5. 离线消费者
 
+提供给 TraceLens 的成果清单、标准模板、字段速查、解析输出与展示验收见[模板与解析交接指南](tracelens-product-documents.md)，可复制输入见[合成展示样例](../product/project-maintenance/examples/tracelens/README.md)。
+
 把标准 PRODUCT 和选定产品文档、必要来源复制到独立目录，将安装的 `support/product-maintenance/offline-reader.js` 作为独立 `.mjs` 文件运行：
 
 ```text
