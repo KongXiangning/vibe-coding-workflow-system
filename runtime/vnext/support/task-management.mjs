@@ -103,8 +103,9 @@ function returnDecision(view, child, outcome, closing) {
     origin_ref: origin.ref, resume_context: origin.resume_context ?? null };
 }
 
-function readFile(root, ref, io) { return fs.readFileSync(io.local(root, ref)); }
+function readFile(root, ref, io) { return io.readFile ? io.readFile(root, ref) : fs.readFileSync(io.local(root, ref)); }
 function files(root, directory, io, suffix) {
+  if (io.list) return io.list(root, directory).filter(ref => path.posix.dirname(ref) === directory && ref.endsWith(suffix));
   try { return fs.readdirSync(io.local(root, directory)).filter(n => n.endsWith(suffix)).sort().map(n => `${directory}/${n}`); }
   catch (e) { if (e.code === 'ENOENT') return []; throw e; }
 }

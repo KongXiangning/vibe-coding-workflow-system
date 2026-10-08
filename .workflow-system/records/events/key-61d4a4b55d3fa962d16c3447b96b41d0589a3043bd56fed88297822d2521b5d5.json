@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T18:09:14.329Z",
+  "payload_sha256": "41e09d25ca3bfd9717f7f606718fa4e5f0a945dbe665f06944dd548a25771105",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:archive-final-execution-A3",
+    "request": {
+      "action": "execution",
+      "task_ref": "task-cc7b3253c7789f99419b4edea097d614",
+      "plan_ref": ".workflow-system/records/events/key-2e3f3eaebaa0e357fc6d29cc0f339a7ff1d573d1bc9e94b1d5c6cd9f28b38d43.json",
+      "step_id": "A3",
+      "idempotency_key": "archive-final-execution-A3",
+      "result": "completed",
+      "summary": "Independent review findings fixed; actual immutable sample copies roundtripped; bounded feature tests passed; unrelated aggregate gaps retained",
+      "source_revision": "813d314 + independently reviewed indexed archive source",
+      "evidence_ref": "docs/ops/vnext-indexed-record-archives-validation.md"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-cc7b3253c7789f99419b4edea097d614",
+      "parents": [
+        ".workflow-system/records/events/key-4120d6a7d45310a14a3807871231cda9499cfd4977b872496a1e7bc83b30b3fa.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-2e3f3eaebaa0e357fc6d29cc0f339a7ff1d573d1bc9e94b1d5c6cd9f28b38d43.json",
+        "step_id": "A3",
+        "result": "completed",
+        "summary": "Independent review findings fixed; actual immutable sample copies roundtripped; bounded feature tests passed; unrelated aggregate gaps retained",
+        "source_revision": "813d314 + independently reviewed indexed archive source",
+        "evidence_ref": "docs/ops/vnext-indexed-record-archives-validation.md"
+      }
+    }
+  },
+  "issues": []
+}

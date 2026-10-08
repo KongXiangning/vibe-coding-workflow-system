@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T18:09:14.042Z",
+  "payload_sha256": "b142bf716a88199cd833824697a99c363ae2d98e7c5feeab3f3fef141f2aa514",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:archive-final-execution-A1",
+    "request": {
+      "action": "execution",
+      "task_ref": "task-cc7b3253c7789f99419b4edea097d614",
+      "plan_ref": ".workflow-system/records/events/key-2e3f3eaebaa0e357fc6d29cc0f339a7ff1d573d1bc9e94b1d5c6cd9f28b38d43.json",
+      "step_id": "A1",
+      "idempotency_key": "archive-final-execution-A1",
+      "result": "completed",
+      "summary": "Unified native Node logical record storage and explicit create/verify/quarantine/reclaim/restore implemented; exact bytes retained",
+      "source_revision": "813d314 + independently reviewed indexed archive source",
+      "evidence_ref": "docs/ops/vnext-indexed-record-archives-validation.md"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-cc7b3253c7789f99419b4edea097d614",
+      "parents": [
+        ".workflow-system/records/events/key-6622ca225c1f1b1e02b79fb4e276c5b9800f80b6bc6da400b9b1eadca2a521a6.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-2e3f3eaebaa0e357fc6d29cc0f339a7ff1d573d1bc9e94b1d5c6cd9f28b38d43.json",
+        "step_id": "A1",
+        "result": "completed",
+        "summary": "Unified native Node logical record storage and explicit create/verify/quarantine/reclaim/restore implemented; exact bytes retained",
+        "source_revision": "813d314 + independently reviewed indexed archive source",
+        "evidence_ref": "docs/ops/vnext-indexed-record-archives-validation.md"
+      }
+    }
+  },
+  "issues": []
+}

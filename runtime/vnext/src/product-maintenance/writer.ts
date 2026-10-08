@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isSeq, stringify } from 'yaml';
+import { storeReadFile, storeStat } from '../../support/record-storage.mjs';
 import { readCatalog } from './catalog';
 import { type Catalog, type Item, type ObjectValue, type ProductDocument } from './model';
 import { decode, parseProduct, sha256, strictYaml } from './parser';
@@ -37,11 +38,17 @@ function checkVersion(original: Buffer | null, expected: any): void {
   if (expected === undefined) throw new Error('READ_VERSION_REQUIRED: expected_sha256 must be the read byte digest or null for a new file');
   if ((original === null ? null : sha256(original)) !== expected) throw new Error('WRITE_CONFLICT: current bytes differ from the read version; no overwrite');
 }
+function assertProductWriteTarget(relative: string): void {
+  const normalized = relative.toLowerCase(); // Also reserve aliases on case-insensitive filesystems.
+  if (normalized === '.workflow-system/records' || normalized.startsWith('.workflow-system/records/'))
+    throw new Error('RECORD_STORE_READ_ONLY: product maintenance cannot write Runtime record storage; use assistance record, snapshot or archive restore for the intended operation');
+}
 
 // The lock only coordinates this helper's short I/O on one path. External editors
 // do not participate: digest recheck + rename is not a universal filesystem CAS.
 function publish(root: string, relative: string, content: Buffer, expected: string | null, preimagePath?: string, catalog?: Catalog): ObjectValue {
   const file = safePath(root, relative);
+  assertProductWriteTarget(relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   safePath(root, relative);
   const lock = path.join(path.dirname(file), `.${path.basename(file)}.product-write.lock`);
@@ -372,6 +379,7 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
 function captureBytes(catalog: Catalog, relative: string, bytes: Buffer): ObjectValue {
   try {
     if (!catalog.manifest || !allowed(catalog.manifest, relative, 'capture')) throw new Error('CAPTURE_OUT_OF_RANGE: destination must be in capture_paths/source_paths and outside managed_paths/excludes');
+    assertProductWriteTarget(relative);
     const existing = readExisting(catalog.root, relative), hash = sha256(bytes);
     if (existing) {
       if (!existing.equals(bytes)) throw new Error('CAPTURE_CONFLICT: destination already holds different bytes; keep both sources at explicit separate paths');
@@ -393,10 +401,11 @@ export function capture(root: string, input: ObjectValue): ObjectValue {
       bytes = Buffer.from(input.base64, 'base64');
     } else {
       if (!catalog.manifest || !allowed(catalog.manifest, input.source_path, 'source')) throw new Error('SOURCE_OUT_OF_RANGE: selected file must be registered for reading');
-      const file = safePath(catalog.root, input.source_path);
-      if (!fs.statSync(file).isFile()) throw new Error('CAPTURE_INPUT: selected source must be a regular file');
-      if (fs.statSync(file).size > (input.max_file_bytes ?? 4 * 1024 * 1024)) throw new Error('CAPTURE_BYTE_LIMIT: selected file exceeds limit; raise the explicit bound for this authorized source');
-      bytes = fs.readFileSync(file);
+      safePath(catalog.root, input.source_path);
+      const stat = storeStat(catalog.root, input.source_path);
+      if (stat.size > (input.max_file_bytes ?? 4 * 1024 * 1024)) throw new Error('CAPTURE_BYTE_LIMIT: selected file exceeds limit; raise the explicit bound for this authorized source');
+      bytes = storeReadFile(catalog.root, input.source_path);
+      if (sha256(bytes) !== stat.sha256) throw new Error('SOURCE_READ_CHANGED: selected source changed during capture; retry with the current source');
     }
     if (bytes.length > (input.max_file_bytes ?? 4 * 1024 * 1024)) throw new Error('CAPTURE_BYTE_LIMIT: selected content exceeds explicit bound');
     return { ...captureBytes(catalog, input.path, bytes), raw_capture: true, metadata: 'not-saved-by-capture', task_operations: 'not-performed', privacy: 'ordinary project file; no Git ignore, sharing, redaction or history deletion guarantee' };

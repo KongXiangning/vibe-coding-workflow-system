@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T18:09:14.204Z",
+  "payload_sha256": "d08a1192fd79a4803a9235ff3a199b3e9fee30365ac352b258150fc156051480",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:archive-final-execution-A2",
+    "request": {
+      "action": "execution",
+      "task_ref": "task-cc7b3253c7789f99419b4edea097d614",
+      "plan_ref": ".workflow-system/records/events/key-2e3f3eaebaa0e357fc6d29cc0f339a7ff1d573d1bc9e94b1d5c6cd9f28b38d43.json",
+      "step_id": "A2",
+      "idempotency_key": "archive-final-execution-A2",
+      "result": "completed",
+      "summary": "Logical readers/writers, label reservation, checkpoint Git closure and installed consumers integrated",
+      "source_revision": "813d314 + independently reviewed indexed archive source",
+      "evidence_ref": "docs/ops/vnext-indexed-record-archives-validation.md"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-cc7b3253c7789f99419b4edea097d614",
+      "parents": [
+        ".workflow-system/records/events/key-9085979baaa9fd17e48950140632f540428aec9fdb7772f56f31970db8072eca.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-2e3f3eaebaa0e357fc6d29cc0f339a7ff1d573d1bc9e94b1d5c6cd9f28b38d43.json",
+        "step_id": "A2",
+        "result": "completed",
+        "summary": "Logical readers/writers, label reservation, checkpoint Git closure and installed consumers integrated",
+        "source_revision": "813d314 + independently reviewed indexed archive source",
+        "evidence_ref": "docs/ops/vnext-indexed-record-archives-validation.md"
+      }
+    }
+  },
+  "issues": []
+}

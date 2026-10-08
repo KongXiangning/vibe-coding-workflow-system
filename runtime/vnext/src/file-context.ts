@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createTwoFilesPatch } from 'diff';
 import { resolveRg } from './rg-tool';
+import { storeReadFile } from '../support/record-storage.mjs';
 
 export const DEFAULT_CONTEXT_BYTES = 16 * 1024;
 export const MAX_CONTEXT_BYTES = 64 * 1024;
@@ -78,13 +79,36 @@ export function textDiff(file: string, before: string, after: string): string | 
 export function readFileContext(root: string, input: unknown) {
   const value = contextInput(input, ['operation', 'path', 'sha256', 'offset', 'max_bytes', 'start_line', 'end_line']);
   const file = contextPath(root, value.path);
-  const bytes = fs.readFileSync(file.absolute);
+  const bytes = storeReadFile(root, file.relative);
   const revision = sha256(bytes);
   if (value.sha256 !== undefined && value.sha256 !== revision) throw new Error('CONTEXT_STALE: file changed; start a fresh read.');
   if (value.offset !== undefined && value.offset !== 0 && value.sha256 === undefined) throw new Error('CONTEXT_INPUT_INVALID: continuation requires sha256.');
   const text = decodeText(bytes);
   return { status: 'pass', operation_kind: 'file-context', committed: false, path: file.relative, sha256: revision,
     ...(text === null ? { content_status: 'binary-or-non-utf8', size_bytes: bytes.length } : { content_status: 'text', ...textPage(text, value) }) };
+}
+
+function archiveSearchDiagnostics(root: string, roots: Array<{ relative: string }>, includeHidden: boolean, globs: string[]) {
+  const records = '.workflow-system/records';
+  const namespaces = ['events', 'attachments', 'evidence-objects', 'task-labels', 'legacy'].map(name => `${records}/${name}`);
+  const intersectsRecords = roots.some(({ relative }) => {
+    const selected = path.posix.normalize(relative).replace(/\/+$/u, '');
+    // A default project-root rg search does not include hidden directories.
+    if (!selected || selected === '.') return includeHidden || globs.length > 0;
+    return namespaces.some(namespace => selected === namespace || selected.startsWith(`${namespace}/`) || namespace.startsWith(`${selected}/`));
+  });
+  if (!intersectsRecords) return [];
+  try {
+    const directory = contextPath(root, `${records}/archives`);
+    const present = fs.readdirSync(directory.absolute, { withFileTypes: true }).some(entry => /^[a-f0-9]{64}$/u.test(entry.name));
+    if (!present) return [];
+    return [{ code: 'CONTEXT_ARCHIVES_NOT_SEARCHED', path: records,
+      message: 'This ripgrep search covers physical files only and may omit archived logical records. Use assistance find/read for logical records, or explicitly restore them before using a filesystem-only consumer.' }];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    return [{ code: 'CONTEXT_ARCHIVE_SCOPE_UNAVAILABLE', path: `${records}/archives`,
+      message: `Archive scope could not be checked; this physical-file search cannot establish complete logical record coverage: ${(error as Error).message}` }];
+  }
 }
 
 export async function searchFileContext(root: string, input: unknown) {
@@ -97,6 +121,7 @@ export async function searchFileContext(root: string, input: unknown) {
   if (!Array.isArray(globs) || globs.length > 32 || globs.some(glob => typeof glob !== 'string' || glob.length > 1024 || /[\0\r\n]/u.test(glob))) throw new Error('CONTEXT_INPUT_INVALID: invalid globs.');
   const limit = integer(value.limit, 50, 1, 200);
   const budget = integer(value.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
+  const diagnostics = archiveSearchDiagnostics(root, roots, value.include_hidden === true, globs as string[]);
   const rg = resolveRg(root);
   const args = ['--no-config', '--color', 'never', ...(value.include_hidden ? ['--hidden'] : []), ...globs.flatMap(glob => ['--glob', glob]),
     ...(value.query === undefined ? ['--files', '--null'] : ['--json', '--fixed-strings', '--', value.query as string]),
@@ -142,9 +167,11 @@ export async function searchFileContext(root: string, input: unknown) {
       resolve();
     });
   });
-  return { status: stopReason ? 'partial' : 'pass', operation_kind: 'file-context', committed: false, rg: rg.version,
+  const reason = stopReason ?? (diagnostics.length ? 'archives-not-searched' : null);
+  return { status: reason ? 'partial' : 'pass', operation_kind: 'file-context', committed: false, rg: rg.version,
     roots: roots.map(item => item.relative), globs, query: value.query ?? null, include_hidden: value.include_hidden === true,
-    hits, complete_within_scope: stopReason === null, truncated: stopReason !== null, reason: stopReason, error: stderr || null };
+    hits, complete_within_scope: reason === null, truncated: reason !== null, reason, error: stderr || null,
+    search_scope: 'physical-files', diagnostics };
 }
 
 export async function fileContext(root: string, input: unknown) {

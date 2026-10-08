@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T18:09:14.447Z",
+  "payload_sha256": "d16005a9b89540fbc517d03d12eb1736459fe0653647552ae5568dd26f1af40e",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:archive-feature-close-20261008",
+    "request": {
+      "action": "close",
+      "task_ref": "task-cc7b3253c7789f99419b4edea097d614",
+      "idempotency_key": "archive-feature-close-20261008",
+      "summary": "Source implementation and isolated verification complete; local delivery only",
+      "remaining_work": [
+        "Actual project installation/cleanup and any remote publication require separate authorization"
+      ],
+      "gaps": [
+        "Aggregate is not all-green: documented old CLI, old migration/0.18.7, and host temporary Git-root fixtures",
+        "Existing unrelated legacy CURRENT_TASK display retained without overwriting"
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-cc7b3253c7789f99419b4edea097d614",
+      "parents": [
+        ".workflow-system/records/events/key-42c5caaed3d2db6672f54d4863dc88a6323dbf62a6ae9ac54f20e637910adca9.json"
+      ],
+      "data": {
+        "summary": "Source implementation and isolated verification complete; local delivery only",
+        "remaining_work": [
+          "Actual project installation/cleanup and any remote publication require separate authorization"
+        ],
+        "gaps": [
+          "Aggregate is not all-green: documented old CLI, old migration/0.18.7, and host temporary Git-root fixtures",
+          "Existing unrelated legacy CURRENT_TASK display retained without overwriting"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

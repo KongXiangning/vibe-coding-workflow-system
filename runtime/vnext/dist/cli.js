@@ -27035,8 +27035,8 @@ async function runEntryRunnerCli(argv, allowedCommands) {
 }
 
 // runtime/vnext/src/cli.ts
-import * as fs26 from "fs";
-import * as path27 from "path";
+import * as fs27 from "fs";
+import * as path28 from "path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawn3 } from "node:child_process";
 
@@ -30119,18 +30119,391 @@ async function runPrepareTaskAdapterCli(argv = process.argv.slice(2)) {
 
 // runtime/vnext/src/execute-step-adapter.ts
 import * as crypto16 from "crypto";
-import * as fs23 from "fs";
-import * as path24 from "path";
+import * as fs24 from "fs";
+import * as path25 from "path";
 
 // runtime/vnext/src/task-context.ts
+import * as fs23 from "node:fs";
+import * as path24 from "node:path";
+import { createHash as createHash21 } from "node:crypto";
+
+// runtime/vnext/support/record-storage.mjs
+import * as fs20 from "node:fs";
+import * as path21 from "node:path";
+import { createHash as createHash18, randomUUID as randomUUID6 } from "node:crypto";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
+var STORE = ".workflow-system/records";
+var ARCHIVES = `${STORE}/archives`;
+var STAGING = `${STORE}/.archive-staging`;
+var QUARANTINE = `${STORE}/archive-quarantine`;
+var LOCKS = `${STORE}/.record-store-locks`;
+var MAGIC = Buffer.from(`WFRPACK1
+`);
+var ARCHIVE_LIMITS = Object.freeze({
+  chunkBytes: 65536,
+  packRawBytes: 64 * 1024 * 1024,
+  indexBytes: 4 * 1024 * 1024,
+  recordsPerPack: 2048,
+  manifestBytes: 4 * 1024 * 1024,
+  catalogBytes: 16 * 1024 * 1024,
+  archiveCount: 4096,
+  readBytes: 16 * 1024 * 1024,
+  fileReadBytes: 64 * 1024 * 1024
+});
+var MAX_PACK_BYTES = 72 * 1024 * 1024;
+var MAX_HEADER = 4096;
+var MAX_SEGMENTS = 8192;
+var hash3 = (b) => createHash18("sha256").update(b).digest("hex");
+var digest5 = (v) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
+var integer = (v) => Number.isSafeInteger(v) && v >= 0;
+var error = (code, message) => Object.assign(new Error(message), { code });
+function requireThat(ok, message, code = "ARCHIVE_CORRUPT") {
+  if (!ok)
+    throw error(code, message);
+}
+function reference(root, requested) {
+  requireThat(typeof requested === "string" && requested && !requested.includes("\x00"), "Expected a repository-relative path.", "UNSAFE_PATH");
+  const value = requested.replaceAll("\\", "/");
+  requireThat(!value.split("/").some((p) => p === ".." || p.includes(":") || p.toLowerCase().replace(/[. ]+$/, "") === ".git"), "Expected a repository-relative path without traversal or Git-control files.", "UNSAFE_PATH");
+  const relative11 = path21.relative(path21.resolve(root), path21.resolve(root, value)).split(path21.sep).join("/");
+  requireThat(relative11 !== ".." && !relative11.startsWith("../") && !path21.isAbsolute(relative11), "Expected an in-repository path.", "UNSAFE_PATH");
+  return relative11;
+}
+function local(root, ref) {
+  const relative11 = ref === "" ? "" : reference(root, ref), base = path21.resolve(root);
+  let current = base;
+  for (const part of [null, ...relative11.split("/").filter(Boolean)]) {
+    if (part !== null)
+      current = path21.join(current, part);
+    try {
+      requireThat(!fs20.lstatSync(current).isSymbolicLink(), `Symbolic paths are not followed: ${ref}`, "UNSAFE_PATH");
+    } catch (e) {
+      if (e.code !== "ENOENT")
+        throw e;
+    }
+  }
+  return current;
+}
+function statMaybe(root, ref) {
+  try {
+    return fs20.lstatSync(local(root, ref));
+  } catch (e) {
+    if (e.code === "ENOENT")
+      return null;
+    throw e;
+  }
+}
+function openFile(root, ref, flags = "r") {
+  const file2 = local(root, ref), numeric = flags === "r" ? fs20.constants.O_RDONLY : fs20.constants.O_WRONLY | fs20.constants.O_CREAT | fs20.constants.O_EXCL;
+  const fd = fs20.openSync(file2, numeric | (fs20.constants.O_NOFOLLOW ?? 0), 384);
+  try {
+    requireThat(fs20.fstatSync(fd).isFile(), `Expected a regular file: ${ref}`, "NOT_A_FILE");
+    local(root, ref);
+    return fd;
+  } catch (e) {
+    fs20.closeSync(fd);
+    throw e;
+  }
+}
+function sameStat(a, b) {
+  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+}
+function readExactly(fd, length, offset) {
+  const bytes2 = Buffer.alloc(length);
+  let got = 0;
+  while (got < length) {
+    const n = fs20.readSync(fd, bytes2, got, length - got, offset + got);
+    requireThat(n > 0, "Truncated archive or file.");
+    got += n;
+  }
+  return bytes2;
+}
+function fileDigest(root, ref) {
+  const fd = openFile(root, ref);
+  try {
+    const before = fs20.fstatSync(fd), h = createHash18("sha256"), buffer = Buffer.alloc(ARCHIVE_LIMITS.chunkBytes);
+    let count, size = 0;
+    while (count = fs20.readSync(fd, buffer, 0, buffer.length, null)) {
+      h.update(buffer.subarray(0, count));
+      size += count;
+    }
+    requireThat(sameStat(before, fs20.fstatSync(fd)) && size === before.size, `Source changed while reading: ${ref}`, "SOURCE_CHANGED");
+    return { size, sha256: h.digest("hex"), stat: before };
+  } finally {
+    fs20.closeSync(fd);
+  }
+}
+function smallFile(root, ref, limit) {
+  const fd = openFile(root, ref);
+  try {
+    const s = fs20.fstatSync(fd);
+    requireThat(s.size <= limit, `Metadata exceeds its bound: ${ref}`);
+    const bytes2 = readExactly(fd, s.size, 0);
+    requireThat(sameStat(s, fs20.fstatSync(fd)), `File changed while reading: ${ref}`, "SOURCE_CHANGED");
+    return bytes2;
+  } finally {
+    fs20.closeSync(fd);
+  }
+}
+function parsed(bytes2, name) {
+  try {
+    return JSON.parse(bytes2.toString("utf8"));
+  } catch {
+    throw error("ARCHIVE_CORRUPT", `Invalid JSON: ${name}`);
+  }
+}
+function candidate(ref) {
+  return new RegExp(`^\\.workflow-system/records/(?:events/[^/]+\\.json|attachments/[^/]+\\.json|evidence-objects/[a-f0-9]{64}\\.blob|task-labels/[^/]+\\.json|legacy/(?:baseline\\.json|current-[a-f0-9]{64}\\.md))$`).test(ref);
+}
+function canonicalRecord(root, ref) {
+  requireThat(reference(root, ref) === ref && candidate(ref) && Buffer.byteLength(ref) <= 1024, `Archive contains an unsafe or non-archivable record path: ${ref}`);
+}
+function expectedContentName(ref, sha25610) {
+  const named = /\/(?:evidence-objects\/|legacy\/current-)([a-f0-9]{64})\.(?:blob|md)$/.exec(ref)?.[1];
+  requireThat(!named || named === sha25610, `Content-addressed filename differs: ${ref}`, "OBJECT_CORRUPT");
+}
+var metadataCache = new Map;
+var metadataCacheBytes = 0;
+function metadataFile(root, ref, limit, metrics) {
+  const file2 = local(root, ref), stat = fs20.lstatSync(file2), old = metadataCache.get(file2);
+  requireThat(stat.isFile() && stat.size <= limit, `Invalid or oversized metadata: ${ref}`);
+  metrics.metadata_bytes_examined += stat.size;
+  requireThat(metrics.metadata_bytes_examined <= ARCHIVE_LIMITS.catalogBytes, "Archive metadata exceeds its cold-lookup budget.", "ARCHIVE_CATALOG_LIMIT");
+  if (old && sameStat(old.stat, stat)) {
+    metadataCache.delete(file2);
+    metadataCache.set(file2, old);
+    metrics.metadata_cache_hits++;
+    return old;
+  }
+  if (old) {
+    metadataCacheBytes -= old.bytes.length;
+    metadataCache.delete(file2);
+  }
+  const bytes2 = smallFile(root, ref, limit);
+  requireThat(sameStat(stat, fs20.lstatSync(local(root, ref))), "Metadata changed while reading.", "SOURCE_CHANGED");
+  const value = { bytes: bytes2, value: parsed(bytes2, ref), sha256: hash3(bytes2), stat };
+  metrics.metadata_bytes_read += bytes2.length;
+  while (metadataCache.size && (metadataCacheBytes + bytes2.length > ARCHIVE_LIMITS.catalogBytes || metadataCache.size >= 512)) {
+    const key = metadataCache.keys().next().value;
+    metadataCacheBytes -= metadataCache.get(key).bytes.length;
+    metadataCache.delete(key);
+  }
+  metadataCache.set(file2, value);
+  metadataCacheBytes += bytes2.length;
+  return value;
+}
+function archiveDirectories(root) {
+  const s = statMaybe(root, ARCHIVES);
+  if (!s)
+    return [];
+  requireThat(s.isDirectory(), "Archive storage must be a directory.");
+  const names = fs20.readdirSync(local(root, ARCHIVES)).sort();
+  requireThat(names.length <= ARCHIVE_LIMITS.archiveCount, "Archive catalogue exceeds its archive-count bound.", "ARCHIVE_CATALOG_LIMIT");
+  return names.map((id) => {
+    requireThat(digest5(id) && statMaybe(root, `${ARCHIVES}/${id}`)?.isDirectory(), `Unexpected archive entry: ${id}`);
+    return id;
+  });
+}
+function loadArchive(root, id, target = null, metrics = newMetrics(), baseOverride = null) {
+  const base = baseOverride ?? `${ARCHIVES}/${id}`, manifestRef = `${base}/manifest.json`;
+  const manifestFile = metadataFile(root, manifestRef, ARCHIVE_LIMITS.manifestBytes, metrics), manifestBytes = manifestFile.bytes;
+  requireThat(manifestFile.sha256 === id, `Manifest identity differs: ${id}`);
+  metrics.manifests_read++;
+  const manifest2 = manifestFile.value;
+  requireThat(manifest2.version === 1 && manifest2.format === "workflow-record-archive" && manifest2.chunk_size === ARCHIVE_LIMITS.chunkBytes && Array.isArray(manifest2.segments) && manifest2.segments.length > 0 && manifest2.segments.length <= MAX_SEGMENTS, "Invalid archive manifest.");
+  const physical = [{ ref: manifestRef, size: manifestBytes.length, sha256: id, kind: "manifest" }], records = new Map, packs = [];
+  const expectedNames = new Set(["manifest.json"]);
+  let previousLast = null;
+  for (const [number, segment] of manifest2.segments.entries()) {
+    const suffix = String(number).padStart(6, "0"), indexName = `index-${suffix}.json`, packName = `pack-${suffix}.bin`;
+    requireThat(segment.index === indexName && segment.pack === packName && digest5(segment.sha256) && digest5(segment.pack_sha256) && integer(segment.size) && segment.size > 0 && segment.size <= ARCHIVE_LIMITS.indexBytes && integer(segment.pack_size) && segment.pack_size >= MAGIC.length && segment.pack_size <= MAX_PACK_BYTES, "Invalid segment metadata.");
+    canonicalRecord(root, segment.first_ref);
+    canonicalRecord(root, segment.last_ref);
+    requireThat(segment.first_ref <= segment.last_ref && (!previousLast || previousLast <= segment.first_ref), "Invalid manifest routing ranges.");
+    previousLast = segment.last_ref;
+    expectedNames.add(indexName);
+    expectedNames.add(packName);
+    if (target !== null && (target < segment.first_ref || target > segment.last_ref))
+      continue;
+    const indexRef = `${base}/${indexName}`, packRef = `${base}/${packName}`;
+    const indexFile = metadataFile(root, indexRef, ARCHIVE_LIMITS.indexBytes, metrics), indexBytes = indexFile.bytes;
+    requireThat(indexBytes.length === segment.size && indexFile.sha256 === segment.sha256, `Index digest differs: ${indexRef}`);
+    metrics.indices_read++;
+    const index = indexFile.value;
+    requireThat(index.version === 1 && index.pack?.ref === packName && index.pack.size === segment.pack_size && index.pack.sha256 === segment.pack_sha256 && Array.isArray(index.records) && index.records.length > 0 && index.records.length <= ARCHIVE_LIMITS.recordsPerPack, `Invalid index: ${indexRef}`);
+    requireThat(index.records[0].ref === segment.first_ref && index.records.at(-1).ref === segment.last_ref, "Index routing ranges differ.");
+    const fd = openFile(root, packRef);
+    try {
+      requireThat(fs20.fstatSync(fd).size === segment.pack_size && readExactly(fd, MAGIC.length, 0).equals(MAGIC), `Missing or invalid pack: ${packRef}`);
+    } finally {
+      fs20.closeSync(fd);
+    }
+    const indexPhysical = { ref: indexRef, size: segment.size, sha256: segment.sha256, kind: "index" };
+    const packPhysical = { ref: packRef, size: segment.pack_size, sha256: segment.pack_sha256, kind: "pack" };
+    physical.push(indexPhysical, packPhysical);
+    packs.push(packPhysical);
+    let next = MAGIC.length, rawTotal = 0;
+    const segmentPaths = new Set;
+    let previousRef = null;
+    for (const entry of index.records) {
+      canonicalRecord(root, entry.ref);
+      requireThat(integer(entry.size) && digest5(entry.sha256) && Array.isArray(entry.chunks) && entry.chunks.length > 0 && !segmentPaths.has(entry.ref), "Invalid or duplicate record index.");
+      expectedContentName(entry.ref, entry.sha256);
+      segmentPaths.add(entry.ref);
+      requireThat(!previousRef || previousRef < entry.ref, "Index paths are not sorted.");
+      previousRef = entry.ref;
+      let record6 = records.get(entry.ref);
+      const selected = target === null || target === entry.ref;
+      if (!record6) {
+        record6 = { ref: entry.ref, size: entry.size, sha256: entry.sha256, archiveId: id, chunks: [], physical_files: [physical[0]] };
+        if (selected)
+          records.set(entry.ref, record6);
+      }
+      requireThat(record6.size === entry.size && record6.sha256 === entry.sha256, `Inconsistent record fragments: ${entry.ref}`);
+      record6.physical_files.push(indexPhysical, packPhysical);
+      let entryOffset = entry.chunks[0].rawOffset;
+      for (const chunk of entry.chunks) {
+        requireThat(integer(chunk.offset) && chunk.offset === next && integer(chunk.length) && chunk.length > 0 && chunk.length <= ARCHIVE_LIMITS.chunkBytes + 1024 && integer(chunk.rawOffset) && integer(chunk.rawLength) && chunk.rawLength <= ARCHIVE_LIMITS.chunkBytes && integer(chunk.headerLength) && chunk.headerLength > 0 && chunk.headerLength <= MAX_HEADER && digest5(chunk.sha256) && digest5(chunk.compressedSha256), "Invalid chunk index.");
+        requireThat(chunk.rawOffset === entryOffset && chunk.rawOffset + chunk.rawLength <= record6.size && (chunk.rawLength > 0 || record6.size === 0 && record6.chunks.length === 0), "Invalid chunk ranges.");
+        next += 4 + chunk.headerLength + chunk.length;
+        rawTotal += chunk.rawLength;
+        requireThat(next <= segment.pack_size && rawTotal <= ARCHIVE_LIMITS.packRawBytes, "Pack bounds exceeded.");
+        entryOffset += chunk.rawLength;
+        if (selected)
+          record6.chunks.push({ ...chunk, packRef });
+      }
+    }
+    requireThat(next === segment.pack_size, "Pack has missing or unindexed bytes.");
+  }
+  const names = fs20.readdirSync(local(root, base));
+  requireThat(names.length === expectedNames.size && names.every((n) => expectedNames.has(n)), "Unexpected files inside an immutable archive.");
+  for (const record6 of records.values()) {
+    let offset = 0;
+    for (const chunk of record6.chunks) {
+      requireThat(chunk.rawOffset === offset, `Incomplete or overlapping record: ${record6.ref}`);
+      offset += chunk.rawLength;
+    }
+    requireThat(offset === record6.size, `Incomplete record: ${record6.ref}`);
+  }
+  return { id, manifestRef, physical_files: physical, records: [...records.values()], packs };
+}
+function catalog(root, target = null) {
+  const metrics = newMetrics(), archives = archiveDirectories(root).map((id) => {
+    try {
+      return loadArchive(root, id, target, metrics);
+    } catch (e) {
+      if (e.code === "ENOENT")
+        throw error("ARCHIVE_CORRUPT", `Archive metadata or pack is missing: ${id}`);
+      throw e;
+    }
+  }), records = new Map;
+  for (const archive of archives)
+    for (const record6 of archive.records) {
+      requireThat(!records.has(record6.ref), `Logical path appears in multiple archives: ${record6.ref}`, "ARCHIVE_COLLISION");
+      records.set(record6.ref, record6);
+    }
+  return { archives, records, metrics };
+}
+function chunkBytes(root, record6, chunk, metrics) {
+  const fd = openFile(root, chunk.packRef);
+  try {
+    const headerSize = readExactly(fd, 4, chunk.offset).readUInt32BE(0);
+    requireThat(headerSize === chunk.headerLength && headerSize <= MAX_HEADER, "Chunk header length differs.");
+    const header = parsed(readExactly(fd, headerSize, chunk.offset + 4), chunk.packRef);
+    requireThat(header.ref === record6.ref && header.size === record6.size && header.record_sha256 === record6.sha256 && header.rawOffset === chunk.rawOffset && header.rawLength === chunk.rawLength && header.length === chunk.length && header.sha256 === chunk.sha256 && header.compressedSha256 === chunk.compressedSha256, "Pack chunk header differs from its index.");
+    const compressed = readExactly(fd, chunk.length, chunk.offset + 4 + headerSize);
+    requireThat(hash3(compressed) === chunk.compressedSha256, "Compressed chunk digest differs.");
+    let bytes2;
+    try {
+      bytes2 = inflateRawSync(compressed, { maxOutputLength: Math.max(1, chunk.rawLength), info: true });
+    } catch {
+      throw error("ARCHIVE_CORRUPT", "Invalid or oversized compressed chunk.");
+    }
+    requireThat(bytes2.engine.bytesWritten === compressed.length && bytes2.buffer.length === chunk.rawLength && hash3(bytes2.buffer) === chunk.sha256, "Chunk length or digest differs.");
+    metrics.compressed_bytes_read += compressed.length;
+    metrics.pack_bytes_read += 4 + headerSize + compressed.length;
+    metrics.decompressed_bytes += bytes2.buffer.length;
+    metrics.chunks_read++;
+    return bytes2.buffer;
+  } finally {
+    fs20.closeSync(fd);
+  }
+}
+var newMetrics = () => ({ metadata_bytes_read: 0, metadata_bytes_examined: 0, metadata_cache_hits: 0, manifests_read: 0, indices_read: 0, compressed_bytes_read: 0, pack_bytes_read: 0, decompressed_bytes: 0, chunks_read: 0, loose_bytes_hashed: 0 });
+function validateLoose(root, record6, metrics, options = {}) {
+  const s = statMaybe(root, record6.ref);
+  if (!s)
+    return false;
+  requireThat(s.isFile(), `Logical record is not a file: ${record6.ref}`, "ARCHIVE_COLLISION");
+  requireThat(s.size === record6.size, `Loose/archive length collision: ${record6.ref}`, "ARCHIVE_COLLISION");
+  if (options.hashLoose === false && !options.expectedSha256)
+    return true;
+  const actual = fileDigest(root, record6.ref);
+  if (metrics)
+    metrics.loose_bytes_hashed += actual.size;
+  requireThat(actual.size === record6.size && actual.sha256 === record6.sha256, `Loose/archive collision: ${record6.ref}`, "ARCHIVE_COLLISION");
+  return true;
+}
+function logical(root, requested) {
+  const ref = reference(root, requested);
+  if (!candidate(ref))
+    return { ref, record: null };
+  const state = catalog(root, ref);
+  return { ref, record: state.records.get(ref) ?? null, metrics: state.metrics };
+}
+function storeStat(root, requested, options = {}) {
+  const { ref, record: record6 } = logical(root, requested);
+  if (record6) {
+    const duplicate = validateLoose(root, record6, null, options);
+    return {
+      size: record6.size,
+      sha256: record6.sha256,
+      storage: "archive",
+      archiveId: record6.archiveId,
+      duplicate_verification: duplicate ? options.hashLoose === false ? "metadata-only" : "whole-file" : "absent"
+    };
+  }
+  if (options.hashLoose === false) {
+    const fd = openFile(root, ref);
+    try {
+      return { size: fs20.fstatSync(fd).size, storage: "loose" };
+    } finally {
+      fs20.closeSync(fd);
+    }
+  }
+  const actual = fileDigest(root, ref);
+  return { size: actual.size, sha256: actual.sha256, storage: "loose" };
+}
+function storeExists(root, requested) {
+  try {
+    storeStat(root, requested);
+    return true;
+  } catch (e) {
+    if (e.code === "ENOENT")
+      return false;
+    throw e;
+  }
+}
+function storeReadFile(root, requested) {
+  const { ref, record: record6 } = logical(root, requested);
+  if (!record6)
+    return smallFile(root, ref, ARCHIVE_LIMITS.fileReadBytes);
+  validateLoose(root, record6);
+  requireThat(record6.size <= ARCHIVE_LIMITS.fileReadBytes, "Whole-file read exceeds its bound; use storeRead ranges.", "READ_TOO_LARGE");
+  const parts = [], h = createHash18("sha256");
+  for (const chunk of record6.chunks) {
+    const bytes2 = chunkBytes(root, record6, chunk, newMetrics());
+    parts.push(bytes2);
+    h.update(bytes2);
+  }
+  requireThat(h.digest("hex") === record6.sha256, `Record digest differs: ${ref}`);
+  return Buffer.concat(parts, record6.size);
+}
+
+// runtime/vnext/src/file-context.ts
 import * as fs22 from "node:fs";
 import * as path23 from "node:path";
 import { createHash as createHash20 } from "node:crypto";
-
-// runtime/vnext/src/file-context.ts
-import * as fs21 from "node:fs";
-import * as path22 from "node:path";
-import { createHash as createHash19 } from "node:crypto";
 import { spawn as spawn2 } from "node:child_process";
 // node_modules/diff/libesm/diff/base.js
 class Diff {
@@ -30232,16 +30605,16 @@ class Diff {
       }
     }
   }
-  addToPath(path21, added, removed, oldPosInc, options) {
-    const last = path21.lastComponent;
+  addToPath(path22, added, removed, oldPosInc, options) {
+    const last = path22.lastComponent;
     if (last && !options.oneChangePerToken && last.added === added && last.removed === removed) {
       return {
-        oldPos: path21.oldPos + oldPosInc,
+        oldPos: path22.oldPos + oldPosInc,
         lastComponent: { count: last.count + 1, added, removed, previousComponent: last.previousComponent }
       };
     } else {
       return {
-        oldPos: path21.oldPos + oldPosInc,
+        oldPos: path22.oldPos + oldPosInc,
         lastComponent: { count: 1, added, removed, previousComponent: last }
       };
     }
@@ -30651,22 +31024,22 @@ function splitLines(text5) {
   return result;
 }
 // runtime/vnext/src/rg-tool.ts
-import * as fs20 from "node:fs";
-import * as path21 from "node:path";
+import * as fs21 from "node:fs";
+import * as path22 from "node:path";
 import { execFileSync } from "node:child_process";
-import { createHash as createHash18 } from "node:crypto";
+import { createHash as createHash19 } from "node:crypto";
 var RG_TOOLS_PATH = ".workflow-system/runtime/tools/rg";
 var RG_BINARY = process.platform === "win32" ? "rg.exe" : "rg";
 function assertRgDirectory(root) {
-  let directory = path21.resolve(root);
+  let directory = path22.resolve(root);
   for (const part of RG_TOOLS_PATH.split("/")) {
-    directory = path21.join(directory, part);
+    directory = path22.join(directory, part);
     try {
-      if (!fs20.lstatSync(directory).isDirectory())
+      if (!fs21.lstatSync(directory).isDirectory())
         throw new Error("RG_DEPENDENCY_PATH_INVALID: tool directory must not be a symlink or file.");
-    } catch (error) {
-      if (error.code !== "ENOENT")
-        throw error;
+    } catch (error2) {
+      if (error2.code !== "ENOENT")
+        throw error2;
     }
   }
   return directory;
@@ -30685,18 +31058,18 @@ function probeRg(command) {
 }
 function resolveRg(root) {
   const directory = assertRgDirectory(root);
-  const command = path21.join(directory, RG_BINARY);
+  const command = path22.join(directory, RG_BINARY);
   try {
-    const identity = JSON.parse(fs20.readFileSync(path21.join(directory, "identity.json"), "utf8"));
-    if (!fs20.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash18("sha256").update(fs20.readFileSync(command)).digest("hex")) {
+    const identity = JSON.parse(fs21.readFileSync(path22.join(directory, "identity.json"), "utf8"));
+    if (!fs21.lstatSync(command).isSymbolicLink() && identity.sha256 === createHash19("sha256").update(fs21.readFileSync(command)).digest("hex")) {
       const version = probeRg(command);
       if (version && identity.version === version)
         return { command, version, source: "project" };
     }
   } catch {}
-  for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path21.delimiter).filter(Boolean)) {
-    const command2 = path21.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
-    if (!fs20.existsSync(command2))
+  for (const entry of (process.env.PATH ?? process.env.Path ?? "").split(path22.delimiter).filter(Boolean)) {
+    const command2 = path22.resolve(entry.replace(/^"|"$/gu, ""), RG_BINARY);
+    if (!fs21.existsSync(command2))
       continue;
     const version = probeRg(command2);
     if (version)
@@ -30708,7 +31081,7 @@ function resolveRg(root) {
 // runtime/vnext/src/file-context.ts
 var DEFAULT_CONTEXT_BYTES = 16 * 1024;
 var MAX_CONTEXT_BYTES = 64 * 1024;
-var sha25610 = (bytes2) => createHash19("sha256").update(bytes2).digest("hex");
+var sha25610 = (bytes2) => createHash20("sha256").update(bytes2).digest("hex");
 function contextInput(input, keys) {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("CONTEXT_INPUT_INVALID: expected an object.");
@@ -30717,7 +31090,7 @@ function contextInput(input, keys) {
     throw new Error("CONTEXT_INPUT_INVALID: unexpected input field.");
   return value;
 }
-function integer(value, fallback, min, max) {
+function integer2(value, fallback, min, max) {
   if (value === undefined)
     return fallback;
   if (!Number.isSafeInteger(value) || Number(value) < min || Number(value) > max)
@@ -30727,22 +31100,22 @@ function integer(value, fallback, min, max) {
 function contextPath(root, value) {
   if (typeof value !== "string" || !value || value.length > 1024 || /[\0\r\n]/u.test(value))
     throw new Error("CONTEXT_PATH_INVALID: expected a project-relative path.");
-  const relative11 = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
-  if (path22.posix.isAbsolute(relative11) || /^[A-Za-z]:/u.test(relative11) || relative11.split("/").includes(".."))
+  const relative12 = value.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  if (path23.posix.isAbsolute(relative12) || /^[A-Za-z]:/u.test(relative12) || relative12.split("/").includes(".."))
     throw new Error("CONTEXT_PATH_INVALID: path escapes project.");
-  const absolute = path22.resolve(root, relative11);
-  let parent = path22.resolve(root);
-  for (const part of relative11.split("/").filter((part2) => part2 && part2 !== ".")) {
-    parent = path22.join(parent, part);
+  const absolute = path23.resolve(root, relative12);
+  let parent = path23.resolve(root);
+  for (const part of relative12.split("/").filter((part2) => part2 && part2 !== ".")) {
+    parent = path23.join(parent, part);
     try {
-      if (fs21.lstatSync(parent).isSymbolicLink())
+      if (fs22.lstatSync(parent).isSymbolicLink())
         throw new Error("CONTEXT_SYMLINK: symbolic links are not followed.");
-    } catch (error) {
-      if (error.code !== "ENOENT")
-        throw error;
+    } catch (error2) {
+      if (error2.code !== "ENOENT")
+        throw error2;
     }
   }
-  return { relative: relative11, absolute };
+  return { relative: relative12, absolute };
 }
 function decodeText(bytes2) {
   if (bytes2.includes(0))
@@ -30754,8 +31127,8 @@ function decodeText(bytes2) {
   }
 }
 function textPage(text5, input) {
-  const startLine = integer(input.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
-  const endLine = integer(input.end_line, Number.MAX_SAFE_INTEGER, startLine, Number.MAX_SAFE_INTEGER);
+  const startLine = integer2(input.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
+  const endLine = integer2(input.end_line, Number.MAX_SAFE_INTEGER, startLine, Number.MAX_SAFE_INTEGER);
   let start = 0;
   let line = 1;
   while (line < startLine) {
@@ -30774,8 +31147,8 @@ function textPage(text5, input) {
     line++;
   }
   const bytes2 = Buffer.from(text5.slice(start, end));
-  const offset = integer(input.offset, 0, 0, bytes2.length);
-  const budget = integer(input.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
+  const offset = integer2(input.offset, 0, 0, bytes2.length);
+  const budget = integer2(input.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
   if (offset < bytes2.length && (bytes2[offset] & 192) === 128)
     throw new Error("CONTEXT_RANGE_INVALID: offset must be a UTF-8 boundary.");
   let pageEnd = Math.min(bytes2.length, offset + budget);
@@ -30789,7 +31162,7 @@ function textDiff(file2, before, after) {
 function readFileContext(root, input) {
   const value = contextInput(input, ["operation", "path", "sha256", "offset", "max_bytes", "start_line", "end_line"]);
   const file2 = contextPath(root, value.path);
-  const bytes2 = fs21.readFileSync(file2.absolute);
+  const bytes2 = storeReadFile(root, file2.relative);
   const revision = sha25610(bytes2);
   if (value.sha256 !== undefined && value.sha256 !== revision)
     throw new Error("CONTEXT_STALE: file changed; start a fresh read.");
@@ -30805,6 +31178,37 @@ function readFileContext(root, input) {
     ...text5 === null ? { content_status: "binary-or-non-utf8", size_bytes: bytes2.length } : { content_status: "text", ...textPage(text5, value) }
   };
 }
+function archiveSearchDiagnostics(root, roots, includeHidden, globs) {
+  const records = ".workflow-system/records";
+  const namespaces = ["events", "attachments", "evidence-objects", "task-labels", "legacy"].map((name) => `${records}/${name}`);
+  const intersectsRecords = roots.some(({ relative: relative12 }) => {
+    const selected = path23.posix.normalize(relative12).replace(/\/+$/u, "");
+    if (!selected || selected === ".")
+      return includeHidden || globs.length > 0;
+    return namespaces.some((namespace) => selected === namespace || selected.startsWith(`${namespace}/`) || namespace.startsWith(`${selected}/`));
+  });
+  if (!intersectsRecords)
+    return [];
+  try {
+    const directory = contextPath(root, `${records}/archives`);
+    const present = fs22.readdirSync(directory.absolute, { withFileTypes: true }).some((entry) => /^[a-f0-9]{64}$/u.test(entry.name));
+    if (!present)
+      return [];
+    return [{
+      code: "CONTEXT_ARCHIVES_NOT_SEARCHED",
+      path: records,
+      message: "This ripgrep search covers physical files only and may omit archived logical records. Use assistance find/read for logical records, or explicitly restore them before using a filesystem-only consumer."
+    }];
+  } catch (error2) {
+    if (error2.code === "ENOENT")
+      return [];
+    return [{
+      code: "CONTEXT_ARCHIVE_SCOPE_UNAVAILABLE",
+      path: `${records}/archives`,
+      message: `Archive scope could not be checked; this physical-file search cannot establish complete logical record coverage: ${error2.message}`
+    }];
+  }
+}
 async function searchFileContext(root, input) {
   const value = contextInput(input, ["operation", "roots", "globs", "query", "include_hidden", "limit", "max_bytes"]);
   if (!Array.isArray(value.roots) || !value.roots.length || value.roots.length > 32)
@@ -30817,8 +31221,9 @@ async function searchFileContext(root, input) {
   const globs = value.globs ?? [];
   if (!Array.isArray(globs) || globs.length > 32 || globs.some((glob) => typeof glob !== "string" || glob.length > 1024 || /[\0\r\n]/u.test(glob)))
     throw new Error("CONTEXT_INPUT_INVALID: invalid globs.");
-  const limit = integer(value.limit, 50, 1, 200);
-  const budget = integer(value.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
+  const limit = integer2(value.limit, 50, 1, 200);
+  const budget = integer2(value.max_bytes, DEFAULT_CONTEXT_BYTES, 4, MAX_CONTEXT_BYTES);
+  const diagnostics = archiveSearchDiagnostics(root, roots, value.include_hidden === true, globs);
   const rg = resolveRg(root);
   const args = [
     "--no-config",
@@ -30835,16 +31240,16 @@ async function searchFileContext(root, input) {
   let used = 0;
   let pending = Buffer.alloc(0);
   let stderr = "";
-  await new Promise((resolve21, reject2) => {
+  await new Promise((resolve22, reject2) => {
     const child = spawn2(rg.command, args, { cwd: root, windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
-    const stop = (reason) => {
-      stopReason ??= reason;
+    const stop = (reason2) => {
+      stopReason ??= reason2;
       child.kill();
     };
     const timer = setTimeout(() => stop("timeout"), 1e4);
-    child.on("error", (error) => {
+    child.on("error", (error2) => {
       clearTimeout(timer);
-      reject2(error);
+      reject2(error2);
     });
     child.stderr.on("data", (chunk) => {
       stderr = (stderr + chunk.toString()).slice(0, 2048);
@@ -30861,7 +31266,7 @@ async function searchFileContext(root, input) {
         try {
           let hit;
           if (value.query === undefined)
-            hit = { path: path22.relative(root, line.toString("utf8")).replace(/\\/gu, "/") };
+            hit = { path: path23.relative(root, line.toString("utf8")).replace(/\\/gu, "/") };
           else {
             const event = JSON.parse(line.toString("utf8"));
             if (event.type !== "match")
@@ -30870,7 +31275,7 @@ async function searchFileContext(root, input) {
               stop("non-utf8-result");
               return;
             }
-            hit = { path: path22.relative(root, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
+            hit = { path: path23.relative(root, event.data.path.text).replace(/\\/gu, "/"), line: event.data.line_number, text: event.data.lines.text };
           }
           contextPath(root, hit.path);
           const size = Buffer.byteLength(JSON.stringify(hit));
@@ -30892,11 +31297,12 @@ async function searchFileContext(root, input) {
       clearTimeout(timer);
       if (code !== 0 && code !== 1 && !stopReason)
         stopReason = "search-error";
-      resolve21();
+      resolve22();
     });
   });
+  const reason = stopReason ?? (diagnostics.length ? "archives-not-searched" : null);
   return {
-    status: stopReason ? "partial" : "pass",
+    status: reason ? "partial" : "pass",
     operation_kind: "file-context",
     committed: false,
     rg: rg.version,
@@ -30905,10 +31311,12 @@ async function searchFileContext(root, input) {
     query: value.query ?? null,
     include_hidden: value.include_hidden === true,
     hits,
-    complete_within_scope: stopReason === null,
-    truncated: stopReason !== null,
-    reason: stopReason,
-    error: stderr || null
+    complete_within_scope: reason === null,
+    truncated: reason !== null,
+    reason,
+    error: stderr || null,
+    search_scope: "physical-files",
+    diagnostics
   };
 }
 async function fileContext(root, input) {
@@ -30942,30 +31350,30 @@ function byteLength(value) {
   return Buffer.byteLength(value, "utf8");
 }
 function sha25611(value) {
-  return createHash20("sha256").update(value, "utf8").digest("hex");
+  return createHash21("sha256").update(value, "utf8").digest("hex");
 }
 function parseContinuation(value, expectedKind) {
   if (value === undefined)
     return null;
-  let parsed = value;
+  let parsed2 = value;
   if (typeof value === "string") {
     try {
-      parsed = JSON.parse(value);
+      parsed2 = JSON.parse(value);
     } catch {
       throw new Error("TASK_CONTEXT_CONTINUATION_INVALID: continuation is not valid JSON.");
     }
   }
-  if (!record6(parsed) || parsed.kind !== expectedKind || typeof parsed.source_revision !== "string")
+  if (!record6(parsed2) || parsed2.kind !== expectedKind || typeof parsed2.source_revision !== "string")
     throw new Error("TASK_CONTEXT_CONTINUATION_INVALID: continuation has an invalid binding.");
-  if (!Number.isSafeInteger(parsed.byte_offset) || parsed.byte_offset < 0)
+  if (!Number.isSafeInteger(parsed2.byte_offset) || parsed2.byte_offset < 0)
     throw new Error("TASK_CONTEXT_CONTINUATION_INVALID: byte_offset is invalid.");
-  if (parsed.content_revision !== undefined && (typeof parsed.content_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed.content_revision)))
+  if (parsed2.content_revision !== undefined && (typeof parsed2.content_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed2.content_revision)))
     throw new Error("TASK_CONTEXT_CONTINUATION_INVALID: content_revision is invalid.");
-  if (expectedKind === "task-context-page/v2" && (!Number.isSafeInteger(parsed.block_index) || parsed.block_index < 0 || !Number.isSafeInteger(parsed.record_index) || parsed.record_index < 0 || typeof parsed.entry !== "string" || typeof parsed.mode !== "string" || !CONTEXT_PURPOSES.includes(parsed.purpose) || typeof parsed.content_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed.content_revision) || typeof parsed.definition_reused !== "boolean" || typeof parsed.definition_revision !== "string" || typeof parsed.state_revision !== "string"))
+  if (expectedKind === "task-context-page/v2" && (!Number.isSafeInteger(parsed2.block_index) || parsed2.block_index < 0 || !Number.isSafeInteger(parsed2.record_index) || parsed2.record_index < 0 || typeof parsed2.entry !== "string" || typeof parsed2.mode !== "string" || !CONTEXT_PURPOSES.includes(parsed2.purpose) || typeof parsed2.content_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed2.content_revision) || typeof parsed2.definition_reused !== "boolean" || typeof parsed2.definition_revision !== "string" || typeof parsed2.state_revision !== "string"))
     throw new Error("TASK_CONTEXT_CONTINUATION_INVALID: task context cursor is invalid; restart task-context.");
-  if (expectedKind === "task-read-page/v1" && (typeof parsed.reference !== "string" || typeof parsed.definition_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed.definition_revision) || typeof parsed.state_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed.state_revision)))
+  if (expectedKind === "task-read-page/v1" && (typeof parsed2.reference !== "string" || typeof parsed2.definition_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed2.definition_revision) || typeof parsed2.state_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed2.state_revision)))
     throw new Error("TASK_CONTEXT_CONTINUATION_INVALID: task read cursor is invalid.");
-  return parsed;
+  return parsed2;
 }
 function currentStore(root, current) {
   return TaskStore.forCurrent(root, asStoreCurrent(current));
@@ -30997,10 +31405,10 @@ function manifestForContext(root, current) {
     if (validation.status !== "valid")
       throw new TaskStoreError("TASK_STORE_SOURCE_CONFLICT", `current aggregate is not consistent with CURRENT_TASK: ${validation.errors.join(" | ")}`);
     return manifest2;
-  } catch (error) {
-    if (error instanceof TaskStoreError)
-      throw error;
-    throw error;
+  } catch (error2) {
+    if (error2 instanceof TaskStoreError)
+      throw error2;
+    throw error2;
   }
 }
 function sectionList(body) {
@@ -31147,11 +31555,11 @@ function pendingReplanCandidateCount(current) {
   return entries.slice(lastReplan + 1).filter((item) => item.action === "prepare-replan").length;
 }
 function pendingScopeAmendmentCandidateCount(current) {
-  const directory = path23.join(path23.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
-  if (!fs22.existsSync(directory))
+  const directory = path24.join(path24.dirname(current.filePath), "task-candidates", current.sourceTuple.document_id);
+  if (!fs23.existsSync(directory))
     return 0;
   const committed = new Set(current.runtimeState.execution_log.filter((item) => ("action" in item) && item.action === "commit-scope-amendment" && item.candidate_digest).map((item) => `${item.candidate_digest}.scope.json`));
-  return fs22.readdirSync(directory).filter((name) => name.endsWith(".scope.json") && !committed.has(name) && !fs22.existsSync(path23.join(directory, `${name}.discarded`))).length;
+  return fs23.readdirSync(directory).filter((name) => name.endsWith(".scope.json") && !committed.has(name) && !fs23.existsSync(path24.join(directory, `${name}.discarded`))).length;
 }
 function reviewTarget(current) {
   const coverage = record6(current.runtimeState.review_coverage) ? current.runtimeState.review_coverage : null;
@@ -31565,11 +31973,11 @@ function archiveOutcome(root, current) {
   if (!archive || !("archive_path" in archive))
     return { status: "not-recorded" };
   const file2 = contextPath(root, archive.archive_path);
-  if (!fs22.existsSync(file2.absolute))
+  if (!fs23.existsSync(file2.absolute))
     throw new Error(`TASK_CONTEXT_ARCHIVE_UNAVAILABLE: retained archive is missing: ${file2.relative}`);
-  const bytes2 = fs22.readFileSync(file2.absolute);
+  const bytes2 = fs23.readFileSync(file2.absolute);
   const raw = bytes2.toString("utf8");
-  const revision = createHash20("sha256").update(bytes2).digest("hex");
+  const revision = createHash21("sha256").update(bytes2).digest("hex");
   return {
     status: "available",
     path: file2.relative,
@@ -31691,8 +32099,8 @@ function jsonChunk(serialized, offset, base, block, maxBytes, fitsPage) {
     const middle = Math.floor((low + high) / 2);
     const end2 = utf8Boundary(bytes2, offset + middle);
     const candidateBlock = { ...block, value: undefined, encoding: "json", text: bytes2.subarray(offset, end2).toString("utf8"), byte_offset: offset, total_bytes: bytes2.length, truncated: end2 < bytes2.length };
-    const candidate = { ...base, blocks: [...prefix, candidateBlock] };
-    if (fits(candidate, maxBytes) && (fitsPage === undefined || fitsPage(candidateBlock, end2))) {
+    const candidate2 = { ...base, blocks: [...prefix, candidateBlock] };
+    if (fits(candidate2, maxBytes) && (fitsPage === undefined || fitsPage(candidateBlock, end2))) {
       best = middle;
       low = middle + 1;
     } else
@@ -31726,7 +32134,7 @@ function contextPage(root, current, input) {
     throw new Error("TASK_CONTEXT_INPUT_INVALID: unknown purpose.");
   if (purpose === "archive-handoff" && !isTerminalContext(current))
     throw new Error("TASK_CONTEXT_INPUT_INVALID: archive-handoff requires a closed or archived task.");
-  const maxBytes = integer(input.max_bytes, 16 * 1024, 256, 64 * 1024);
+  const maxBytes = integer2(input.max_bytes, 16 * 1024, 256, 64 * 1024);
   const manifest2 = manifestForContext(root, current);
   const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), manifest2);
   const stateRevision = taskStoreStateRevision(asStoreCurrent(current));
@@ -31881,9 +32289,9 @@ function contextPage(root, current, input) {
         return [...returned.slice(0, -1), { ...last, records: [...last.records, item] }];
       return [...returned, { id: original.id, required: original.required, records: [item], record_offset: recordIndex, total_records: items.length }];
     };
-    const candidate = appendRecord();
-    if (byteOffset === 0 && fits(makePage(candidate, afterRecord), maxBytes)) {
-      returned.splice(0, returned.length, ...candidate);
+    const candidate2 = appendRecord();
+    if (byteOffset === 0 && fits(makePage(candidate2, afterRecord), maxBytes)) {
+      returned.splice(0, returned.length, ...candidate2);
       recordIndex++;
       if (recordIndex === items.length) {
         blockIndex++;
@@ -31928,18 +32336,18 @@ function readHistoryMaterial(root, current, sourceRevision) {
   if (stored !== null)
     return stored;
   const file2 = taskStoreHistoryPath(root, asStoreCurrent(current), sourceRevision);
-  if (fs22.existsSync(file2)) {
+  if (fs23.existsSync(file2)) {
     try {
-      const parsed = JSON.parse(fs22.readFileSync(file2, "utf8"));
-      if (parsed.kind === "vnext-task-definition-history" && parsed.source_revision === sourceRevision && typeof parsed.current_task_base64 === "string") {
-        const raw = Buffer.from(parsed.current_task_base64, "base64").toString("utf8");
+      const parsed2 = JSON.parse(fs23.readFileSync(file2, "utf8"));
+      if (parsed2.kind === "vnext-task-definition-history" && parsed2.source_revision === sourceRevision && typeof parsed2.current_task_base64 === "string") {
+        const raw = Buffer.from(parsed2.current_task_base64, "base64").toString("utf8");
         if (sha25611(raw) !== sourceRevision)
           throw new Error("history package source digest does not match its base64 preimage.");
         return raw;
       }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("source digest"))
-        throw new Error(`TASK_READ_HISTORY_INVALID: ${error.message}`);
+    } catch (error2) {
+      if (error2 instanceof Error && error2.message.includes("source digest"))
+        throw new Error(`TASK_READ_HISTORY_INVALID: ${error2.message}`);
     }
   }
   const manifest2 = currentStore(root, current).manifest;
@@ -31998,7 +32406,7 @@ function resolvedRead(root, current, input, expectedContentRevision) {
   const kind = typeof input.kind === "string" ? input.kind : typeof ref.kind === "string" ? ref.kind : undefined;
   const objectSha = input.object_sha256 ?? input.sha256 ?? (typeof ref.sha256 === "string" ? ref.sha256 : undefined);
   const eventPath = input.event_path ?? (typeof ref.path === "string" ? ref.path : undefined);
-  const reference = typeof rawRef === "string" ? rawRef : eventPath ?? objectSha ?? kind ?? "definition";
+  const reference2 = typeof rawRef === "string" ? rawRef : eventPath ?? objectSha ?? kind ?? "definition";
   if (kind === "manifest") {
     const manifest2 = aggregateManifest;
     if (!manifest2)
@@ -32122,7 +32530,7 @@ function resolvedRead(root, current, input, expectedContentRevision) {
   }
   if (input.path) {
     const file2 = contextPath(root, input.path);
-    if (!fs22.existsSync(file2.absolute))
+    if (!storeExists(root, file2.relative))
       throw new Error(`TASK_READ_PATH_MISSING: ${file2.relative}`);
     const result = readFileContext(root, { operation: "read", path: file2.relative, ...input.sha256 ?? expectedContentRevision ? { sha256: input.sha256 ?? expectedContentRevision } : {} });
     const contentRevision = typeof result.sha256 === "string" ? result.sha256 : undefined;
@@ -32133,7 +32541,7 @@ function resolvedRead(root, current, input, expectedContentRevision) {
   throw new Error("TASK_READ_INPUT_INVALID: provide a precise object, event, history, or file reference.");
 }
 function taskReadPage(root, current, input) {
-  const maxBytes = integer(input.max_bytes, 16 * 1024, 256, 64 * 1024);
+  const maxBytes = integer2(input.max_bytes, 16 * 1024, 256, 64 * 1024);
   const continuation = parseContinuation(input.continuation, "task-read-page/v1");
   const manifest2 = currentStore(root, current).manifest;
   if (continuation && continuation.source_revision !== current.sourceTuple.revision) {
@@ -32146,10 +32554,10 @@ function taskReadPage(root, current, input) {
   const resolved = resolvedRead(root, current, input, continuation?.content_revision);
   const serialized = resolved.encoding === "utf8" ? String(resolved.value) : stableJson2(resolved.value);
   const serializedBytes = Buffer.from(serialized, "utf8");
-  const reference = `${resolved.kind}:${resolved.reference}`;
-  if (continuation && continuation.reference !== reference)
+  const reference2 = `${resolved.kind}:${resolved.reference}`;
+  if (continuation && continuation.reference !== reference2)
     throw new Error("TASK_READ_STALE: exact reference changed; start a fresh task-read.");
-  const offset = continuation?.byte_offset ?? integer(input.offset, 0, 0, serializedBytes.length);
+  const offset = continuation?.byte_offset ?? integer2(input.offset, 0, 0, serializedBytes.length);
   if (offset > serializedBytes.length)
     throw new Error("TASK_READ_CONTINUATION_INVALID: byte_offset is outside the selected value.");
   if (offset < serializedBytes.length && (serializedBytes[offset] & 192) === 128)
@@ -32189,7 +32597,7 @@ function taskReadPage(root, current, input) {
         source_revision: current.sourceTuple.revision,
         definition_revision: definitionRevision,
         state_revision: stateRevision,
-        reference,
+        reference: reference2,
         byte_offset: safeEnd,
         ...resolved.content_revision ? { content_revision: resolved.content_revision } : {}
       },
@@ -32200,7 +32608,7 @@ function taskReadPage(root, current, input) {
         source_revision: current.sourceTuple.revision,
         definition_revision: definitionRevision,
         state_revision: stateRevision,
-        reference,
+        reference: reference2,
         returned_offset: offset,
         returned_bytes: byteLength(text5),
         complete_for_operation: complete,
@@ -32236,22 +32644,22 @@ function taskReadPage(root, current, input) {
 function parseExportContinuation(value) {
   if (value === undefined)
     return null;
-  let parsed = value;
+  let parsed2 = value;
   if (typeof value === "string") {
     try {
-      parsed = JSON.parse(value);
+      parsed2 = JSON.parse(value);
     } catch {
       throw new Error("TASK_EXPORT_CONTINUATION_INVALID: continuation is not valid JSON.");
     }
   }
-  if (!record6(parsed) || parsed.kind !== "task-export-page/v1" || typeof parsed.source_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed.source_revision) || typeof parsed.definition_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed.definition_revision) || typeof parsed.state_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed.state_revision) || !Number.isSafeInteger(parsed.byte_offset) || parsed.byte_offset < 0) {
+  if (!record6(parsed2) || parsed2.kind !== "task-export-page/v1" || typeof parsed2.source_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed2.source_revision) || typeof parsed2.definition_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed2.definition_revision) || typeof parsed2.state_revision !== "string" || !/^[a-f0-9]{64}$/u.test(parsed2.state_revision) || !Number.isSafeInteger(parsed2.byte_offset) || parsed2.byte_offset < 0) {
     throw new Error("TASK_EXPORT_CONTINUATION_INVALID: continuation has an invalid binding.");
   }
-  return parsed;
+  return parsed2;
 }
 function taskStoreExportPage(root, input = {}) {
   const value = contextInput(input, ["offset", "max_bytes", "continuation"]);
-  const maxBytes = integer(value.max_bytes, 16 * 1024, 256, 64 * 1024);
+  const maxBytes = integer2(value.max_bytes, 16 * 1024, 256, 64 * 1024);
   const current = readCanonicalCurrentTask(root);
   const store = currentStore(root, current);
   const definitionRevision = taskStoreDefinitionRevisionForManifest(asStoreCurrent(current), currentStore(root, current).manifest);
@@ -32261,7 +32669,7 @@ function taskStoreExportPage(root, input = {}) {
   const continuation = parseExportContinuation(value.continuation);
   if (continuation && (continuation.source_revision !== current.sourceTuple.revision || continuation.definition_revision !== definitionRevision || continuation.state_revision !== stateRevision))
     throw new Error("TASK_EXPORT_STALE: source, definition, or state revision changed; start a fresh task-export.");
-  const offset = continuation?.byte_offset ?? integer(value.offset, 0, 0, serialized.length);
+  const offset = continuation?.byte_offset ?? integer2(value.offset, 0, 0, serialized.length);
   if (offset > serialized.length)
     throw new Error("TASK_EXPORT_CONTINUATION_INVALID: byte_offset is outside the aggregate export.");
   if (offset < serialized.length && (serialized[offset] & 192) === 128)
@@ -32274,13 +32682,13 @@ function taskStoreExportPage(root, input = {}) {
     definition_revision: definitionRevision,
     state_revision: stateRevision
   };
-  const reference = `${store.paths.relativeRoot}/manifest.json`;
+  const reference2 = `${store.paths.relativeRoot}/manifest.json`;
   const base = {
     status: "success",
     operation_kind: "task-export",
     committed: false,
     aggregate,
-    selection: { kind: "aggregate-export", reference, total_bytes: serialized.length },
+    selection: { kind: "aggregate-export", reference: reference2, total_bytes: serialized.length },
     offset,
     returned_bytes: 0,
     total_bytes: serialized.length,
@@ -32361,13 +32769,13 @@ function taskContextMigrationCommit(root, sourceRevision) {
 function readCliInput() {
   if (process.stdin.isTTY)
     return {};
-  const content = fs22.readFileSync(0, "utf8");
+  const content = fs23.readFileSync(0, "utf8");
   return content.trim() ? JSON.parse(content) : {};
 }
 function cliRoot(args) {
   if (args.length !== 2 || args[0] !== "--root" || !args[1])
     throw new Error("Usage: <task-context|task-read|task-storage-migration|task-export> --root <project> (JSON on stdin)");
-  return path23.resolve(args[1]);
+  return path24.resolve(args[1]);
 }
 async function runTaskContextCli(command, args = process.argv.slice(2)) {
   try {
@@ -32398,9 +32806,9 @@ async function runTaskContextCli(command, args = process.argv.slice(2)) {
       throw new Error("TASK_MIGRATION_INPUT_INVALID: commit requires source_revision.");
     console.log(JSON.stringify(taskContextMigrationCommit(root, input.source_revision), null, 2));
     return 0;
-  } catch (error) {
-    console.error(formatEntryRecoveryError(error));
-    return error instanceof TaskStoreError && error.code === "TASK_STORE_SOURCE_CONFLICT" ? 2 : 1;
+  } catch (error2) {
+    console.error(formatEntryRecoveryError(error2));
+    return error2 instanceof TaskStoreError && error2.code === "TASK_STORE_SOURCE_CONFLICT" ? 2 : 1;
   }
 }
 
@@ -32495,11 +32903,11 @@ function pathList(value, location2, allowEmpty, allowGlob = false) {
   }
   return values;
 }
-function digest5(value) {
+function digest6(value) {
   return crypto16.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 function idempotencyKey(prefix, value) {
-  return `${prefix}-${digest5(value).slice(0, 48)}`;
+  return `${prefix}-${digest6(value).slice(0, 48)}`;
 }
 function authority3(current, kinds) {
   return kinds.map((kind) => ({
@@ -32618,8 +33026,8 @@ function assertCommandPlansAdmitted(root, current, stepPlan, assessments = [], p
     const project = (() => {
       try {
         return readProjectMutationAuthority(root);
-      } catch (error) {
-        fail8(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error instanceof Error ? error.message : String(error));
+      } catch (error2) {
+        fail8(error2 instanceof MutationAuthorityError ? error2.code : "MUTATION_AUTHORITY_PROJECT_INVALID", error2 instanceof Error ? error2.message : String(error2));
       }
     })();
     if (!project)
@@ -32669,7 +33077,7 @@ function assertExactCommandWritesCovered(stepPlan, candidatePaths) {
   }
 }
 function stepPlanRevision(stepPlan) {
-  return digest5({
+  return digest6({
     step: stepPlan.step,
     planned_mutation_targets: stepPlan.planned_mutation_targets,
     mutation_scope: stepPlan.mutation_scope,
@@ -32678,7 +33086,7 @@ function stepPlanRevision(stepPlan) {
   });
 }
 function ordinaryPreflightPlanRevision(current) {
-  return digest5({
+  return digest6({
     evidence_plan_revision: current.runtimeState.evidence_plan_revision,
     step_id: current.runtimeState.active_step_id
   });
@@ -32686,7 +33094,7 @@ function ordinaryPreflightPlanRevision(current) {
 function changeSetId(current, stepId) {
   if (current.runtimeState.review_coverage)
     return current.runtimeState.review_coverage.change_set_id;
-  return `change-set-${digest5({
+  return `change-set-${digest6({
     task_id: current.runtimeState.task_id,
     document_id: current.sourceTuple.document_id,
     step_id: stepId,
@@ -32847,10 +33255,10 @@ function assertCurrentReceipt(root, current, stepPlan, receipt, recording = fals
     fail8("EXECUTE_PREFLIGHT_STALE", "the frozen test strategy or current execution phase changed after preflight.");
   }
   if (activePreflight?.step_id === receipt.step_id) {
-    if (activePreflight.mode !== receipt.mode || activePreflight.plan_revision !== receipt.plan_revision || (current.mutationAuthority || receipt.mode === "repair") && receipt.execution_id !== activePreflight.execution_id || receipt.execution_id !== undefined && activePreflight.execution_id !== receipt.execution_id || digest5(activePreflight.candidate_paths) !== digest5(receipt.candidate_paths) || digest5(activePreflight.conditional_authorizations ?? []) !== digest5(receipt.conditional_authorizations ?? []) || activePreflight.policy_decision_id !== receipt.policy_decision_id || receipt.preflight_id !== undefined && activePreflight.preflight_id !== receipt.preflight_id) {
+    if (activePreflight.mode !== receipt.mode || activePreflight.plan_revision !== receipt.plan_revision || (current.mutationAuthority || receipt.mode === "repair") && receipt.execution_id !== activePreflight.execution_id || receipt.execution_id !== undefined && activePreflight.execution_id !== receipt.execution_id || digest6(activePreflight.candidate_paths) !== digest6(receipt.candidate_paths) || digest6(activePreflight.conditional_authorizations ?? []) !== digest6(receipt.conditional_authorizations ?? []) || activePreflight.policy_decision_id !== receipt.policy_decision_id || receipt.preflight_id !== undefined && activePreflight.preflight_id !== receipt.preflight_id) {
       fail8("EXECUTE_PREFLIGHT_STALE", "the preflight receipt does not bind the current Runtime execution identity.");
     }
-    if (receipt.mode === "repair" && activePreflight.review_target_paths !== null && digest5(activePreflight.review_target_paths) !== digest5(receipt.review_target_paths)) {
+    if (receipt.mode === "repair" && activePreflight.review_target_paths !== null && digest6(activePreflight.review_target_paths) !== digest6(receipt.review_target_paths)) {
       fail8("EXECUTE_PREFLIGHT_STALE", "the repair receipt does not bind the Runtime-recorded reviewed target paths.");
     }
     if (receipt.mode === "repair" && (activePreflight.review_id !== receipt.review_id || activePreflight.repair_wave_id !== receipt.repair_wave_id || activePreflight.change_set_id !== receipt.change_set_id)) {
@@ -32883,7 +33291,7 @@ function assertCurrentReceipt(root, current, stepPlan, receipt, recording = fals
   }
 }
 function findingAdmissionWaveId(reviewId) {
-  return `finding-wave-${digest5(reviewId).slice(0, 32)}`;
+  return `finding-wave-${digest6(reviewId).slice(0, 32)}`;
 }
 function currentStepResult(stepPlan, strategy) {
   return {
@@ -32909,7 +33317,7 @@ function exactReviewBaseForCandidates(current, candidatePaths) {
   if (!coverageTarget) {
     fail8("EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE", "the durable preflight has no registered review baseline; obtain a fresh preflight before execution.");
   }
-  const entries = candidatePaths.map((candidate) => coverageTarget.entries.find((entry) => entry.path === candidate));
+  const entries = candidatePaths.map((candidate2) => coverageTarget.entries.find((entry) => entry.path === candidate2));
   if (entries.some((entry) => entry === undefined)) {
     fail8("EXECUTE_PREFLIGHT_RECOVERY_UNAVAILABLE", "the durable preflight baseline does not cover every admitted candidate path.");
   }
@@ -32920,10 +33328,10 @@ function historicalOrdinaryPreflightCandidates(root, current, preflightId, stepI
   const match = store.lookupIdempotency(preflightId);
   if (!match || match.event.resulting_source_revision !== current.sourceTuple.revision)
     return null;
-  const reference = match.event.object_refs.proposal;
+  const reference2 = match.event.object_refs.proposal;
   let proposal = null;
-  if (isJsonRecord(reference) && reference.object_type === "proposal" && typeof reference.sha256 === "string") {
-    proposal = store.readTransactionPayload(reference, "proposal");
+  if (isJsonRecord(reference2) && reference2.object_type === "proposal" && typeof reference2.sha256 === "string") {
+    proposal = store.readTransactionPayload(reference2, "proposal");
   } else if (isJsonRecord(match.event.transaction?.proposal)) {
     const inline = match.event.transaction.proposal;
     if (isJsonRecord(inline) && inline.object_type === "proposal" && typeof inline.sha256 === "string") {
@@ -33107,14 +33515,14 @@ function recoverOutstandingRepairReceipt(current, stepPlan, strategy, candidateP
   const active = outstandingRepairPreflight(current);
   if (!active)
     return null;
-  if (digest5(active.candidate_paths) !== digest5(candidatePaths)) {
+  if (digest6(active.candidate_paths) !== digest6(candidatePaths)) {
     fail8("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", "the outstanding repair preflight owns a different candidate path set; reuse its exact paths.");
   }
   const pending = current.runtimeState.pending_review_result;
   const reviewTargetPaths = active.review_target_paths;
   const coverageTarget = current.runtimeState.review_coverage?.target;
   const expectedBasePaths = [...new Set([...reviewTargetPaths ?? [], ...active.candidate_paths])].sort();
-  if (!pending || !reviewTargetPaths || !coverageTarget || digest5(coverageTarget.entries.map((item) => item.path).sort()) !== digest5(expectedBasePaths)) {
+  if (!pending || !reviewTargetPaths || !coverageTarget || digest6(coverageTarget.entries.map((item) => item.path).sort()) !== digest6(expectedBasePaths)) {
     return null;
   }
   const receipt = {
@@ -33161,8 +33569,8 @@ function beginRepair(root, input, options = {}) {
   if (source.blast_radius_assessments !== undefined) {
     try {
       assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments);
-    } catch (error) {
-      fail8(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error instanceof Error ? error.message : String(error));
+    } catch (error2) {
+      fail8(error2 instanceof MutationAuthorityError ? error2.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error2 instanceof Error ? error2.message : String(error2));
     }
   }
   let current = readCanonicalCurrentTask(root);
@@ -33194,10 +33602,10 @@ function beginRepair(root, input, options = {}) {
     if (recoveredReceipt.blocked_result_id !== blockedResultId) {
       fail8("EXECUTE_PREFLIGHT_STALE", "the outstanding preflight belongs to a different blocked repair continuation.");
     }
-    if (digest5(recoveredReceipt.conditional_authorizations ?? []) !== digest5(conditionalAuthorizations)) {
+    if (digest6(recoveredReceipt.conditional_authorizations ?? []) !== digest6(conditionalAuthorizations)) {
       fail8("EXECUTE_PREFLIGHT_STALE", "the outstanding repair preflight owns different conditional authorizations; reuse its exact receipt.");
     }
-    if (requestedRepairFingerprints !== undefined && digest5(requestedRepairFingerprints) !== digest5([...recoveredReceipt.repair_fingerprints].sort())) {
+    if (requestedRepairFingerprints !== undefined && digest6(requestedRepairFingerprints) !== digest6([...recoveredReceipt.repair_fingerprints].sort())) {
       fail8("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", "the outstanding repair preflight owns a different repair target set; reuse its exact finding fingerprints.");
     }
     if (!options.dryRun && !blockedContinuation) {
@@ -33245,16 +33653,16 @@ function beginRepair(root, input, options = {}) {
   const admissionWaveId = findingAdmissionWaveId(pending.review_id);
   const previousStepCompletion = currentDefinitionExecutionLog(current).findLast((item) => !("action" in item) && item.advancement === "advanced" && item.next_step_id === pending.step_id && item.review_receipt?.cycle_id === current.runtimeState.review_cycle.id);
   const admissionCycleId = pending.cycle_phase === "discovery" && pending.cycle_id === current.runtimeState.review_cycle.id && previousStepCompletion && !("action" in previousStepCompletion) ? reviewCycleForNextStep(current.runtimeState.review_cycle.id, pending.step_id, previousStepCompletion.idempotency_key).id : current.runtimeState.review_cycle.id;
-  for (const candidate of pending.findings) {
-    if (!selectedRepairFingerprints.includes(candidate.fingerprint))
+  for (const candidate2 of pending.findings) {
+    if (!selectedRepairFingerprints.includes(candidate2.fingerprint))
       continue;
-    const existingFinding = current.runtimeState.findings.find((item) => item.fingerprint === candidate.fingerprint);
+    const existingFinding = current.runtimeState.findings.find((item) => item.fingerprint === candidate2.fingerprint);
     if (existingFinding !== undefined && isTerminalFindingStatus(existingFinding.status))
       continue;
-    if (!candidatePaths.includes(candidate.file)) {
-      fail8("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", `candidate_paths must include review finding path ${candidate.file}.`);
+    if (!candidatePaths.includes(candidate2.file)) {
+      fail8("EXECUTE_PREFLIGHT_SCOPE_CONFLICT", `candidate_paths must include review finding path ${candidate2.file}.`);
     }
-    const admissionKey = idempotencyKey("execute-review-admit", { review_id: pending.review_id, fingerprint: candidate.fingerprint });
+    const admissionKey = idempotencyKey("execute-review-admit", { review_id: pending.review_id, fingerprint: candidate2.fingerprint });
     if (hasAppliedProposal2(current, admissionKey))
       continue;
     const proposal = createFindingQueueProposal(current, {
@@ -33266,23 +33674,23 @@ function beginRepair(root, input, options = {}) {
         finding_admission_wave_id: admissionWaveId,
         ...policyDecisionId === undefined ? {} : { policy_decision_id: policyDecisionId },
         finding: {
-          fingerprint: candidate.fingerprint,
-          category: candidate.category,
+          fingerprint: candidate2.fingerprint,
+          category: candidate2.category,
           owner_task_id: current.runtimeState.task_id,
           scope: "admitted",
           decision: "mechanical",
-          file: candidate.file,
-          failure_condition: candidate.failure_condition,
-          violated_invariant: candidate.required_behavior,
-          root_cause_status: candidate.root_cause_status,
+          file: candidate2.file,
+          failure_condition: candidate2.failure_condition,
+          violated_invariant: candidate2.required_behavior,
+          root_cause_status: candidate2.root_cause_status,
           max_repair_attempts: MAX_REPAIR_ATTEMPTS,
-          evidence_refs: candidate.evidence_refs,
+          evidence_refs: candidate2.evidence_refs,
           review_cycle_id: admissionCycleId
         }
       },
       idempotency_key: admissionKey,
       authority_evidence: authority3(current, ["active-task-owner", "scope-admission", "finding-admission", "evidence-admission"]),
-      evidence_refs: candidate.evidence_refs
+      evidence_refs: candidate2.evidence_refs
     });
     const result = verifyReadBack(root, applyVNextRuntimeProposal(root, proposal, options), options);
     if (result.status !== "success" && result.status !== "no-op") {
@@ -33386,8 +33794,8 @@ function retryStep(root, input, options = {}) {
   if (source.blast_radius_assessments !== undefined) {
     try {
       assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments);
-    } catch (error) {
-      fail8(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error instanceof Error ? error.message : String(error));
+    } catch (error2) {
+      fail8(error2 instanceof MutationAuthorityError ? error2.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error2 instanceof Error ? error2.message : String(error2));
     }
   }
   const proposal = createStepRetryProposal(current, {
@@ -33430,17 +33838,17 @@ function evidenceContext(root, input) {
   const continuationValue = source.continuation;
   let continuation = null;
   if (continuationValue !== undefined) {
-    let parsed = continuationValue;
+    let parsed2 = continuationValue;
     if (typeof continuationValue === "string") {
       try {
-        parsed = JSON.parse(continuationValue);
+        parsed2 = JSON.parse(continuationValue);
       } catch {
         fail8("EVIDENCE_CONTEXT_CONTINUATION_INVALID", "continuation is not valid JSON.");
       }
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    if (!parsed2 || typeof parsed2 !== "object" || Array.isArray(parsed2))
       fail8("EVIDENCE_CONTEXT_CONTINUATION_INVALID", "continuation must be an object.");
-    const cursor = parsed;
+    const cursor = parsed2;
     if (cursor.kind !== "execute-step-evidence-page/v1" || cursor.source_revision !== current.sourceTuple.revision || cursor.evidence_plan_revision !== current.runtimeState.evidence_plan_revision || !Number.isSafeInteger(cursor.offset) || Number(cursor.offset) < 0) {
       fail8("EVIDENCE_CONTEXT_STALE", "source or evidence-plan revision changed; start a fresh evidence-context read.");
     }
@@ -33451,8 +33859,8 @@ function evidenceContext(root, input) {
       offset: Number(cursor.offset)
     };
   }
-  const offset = continuation?.offset ?? integer(source.offset, 0, 0, allChecks.length);
-  const limit = integer(source.limit, 64, 1, 64);
+  const offset = continuation?.offset ?? integer2(source.offset, 0, 0, allChecks.length);
+  const limit = integer2(source.limit, 64, 1, 64);
   if (offset > allChecks.length)
     fail8("EVIDENCE_CONTEXT_CONTINUATION_INVALID", "offset is outside the declared check set.");
   const checks = allChecks.slice(offset, offset + limit);
@@ -33494,8 +33902,8 @@ function preflightStep(root, input) {
   if (currentForInput.mutationAuthority && source.blast_radius_assessments !== undefined) {
     try {
       assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments);
-    } catch (error) {
-      fail8(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error instanceof Error ? error.message : String(error));
+    } catch (error2) {
+      fail8(error2 instanceof MutationAuthorityError ? error2.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error2 instanceof Error ? error2.message : String(error2));
     }
   }
   let current = currentForInput;
@@ -33515,10 +33923,10 @@ function preflightStep(root, input) {
   if (coverage && !hasPrerequisites && captureReviewTarget(root, coverage.target.entries.map((entry) => entry.path)).revision !== coverage.target.revision)
     fail8("REVIEW_TARGET_STALE", "Unrecorded changes cannot refresh the cumulative baseline.");
   const activePreflightMatchesStep = current.runtimeState.execution_preflight?.step_id === stepPlan.step.id;
-  if (activePreflightMatchesStep && digest5(current.runtimeState.execution_preflight.candidate_paths) !== digest5(candidatePaths)) {
+  if (activePreflightMatchesStep && digest6(current.runtimeState.execution_preflight.candidate_paths) !== digest6(candidatePaths)) {
     fail8("EXECUTE_PREFLIGHT_STALE", "the active preflight already owns a different target set; use extend-preflight for additional targets.");
   }
-  if (activePreflightMatchesStep && digest5(current.runtimeState.execution_preflight.conditional_authorizations ?? []) !== digest5(conditionalAuthorizations)) {
+  if (activePreflightMatchesStep && digest6(current.runtimeState.execution_preflight.conditional_authorizations ?? []) !== digest6(conditionalAuthorizations)) {
     fail8("EXECUTE_PREFLIGHT_STALE", "the active preflight owns different conditional authorizations; reuse its exact receipt.");
   }
   if (!current.runtimeState.step_attempts?.[stepPlan.step.id] || !coverage || candidatePaths.some((p) => !coverage.base.entries.some((entry) => entry.path === p)) || hasPrerequisites || current.runtimeState.step_attempts?.[stepPlan.step.id]?.attempts.at(-1)?.status === "ready" || current.mutationAuthority && !activePreflightMatchesStep || policyDecisionId !== undefined && current.runtimeState.execution_preflight?.policy_decision_id !== policyDecisionId) {
@@ -33594,8 +34002,8 @@ function extendPreflight(root, input, options = {}) {
   let assessments;
   try {
     assessments = normalizeBlastRadiusAssessments(source.blast_radius_assessments);
-  } catch (error) {
-    fail8(error instanceof MutationAuthorityError ? error.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error instanceof Error ? error.message : String(error));
+  } catch (error2) {
+    fail8(error2 instanceof MutationAuthorityError ? error2.code : "MUTATION_AUTHORITY_ASSESSMENT_INVALID", error2 instanceof Error ? error2.message : String(error2));
   }
   const evidenceRefs = textList2(source.evidence_refs, "evidence_refs", false);
   const candidatePaths = [...receipt.candidate_paths, ...additionalTargets];
@@ -33887,7 +34295,7 @@ function hasAppliedProposal2(current, key) {
 }
 function applyRepairAttempts(root, current, receipt, evidenceRefs, keySeed, options, policyDecisionId) {
   const fingerprints = receipt.kind === "execute-step-repair-preflight/v1" ? receipt.repair_fingerprints : [receipt.repair_fingerprint];
-  const waveId = receipt.kind === "execute-step-repair-preflight/v1" ? receipt.repair_wave_id : `repair-wave-${digest5(keySeed).slice(0, 24)}`;
+  const waveId = receipt.kind === "execute-step-repair-preflight/v1" ? receipt.repair_wave_id : `repair-wave-${digest6(keySeed).slice(0, 24)}`;
   let fresh = current;
   for (const fingerprint of fingerprints) {
     const finding = fresh.runtimeState.findings.find((item) => item.fingerprint === fingerprint);
@@ -33957,13 +34365,13 @@ function recordStepResult(root, input, options = {}) {
   }
   const reviewTargetPaths = receipt.kind === "execute-step-repair-preflight/v1" ? [...new Set([...receipt.review_target_paths, ...receipt.candidate_paths])] : [...receipt.candidate_paths];
   const expectedBasePaths = [...new Set(reviewTargetPaths)].sort();
-  if (digest5(receipt.review_base.entries.map((item) => item.path)) !== digest5(expectedBasePaths)) {
+  if (digest6(receipt.review_base.entries.map((item) => item.path)) !== digest6(expectedBasePaths)) {
     fail8("EXECUTE_PREFLIGHT_STALE", "preflight review base does not cover the exact review target path set.");
   }
   const reviewTarget2 = captureReviewTarget(root, reviewTargetPaths);
   const changeDelta = createReviewChangeDelta(receipt.review_base, reviewTarget2);
   const detectedChangedPaths = changeDelta.entries.map((item) => item.path);
-  if (digest5([...actualChangedPaths].sort()) !== digest5(detectedChangedPaths)) {
+  if (digest6([...actualChangedPaths].sort()) !== digest6(detectedChangedPaths)) {
     fail8("EXECUTE_RESULT_CHANGE_DELTA_CONFLICT", `actual_changed_paths must match Runtime-detected changes: ${detectedChangedPaths.join(", ") || "none"}.`);
   }
   const resultKeySeed = {
@@ -34030,7 +34438,7 @@ function recordStepResult(root, input, options = {}) {
     const priorExecution = pending && currentDefinitionExecutionLog(current).find((item) => !("action" in item) && item.idempotency_key === pending.execution_id);
     const activePreflight = current.runtimeState.execution_preflight;
     const priorTargetPaths = activePreflight?.mode === "repair" ? activePreflight.review_target_paths : priorExecution ? cumulativeReviewExecution(current, priorExecution).execution_result?.review_target.entries.map((item) => item.path) : undefined;
-    if (!pending || !priorExecution?.execution_result || pending.review_id !== receipt.review_id || pending.change_set_id !== receipt.change_set_id || priorExecution.execution_result.change_set_id !== receipt.change_set_id || priorTargetPaths !== null && priorTargetPaths !== undefined && digest5(priorTargetPaths) !== digest5(receipt.review_target_paths)) {
+    if (!pending || !priorExecution?.execution_result || pending.review_id !== receipt.review_id || pending.change_set_id !== receipt.change_set_id || priorExecution.execution_result.change_set_id !== receipt.change_set_id || priorTargetPaths !== null && priorTargetPaths !== undefined && digest6(priorTargetPaths) !== digest6(receipt.review_target_paths)) {
       fail8("REVIEW_TARGET_CONFLICT", "repair result no longer binds the Runtime-recorded reviewed change set.");
     }
   }
@@ -34333,18 +34741,18 @@ function parseExecuteStepAdapterCli(argv) {
   return { command, root, dryRun };
 }
 function readSemanticStdin2(command) {
-  const raw = !process.stdin.isTTY ? fs23.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs24.readFileSync(0, "utf8") : "";
   if (!raw.trim())
     throw new Error(`${command} requires semantic JSON on stdin.`);
   try {
     return JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`${command} stdin must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  } catch (error2) {
+    throw new Error(`${command} stdin must be valid JSON: ${error2 instanceof Error ? error2.message : String(error2)}`);
   }
 }
 function validateInstalledRuntime3(root) {
-  const runtimeManifest = path24.join(path24.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs23.existsSync(runtimeManifest))
+  const runtimeManifest = path25.join(path25.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs24.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root, true);
 }
 async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
@@ -34404,16 +34812,16 @@ async function runExecuteStepAdapterCli(argv = process.argv.slice(2)) {
     }
     console.log(JSON.stringify(result, null, 2));
     return result.status === "blocked" || result.status === "conflict" ? 2 : 0;
-  } catch (error) {
-    console.error(formatEntryRecoveryError(error));
+  } catch (error2) {
+    console.error(formatEntryRecoveryError(error2));
     return 1;
   }
 }
 
 // runtime/vnext/src/review-change-adapter.ts
 import * as crypto17 from "crypto";
-import * as fs24 from "fs";
-import * as path25 from "path";
+import * as fs25 from "fs";
+import * as path26 from "path";
 var REVIEW_CHANGE_ADAPTER_COMMANDS = ["review-context", "review-read", "record-review-result", "record-evidence-challenge", "dismiss-evidence-challenge", "ingest-evidence", "route-input"];
 var MAX_ITEMS3 = 256;
 var SHA256_PATTERN5 = /^[a-f0-9]{64}$/u;
@@ -34478,12 +34886,12 @@ function normalizeFindingDispositions(value, location2, receipt, findings, unres
 }
 function repoPath(value, location2) {
   const normalized = text6(value, location2, 1024).replace(/\\/gu, "/").replace(/^\.\//u, "");
-  if (path25.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
+  if (path26.posix.isAbsolute(normalized) || WINDOWS_ABSOLUTE_PATH3.test(normalized) || normalized.split("/").includes("..")) {
     fail9("REVIEW_ADAPTER_INPUT_INVALID", `${location2} must be a project-relative path.`);
   }
   return normalized;
 }
-function digest6(value) {
+function digest7(value) {
   return crypto17.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 function authority4(current, additionalKinds = []) {
@@ -34516,7 +34924,7 @@ function recordEvidenceChallenge(root, input, options = {}) {
   };
   if (!SHA256_PATTERN5.test(challenge.evidence_sha256))
     fail9("REVIEW_ADAPTER_INPUT_INVALID", "evidence_sha256 must be a lowercase SHA-256 digest.");
-  const idempotencyKey2 = `evidence-challenge-${digest6({ document_id: current.sourceTuple.document_id, ...challenge }).slice(0, 40)}`;
+  const idempotencyKey2 = `evidence-challenge-${digest7({ document_id: current.sourceTuple.document_id, ...challenge }).slice(0, 40)}`;
   const existing = (current.runtimeState.evidence_challenges ?? []).find((item) => item.claim_id === challenge.claim_id && item.slot_id === challenge.slot_id && item.result_id === challenge.result_id && item.evidence_sha256 === challenge.evidence_sha256);
   if (existing) {
     if (existing.evidence_ref !== challenge.evidence_ref || existing.reason !== challenge.reason)
@@ -34584,7 +34992,7 @@ function routeTaskInput(root, input) {
     next_route: route,
     evidence_assurance: "caller-reported",
     permission_change: "none",
-    receipt_digest: digest6({ source_tuple: current.sourceTuple, input: source, route })
+    receipt_digest: digest7({ source_tuple: current.sourceTuple, input: source, route })
   };
 }
 function dismissEvidenceChallenge(root, input, options = {}) {
@@ -34600,7 +35008,7 @@ function dismissEvidenceChallenge(root, input, options = {}) {
   if (!SHA256_PATTERN5.test(assessment.evidence_sha256))
     fail9("REVIEW_ADAPTER_INPUT_INVALID", "evidence_sha256 must be a lowercase SHA-256 digest.");
   const existing = current.runtimeState.evidence_challenges?.find((item) => item.challenge_id === assessment.challenge_id);
-  const idempotencyKey2 = `evidence-challenge-dismissal-${digest6({ document_id: current.sourceTuple.document_id, ...assessment }).slice(0, 40)}`;
+  const idempotencyKey2 = `evidence-challenge-dismissal-${digest7({ document_id: current.sourceTuple.document_id, ...assessment }).slice(0, 40)}`;
   if (existing?.resolution) {
     if (existing.resolution.evidence_ref !== assessment.evidence_ref || existing.resolution.evidence_sha256 !== assessment.evidence_sha256 || existing.resolution.reason !== assessment.reason)
       fail9("EVIDENCE_CHALLENGE_ALREADY_RESOLVED", "Challenge was resolved by a different assessment.");
@@ -34955,13 +35363,13 @@ function reviewFilePage(root, current, execution, file2, view, input) {
     try {
       const legacy = Object.prototype.hasOwnProperty.call(preimage, "content_base64") ? decodeLegacyReviewPreimage(preimage) : null;
       before = legacy?.content ?? readReviewPreimageBlob(root, preimage.sha256);
-    } catch (error) {
-      if (error instanceof ReviewPreimageStoreError)
-        fail9(error.code, error.message);
-      throw error;
+    } catch (error2) {
+      if (error2 instanceof ReviewPreimageStoreError)
+        fail9(error2.code, error2.message);
+      throw error2;
     }
   }
-  const after = target.state === "file" ? fs24.readFileSync(contextPath(root, file2).absolute) : Buffer.alloc(0);
+  const after = target.state === "file" ? fs25.readFileSync(contextPath(root, file2).absolute) : Buffer.alloc(0);
   if (target.state === "file" && sha25610(after) !== target.sha256)
     fail9("REVIEW_TARGET_STALE", "file changed while reading review context.");
   if (preimage?.state === "file" && sha25610(before) !== preimage.sha256)
@@ -35073,7 +35481,7 @@ function normalizeFinding(value, index, current, root, stepId) {
   exactKeys4(source, ["category", "file", "failure_condition", "required_behavior", "root_cause_status", "evidence_refs"], `findings[${index}]`);
   if (source.root_cause_status !== "confirmed" && source.root_cause_status !== "bounded")
     fail9("REVIEW_ADAPTER_INPUT_INVALID", `findings[${index}].root_cause_status is invalid.`);
-  const candidate = {
+  const candidate2 = {
     category: text6(source.category, `findings[${index}].category`, 256),
     file: repoPath(source.file, `findings[${index}].file`),
     failure_condition: text6(source.failure_condition, `findings[${index}].failure_condition`),
@@ -35086,23 +35494,23 @@ function normalizeFinding(value, index, current, root, stepId) {
   try {
     if (current.mutationAuthority) {
       const project = readProjectMutationAuthority(root);
-      const domain = project ? authorityDomainForPath(project, candidate.file) : null;
-      outsideCurrentAuthority = !project || isMutationAuthorityGovernanceBoundary(candidate.file) || current.mutationAuthority.forbidden.some((pattern) => mutationScopePatternMatchesPath(candidate.file, pattern)) || !current.mutationAuthority.exact_exceptions.includes(candidate.file) && (domain === null || !current.mutationAuthority.domains.includes(domain));
+      const domain = project ? authorityDomainForPath(project, candidate2.file) : null;
+      outsideCurrentAuthority = !project || isMutationAuthorityGovernanceBoundary(candidate2.file) || current.mutationAuthority.forbidden.some((pattern) => mutationScopePatternMatchesPath(candidate2.file, pattern)) || !current.mutationAuthority.exact_exceptions.includes(candidate2.file) && (domain === null || !current.mutationAuthority.domains.includes(domain));
     } else {
       const scope = parseMutationScope(current.body, current.sourceTuple.revision);
-      outsideCurrentAuthority = evaluateMutationScope(scope, { changed_paths: [candidate.file] }).status !== "pass" || !stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some((pattern) => mutationScopePatternMatchesPath(candidate.file, pattern));
+      outsideCurrentAuthority = evaluateMutationScope(scope, { changed_paths: [candidate2.file] }).status !== "pass" || !stepScope(step.mutation_scope, `step ${step.id} mutation_scope`).some((pattern) => mutationScopePatternMatchesPath(candidate2.file, pattern));
     }
   } catch {
     outsideCurrentAuthority = true;
   }
   return {
-    fingerprint: `finding-${digest6({
+    fingerprint: `finding-${digest7({
       task_id: current.runtimeState.task_id,
-      file: candidate.file,
-      failure_condition: candidate.failure_condition,
-      required_behavior: candidate.required_behavior
+      file: candidate2.file,
+      failure_condition: candidate2.failure_condition,
+      required_behavior: candidate2.required_behavior
     }).slice(0, 32)}`,
-    ...candidate,
+    ...candidate2,
     ...outsideCurrentAuthority ? { repair_scope_hint: "outside-current-authority" } : {}
   };
 }
@@ -35231,7 +35639,7 @@ function recordReviewResult(root, input, options = {}) {
   const finalFindings = findings;
   const finalUnresolved = unresolved;
   const finalBlocker = runtimeBlocker ?? blocker;
-  const reviewId = `review-${digest6({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, resolved, finding_dispositions: findingDispositions ?? null, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
+  const reviewId = `review-${digest7({ receipt, verdict: finalVerdict, findings: finalFindings, unresolved: finalUnresolved, resolved, finding_dispositions: findingDispositions ?? null, evidenceRefs, blocker: finalBlocker }).slice(0, 40)}`;
   const reviewResult = {
     ...source.test_assessment === undefined ? {} : { test_assessment: validateTestAssessment(source.test_assessment) },
     kind: "review-result/v1",
@@ -35254,10 +35662,10 @@ function recordReviewResult(root, input, options = {}) {
     evidence_refs: evidenceRefs,
     blocker: finalBlocker
   };
-  const resultKey = `review-result-${digest6(reviewResult).slice(0, 48)}`;
+  const resultKey = `review-result-${digest7(reviewResult).slice(0, 48)}`;
   if (current.runtimeState.pending_review_result?.review_id === reviewId) {
     const { recorded_at: _recordedAt, ...durable } = current.runtimeState.pending_review_result;
-    if (digest6(durable) !== digest6(reviewResult))
+    if (digest7(durable) !== digest7(reviewResult))
       fail9("REVIEW_REPLAY_CONFLICT", "the durable review id is bound to different review semantics.");
     return semanticNoOp3(current, resultKey, "This exact review result was already recorded.", options);
   }
@@ -35292,18 +35700,18 @@ function parseCli3(argv) {
   return { command, root, dryRun };
 }
 function readSemanticStdin3(command) {
-  const raw = !process.stdin.isTTY ? fs24.readFileSync(0, "utf8") : "";
+  const raw = !process.stdin.isTTY ? fs25.readFileSync(0, "utf8") : "";
   if (!raw.trim())
     throw new Error(`${command} requires semantic JSON on stdin.`);
   try {
     return JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`${command} stdin must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  } catch (error2) {
+    throw new Error(`${command} stdin must be valid JSON: ${error2 instanceof Error ? error2.message : String(error2)}`);
   }
 }
 function validateInstalledRuntime4(root) {
-  const runtimeManifest = path25.join(path25.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
-  if (fs24.existsSync(runtimeManifest))
+  const runtimeManifest = path26.join(path26.resolve(root), ...VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH.split("/"), "package.json");
+  if (fs25.existsSync(runtimeManifest))
     validateVNextRuntimeContract(root, true);
 }
 async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
@@ -35329,28 +35737,28 @@ async function runReviewChangeAdapterCli(argv = process.argv.slice(2)) {
       result = dismissEvidenceChallenge(args.root, input, { dryRun: args.dryRun });
     console.log(JSON.stringify(result, null, 2));
     return "status" in result && (result.status === "blocked" || result.status === "conflict") ? 2 : 0;
-  } catch (error) {
-    console.error(formatEntryRecoveryError(error));
+  } catch (error2) {
+    console.error(formatEntryRecoveryError(error2));
     return 1;
   }
 }
 
 // runtime/vnext/src/file-context-cli.ts
-import * as fs25 from "node:fs";
-import * as path26 from "node:path";
+import * as fs26 from "node:fs";
+import * as path27 from "node:path";
 async function runFileContextCli(args) {
   try {
     validateRuntimeEnvironment();
     if (args.length !== 2 || args[0] !== "--root" || !args[1])
       throw new Error("Usage: file-context --root <project> (JSON on stdin)");
-    const root = path26.resolve(args[1]);
-    if (fs25.existsSync(path26.join(root, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
+    const root = path27.resolve(args[1]);
+    if (fs26.existsSync(path27.join(root, VNEXT_RUNTIME_PACKAGE_RELATIVE_PATH, "package.json")))
       validateVNextRuntimeContract(root, true);
-    const result = await fileContext(root, JSON.parse(fs25.readFileSync(0, "utf8")));
+    const result = await fileContext(root, JSON.parse(fs26.readFileSync(0, "utf8")));
     console.log(JSON.stringify(result, null, 2));
     return result.status === "partial" ? 2 : 0;
-  } catch (error) {
-    console.error(formatEntryRecoveryError(error));
+  } catch (error2) {
+    console.error(formatEntryRecoveryError(error2));
     return 1;
   }
 }
@@ -35362,36 +35770,36 @@ async function runAuthorityDomainCli(command, argv) {
     let dryRun = false;
     for (let index = 0;index < argv.length; index += 1) {
       if (argv[index] === "--root" && argv[index + 1])
-        root = path27.resolve(argv[++index]);
+        root = path28.resolve(argv[++index]);
       else if (argv[index] === "--dry-run")
         dryRun = true;
       else
         throw new Error(`Unknown argument: ${argv[index]}`);
     }
-    const result = command === "authority-domain-context" ? { status: "success", ...authorityDomainContext(root) } : command === "authority-domain-update" ? updateAuthorityDomains(root, JSON.parse(fs26.readFileSync(0, "utf8")), dryRun) : rebindTaskAuthorityDomains(root, JSON.parse(fs26.readFileSync(0, "utf8")), { dryRun });
+    const result = command === "authority-domain-context" ? { status: "success", ...authorityDomainContext(root) } : command === "authority-domain-update" ? updateAuthorityDomains(root, JSON.parse(fs27.readFileSync(0, "utf8")), dryRun) : rebindTaskAuthorityDomains(root, JSON.parse(fs27.readFileSync(0, "utf8")), { dryRun });
     console.log(JSON.stringify(result, null, 2));
     return result.status === "blocked" || result.status === "conflict" ? 2 : 0;
-  } catch (error) {
-    const code = error instanceof Error && "code" in error ? String(error.code) : "AUTHORITY_DOMAIN_OPERATION_FAILED";
-    console.log(JSON.stringify({ status: "blocked", code, committed: false, message: error instanceof Error ? error.message : String(error) }, null, 2));
+  } catch (error2) {
+    const code = error2 instanceof Error && "code" in error2 ? String(error2.code) : "AUTHORITY_DOMAIN_OPERATION_FAILED";
+    console.log(JSON.stringify({ status: "blocked", code, committed: false, message: error2 instanceof Error ? error2.message : String(error2) }, null, 2));
     return 2;
   }
 }
 function runManagementCli(command, argv) {
   const service = fileURLToPath(new URL("../support/assistance.mjs", import.meta.url));
-  return new Promise((resolve26) => {
+  return new Promise((resolve27) => {
     const child = spawn3(process.execPath, [service, command, ...argv], { stdio: "inherit" });
-    child.once("error", (error) => {
+    child.once("error", (error2) => {
       console.log(JSON.stringify({
         status: "unavailable",
         recorded: false,
         development_gate: false,
-        message: error.message,
+        message: error2.message,
         next_action: "Report this management read failure, not a development veto."
       }));
-      resolve26(1);
+      resolve27(1);
     });
-    child.once("close", (code) => resolve26(code ?? 1));
+    child.once("close", (code) => resolve27(code ?? 1));
   });
 }
 var args = process.argv.slice(2);

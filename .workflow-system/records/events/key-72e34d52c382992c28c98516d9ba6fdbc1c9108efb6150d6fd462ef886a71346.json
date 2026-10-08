@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T18:09:14.113Z",
+  "payload_sha256": "9be69865721c60a35cfffe82ef17ae5f315f6355e41fc3e4eec6799eee96262e",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:archive-final-review-A1",
+    "request": {
+      "action": "review",
+      "stage": "change",
+      "task_ref": "task-cc7b3253c7789f99419b4edea097d614",
+      "execution_ref": ".workflow-system/records/events/key-452e713dabcba49bf81a60ca74ee0df97fbc1dd5574601043d215173e8219a7b.json",
+      "idempotency_key": "archive-final-review-A1",
+      "verdict": "pass",
+      "reviewer": "independent source and behavioral review",
+      "summary": "Three P1 defects and one P2 defect corrected and independently reproduced as fixed. No confirmed blocking finding remains within reviewed archive scope. Not a full-platform or aggregate-suite pass.",
+      "findings": []
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-cc7b3253c7789f99419b4edea097d614",
+      "parents": [
+        ".workflow-system/records/events/key-452e713dabcba49bf81a60ca74ee0df97fbc1dd5574601043d215173e8219a7b.json"
+      ],
+      "data": {
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-452e713dabcba49bf81a60ca74ee0df97fbc1dd5574601043d215173e8219a7b.json",
+        "verdict": "pass",
+        "reviewer": "independent source and behavioral review",
+        "summary": "Three P1 defects and one P2 defect corrected and independently reproduced as fixed. No confirmed blocking finding remains within reviewed archive scope. Not a full-platform or aggregate-suite pass.",
+        "findings": []
+      }
+    }
+  },
+  "issues": []
+}

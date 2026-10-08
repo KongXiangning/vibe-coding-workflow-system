@@ -356,3 +356,80 @@ its structured result. Service failure also exits 1, with status=unavailable. A 
 exits 0 even with reported choices
 or reference gaps. No state/record is written for these commands. Do not write task git/record,
 refresh CURRENT_TASK, or recursively commit a new event merely to report the commit's own SHA.
+
+## Indexed lossless record archives
+
+`archive` changes physical representation only. It does not change task states, event
+bytes, IDs, parents, payload digests or CAS identities. It has no development gate and
+never runs automatically during installation, upgrade, task closure or Git checkpoint.
+The installed module uses native Node built-ins. Existing old Runtime versions and
+external direct-filesystem readers must retain loose files, or restore them first.
+
+Send JSON on stdin to `node .workflow-system/runtime/support/assistance.mjs archive
+--root <project>` (source checkout: `node runtime/vnext/support/assistance.mjs`).
+
+| action | behavior |
+| --- | --- |
+| `plan` | Read-only eligible paths, exact sizes/digests and format limits |
+| `create` | Copy stable eligible loose facts into verified immutable indexed packs; retain all originals |
+| `verify` | Verify every selected archive/index/pack/chunk and reconstructed object, including loose collisions |
+| `quarantine` | After complete verification, move matching loose originals into recoverable quarantine |
+| `reclaim` | Separate explicit operation: verify again and remove only duplicate quarantined bytes; archive-backed restore remains available |
+| `restore` | Recreate original paths and exact bytes from verified archives without overwriting conflicts |
+| `recover-lock` | Explicitly recover only a demonstrably dead lock owner on this host; never steal by age |
+
+`create`/`plan` accept optional `refs: [exact logical paths]`; no refs means all eligible
+loose facts. `quarantine`/`restore` accept optional `archive_ids` and `refs`.
+`reclaim` accepts `archive_ids` only and requires the complete archive to have been
+explicitly quarantined. Omitted archive selection means all existing archives.
+Read the preview and retain an independent project backup before actual project cleanup.
+A request to implement or install this feature is not consent to clean a business project.
+
+Only events, attachments, CAS evidence objects, task-label reservations, and preserved
+legacy baseline/current files qualify. All display recovery files (including mutable
+old-editor capture inodes), task-view revisions and CURRENT_TASK are excluded. Late
+observations and attachments remain new loose facts; task closure is not a storage seal.
+
+The immutable `records/archives/<manifest-sha256>/` directory contains a versioned
+manifest plus numbered indices and packs. Blocks expand to at most 64 KiB. A segment
+holds at most 64 MiB raw data, 2,048 record entries and a 4 MiB index; a large object can
+span segments. Cold lookups route through manifests to matching indices, under explicit
+16 MiB total catalog metadata / 4,096 archive limits. Creation checks the complete
+post-activation catalog before publishing and refuses growth beyond these v1 limits
+while retaining the original loose facts. Lookups fail with `ARCHIVE_CATALOG_LIMIT` rather than
+silently omitting history. Enumeration and full task replay still scale with history.
+
+`read` reports `storage`, `verification` and `read_metrics`. `indexed-selected-chunks`
+means the returned archive page is bound to the verified index and block hashes; it does
+not mean this page read recomputed the whole object's SHA-256. `archive verify` performs
+that complete check. A loose/archive collision, missing index/pack, invalid path, hash,
+length or unsupported format is an error. Never rename arbitrary bytes to a historical
+SHA or fall back to an unverified duplicate.
+
+The ordinary `read`, `find`, task replay, idempotent recording, snapshots and label
+reservation operate on logical original paths. Product SourceRef reads and file-context
+exact reads do too. SourceRef locator-free reads support byte paging; structured locators
+retain their existing file-size budget. File-context whole-file reads over 64 MiB report
+`READ_TOO_LARGE`; use assistance paging. Literal `find` uses range-only discovery: when both representations exist it compares
+the selected loose range to the indexed archive page, and does not claim whole-object
+duplicate verification for unread pages. A conflicting page is reported while independent
+files continue to be searched; gaps are partial results. Native ripgrep file-context search cannot see
+packed bodies and reports its archive coverage gap explicitly; use assistance `find`.
+Product document writers cannot write into the managed records store, even when a custom
+product manifest registers it as a capture target; use the record/snapshot APIs instead.
+
+Checkpoint plans include all necessary manifest/index/pack bytes, validate typed logical
+references, and account for explicit verified archive migrations in `delete_paths`.
+Actual index/commit verification checks the stored packs, not the worktree's cached
+claims. Review the exact plan before staging; the command itself never stages or commits.
+Keep the archives and their indices in the same backup/commit. A fresh offline clone can
+read and restore old logical refs without local quarantine receipts. A missing index must
+be restored from the paired backup/commit; this version does not expose automatic index
+reconstruction, although pack frames retain the reconstruction metadata. An explicit restore
+materializes loose compatibility copies; keep/reclaim them deliberately before planning
+the next checkpoint. No receipt recording the checkpoint's own SHA is needed.
+
+Quarantine alone reduces files in the active record directories but does not save total
+project bytes. Report archive bytes, quarantine bytes and final retained bytes separately.
+Reclaim saves physical duplicate files while preserving every logical fact in the archive;
+it does not erase old Git blobs or promise an equal reduction of `.git` history.

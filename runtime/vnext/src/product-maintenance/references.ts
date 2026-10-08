@@ -1,35 +1,32 @@
-import * as fs from 'node:fs';
-import { createHash } from 'node:crypto';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
+import { storeRead, storeReadFile, storeStat } from '../../support/record-storage.mjs';
 import { diagnostic, type Catalog, type ObjectValue } from './model';
 import { allowed, safePath } from './paths';
-import { decode, parseProduct, requirementDigest } from './parser';
+import { decode, parseProduct, requirementDigest, sha256 } from './parser';
 import { collectSources } from './plans';
 
 const markdown = unified().use(remarkParse);
 
-export function fileDigest(file: string): string {
-  const fd = fs.openSync(file, 'r'), hash = createHash('sha256'), chunk = Buffer.alloc(65536);
-  try { let count: number; while ((count = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0) hash.update(chunk.subarray(0, count)); return hash.digest('hex'); }
-  finally { fs.closeSync(fd); }
-}
 export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectValue = {}): ObjectValue {
   const base: ObjectValue = { source, byte_status: 'unknown', status: 'unavailable', diagnostics: [], fetched_remote: false };
   if (source.kind === 'uri') return { ...base, status: 'reference-only', navigation_allowed: /^https?:/i.test(source.uri), note: 'URI retained only; its body has not been obtained or archived' };
   if (source.kind === 'text') return { ...base, status: 'available', text: source.text, label: source.label, note: 'Text basis is not authenticated as verbatim user speech' };
   try {
     if (!catalog.manifest || !allowed(catalog.manifest, source.path, 'source')) return { ...base, diagnostics: [diagnostic('SOURCE_OUT_OF_RANGE', source.path, 'Source is not in registered reading scope')] };
-    const file = safePath(catalog.root, source.path), stat = fs.statSync(file);
-    if (!stat.isFile()) throw new Error('Source must be a regular file');
-    const digest = fileDigest(file);
+    // Keep SourceRef's registered scope and path checks. The logical store resolves
+    // the original path after explicit archival without rewriting the reference.
+    safePath(catalog.root, source.path);
+    const stat = storeStat(catalog.root, source.path), digest = stat.sha256;
     base.actual_sha256 = digest;
     base.byte_status = source.sha256 ? source.sha256 === digest ? 'same-bytes' : 'changed' : 'unknown';
     if (base.byte_status === 'changed') base.diagnostics.push(diagnostic('SOURCE_CHANGED', source.path, 'Current bytes differ from referenced bytes; a digest cannot recover historical content'));
     let start = 0, end = stat.size;
     if (source.item_id || source.section || source.lines) {
       if (stat.size > (input.max_file_bytes ?? 4 * 1024 * 1024)) return { ...base, diagnostics: [...base.diagnostics, diagnostic('LOCATOR_BYTE_LIMIT', source.path, 'Structured locator was not resolved; raw bytes remain available via a locator-free paged read')] };
-      const bytes = fs.readFileSync(file), text = decode(bytes);
+      const bytes = storeReadFile(catalog.root, source.path);
+      if (sha256(bytes) !== digest) throw new Error('SOURCE_READ_CHANGED: source changed during reading; restart this read');
+      const text = decode(bytes);
       let charStart = 0, charEnd = text.length;
       if (source.item_id || source.section) {
         const document = parseProduct(text, source.path);
@@ -69,12 +66,8 @@ export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectV
     }
     const offset = input.offset ?? 0, size = end - start;
     if (offset > size) throw new Error('SOURCE_OFFSET: offset is past the selected source');
-    const fd = fs.openSync(file, 'r'), data = Buffer.alloc(Math.min(input.max_bytes ?? 65536, size - offset));
-    let count: number;
-    try { count = fs.readSync(fd, data, 0, data.length, start + offset); }
-    finally { fs.closeSync(fd); }
-    if (fileDigest(file) !== digest) throw new Error('SOURCE_READ_CHANGED: source changed during reading; restart this read');
-    return { ...base, status: 'available', size, file_size: stat.size, locator_start_byte: start, offset, data_base64: data.subarray(0, count).toString('base64'), text_preview: data.subarray(0, count).toString('utf8'), next_offset: offset + count < size ? offset + count : null, content_is_referenced_bytes: base.byte_status === 'same-bytes' };
+    const { bytes: data, storage, verification } = storeRead(catalog.root, source.path, { offset: start + offset, length: Math.min(input.max_bytes ?? 65536, size - offset), expectedSha256: digest });
+    return { ...base, status: 'available', size, file_size: stat.size, storage, verification, locator_start_byte: start, offset, data_base64: data.toString('base64'), text_preview: data.toString('utf8'), next_offset: offset + data.length < size ? offset + data.length : null, content_is_referenced_bytes: base.byte_status === 'same-bytes' };
   } catch (error: any) { return { ...base, byte_status: base.actual_sha256 ? base.byte_status : 'unavailable', diagnostics: [...base.diagnostics, diagnostic('SOURCE_UNAVAILABLE', source.path, error.message)] }; }
 }
 export function resolveSources(catalog: Catalog, ids?: string[]): ObjectValue[] {

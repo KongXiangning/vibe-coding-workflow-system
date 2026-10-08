@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import { ACTIVE_TASK_FORMAT } from './task-projection';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
+import { storeExists } from '../support/record-storage.mjs';
 import {
   contextInput,
   contextPath,
@@ -1556,7 +1557,7 @@ function resolvedRead(root: string, current: CanonicalCurrentTask, input: TaskRe
   }
   if (input.path) {
     const file = contextPath(root, input.path);
-    if (!fs.existsSync(file.absolute)) throw new Error(`TASK_READ_PATH_MISSING: ${file.relative}`);
+    if (!storeExists(root, file.relative)) throw new Error(`TASK_READ_PATH_MISSING: ${file.relative}`);
     const result = readFileContext(root, { operation: 'read', path: file.relative, ...((input.sha256 ?? expectedContentRevision) ? { sha256: input.sha256 ?? expectedContentRevision } : {}) });
     const contentRevision = typeof result.sha256 === 'string' ? result.sha256 : undefined;
     if (expectedContentRevision !== undefined && contentRevision !== expectedContentRevision) throw new Error('TASK_READ_STALE: file content revision changed; start a fresh task-read.');

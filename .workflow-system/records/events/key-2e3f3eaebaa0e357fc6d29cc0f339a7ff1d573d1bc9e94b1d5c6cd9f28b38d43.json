@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T17:33:06.403Z",
+  "payload_sha256": "7bc3ed07e99cfafe7e2148da6c0f98e478992b170f21e4ebc08f0396ab8a1cb5",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:indexed-record-archives-20261008",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "indexed-record-archives-20261008",
+      "title": "带索引的无损记录归档",
+      "plan": {
+        "title": "带索引的无损记录归档",
+        "steps": [
+          {
+            "id": "A1",
+            "title": "统一逻辑存储与显式归档、核验、恢复"
+          },
+          {
+            "id": "A2",
+            "title": "读写、checkpoint和安装兼容"
+          },
+          {
+            "id": "A3",
+            "title": "隔离样本、独立审查与可恢复交付"
+          }
+        ],
+        "scope": {
+          "baseline": "813d3146561c974c1437fc4d116144dc800bc1ad",
+          "excluded": [
+            "Git backend",
+            "real-project cleanup",
+            "push",
+            "release",
+            "deploy"
+          ],
+          "design": "docs/product/vnext-indexed-record-archives.md"
+        }
+      }
+    },
+    "task_event": {
+      "version": 1,
+      "action": "prepare",
+      "task_id": "task-cc7b3253c7789f99419b4edea097d614",
+      "parents": [
+        ".workflow-system/records/events/key-6d940d713d26865512ed8165a3ee651ed2aa3d33a1e85c286203abf1cd23de76.json"
+      ],
+      "data": {
+        "title": "带索引的无损记录归档",
+        "plan": {
+          "title": "带索引的无损记录归档",
+          "steps": [
+            {
+              "id": "A1",
+              "title": "统一逻辑存储与显式归档、核验、恢复"
+            },
+            {
+              "id": "A2",
+              "title": "读写、checkpoint和安装兼容"
+            },
+            {
+              "id": "A3",
+              "title": "隔离样本、独立审查与可恢复交付"
+            }
+          ],
+          "scope": {
+            "baseline": "813d3146561c974c1437fc4d116144dc800bc1ad",
+            "excluded": [
+              "Git backend",
+              "real-project cleanup",
+              "push",
+              "release",
+              "deploy"
+            ],
+            "design": "docs/product/vnext-indexed-record-archives.md"
+          }
+        },
+        "create": true,
+        "display_id": "TASK-012"
+      }
+    }
+  },
+  "issues": []
+}

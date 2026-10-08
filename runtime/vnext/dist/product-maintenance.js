@@ -7679,7 +7679,7 @@ var require_src = __commonJS((exports, module) => {
 });
 
 // runtime/vnext/src/product-maintenance/cli.ts
-import * as path4 from "node:path";
+import * as path5 from "node:path";
 
 // runtime/vnext/src/product-maintenance/catalog.ts
 import * as fs2 from "node:fs";
@@ -16490,43 +16490,453 @@ function readCatalog(rootInput, input = {}) {
   return catalog;
 }
 
-// runtime/vnext/src/product-maintenance/references.ts
+// runtime/vnext/support/record-storage.mjs
 import * as fs3 from "node:fs";
-import { createHash as createHash2 } from "node:crypto";
-var markdown = unified().use(remarkParse);
-function fileDigest(file) {
-  const fd = fs3.openSync(file, "r"), hash = createHash2("sha256"), chunk = Buffer.alloc(65536);
+import * as path3 from "node:path";
+import { createHash as createHash2, randomUUID } from "node:crypto";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
+var STORE = ".workflow-system/records";
+var ARCHIVES = `${STORE}/archives`;
+var STAGING = `${STORE}/.archive-staging`;
+var QUARANTINE = `${STORE}/archive-quarantine`;
+var LOCKS = `${STORE}/.record-store-locks`;
+var MAGIC = Buffer.from(`WFRPACK1
+`);
+var ARCHIVE_LIMITS = Object.freeze({
+  chunkBytes: 65536,
+  packRawBytes: 64 * 1024 * 1024,
+  indexBytes: 4 * 1024 * 1024,
+  recordsPerPack: 2048,
+  manifestBytes: 4 * 1024 * 1024,
+  catalogBytes: 16 * 1024 * 1024,
+  archiveCount: 4096,
+  readBytes: 16 * 1024 * 1024,
+  fileReadBytes: 64 * 1024 * 1024
+});
+var MAX_PACK_BYTES = 72 * 1024 * 1024;
+var MAX_HEADER = 4096;
+var MAX_SEGMENTS = 8192;
+var hash = (b) => createHash2("sha256").update(b).digest("hex");
+var digest2 = (v) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
+var integer = (v) => Number.isSafeInteger(v) && v >= 0;
+var error = (code, message) => Object.assign(new Error(message), { code });
+function requireThat(ok2, message, code = "ARCHIVE_CORRUPT") {
+  if (!ok2)
+    throw error(code, message);
+}
+function reference(root, requested) {
+  requireThat(typeof requested === "string" && requested && !requested.includes("\x00"), "Expected a repository-relative path.", "UNSAFE_PATH");
+  const value = requested.replaceAll("\\", "/");
+  requireThat(!value.split("/").some((p) => p === ".." || p.includes(":") || p.toLowerCase().replace(/[. ]+$/, "") === ".git"), "Expected a repository-relative path without traversal or Git-control files.", "UNSAFE_PATH");
+  const relative3 = path3.relative(path3.resolve(root), path3.resolve(root, value)).split(path3.sep).join("/");
+  requireThat(relative3 !== ".." && !relative3.startsWith("../") && !path3.isAbsolute(relative3), "Expected an in-repository path.", "UNSAFE_PATH");
+  return relative3;
+}
+function local(root, ref2) {
+  const relative3 = ref2 === "" ? "" : reference(root, ref2), base = path3.resolve(root);
+  let current = base;
+  for (const part of [null, ...relative3.split("/").filter(Boolean)]) {
+    if (part !== null)
+      current = path3.join(current, part);
+    try {
+      requireThat(!fs3.lstatSync(current).isSymbolicLink(), `Symbolic paths are not followed: ${ref2}`, "UNSAFE_PATH");
+    } catch (e) {
+      if (e.code !== "ENOENT")
+        throw e;
+    }
+  }
+  return current;
+}
+function statMaybe(root, ref2) {
   try {
-    let count;
-    while ((count = fs3.readSync(fd, chunk, 0, chunk.length, null)) > 0)
-      hash.update(chunk.subarray(0, count));
-    return hash.digest("hex");
+    return fs3.lstatSync(local(root, ref2));
+  } catch (e) {
+    if (e.code === "ENOENT")
+      return null;
+    throw e;
+  }
+}
+function openFile(root, ref2, flags = "r") {
+  const file = local(root, ref2), numeric = flags === "r" ? fs3.constants.O_RDONLY : fs3.constants.O_WRONLY | fs3.constants.O_CREAT | fs3.constants.O_EXCL;
+  const fd = fs3.openSync(file, numeric | (fs3.constants.O_NOFOLLOW ?? 0), 384);
+  try {
+    requireThat(fs3.fstatSync(fd).isFile(), `Expected a regular file: ${ref2}`, "NOT_A_FILE");
+    local(root, ref2);
+    return fd;
+  } catch (e) {
+    fs3.closeSync(fd);
+    throw e;
+  }
+}
+function sameStat(a, b) {
+  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+}
+function readExactly(fd, length, offset) {
+  const bytes = Buffer.alloc(length);
+  let got = 0;
+  while (got < length) {
+    const n = fs3.readSync(fd, bytes, got, length - got, offset + got);
+    requireThat(n > 0, "Truncated archive or file.");
+    got += n;
+  }
+  return bytes;
+}
+function fileDigest(root, ref2) {
+  const fd = openFile(root, ref2);
+  try {
+    const before = fs3.fstatSync(fd), h = createHash2("sha256"), buffer = Buffer.alloc(ARCHIVE_LIMITS.chunkBytes);
+    let count, size = 0;
+    while (count = fs3.readSync(fd, buffer, 0, buffer.length, null)) {
+      h.update(buffer.subarray(0, count));
+      size += count;
+    }
+    requireThat(sameStat(before, fs3.fstatSync(fd)) && size === before.size, `Source changed while reading: ${ref2}`, "SOURCE_CHANGED");
+    return { size, sha256: h.digest("hex"), stat: before };
   } finally {
     fs3.closeSync(fd);
   }
 }
-function readSource(catalog, source2, input = {}) {
+function smallFile(root, ref2, limit) {
+  const fd = openFile(root, ref2);
+  try {
+    const s = fs3.fstatSync(fd);
+    requireThat(s.size <= limit, `Metadata exceeds its bound: ${ref2}`);
+    const bytes = readExactly(fd, s.size, 0);
+    requireThat(sameStat(s, fs3.fstatSync(fd)), `File changed while reading: ${ref2}`, "SOURCE_CHANGED");
+    return bytes;
+  } finally {
+    fs3.closeSync(fd);
+  }
+}
+function parsed(bytes, name) {
+  try {
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw error("ARCHIVE_CORRUPT", `Invalid JSON: ${name}`);
+  }
+}
+function candidate(ref2) {
+  return new RegExp(`^\\.workflow-system/records/(?:events/[^/]+\\.json|attachments/[^/]+\\.json|evidence-objects/[a-f0-9]{64}\\.blob|task-labels/[^/]+\\.json|legacy/(?:baseline\\.json|current-[a-f0-9]{64}\\.md))$`).test(ref2);
+}
+function canonicalRecord(root, ref2) {
+  requireThat(reference(root, ref2) === ref2 && candidate(ref2) && Buffer.byteLength(ref2) <= 1024, `Archive contains an unsafe or non-archivable record path: ${ref2}`);
+}
+function expectedContentName(ref2, sha2562) {
+  const named = /\/(?:evidence-objects\/|legacy\/current-)([a-f0-9]{64})\.(?:blob|md)$/.exec(ref2)?.[1];
+  requireThat(!named || named === sha2562, `Content-addressed filename differs: ${ref2}`, "OBJECT_CORRUPT");
+}
+var metadataCache = new Map;
+var metadataCacheBytes = 0;
+function metadataFile(root, ref2, limit, metrics) {
+  const file = local(root, ref2), stat = fs3.lstatSync(file), old = metadataCache.get(file);
+  requireThat(stat.isFile() && stat.size <= limit, `Invalid or oversized metadata: ${ref2}`);
+  metrics.metadata_bytes_examined += stat.size;
+  requireThat(metrics.metadata_bytes_examined <= ARCHIVE_LIMITS.catalogBytes, "Archive metadata exceeds its cold-lookup budget.", "ARCHIVE_CATALOG_LIMIT");
+  if (old && sameStat(old.stat, stat)) {
+    metadataCache.delete(file);
+    metadataCache.set(file, old);
+    metrics.metadata_cache_hits++;
+    return old;
+  }
+  if (old) {
+    metadataCacheBytes -= old.bytes.length;
+    metadataCache.delete(file);
+  }
+  const bytes = smallFile(root, ref2, limit);
+  requireThat(sameStat(stat, fs3.lstatSync(local(root, ref2))), "Metadata changed while reading.", "SOURCE_CHANGED");
+  const value = { bytes, value: parsed(bytes, ref2), sha256: hash(bytes), stat };
+  metrics.metadata_bytes_read += bytes.length;
+  while (metadataCache.size && (metadataCacheBytes + bytes.length > ARCHIVE_LIMITS.catalogBytes || metadataCache.size >= 512)) {
+    const key = metadataCache.keys().next().value;
+    metadataCacheBytes -= metadataCache.get(key).bytes.length;
+    metadataCache.delete(key);
+  }
+  metadataCache.set(file, value);
+  metadataCacheBytes += bytes.length;
+  return value;
+}
+function archiveDirectories(root) {
+  const s = statMaybe(root, ARCHIVES);
+  if (!s)
+    return [];
+  requireThat(s.isDirectory(), "Archive storage must be a directory.");
+  const names = fs3.readdirSync(local(root, ARCHIVES)).sort();
+  requireThat(names.length <= ARCHIVE_LIMITS.archiveCount, "Archive catalogue exceeds its archive-count bound.", "ARCHIVE_CATALOG_LIMIT");
+  return names.map((id2) => {
+    requireThat(digest2(id2) && statMaybe(root, `${ARCHIVES}/${id2}`)?.isDirectory(), `Unexpected archive entry: ${id2}`);
+    return id2;
+  });
+}
+function loadArchive(root, id2, target = null, metrics = newMetrics(), baseOverride = null) {
+  const base = baseOverride ?? `${ARCHIVES}/${id2}`, manifestRef = `${base}/manifest.json`;
+  const manifestFile = metadataFile(root, manifestRef, ARCHIVE_LIMITS.manifestBytes, metrics), manifestBytes = manifestFile.bytes;
+  requireThat(manifestFile.sha256 === id2, `Manifest identity differs: ${id2}`);
+  metrics.manifests_read++;
+  const manifest = manifestFile.value;
+  requireThat(manifest.version === 1 && manifest.format === "workflow-record-archive" && manifest.chunk_size === ARCHIVE_LIMITS.chunkBytes && Array.isArray(manifest.segments) && manifest.segments.length > 0 && manifest.segments.length <= MAX_SEGMENTS, "Invalid archive manifest.");
+  const physical = [{ ref: manifestRef, size: manifestBytes.length, sha256: id2, kind: "manifest" }], records = new Map, packs = [];
+  const expectedNames = new Set(["manifest.json"]);
+  let previousLast = null;
+  for (const [number, segment] of manifest.segments.entries()) {
+    const suffix = String(number).padStart(6, "0"), indexName = `index-${suffix}.json`, packName = `pack-${suffix}.bin`;
+    requireThat(segment.index === indexName && segment.pack === packName && digest2(segment.sha256) && digest2(segment.pack_sha256) && integer(segment.size) && segment.size > 0 && segment.size <= ARCHIVE_LIMITS.indexBytes && integer(segment.pack_size) && segment.pack_size >= MAGIC.length && segment.pack_size <= MAX_PACK_BYTES, "Invalid segment metadata.");
+    canonicalRecord(root, segment.first_ref);
+    canonicalRecord(root, segment.last_ref);
+    requireThat(segment.first_ref <= segment.last_ref && (!previousLast || previousLast <= segment.first_ref), "Invalid manifest routing ranges.");
+    previousLast = segment.last_ref;
+    expectedNames.add(indexName);
+    expectedNames.add(packName);
+    if (target !== null && (target < segment.first_ref || target > segment.last_ref))
+      continue;
+    const indexRef = `${base}/${indexName}`, packRef = `${base}/${packName}`;
+    const indexFile = metadataFile(root, indexRef, ARCHIVE_LIMITS.indexBytes, metrics), indexBytes = indexFile.bytes;
+    requireThat(indexBytes.length === segment.size && indexFile.sha256 === segment.sha256, `Index digest differs: ${indexRef}`);
+    metrics.indices_read++;
+    const index2 = indexFile.value;
+    requireThat(index2.version === 1 && index2.pack?.ref === packName && index2.pack.size === segment.pack_size && index2.pack.sha256 === segment.pack_sha256 && Array.isArray(index2.records) && index2.records.length > 0 && index2.records.length <= ARCHIVE_LIMITS.recordsPerPack, `Invalid index: ${indexRef}`);
+    requireThat(index2.records[0].ref === segment.first_ref && index2.records.at(-1).ref === segment.last_ref, "Index routing ranges differ.");
+    const fd = openFile(root, packRef);
+    try {
+      requireThat(fs3.fstatSync(fd).size === segment.pack_size && readExactly(fd, MAGIC.length, 0).equals(MAGIC), `Missing or invalid pack: ${packRef}`);
+    } finally {
+      fs3.closeSync(fd);
+    }
+    const indexPhysical = { ref: indexRef, size: segment.size, sha256: segment.sha256, kind: "index" };
+    const packPhysical = { ref: packRef, size: segment.pack_size, sha256: segment.pack_sha256, kind: "pack" };
+    physical.push(indexPhysical, packPhysical);
+    packs.push(packPhysical);
+    let next = MAGIC.length, rawTotal = 0;
+    const segmentPaths = new Set;
+    let previousRef = null;
+    for (const entry of index2.records) {
+      canonicalRecord(root, entry.ref);
+      requireThat(integer(entry.size) && digest2(entry.sha256) && Array.isArray(entry.chunks) && entry.chunks.length > 0 && !segmentPaths.has(entry.ref), "Invalid or duplicate record index.");
+      expectedContentName(entry.ref, entry.sha256);
+      segmentPaths.add(entry.ref);
+      requireThat(!previousRef || previousRef < entry.ref, "Index paths are not sorted.");
+      previousRef = entry.ref;
+      let record = records.get(entry.ref);
+      const selected = target === null || target === entry.ref;
+      if (!record) {
+        record = { ref: entry.ref, size: entry.size, sha256: entry.sha256, archiveId: id2, chunks: [], physical_files: [physical[0]] };
+        if (selected)
+          records.set(entry.ref, record);
+      }
+      requireThat(record.size === entry.size && record.sha256 === entry.sha256, `Inconsistent record fragments: ${entry.ref}`);
+      record.physical_files.push(indexPhysical, packPhysical);
+      let entryOffset = entry.chunks[0].rawOffset;
+      for (const chunk of entry.chunks) {
+        requireThat(integer(chunk.offset) && chunk.offset === next && integer(chunk.length) && chunk.length > 0 && chunk.length <= ARCHIVE_LIMITS.chunkBytes + 1024 && integer(chunk.rawOffset) && integer(chunk.rawLength) && chunk.rawLength <= ARCHIVE_LIMITS.chunkBytes && integer(chunk.headerLength) && chunk.headerLength > 0 && chunk.headerLength <= MAX_HEADER && digest2(chunk.sha256) && digest2(chunk.compressedSha256), "Invalid chunk index.");
+        requireThat(chunk.rawOffset === entryOffset && chunk.rawOffset + chunk.rawLength <= record.size && (chunk.rawLength > 0 || record.size === 0 && record.chunks.length === 0), "Invalid chunk ranges.");
+        next += 4 + chunk.headerLength + chunk.length;
+        rawTotal += chunk.rawLength;
+        requireThat(next <= segment.pack_size && rawTotal <= ARCHIVE_LIMITS.packRawBytes, "Pack bounds exceeded.");
+        entryOffset += chunk.rawLength;
+        if (selected)
+          record.chunks.push({ ...chunk, packRef });
+      }
+    }
+    requireThat(next === segment.pack_size, "Pack has missing or unindexed bytes.");
+  }
+  const names = fs3.readdirSync(local(root, base));
+  requireThat(names.length === expectedNames.size && names.every((n) => expectedNames.has(n)), "Unexpected files inside an immutable archive.");
+  for (const record of records.values()) {
+    let offset = 0;
+    for (const chunk of record.chunks) {
+      requireThat(chunk.rawOffset === offset, `Incomplete or overlapping record: ${record.ref}`);
+      offset += chunk.rawLength;
+    }
+    requireThat(offset === record.size, `Incomplete record: ${record.ref}`);
+  }
+  return { id: id2, manifestRef, physical_files: physical, records: [...records.values()], packs };
+}
+function catalog(root, target = null) {
+  const metrics = newMetrics(), archives = archiveDirectories(root).map((id2) => {
+    try {
+      return loadArchive(root, id2, target, metrics);
+    } catch (e) {
+      if (e.code === "ENOENT")
+        throw error("ARCHIVE_CORRUPT", `Archive metadata or pack is missing: ${id2}`);
+      throw e;
+    }
+  }), records = new Map;
+  for (const archive of archives)
+    for (const record of archive.records) {
+      requireThat(!records.has(record.ref), `Logical path appears in multiple archives: ${record.ref}`, "ARCHIVE_COLLISION");
+      records.set(record.ref, record);
+    }
+  return { archives, records, metrics };
+}
+function chunkBytes(root, record, chunk, metrics) {
+  const fd = openFile(root, chunk.packRef);
+  try {
+    const headerSize = readExactly(fd, 4, chunk.offset).readUInt32BE(0);
+    requireThat(headerSize === chunk.headerLength && headerSize <= MAX_HEADER, "Chunk header length differs.");
+    const header = parsed(readExactly(fd, headerSize, chunk.offset + 4), chunk.packRef);
+    requireThat(header.ref === record.ref && header.size === record.size && header.record_sha256 === record.sha256 && header.rawOffset === chunk.rawOffset && header.rawLength === chunk.rawLength && header.length === chunk.length && header.sha256 === chunk.sha256 && header.compressedSha256 === chunk.compressedSha256, "Pack chunk header differs from its index.");
+    const compressed = readExactly(fd, chunk.length, chunk.offset + 4 + headerSize);
+    requireThat(hash(compressed) === chunk.compressedSha256, "Compressed chunk digest differs.");
+    let bytes;
+    try {
+      bytes = inflateRawSync(compressed, { maxOutputLength: Math.max(1, chunk.rawLength), info: true });
+    } catch {
+      throw error("ARCHIVE_CORRUPT", "Invalid or oversized compressed chunk.");
+    }
+    requireThat(bytes.engine.bytesWritten === compressed.length && bytes.buffer.length === chunk.rawLength && hash(bytes.buffer) === chunk.sha256, "Chunk length or digest differs.");
+    metrics.compressed_bytes_read += compressed.length;
+    metrics.pack_bytes_read += 4 + headerSize + compressed.length;
+    metrics.decompressed_bytes += bytes.buffer.length;
+    metrics.chunks_read++;
+    return bytes.buffer;
+  } finally {
+    fs3.closeSync(fd);
+  }
+}
+var newMetrics = () => ({ metadata_bytes_read: 0, metadata_bytes_examined: 0, metadata_cache_hits: 0, manifests_read: 0, indices_read: 0, compressed_bytes_read: 0, pack_bytes_read: 0, decompressed_bytes: 0, chunks_read: 0, loose_bytes_hashed: 0 });
+function validateLoose(root, record, metrics, options = {}) {
+  const s = statMaybe(root, record.ref);
+  if (!s)
+    return false;
+  requireThat(s.isFile(), `Logical record is not a file: ${record.ref}`, "ARCHIVE_COLLISION");
+  requireThat(s.size === record.size, `Loose/archive length collision: ${record.ref}`, "ARCHIVE_COLLISION");
+  if (options.hashLoose === false && !options.expectedSha256)
+    return true;
+  const actual = fileDigest(root, record.ref);
+  if (metrics)
+    metrics.loose_bytes_hashed += actual.size;
+  requireThat(actual.size === record.size && actual.sha256 === record.sha256, `Loose/archive collision: ${record.ref}`, "ARCHIVE_COLLISION");
+  return true;
+}
+function logical(root, requested) {
+  const ref2 = reference(root, requested);
+  if (!candidate(ref2))
+    return { ref: ref2, record: null };
+  const state2 = catalog(root, ref2);
+  return { ref: ref2, record: state2.records.get(ref2) ?? null, metrics: state2.metrics };
+}
+function storeStat(root, requested, options = {}) {
+  const { ref: ref2, record } = logical(root, requested);
+  if (record) {
+    const duplicate = validateLoose(root, record, null, options);
+    return {
+      size: record.size,
+      sha256: record.sha256,
+      storage: "archive",
+      archiveId: record.archiveId,
+      duplicate_verification: duplicate ? options.hashLoose === false ? "metadata-only" : "whole-file" : "absent"
+    };
+  }
+  if (options.hashLoose === false) {
+    const fd = openFile(root, ref2);
+    try {
+      return { size: fs3.fstatSync(fd).size, storage: "loose" };
+    } finally {
+      fs3.closeSync(fd);
+    }
+  }
+  const actual = fileDigest(root, ref2);
+  return { size: actual.size, sha256: actual.sha256, storage: "loose" };
+}
+function storeRead(root, requested, options = {}) {
+  const located = logical(root, requested), { ref: ref2, record } = located, metrics = located.metrics ?? newMetrics();
+  const offset = options.offset ?? 0, requestedLength = options.length ?? ARCHIVE_LIMITS.readBytes;
+  requireThat(integer(offset) && integer(requestedLength) && requestedLength <= ARCHIVE_LIMITS.readBytes, `Read range must be non-negative and at most ${ARCHIVE_LIMITS.readBytes} bytes.`, "INVALID_RANGE");
+  if (options.expectedSha256 !== undefined)
+    requireThat(digest2(options.expectedSha256), "Invalid expected SHA-256.", "INVALID_DIGEST");
+  if (record) {
+    const duplicate = validateLoose(root, record, metrics, options);
+    requireThat(!options.expectedSha256 || options.expectedSha256 === record.sha256, `Historical digest differs: ${ref2}`, "OBJECT_CORRUPT");
+    const length = Math.min(requestedLength, Math.max(0, record.size - offset)), end = offset + length, parts = [];
+    for (const chunk of record.chunks)
+      if (record.size === 0 || chunk.rawOffset < end && chunk.rawOffset + chunk.rawLength > offset) {
+        const bytes2 = chunkBytes(root, record, chunk, metrics);
+        parts.push(bytes2.subarray(Math.max(0, offset - chunk.rawOffset), Math.min(bytes2.length, end - chunk.rawOffset)));
+      }
+    const bytes = Buffer.concat(parts, length);
+    let duplicateVerification = duplicate ? "whole-file" : "absent";
+    if (duplicate && options.hashLoose === false && !options.expectedSha256) {
+      const fd2 = openFile(root, ref2);
+      try {
+        const before = fs3.fstatSync(fd2);
+        requireThat(before.size === record.size, `Loose/archive length collision: ${ref2}`, "ARCHIVE_COLLISION");
+        const loose = readExactly(fd2, length, offset);
+        requireThat(sameStat(before, fs3.fstatSync(fd2)), `Loose duplicate changed during range read: ${ref2}`, "SOURCE_CHANGED");
+        requireThat(loose.equals(bytes), `Loose/archive range collision: ${ref2}`, "ARCHIVE_COLLISION");
+        metrics.loose_bytes_read = length;
+        duplicateVerification = "selected-range-only";
+      } finally {
+        fs3.closeSync(fd2);
+      }
+    }
+    return { bytes, size: record.size, sha256: record.sha256, storage: "archive", metrics, verification: "indexed-selected-chunks", duplicate_verification: duplicateVerification };
+  }
+  const hashLoose = options.hashLoose !== false || !!options.expectedSha256;
+  let actual;
+  if (hashLoose) {
+    actual = fileDigest(root, ref2);
+    metrics.loose_bytes_hashed = actual.size;
+  } else {
+    const fd2 = openFile(root, ref2);
+    try {
+      const stat = fs3.fstatSync(fd2);
+      actual = { size: stat.size, sha256: null, stat };
+    } finally {
+      fs3.closeSync(fd2);
+    }
+  }
+  requireThat(!options.expectedSha256 || options.expectedSha256 === actual.sha256, `Historical digest differs: ${ref2}`, "OBJECT_CORRUPT");
+  const fd = openFile(root, ref2);
+  try {
+    requireThat(sameStat(actual.stat, fs3.fstatSync(fd)), "Source changed before range read.", "SOURCE_CHANGED");
+    const bytes = readExactly(fd, Math.min(requestedLength, Math.max(0, actual.size - offset)), offset);
+    requireThat(sameStat(actual.stat, fs3.fstatSync(fd)), "Source changed during range read.", "SOURCE_CHANGED");
+    metrics.loose_bytes_read = bytes.length;
+    return { bytes, size: actual.size, sha256: actual.sha256, storage: "loose", metrics, verification: hashLoose ? "whole-file" : "file-range" };
+  } finally {
+    fs3.closeSync(fd);
+  }
+}
+function storeReadFile(root, requested) {
+  const { ref: ref2, record } = logical(root, requested);
+  if (!record)
+    return smallFile(root, ref2, ARCHIVE_LIMITS.fileReadBytes);
+  validateLoose(root, record);
+  requireThat(record.size <= ARCHIVE_LIMITS.fileReadBytes, "Whole-file read exceeds its bound; use storeRead ranges.", "READ_TOO_LARGE");
+  const parts = [], h = createHash2("sha256");
+  for (const chunk of record.chunks) {
+    const bytes = chunkBytes(root, record, chunk, newMetrics());
+    parts.push(bytes);
+    h.update(bytes);
+  }
+  requireThat(h.digest("hex") === record.sha256, `Record digest differs: ${ref2}`);
+  return Buffer.concat(parts, record.size);
+}
+
+// runtime/vnext/src/product-maintenance/references.ts
+var markdown = unified().use(remarkParse);
+function readSource(catalog2, source2, input = {}) {
   const base = { source: source2, byte_status: "unknown", status: "unavailable", diagnostics: [], fetched_remote: false };
   if (source2.kind === "uri")
     return { ...base, status: "reference-only", navigation_allowed: /^https?:/i.test(source2.uri), note: "URI retained only; its body has not been obtained or archived" };
   if (source2.kind === "text")
     return { ...base, status: "available", text: source2.text, label: source2.label, note: "Text basis is not authenticated as verbatim user speech" };
   try {
-    if (!catalog.manifest || !allowed(catalog.manifest, source2.path, "source"))
+    if (!catalog2.manifest || !allowed(catalog2.manifest, source2.path, "source"))
       return { ...base, diagnostics: [diagnostic("SOURCE_OUT_OF_RANGE", source2.path, "Source is not in registered reading scope")] };
-    const file = safePath(catalog.root, source2.path), stat = fs3.statSync(file);
-    if (!stat.isFile())
-      throw new Error("Source must be a regular file");
-    const digest2 = fileDigest(file);
-    base.actual_sha256 = digest2;
-    base.byte_status = source2.sha256 ? source2.sha256 === digest2 ? "same-bytes" : "changed" : "unknown";
+    safePath(catalog2.root, source2.path);
+    const stat = storeStat(catalog2.root, source2.path), digest3 = stat.sha256;
+    base.actual_sha256 = digest3;
+    base.byte_status = source2.sha256 ? source2.sha256 === digest3 ? "same-bytes" : "changed" : "unknown";
     if (base.byte_status === "changed")
       base.diagnostics.push(diagnostic("SOURCE_CHANGED", source2.path, "Current bytes differ from referenced bytes; a digest cannot recover historical content"));
     let start = 0, end = stat.size;
     if (source2.item_id || source2.section || source2.lines) {
       if (stat.size > (input.max_file_bytes ?? 4 * 1024 * 1024))
         return { ...base, diagnostics: [...base.diagnostics, diagnostic("LOCATOR_BYTE_LIMIT", source2.path, "Structured locator was not resolved; raw bytes remain available via a locator-free paged read")] };
-      const bytes = fs3.readFileSync(file), text3 = decode2(bytes);
+      const bytes = storeReadFile(catalog2.root, source2.path);
+      if (sha256(bytes) !== digest3)
+        throw new Error("SOURCE_READ_CHANGED: source changed during reading; restart this read");
+      const text3 = decode2(bytes);
       let charStart = 0, charEnd = text3.length;
       if (source2.item_id || source2.section) {
         const document4 = parseProduct(text3, source2.path);
@@ -16577,25 +16987,17 @@ function readSource(catalog, source2, input = {}) {
     const offset = input.offset ?? 0, size = end - start;
     if (offset > size)
       throw new Error("SOURCE_OFFSET: offset is past the selected source");
-    const fd = fs3.openSync(file, "r"), data = Buffer.alloc(Math.min(input.max_bytes ?? 65536, size - offset));
-    let count;
-    try {
-      count = fs3.readSync(fd, data, 0, data.length, start + offset);
-    } finally {
-      fs3.closeSync(fd);
-    }
-    if (fileDigest(file) !== digest2)
-      throw new Error("SOURCE_READ_CHANGED: source changed during reading; restart this read");
-    return { ...base, status: "available", size, file_size: stat.size, locator_start_byte: start, offset, data_base64: data.subarray(0, count).toString("base64"), text_preview: data.subarray(0, count).toString("utf8"), next_offset: offset + count < size ? offset + count : null, content_is_referenced_bytes: base.byte_status === "same-bytes" };
-  } catch (error) {
-    return { ...base, byte_status: base.actual_sha256 ? base.byte_status : "unavailable", diagnostics: [...base.diagnostics, diagnostic("SOURCE_UNAVAILABLE", source2.path, error.message)] };
+    const { bytes: data, storage, verification } = storeRead(catalog2.root, source2.path, { offset: start + offset, length: Math.min(input.max_bytes ?? 65536, size - offset), expectedSha256: digest3 });
+    return { ...base, status: "available", size, file_size: stat.size, storage, verification, locator_start_byte: start, offset, data_base64: data.toString("base64"), text_preview: data.toString("utf8"), next_offset: offset + data.length < size ? offset + data.length : null, content_is_referenced_bytes: base.byte_status === "same-bytes" };
+  } catch (error2) {
+    return { ...base, byte_status: base.actual_sha256 ? base.byte_status : "unavailable", diagnostics: [...base.diagnostics, diagnostic("SOURCE_UNAVAILABLE", source2.path, error2.message)] };
   }
 }
-function resolveSources(catalog, ids) {
-  const refs = catalog.items.filter((i) => i.usable && (!ids || ids.includes(i.id))).flatMap((i) => collectSources(i.metadata));
+function resolveSources(catalog2, ids) {
+  const refs = catalog2.items.filter((i) => i.usable && (!ids || ids.includes(i.id))).flatMap((i) => collectSources(i.metadata));
   return [...new Map(refs.map((r) => [JSON.stringify(r), r])).values()].map((r) => {
-    const result = readSource(catalog, r, { max_bytes: 1 });
-    const basisChecks = catalog.items.filter((i) => i.usable && i.type === "assessment" && JSON.stringify(i.metadata.target_basis) === JSON.stringify(r)).map((i) => {
+    const result = readSource(catalog2, r, { max_bytes: 1 });
+    const basisChecks = catalog2.items.filter((i) => i.usable && i.type === "assessment" && JSON.stringify(i.metadata.target_basis) === JSON.stringify(r)).map((i) => {
       const expected = i.metadata.target_definition_sha256;
       const actual = result.requirement_definition_sha256 ?? null;
       let alignment = "unknown";
@@ -16612,9 +17014,9 @@ function resolveSources(catalog, ids) {
 
 // runtime/vnext/src/product-maintenance/writer.ts
 import * as fs4 from "node:fs";
-import * as path3 from "node:path";
-import { randomUUID } from "node:crypto";
-function frozen(root, relative2, original) {
+import * as path4 from "node:path";
+import { randomUUID as randomUUID2 } from "node:crypto";
+function frozen(root, relative3, original) {
   if (original) {
     const header = original.subarray(0, 8192).toString("utf8");
     if (/@frozen\b/i.test(header) || /^\s*(?:<!--\s*|[#/*;!]+\s*)?DO NOT MODIFY\b/m.test(header))
@@ -16627,13 +17029,13 @@ function frozen(root, relative2, original) {
     const text3 = fs4.readFileSync(file, "utf8");
     for (const line of text3.split(/\r?\n/)) {
       const paths = [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1].replace(/\\/g, "/"));
-      if (paths.some((p) => p === relative2 || p.endsWith("/") && relative2.startsWith(p) || p.includes("*") && matches(relative2, [p])))
-        throw new Error(`FROZEN: ${relative2} is registered in ${registry}`);
+      if (paths.some((p) => p === relative3 || p.endsWith("/") && relative3.startsWith(p) || p.includes("*") && matches(relative3, [p])))
+        throw new Error(`FROZEN: ${relative3} is registered in ${registry}`);
     }
   }
 }
-function readExisting(root, relative2, maxBytes = 64 * 1024 * 1024) {
-  const file = safePath(root, relative2);
+function readExisting(root, relative3, maxBytes = 64 * 1024 * 1024) {
+  const file = safePath(root, relative3);
   try {
     const stat = fs4.statSync(file);
     if (!stat.isFile())
@@ -16641,10 +17043,10 @@ function readExisting(root, relative2, maxBytes = 64 * 1024 * 1024) {
     if (stat.size > maxBytes)
       throw new Error("WRITE_BYTE_LIMIT: existing file exceeds the explicit write bound; no bytes were replaced");
     return fs4.readFileSync(file);
-  } catch (error) {
-    if (error.code === "ENOENT")
+  } catch (error2) {
+    if (error2.code === "ENOENT")
       return null;
-    throw error;
+    throw error2;
   }
 }
 function checkVersion(original, expected) {
@@ -16653,31 +17055,37 @@ function checkVersion(original, expected) {
   if ((original === null ? null : sha256(original)) !== expected)
     throw new Error("WRITE_CONFLICT: current bytes differ from the read version; no overwrite");
 }
-function publish(root, relative2, content3, expected, preimagePath, catalog) {
-  const file = safePath(root, relative2);
-  fs4.mkdirSync(path3.dirname(file), { recursive: true });
-  safePath(root, relative2);
-  const lock = path3.join(path3.dirname(file), `.${path3.basename(file)}.product-write.lock`);
+function assertProductWriteTarget(relative3) {
+  const normalized = relative3.toLowerCase();
+  if (normalized === ".workflow-system/records" || normalized.startsWith(".workflow-system/records/"))
+    throw new Error("RECORD_STORE_READ_ONLY: product maintenance cannot write Runtime record storage; use assistance record, snapshot or archive restore for the intended operation");
+}
+function publish(root, relative3, content3, expected, preimagePath, catalog2) {
+  const file = safePath(root, relative3);
+  assertProductWriteTarget(relative3);
+  fs4.mkdirSync(path4.dirname(file), { recursive: true });
+  safePath(root, relative3);
+  const lock = path4.join(path4.dirname(file), `.${path4.basename(file)}.product-write.lock`);
   let lockFd;
   try {
     lockFd = fs4.openSync(lock, "wx");
-  } catch (error) {
-    throw new Error(error.code === "EEXIST" ? "WRITE_BUSY: another helper is writing this file; reads and other files remain available" : error.message);
+  } catch (error2) {
+    throw new Error(error2.code === "EEXIST" ? "WRITE_BUSY: another helper is writing this file; reads and other files remain available" : error2.message);
   }
-  const temp = path3.join(path3.dirname(file), `.${path3.basename(file)}.${randomUUID()}.tmp`);
+  const temp = path4.join(path4.dirname(file), `.${path4.basename(file)}.${randomUUID2()}.tmp`);
   try {
-    const original = readExisting(root, relative2);
+    const original = readExisting(root, relative3);
     checkVersion(original, expected);
-    frozen(root, relative2, original ?? undefined);
+    frozen(root, relative3, original ?? undefined);
     if (original?.equals(content3))
       return { status: "unchanged", saved: true, changed: false, sha256: sha256(content3) };
     let preimage = null;
     if (original) {
       preimage = { sha256: sha256(original), data_base64: original.toString("base64") };
       if (preimagePath) {
-        if (!catalog?.manifest || !allowed(catalog.manifest, preimagePath, "capture"))
+        if (!catalog2?.manifest || !allowed(catalog2.manifest, preimagePath, "capture"))
           throw new Error("PREIMAGE_OUT_OF_RANGE: explicit preimage destination must be in capture_paths/source_paths");
-        const captured = captureBytes(catalog, preimagePath, original);
+        const captured = captureBytes(catalog2, preimagePath, original);
         if (!captured.saved)
           throw new Error(`PREIMAGE_UNSAVED: ${captured.error}`);
         preimage = { sha256: captured.source.sha256, source: captured.source };
@@ -16691,9 +17099,9 @@ function publish(root, relative2, content3, expected, preimagePath, catalog) {
     } finally {
       fs4.closeSync(fd);
     }
-    checkVersion(readExisting(root, relative2), expected);
-    safePath(root, relative2);
-    frozen(root, relative2, original ?? undefined);
+    checkVersion(readExisting(root, relative3), expected);
+    safePath(root, relative3);
+    frozen(root, relative3, original ?? undefined);
     if (expected === null) {
       fs4.linkSync(temp, file);
       fs4.unlinkSync(temp);
@@ -16733,7 +17141,7 @@ function bodySeparator(text3, eol) {
 `, end - 1), text3.lastIndexOf("\r", end - 1)) + 1;
   return /^[ \t]*$/.test(text3.slice(start, end)) ? "" : eol;
 }
-function candidate(original, operation, parsed) {
+function candidate2(original, operation, parsed2) {
   if ("content" in operation) {
     if (operation.updates || operation.append)
       throw new Error("AMBIGUOUS_INPUT: content and item updates cannot be combined");
@@ -16742,12 +17150,12 @@ function candidate(original, operation, parsed) {
   if (!original)
     throw new Error("CONTENT_REQUIRED: a new document requires content");
   const text3 = decode2(original);
-  if (!parsed)
+  if (!parsed2)
     throw new Error("CONTENT_REQUIRED: manifest updates require content");
   const patches = [];
   const affected = [];
   for (const update of operation.updates ?? []) {
-    const items = parsed.items.filter((i) => i.id === update.id);
+    const items = parsed2.items.filter((i) => i.id === update.id);
     if (items.length !== 1 || items[0].start < 0)
       throw new Error(`ITEM_UNRESOLVED: cannot safely locate ${update.id}`);
     const item = items[0];
@@ -16777,10 +17185,10 @@ function candidate(original, operation, parsed) {
       patches.push({ start: item.start, end: item.end, text: update.body + separator });
     }
   }
-  if (operation.migrate === "v2" && parsed.version === 1) {
-    const yaml = strictYaml(text3.slice(parsed.frontmatter_start, parsed.frontmatter_end), operation.path);
+  if (operation.migrate === "v2" && parsed2.version === 1) {
+    const yaml = strictYaml(text3.slice(parsed2.frontmatter_start, parsed2.frontmatter_end), operation.path);
     const schema = yaml.doc.get("schema", true);
-    patches.push({ start: parsed.frontmatter_start + schema.range[0], end: parsed.frontmatter_start + schema.range[1], text: "vnext-product-doc/v2" });
+    patches.push({ start: parsed2.frontmatter_start + schema.range[0], end: parsed2.frontmatter_start + schema.range[1], text: "vnext-product-doc/v2" });
   }
   let next = applyPatches(text3, patches);
   if (operation.append?.length) {
@@ -16910,11 +17318,11 @@ function changedItem(previous2, document4, next) {
     return true;
   return old.body !== next.body || canonical(old.metadata) !== canonical(next.metadata) || previous2.text.slice(old.metadata_start, old.metadata_end) !== document4.text.slice(next.metadata_start, next.metadata_end) || itemDiagnostics(old) !== itemDiagnostics(next);
 }
-function validateProductCandidate(previous2, next, operation, selectedIds, catalog) {
+function validateProductCandidate(previous2, next, operation, selectedIds, catalog2) {
   const oldItems = previous2?.items ?? [];
   const affected = selectedIds ?? next.items.filter((item) => changedItem(previous2, next, item)).map((item) => item.id);
   for (const item of next.items) {
-    if (!oldItems.some((old) => old.id === item.id) && catalog.items.some((other) => other.id === item.id && other.path !== operation.path))
+    if (!oldItems.some((old) => old.id === item.id) && catalog2.items.some((other) => other.id === item.id && other.path !== operation.path))
       throw new Error(`DUPLICATE_ID: ${item.id} already has a known current definition in another registered file`);
   }
   const removed = operation.remove_items ?? [];
@@ -16999,15 +17407,15 @@ function apply(root, input) {
   const results = [];
   for (const operation of input.files ?? []) {
     try {
-      const catalog = readCatalog(root, { manifest: input.manifest });
-      if (input.expected_manifest_sha256 !== undefined && catalog.manifest_sha256 !== input.expected_manifest_sha256 && !results.some((r) => r.path === catalog.manifest_path && r.saved))
+      const catalog2 = readCatalog(root, { manifest: input.manifest });
+      if (input.expected_manifest_sha256 !== undefined && catalog2.manifest_sha256 !== input.expected_manifest_sha256 && !results.some((r) => r.path === catalog2.manifest_path && r.saved))
         throw new Error("MANIFEST_CONFLICT: configuration differs from its read version");
-      const isManifest = operation.path === catalog.manifest_path;
-      if (!isManifest && (!catalog.manifest || !allowed(catalog.manifest, operation.path, "managed")))
+      const isManifest = operation.path === catalog2.manifest_path;
+      if (!isManifest && (!catalog2.manifest || !allowed(catalog2.manifest, operation.path, "managed")))
         throw new Error("WRITE_OUT_OF_RANGE: candidate is outside managed_paths/excluded or product maintenance is not enabled");
-      const original = readExisting(catalog.root, operation.path, input.max_file_bytes ?? 4 * 1024 * 1024);
+      const original = readExisting(catalog2.root, operation.path, input.max_file_bytes ?? 4 * 1024 * 1024);
       checkVersion(original, operation.expected_sha256);
-      frozen(catalog.root, operation.path, original ?? undefined);
+      frozen(catalog2.root, operation.path, original ?? undefined);
       let previous2;
       if (original) {
         const text3 = decode2(original);
@@ -17026,48 +17434,49 @@ function apply(root, input) {
         if (version === 1 && operation.migrate !== "v2")
           throw new Error("V1_READ_ONLY: explicitly migrate this file to v2 before writing");
       }
-      const next = candidate(original, operation, previous2);
+      const next = candidate2(original, operation, previous2);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024))
         throw new Error("WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced");
       let diagnostics = [];
       if (isManifest)
         validateManifestCandidate(next.text, operation.path);
       else {
-        const parsed = parseProduct(next.text, operation.path);
-        if (parsed.version !== 2)
+        const parsed2 = parseProduct(next.text, operation.path);
+        if (parsed2.version !== 2)
           throw new Error("V2_REQUIRED: new writes must use the v2 document protocol");
-        next.affected = validateProductCandidate(previous2, parsed, operation, next.affected, catalog);
-        diagnostics = parsed.diagnostics;
+        next.affected = validateProductCandidate(previous2, parsed2, operation, next.affected, catalog2);
+        diagnostics = parsed2.diagnostics;
       }
-      const saved = publish(catalog.root, operation.path, Buffer.from(next.text, "utf8"), operation.expected_sha256, operation.preimage_path, catalog);
+      const saved = publish(catalog2.root, operation.path, Buffer.from(next.text, "utf8"), operation.expected_sha256, operation.preimage_path, catalog2);
       results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics });
-    } catch (error) {
-      results.push({ path: operation.path, status: "failed", saved: false, error: error.message });
+    } catch (error2) {
+      results.push({ path: operation.path, status: "failed", saved: false, error: error2.message });
     }
   }
   const failures = results.filter((r) => !r.saved).length;
   return { status: failures ? failures === results.length ? "failed" : "partial" : "saved", files: results, task_operations: "not-performed", association: "not-evaluated", reconciliation: "not-evaluated", transaction: "per-file; no cross-file atomicity" };
 }
-function captureBytes(catalog, relative2, bytes) {
+function captureBytes(catalog2, relative3, bytes) {
   try {
-    if (!catalog.manifest || !allowed(catalog.manifest, relative2, "capture"))
+    if (!catalog2.manifest || !allowed(catalog2.manifest, relative3, "capture"))
       throw new Error("CAPTURE_OUT_OF_RANGE: destination must be in capture_paths/source_paths and outside managed_paths/excludes");
-    const existing = readExisting(catalog.root, relative2), hash = sha256(bytes);
+    assertProductWriteTarget(relative3);
+    const existing = readExisting(catalog2.root, relative3), hash2 = sha256(bytes);
     if (existing) {
       if (!existing.equals(bytes))
         throw new Error("CAPTURE_CONFLICT: destination already holds different bytes; keep both sources at explicit separate paths");
-      return { status: "unchanged", saved: true, source: { kind: "file", path: relative2, sha256: hash }, bytes: bytes.length, reused: true };
+      return { status: "unchanged", saved: true, source: { kind: "file", path: relative3, sha256: hash2 }, bytes: bytes.length, reused: true };
     }
-    const saved = publish(catalog.root, relative2, bytes, null);
-    return { ...saved, source: { kind: "file", path: relative2, sha256: hash }, bytes: bytes.length, reused: false };
-  } catch (error) {
-    return { status: "failed", saved: false, error: error.message };
+    const saved = publish(catalog2.root, relative3, bytes, null);
+    return { ...saved, source: { kind: "file", path: relative3, sha256: hash2 }, bytes: bytes.length, reused: false };
+  } catch (error2) {
+    return { status: "failed", saved: false, error: error2.message };
   }
 }
 function capture(root, input) {
-  const catalog = readCatalog(root, { manifest: input.manifest });
+  const catalog2 = readCatalog(root, { manifest: input.manifest });
   try {
-    if (input.expected_manifest_sha256 !== undefined && catalog.manifest_sha256 !== input.expected_manifest_sha256)
+    if (input.expected_manifest_sha256 !== undefined && catalog2.manifest_sha256 !== input.expected_manifest_sha256)
       throw new Error("MANIFEST_CONFLICT: capture scope changed");
     if (["text", "base64", "source_path"].filter((k) => (k in input)).length !== 1)
       throw new Error("CAPTURE_INPUT: provide exactly one obtained text, exact base64 or registered source_path");
@@ -17079,20 +17488,21 @@ function capture(root, input) {
         throw new Error("BASE64_INVALID: expected canonical base64");
       bytes = Buffer.from(input.base64, "base64");
     } else {
-      if (!catalog.manifest || !allowed(catalog.manifest, input.source_path, "source"))
+      if (!catalog2.manifest || !allowed(catalog2.manifest, input.source_path, "source"))
         throw new Error("SOURCE_OUT_OF_RANGE: selected file must be registered for reading");
-      const file = safePath(catalog.root, input.source_path);
-      if (!fs4.statSync(file).isFile())
-        throw new Error("CAPTURE_INPUT: selected source must be a regular file");
-      if (fs4.statSync(file).size > (input.max_file_bytes ?? 4 * 1024 * 1024))
+      safePath(catalog2.root, input.source_path);
+      const stat = storeStat(catalog2.root, input.source_path);
+      if (stat.size > (input.max_file_bytes ?? 4 * 1024 * 1024))
         throw new Error("CAPTURE_BYTE_LIMIT: selected file exceeds limit; raise the explicit bound for this authorized source");
-      bytes = fs4.readFileSync(file);
+      bytes = storeReadFile(catalog2.root, input.source_path);
+      if (sha256(bytes) !== stat.sha256)
+        throw new Error("SOURCE_READ_CHANGED: selected source changed during capture; retry with the current source");
     }
     if (bytes.length > (input.max_file_bytes ?? 4 * 1024 * 1024))
       throw new Error("CAPTURE_BYTE_LIMIT: selected content exceeds explicit bound");
-    return { ...captureBytes(catalog, input.path, bytes), raw_capture: true, metadata: "not-saved-by-capture", task_operations: "not-performed", privacy: "ordinary project file; no Git ignore, sharing, redaction or history deletion guarantee" };
-  } catch (error) {
-    return { status: "failed", saved: false, error: error.message, raw_capture: false };
+    return { ...captureBytes(catalog2, input.path, bytes), raw_capture: true, metadata: "not-saved-by-capture", task_operations: "not-performed", privacy: "ordinary project file; no Git ignore, sharing, redaction or history deletion guarantee" };
+  } catch (error2) {
+    return { status: "failed", saved: false, error: error2.message, raw_capture: false };
   }
 }
 
@@ -17120,51 +17530,51 @@ function run(action, root, input = {}) {
     }
     if (action === "capture")
       return { ...envelope, ...capture(root, input) };
-    const catalog = readCatalog(root, input);
+    const catalog2 = readCatalog(root, input);
     if (action === "read") {
       if (input.source)
-        return { ...envelope, root: catalog.root, project_id: catalog.manifest?.project_id ?? null, ...readSource(catalog, input.source, input) };
-      const selected = catalog.items.filter((i) => !input.item_ids || input.item_ids.includes(i.id));
+        return { ...envelope, root: catalog2.root, project_id: catalog2.manifest?.project_id ?? null, ...readSource(catalog2, input.source, input) };
+      const selected = catalog2.items.filter((i) => !input.item_ids || input.item_ids.includes(i.id));
       return {
         ...envelope,
-        status: catalog.status,
-        project_id: catalog.manifest?.project_id ?? null,
-        working_copy: { root: catalog.root, identity: path4.resolve(catalog.root) },
+        status: catalog2.status,
+        project_id: catalog2.manifest?.project_id ?? null,
+        working_copy: { root: catalog2.root, identity: path5.resolve(catalog2.root) },
         read_at: new Date().toISOString(),
-        manifest: catalog.manifest,
-        manifest_path: catalog.manifest_path,
-        manifest_sha256: catalog.manifest_sha256,
-        documents: catalog.documents.map((d) => ({ path: d.path, sha256: d.sha256, schema: d.schema, usable_count: d.items.filter((i) => i.usable).length, raw_locator: { kind: "file", path: d.path } })),
+        manifest: catalog2.manifest,
+        manifest_path: catalog2.manifest_path,
+        manifest_sha256: catalog2.manifest_sha256,
+        documents: catalog2.documents.map((d) => ({ path: d.path, sha256: d.sha256, schema: d.schema, usable_count: d.items.filter((i) => i.usable).length, raw_locator: { kind: "file", path: d.path } })),
         usable_items: selected.filter((i) => i.usable).map((i) => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, ...input.detail === "items" ? { body: i.body } : {}, ...i.type === "discussion" ? { summary: i.sections["整理摘要"]?.[0]?.text ?? "" } : {}, locator: { kind: "file", path: i.path, item_id: i.id } })),
         unusable_items: selected.filter((i) => !i.usable).map((i) => ({ id: i.id ?? null, type: i.type ?? null, path: i.path, line: i.line, diagnostics: i.diagnostics, raw_locator: { kind: "file", path: i.path }, ...input.detail === "items" ? { body: i.body } : {} })),
-        reverse_relations: reverseRelations(catalog),
-        plan_tasks: planTasks(catalog),
-        discussions: input.discussion_targets ? recallDiscussions(catalog, input.discussion_targets) : [],
-        impact: input.impact_ids ? impactCandidates(catalog, input.impact_ids) : null,
-        sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [],
-        diagnostics: catalog.diagnostics,
-        coverage: { ...catalog.coverage, selection: input.item_ids ?? "all-enumerated-items", source_bodies: input.resolve_sources ? "byte status only; fetch selected source explicitly" : "not-read" },
+        reverse_relations: reverseRelations(catalog2),
+        plan_tasks: planTasks(catalog2),
+        discussions: input.discussion_targets ? recallDiscussions(catalog2, input.discussion_targets) : [],
+        impact: input.impact_ids ? impactCandidates(catalog2, input.impact_ids) : null,
+        sources: input.resolve_sources ? resolveSources(catalog2, input.item_ids) : [],
+        diagnostics: catalog2.diagnostics,
+        coverage: { ...catalog2.coverage, selection: input.item_ids ?? "all-enumerated-items", source_bodies: input.resolve_sources ? "byte status only; fetch selected source explicitly" : "not-read" },
         task_status: "not-computed; use existing assistance only when actual task state is needed"
       };
     }
     if (action === "check") {
       if (input.content !== undefined && input.path) {
-        if (input.path === catalog.manifest_path) {
+        if (input.path === catalog2.manifest_path) {
           const yaml = strictYaml(input.content, input.path);
           const version = yaml.value?.schema === "vnext-product-manifest/v1" ? 1 : 2;
           const diagnostics = [...yaml.problems.map((p) => p.diagnostic), ...validate(yaml.value, manifestSchema(version)).map((e) => diagnostic("MANIFEST_METADATA", input.path, e.message, { severity: "error", pointer: e.pointer }))];
           return { ...envelope, status: diagnostics.length ? "invalid" : "valid", diagnostics, business_validity: "not-evaluated" };
         }
-        if (!catalog.manifest || !allowed(catalog.manifest, input.path, "managed"))
+        if (!catalog2.manifest || !allowed(catalog2.manifest, input.path, "managed"))
           throw new Error("CHECK_OUT_OF_RANGE: candidate is outside managed_paths");
         const doc = parseProduct(input.content, input.path);
         return { ...envelope, status: doc.diagnostics.some((d) => d.severity === "error") ? "invalid" : "valid", schema: doc.schema, usable_items: doc.items.filter((i) => i.usable).map((i) => i.id), diagnostics: doc.diagnostics, business_validity: "not-evaluated" };
       }
-      return { ...envelope, status: catalog.status !== "available" ? catalog.status : !catalog.coverage.complete || catalog.diagnostics.some((d) => d.severity === "error") ? "partial" : "checked", diagnostics: catalog.diagnostics, coverage: catalog.coverage, sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [], business_validity: "not-evaluated" };
+      return { ...envelope, status: catalog2.status !== "available" ? catalog2.status : !catalog2.coverage.complete || catalog2.diagnostics.some((d) => d.severity === "error") ? "partial" : "checked", diagnostics: catalog2.diagnostics, coverage: catalog2.coverage, sources: input.resolve_sources ? resolveSources(catalog2, input.item_ids) : [], business_validity: "not-evaluated" };
     }
     throw new Error("UNKNOWN_ACTION: use read, check, apply or capture");
-  } catch (error) {
-    return { ...envelope, status: "failed", error: error.message };
+  } catch (error2) {
+    return { ...envelope, status: "failed", error: error2.message };
   }
 }
 async function main() {
@@ -17191,8 +17601,8 @@ async function main() {
 `);
     if (["failed", "partial", "invalid", "unavailable", "unsupported"].includes(result.status) || result.status === "available" && result.coverage?.complete === false)
       process.exitCode = 1;
-  } catch (error) {
-    process.stdout.write(`${JSON.stringify({ kind: "product-maintenance-result/v1", action, status: "failed", error: error.message, development_gate: false, qualification: "not-evaluated" })}
+  } catch (error2) {
+    process.stdout.write(`${JSON.stringify({ kind: "product-maintenance-result/v1", action, status: "failed", error: error2.message, development_gate: false, qualification: "not-evaluated" })}
 `);
     process.exitCode = 1;
   }

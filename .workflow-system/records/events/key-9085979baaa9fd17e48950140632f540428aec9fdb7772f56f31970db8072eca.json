@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-08T18:09:14.160Z",
+  "payload_sha256": "bd916015dba8e8d98949367f4a86be57999c906726a770162b288ac2d57bc6cb",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:archive-final-step-A1",
+    "request": {
+      "action": "step",
+      "task_ref": "task-cc7b3253c7789f99419b4edea097d614",
+      "plan_ref": ".workflow-system/records/events/key-2e3f3eaebaa0e357fc6d29cc0f339a7ff1d573d1bc9e94b1d5c6cd9f28b38d43.json",
+      "step_id": "A1",
+      "state": "finished",
+      "idempotency_key": "archive-final-step-A1",
+      "summary": "Bounded archive implementation completed with documented validation limits",
+      "gaps": [
+        "Known baseline/host aggregate failures retained; no actual project cleanup, remote writes, release or Windows verification"
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-cc7b3253c7789f99419b4edea097d614",
+      "parents": [
+        ".workflow-system/records/events/key-72e34d52c382992c28c98516d9ba6fdbc1c9108efb6150d6fd462ef886a71346.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-2e3f3eaebaa0e357fc6d29cc0f339a7ff1d573d1bc9e94b1d5c6cd9f28b38d43.json",
+        "step_id": "A1",
+        "state": "finished",
+        "summary": "Bounded archive implementation completed with documented validation limits",
+        "gaps": [
+          "Known baseline/host aggregate failures retained; no actual project cleanup, remote writes, release or Windows verification"
+        ]
+      }
+    }
+  },
+  "issues": []
+}
