@@ -12,6 +12,15 @@ The installer distributes software only. It does not bootstrap project facts;
 after a successful fresh install, continue by invoking the
 `bootstrap-project` Agent Skill.
 
+Starting with 0.24.4, `upgrade` automatically handles terminal-LF differences in
+the managed product-maintenance Markdown templates and product-document examples.
+It proves the unchanged body against the recorded old checksum, reports
+`TEMPLATE_ENDING_NORMALIZED`, and replaces the file within the upgrade transaction.
+Dry-run leaves all bytes unchanged; successful read-back still checks exact release
+bytes. Body edits, other whitespace changes and other managed files retain their
+existing conflict checks. Project requirements, discussions and task history stay
+outside the software replacement set.
+
 The installed Skill uses the target-local Node path
 `.workflow-system/runtime/dist/cli.js bootstrap-support prepare` to form a
 typed governance proposal. It does not require the workflow-system source

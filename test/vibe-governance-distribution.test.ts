@@ -63,6 +63,16 @@ function freshTarget(): string {
   return target;
 }
 
+function olderInstalledTarget(): string {
+  const target = freshTarget();
+  expect(installDistribution({ targetRoot: target, packageRoot }).status).toBe('installed');
+  const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  state.distribution_version = '0.14.4';
+  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8');
+  return target;
+}
+
 function makeActiveVNextTarget(): string {
   const target = freshTarget();
   expect(installDistribution({ targetRoot: target, packageRoot }).status).toBe('installed');
@@ -572,6 +582,119 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(upgrade.status).toBe('upgraded');
     expect(upgrade.read_back_verified).toBe(true);
     expect(upgrade.next).toBeUndefined();
+  });
+
+  test('template ending drift upgrades through the public CLI without changing dry-run bytes', { timeout: 60000 }, () => {
+    const target = olderInstalledTarget();
+    const template = '.workflow-system/runtime/support/product-maintenance/templates/ASSESSMENT.md';
+    const example = '.workflow-system/runtime/support/product-maintenance/examples/e6/docs/product/DISCUSSIONS.md';
+    const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    // The old release body can differ from the incoming body. Its recorded
+    // digest must still prove that only the target's terminal LF count changed.
+    const oldTemplate = fs.readFileSync(targetPath(target, template), 'utf8').replace('格式模板（不是事实）', '旧版格式模板（不是事实）');
+    state.managed_files.find((entry: { path: string }) => entry.path === template).checksum = crypto.createHash('sha256').update(oldTemplate).digest('hex');
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
+    fs.writeFileSync(targetPath(target, template), oldTemplate.replace(/\n+$/, '\n'));
+    fs.appendFileSync(targetPath(target, example), '\n\n\n');
+    const before = new Map([template, example, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH]
+      .map(relative => [relative, fs.readFileSync(targetPath(target, relative))]));
+    const args = [path.join(packageRoot, 'dist/cli.js'), 'upgrade', '--root', target, '--json'];
+    const preview = spawnSync('node', [...args, '--dry-run'], { encoding: 'utf8' });
+    expect(preview.status).toBe(0);
+    const plan = JSON.parse(preview.stdout);
+    expect(plan.status).toBe('ready');
+    expect(plan.warnings.filter((issue: { code: string }) => issue.code === 'TEMPLATE_ENDING_NORMALIZED').map((issue: { path: string }) => issue.path).sort()).toEqual([template, example].sort());
+    for (const [relative, bytes] of before) expect(fs.readFileSync(targetPath(target, relative))).toEqual(bytes);
+    expect(fs.existsSync(targetPath(target, '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json'))).toBe(false);
+
+    const execution = spawnSync('node', args, { encoding: 'utf8' });
+    expect(execution.status).toBe(0);
+    const result = JSON.parse(execution.stdout);
+    expect(result.status).toBe('upgraded');
+    expect(result.read_back_verified).toBe(true);
+    const installed = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    for (const relative of [template, example]) {
+      expect(crypto.createHash('sha256').update(fs.readFileSync(targetPath(target, relative))).digest('hex'))
+        .toBe(installed.managed_files.find((entry: { path: string }) => entry.path === relative).checksum);
+    }
+    expect(fs.readFileSync(targetPath(target, template), 'utf8')).not.toContain('旧版格式模板');
+    expect(upgradeDistribution({ targetRoot: target, packageRoot }).status).toBe('no-op');
+  });
+
+  test('template ending drift is repairable at the same version while install remains exact', { timeout: 60000 }, () => {
+    const target = freshTarget();
+    expect(installDistribution({ targetRoot: target, packageRoot }).status).toBe('installed');
+    const template = '.workflow-system/runtime/support/product-maintenance/templates/PLAN.md';
+    const original = fs.readFileSync(targetPath(target, template));
+    fs.writeFileSync(targetPath(target, template), original.toString('utf8').replace(/\n+$/, ''));
+    expect(installDistribution({ targetRoot: target, packageRoot }).status).toBe('rejected');
+    expect(upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true }).status).toBe('ready');
+    const registry = targetPath(target, 'FREEZE_REGISTRY.md');
+    fs.writeFileSync(registry, `# Frozen paths\n\n\`${template}\`\n`);
+    const frozen = upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true });
+    expect(frozen.blockers.some(issue => issue.code === 'FROZEN_PATH')).toBe(true);
+    fs.unlinkSync(registry);
+    const upgraded = upgradeDistribution({ targetRoot: target, packageRoot });
+    expect(upgraded.status).toBe('upgraded');
+    expect(upgraded.read_back_verified).toBe(true);
+    expect(fs.readFileSync(targetPath(target, template))).toEqual(original);
+  });
+
+  test('template ending drift never admits body edits, unowned files or other managed artifacts', { timeout: 60000 }, () => {
+    const target = olderInstalledTarget();
+    const template = '.workflow-system/runtime/support/product-maintenance/templates/ASSESSMENT.md';
+    const protectedPaths = [
+      '.agents/skills/prepare-task/SKILL.md',
+      '.workflow-system/WORKFLOW_PROTOCOL.md',
+      '.workflow-system/runtime/support/assistance.mjs',
+      '.workflow-system/runtime/support/product-maintenance/examples/e6/docs/product/raw/selected.txt',
+      '.workflow-system/runtime/support/product-maintenance/examples/planning/README.md',
+    ];
+    const changes: Array<[string, string]> = [
+      [template, 'body'], [template, 'trailing-space'],
+      ...protectedPaths.map((relative): [string, string] => [relative, 'ending']),
+    ];
+    for (const [relative, change] of changes) {
+      const fullPath = targetPath(target, relative);
+      const original = fs.readFileSync(fullPath);
+      let edited = original.toString('utf8').replace(/\n+$/, '');
+      if (change === 'body') edited += '\nuser-edited content';
+      if (change === 'trailing-space') edited += ' \n';
+      fs.writeFileSync(fullPath, edited);
+      const result = upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true });
+      expect(result.status).toBe('rejected');
+      expect(result.blockers.some(issue => issue.path === relative)).toBe(true);
+      expect(fs.readFileSync(fullPath, 'utf8')).toBe(edited);
+      fs.writeFileSync(fullPath, original);
+    }
+    const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    state.managed_files = state.managed_files.filter((entry: { path: string }) => entry.path !== template);
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
+    fs.appendFileSync(targetPath(target, template), '\n');
+    const unowned = upgradeDistribution({ targetRoot: target, packageRoot, dryRun: true });
+    expect(unowned.status).toBe('rejected');
+    expect(unowned.blockers.some(issue => issue.path === template)).toBe(true);
+  });
+
+  test('template ending drift rollback restores the exact edited preimage', { timeout: 60000 }, () => {
+    const target = olderInstalledTarget();
+    const template = '.workflow-system/runtime/support/product-maintenance/templates/ASSESSMENT.md';
+    const fullPath = targetPath(target, template);
+    fs.writeFileSync(fullPath, fs.readFileSync(fullPath, 'utf8').replace(/\n+$/, '\n'));
+    const before = fs.readFileSync(fullPath);
+    const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+    const stateBefore = fs.readFileSync(stateFile);
+    const result = upgradeDistribution({ targetRoot: target, packageRoot, testHooks: {
+      afterPromotion: () => { throw new Error('injected failure after template normalization'); },
+    } });
+    expect(result.status).toBe('rejected');
+    expect(result.blockers.some(issue => issue.code === 'PROMOTION_FAILED')).toBe(true);
+    expect(result.warnings.some(issue => issue.code === 'ROLLBACK_UNVERIFIED')).toBe(false);
+    expect(fs.readFileSync(fullPath)).toEqual(before);
+    expect(fs.readFileSync(stateFile)).toEqual(stateBefore);
+    expect(fs.existsSync(targetPath(target, '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json'))).toBe(false);
   });
 
   test('upgrade aligns project guidance transactionally without owning business instructions', { timeout: 60000 }, () => {

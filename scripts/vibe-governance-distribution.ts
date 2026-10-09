@@ -174,6 +174,9 @@ const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/u;
 const LEGACY_HOST_SKILL_DIRECTORIES = ['.claude/skills', '.codex/skills', '.factory/skills'] as const;
 const OLD_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 const MIGRATION_ONLY_BUNDLE_TARGETS = new Set(['docs/workflow/CURRENT_TASK.md']);
+const TEMPLATE_MARKDOWN_TARGET = /^\.workflow-system\/runtime\/support\/product-maintenance\/templates\/(?:ASSESSMENT|CHANGE|DESIGN|DISCUSSION|GOAL|MODULE|PLAN|PROJECT|REQUIREMENTS)\.md$/u;
+const EXAMPLE_MARKDOWN_TARGET = /^\.workflow-system\/runtime\/support\/product-maintenance\/examples\/(?:e6|planning\/(?:no-plan|multiple-plans))\/docs\/product\/[A-Z][A-Z0-9-]*\.md$/u;
+const MAX_TEMPLATE_ENDING_LF = 32;
 
 export const VIBE_GOVERNANCE_FRESH_INSTALL_NEXT_HINT = 'invoke the `bootstrap-project` Agent Skill' as const;
 
@@ -702,13 +705,33 @@ function plannedDistributionDeletes(
     : plannedLegacyInstallCompatibilityDeletes(manifest, oldManaged);
 }
 
-function verifyOldManagedFiles(targetRoot: string, state: DistributionState | null): DistributionIssue[] {
+function matchesTemplateEndingChecksum(relativePath: string, bytes: Buffer, checksum: string | undefined): boolean {
+  if (!checksum || (!TEMPLATE_MARKDOWN_TARGET.test(relativePath) && !EXAMPLE_MARKDOWN_TARGET.test(relativePath))) return false;
+  let bodyEnd = bytes.length;
+  while (bodyEnd > 0 && bytes[bodyEnd - 1] === 10) bodyEnd--;
+  // Old states store only a digest. Reconstruct bounded terminal-LF variants
+  // to prove the unchanged body against that exact admitted preimage.
+  const hash = crypto.createHash('sha256').update(bytes.subarray(0, bodyEnd));
+  for (let count = 0; count <= MAX_TEMPLATE_ENDING_LF; count++) {
+    if (hash.copy().digest('hex') === checksum) return true;
+    hash.update('\n');
+  }
+  return false;
+}
+
+function verifyOldManagedFiles(targetRoot: string, state: DistributionState | null, warnings: DistributionIssue[] = []): DistributionIssue[] {
   const managed = admittedOldManagedMap(targetRoot, state);
   const issues: DistributionIssue[] = [];
   for (const [relativePath, checksum] of managed) {
     const fullPath = path.join(targetRoot, ...relativePath.split('/'));
     if (!fileExists(fullPath) || !fs.statSync(fullPath).isFile()) issues.push(distributionIssue('MANAGED_TARGET_DRIFT', `Previously managed vNext path is missing: ${relativePath}`, relativePath));
-    else if (readSha256(fullPath) !== checksum) issues.push(distributionIssue('MANAGED_TARGET_DRIFT', `Previously managed vNext path drifted: ${relativePath}`, relativePath));
+    else {
+      const bytes = fs.readFileSync(fullPath);
+      if (sha256(bytes) === checksum) continue;
+      if (matchesTemplateEndingChecksum(relativePath, bytes, checksum)) {
+        warnings.push(distributionIssue('TEMPLATE_ENDING_NORMALIZED', 'Managed template/example differs only in terminal LF count; admitted for transactional replacement with release bytes.', relativePath));
+      } else issues.push(distributionIssue('MANAGED_TARGET_DRIFT', `Previously managed vNext path drifted: ${relativePath}`, relativePath));
+    }
   }
   return issues;
 }
@@ -723,9 +746,11 @@ function validateDestinations(targetRoot: string, manifest: DistributionManifest
       issues.push(distributionIssue('MANAGED_TARGET_CONFLICT', 'Distribution target is not a regular file.', artifact.target_path));
       continue;
     }
-    const actual = readSha256(targetPath);
+    const bytes = fs.readFileSync(targetPath);
+    const actual = sha256(bytes);
     if (actual === artifact.checksum) continue;
-    if (operation === 'upgrade' && oldManaged.get(artifact.target_path) === actual) continue;
+    if (operation === 'upgrade' && (oldManaged.get(artifact.target_path) === actual
+      || matchesTemplateEndingChecksum(artifact.target_path, bytes, oldManaged.get(artifact.target_path)))) continue;
     issues.push(distributionIssue('MANAGED_TARGET_CONFLICT', 'Distribution-managed target differs from the admitted payload.', artifact.target_path));
   }
   const stateFile = statePath(targetRoot, manifest);
@@ -894,7 +919,7 @@ function runTransactionalPromotion(
     return result;
   }
   if (operation === 'upgrade') {
-    const drift = verifyOldManagedFiles(targetRoot, oldState);
+    const drift = verifyOldManagedFiles(targetRoot, oldState, result.warnings);
     if (drift.length > 0) {
       result.blockers.push(...drift);
       return result;
@@ -946,6 +971,9 @@ function runTransactionalPromotion(
     for (const item of guidance) {
       if (fs.readFileSync(path.join(targetRoot, item.path), 'utf8') !== item.previous) throw new Error('AGENTS.md changed during staging; retry against the current file.');
     }
+    const stagedConflicts = validateDestinations(targetRoot, payload.manifest, operation, oldState);
+    if (operation === 'upgrade') stagedConflicts.push(...verifyOldManagedFiles(targetRoot, oldState));
+    if (stagedConflicts.length > 0) throw new Error('Managed files changed during staging: ' + stagedConflicts.map(issue => issue.path).join(', '));
     preimageTreeHash = computeDistributionPreimageHash(targetRoot, payload.manifest, result.planned_writes, result.planned_deletes);
   } catch (error) {
     if (plan.stagingRoot) fs.rmSync(plan.stagingRoot, { recursive: true, force: true });
@@ -1038,7 +1066,7 @@ function runDryRunPromotion(
     return result;
   }
   if (operation === 'upgrade') {
-    const drift = verifyOldManagedFiles(targetRoot, oldState);
+    const drift = verifyOldManagedFiles(targetRoot, oldState, result.warnings);
     if (drift.length > 0) {
       result.blockers.push(...drift);
       return result;
@@ -1157,8 +1185,13 @@ function runUpgrade(options: DistributionOperationOptions, payload: LoadedPayloa
       } else if (canRealignSameVersionState(oldState, payload.manifest)) {
         stateRealignment = true;
       } else {
-        result.blockers.push(distributionIssue('MANAGED_TARGET_DRIFT', error instanceof Error ? error.message : String(error)));
-        return result;
+        const endingWarnings: DistributionIssue[] = [];
+        const canRepairEndings = oldState && stateManagedFilesMatchManifest(oldState, payload.manifest)
+          && verifyOldManagedFiles(targetRoot, oldState, endingWarnings).length === 0 && endingWarnings.length > 0;
+        if (!canRepairEndings) {
+          result.blockers.push(distributionIssue('MANAGED_TARGET_DRIFT', error instanceof Error ? error.message : String(error)));
+          return result;
+        }
       }
     }
   }
