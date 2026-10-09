@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T01:28:40.179Z",
+  "payload_sha256": "3af2d520a0b4665c753627a6d11c0c62281bd889d405c1a8683fbc0ba9aad3d5",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-repair-execution-20261009",
+    "request": {
+      "action": "execution",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+      "step_id": "R1",
+      "result": "completed",
+      "source_revision": "b3ec33afc2733eaf348a7e4162651b8a5beac13b",
+      "summary": "Windows directory fsync handling, internal snapshot tempRef, and bounded read-context catalog reuse implemented. Native216/216; new portability9 and context18 pass. Windows verification is fault injection/path modeling on Linux.",
+      "idempotency_key": "record-storage-repair-execution-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "parents": [
+        ".workflow-system/records/events/key-e01d0432b68d782be2c62ad5cf539dd5f79633266a5ceda665e0b1a5876e6ffa.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+        "step_id": "R1",
+        "result": "completed",
+        "source_revision": "b3ec33afc2733eaf348a7e4162651b8a5beac13b",
+        "summary": "Windows directory fsync handling, internal snapshot tempRef, and bounded read-context catalog reuse implemented. Native216/216; new portability9 and context18 pass. Windows verification is fault injection/path modeling on Linux."
+      }
+    }
+  },
+  "issues": []
+}

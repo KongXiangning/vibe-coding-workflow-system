@@ -525,3 +525,26 @@ clock, before acquiring the original exclusive lock. Only the unacquired lock is
 no business operation or write callback is replayed. Timeout remains `STORE_BUSY`, and dead
 owners still require explicit recovery. This bounded contention improvement does not steal
 locks or change archive reclamation permission.
+
+### Archive query contexts and Windows directory sync
+
+`find`, `task-status`, `task status`, and `context` reuse the validated archive graph
+within one synchronous call. This changes neither stored bytes nor full-journal replay.
+Native storage callers may use `withStoreReadContext(root, readContext => ...)` and
+pass `{ readContext }` to `storeList`, `storeStat`, `storeExists`, `storeRead`, or
+`storeReadFile`. A context is root-bound, synchronous, and closed on return or error;
+retaining it for a later call fails with `INVALID_READ_CONTEXT`.
+
+Only one full or routed catalog is retained per context, under the existing 16 MiB
+metadata budget. Reuse checks archive directories and all loaded manifest/index/pack
+identities (including safe paths and inode/size/mtime/ctime). Changed backing is
+revalidated; a change detected at query exit is `SOURCE_CHANGED`. Writes invalidate
+active contexts and use fresh validation. Loose bytes, collisions, and selected chunk
+digests are still checked on each read. This removes repeated shard entry validation;
+the conservative signature checks still cost lookups × loaded backing files.
+
+Snapshot publishing passes its internally generated relative temporary reference to
+storage; the public path guards still reject drive-qualified storage refs and traversal.
+On Windows only, `EPERM` from fsync of an already-opened, confirmed directory is treated
+as unsupported directory sync. Directory-open errors and file fsync errors still fail.
+This compatibility path does not promise POSIX directory-fsync power-loss durability.

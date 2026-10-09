@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T01:34:59.879Z",
+  "payload_sha256": "bef7657c7e2ca94d9cb2daec68fb39fd3c210b3c79e58d1d5ffa224fb6f1347d",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-repair-finish-r2-20261009",
+    "request": {
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+      "action": "step",
+      "step_id": "R2",
+      "state": "finished",
+      "idempotency_key": "record-storage-repair-finish-r2-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "parents": [
+        ".workflow-system/records/events/key-469e00d3e7409c3e510d06a711f88efd3ae5e1ae0138c2604b25d4aaf1b3586b.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+        "step_id": "R2",
+        "state": "finished"
+      }
+    }
+  },
+  "issues": []
+}

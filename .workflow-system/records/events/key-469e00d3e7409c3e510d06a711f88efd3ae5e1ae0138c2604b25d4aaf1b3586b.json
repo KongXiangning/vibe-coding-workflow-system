@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T01:34:59.826Z",
+  "payload_sha256": "00bc40705b11aef6c3ce7793e2325b7e2b860cf27bcddfa28be16a059875a1b4",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-repair-review-r2-20261009",
+    "request": {
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+      "action": "review",
+      "stage": "change",
+      "step_id": "R2",
+      "execution_ref": ".workflow-system/records/events/key-b5a3c0c8031750d111afaf308f01b86067215f1db9748b7860ee3b25d005393b.json",
+      "verdict": "passed-with-limits",
+      "findings": [],
+      "coverage": [
+        "Exact source/bundle/migration-source hashes",
+        "Independent same500 timing, structural counters and output SHA identity",
+        "Windows injection9/read-context18 plus selected-pack late-corruption probe"
+      ],
+      "provenance": {
+        "kind": "independent",
+        "source": "Final frozen-source review"
+      },
+      "idempotency_key": "record-storage-repair-review-r2-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "parents": [
+        ".workflow-system/records/events/key-b5a3c0c8031750d111afaf308f01b86067215f1db9748b7860ee3b25d005393b.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+        "stage": "change",
+        "step_id": "R2",
+        "execution_ref": ".workflow-system/records/events/key-b5a3c0c8031750d111afaf308f01b86067215f1db9748b7860ee3b25d005393b.json",
+        "verdict": "passed-with-limits",
+        "findings": [],
+        "coverage": [
+          "Exact source/bundle/migration-source hashes",
+          "Independent same500 timing, structural counters and output SHA identity",
+          "Windows injection9/read-context18 plus selected-pack late-corruption probe"
+        ],
+        "provenance": {
+          "kind": "independent",
+          "source": "Final frozen-source review"
+        }
+      }
+    }
+  },
+  "issues": []
+}

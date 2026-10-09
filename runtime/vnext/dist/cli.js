@@ -30264,6 +30264,41 @@ function expectedContentName(ref, sha25610) {
 }
 var metadataCache = new Map;
 var metadataCacheBytes = 0;
+var readContexts = new WeakMap;
+var activeReadContexts = new Map;
+function signaturesMatch(root, signatures) {
+  for (const [ref, before] of signatures) {
+    const now = statMaybe(root, ref);
+    if (before === null ? now !== null : now === null || !sameStat(before, now))
+      return false;
+  }
+  return true;
+}
+function queryCatalog(root, target, context) {
+  if (context === undefined)
+    return catalog(root, target);
+  const state = readContextState(root, context);
+  try {
+    const cached = state.cached;
+    if (cached && signaturesMatch(root, cached.signatures) && (cached.target === null || cached.target === target))
+      return { ...cached.catalog, metrics: newMetrics() };
+    state.cached = null;
+    const signatures = new Map, result = catalog(root, target, signatures);
+    requireThat(signaturesMatch(root, signatures), "Archive changed while validating the query.", "SOURCE_CHANGED");
+    state.cached = { target, catalog: result, signatures };
+    return result;
+  } catch (e) {
+    state.cached = null;
+    throw e;
+  }
+}
+function readContextState(root, context) {
+  if (context === undefined)
+    return null;
+  const state = readContexts.get(context);
+  requireThat(state && state.root === path21.resolve(root), "Read context is closed or belongs to another root.", "INVALID_READ_CONTEXT");
+  return state;
+}
 function metadataFile(root, ref, limit, metrics) {
   const file2 = local(root, ref), stat = fs20.lstatSync(file2), old = metadataCache.get(file2);
   requireThat(stat.isFile() && stat.size <= limit, `Invalid or oversized metadata: ${ref}`);
@@ -30292,21 +30327,26 @@ function metadataFile(root, ref, limit, metrics) {
   metadataCacheBytes += bytes2.length;
   return value;
 }
-function archiveDirectories(root) {
+function archiveDirectories(root, signatures = null) {
   const s = statMaybe(root, ARCHIVES);
+  signatures?.set(ARCHIVES, s);
   if (!s)
     return [];
   requireThat(s.isDirectory(), "Archive storage must be a directory.");
   const names = fs20.readdirSync(local(root, ARCHIVES)).sort();
   requireThat(names.length <= ARCHIVE_LIMITS.archiveCount, "Archive catalogue exceeds its archive-count bound.", "ARCHIVE_CATALOG_LIMIT");
   return names.map((id) => {
-    requireThat(digest5(id) && statMaybe(root, `${ARCHIVES}/${id}`)?.isDirectory(), `Unexpected archive entry: ${id}`);
+    requireThat(digest5(id), `Unexpected archive entry: ${id}`);
+    const ref = `${ARCHIVES}/${id}`, stat = statMaybe(root, ref);
+    requireThat(stat?.isDirectory(), `Unexpected archive entry: ${id}`);
+    signatures?.set(ref, stat);
     return id;
   });
 }
-function loadArchive(root, id, target = null, metrics = newMetrics(), baseOverride = null) {
+function loadArchive(root, id, target = null, metrics = newMetrics(), baseOverride = null, signatures = null) {
   const base = baseOverride ?? `${ARCHIVES}/${id}`, manifestRef = `${base}/manifest.json`;
   const manifestFile = metadataFile(root, manifestRef, ARCHIVE_LIMITS.manifestBytes, metrics), manifestBytes = manifestFile.bytes;
+  signatures?.set(manifestRef, manifestFile.stat);
   requireThat(manifestFile.sha256 === id, `Manifest identity differs: ${id}`);
   metrics.manifests_read++;
   const manifest2 = manifestFile.value;
@@ -30327,6 +30367,7 @@ function loadArchive(root, id, target = null, metrics = newMetrics(), baseOverri
       continue;
     const indexRef = `${base}/${indexName}`, packRef = `${base}/${packName}`;
     const indexFile = metadataFile(root, indexRef, ARCHIVE_LIMITS.indexBytes, metrics), indexBytes = indexFile.bytes;
+    signatures?.set(indexRef, indexFile.stat);
     requireThat(indexBytes.length === segment.size && indexFile.sha256 === segment.sha256, `Index digest differs: ${indexRef}`);
     metrics.indices_read++;
     const index = indexFile.value;
@@ -30334,7 +30375,10 @@ function loadArchive(root, id, target = null, metrics = newMetrics(), baseOverri
     requireThat(index.records[0].ref === segment.first_ref && index.records.at(-1).ref === segment.last_ref, "Index routing ranges differ.");
     const fd = openFile(root, packRef);
     try {
-      requireThat(fs20.fstatSync(fd).size === segment.pack_size && readExactly(fd, MAGIC.length, 0).equals(MAGIC), `Missing or invalid pack: ${packRef}`);
+      const stat = fs20.fstatSync(fd);
+      requireThat(stat.size === segment.pack_size && readExactly(fd, MAGIC.length, 0).equals(MAGIC), `Missing or invalid pack: ${packRef}`);
+      requireThat(sameStat(stat, fs20.fstatSync(fd)), `Pack changed while validating: ${packRef}`, "SOURCE_CHANGED");
+      signatures?.set(packRef, stat);
     } finally {
       fs20.closeSync(fd);
     }
@@ -30387,10 +30431,10 @@ function loadArchive(root, id, target = null, metrics = newMetrics(), baseOverri
   }
   return { id, manifestRef, physical_files: physical, records: [...records.values()], packs };
 }
-function catalog(root, target = null) {
-  const metrics = newMetrics(), archives = archiveDirectories(root).map((id) => {
+function catalog(root, target = null, signatures = null) {
+  const metrics = newMetrics(), archives = archiveDirectories(root, signatures).map((id) => {
     try {
-      return loadArchive(root, id, target, metrics);
+      return loadArchive(root, id, target, metrics, null, signatures);
     } catch (e) {
       if (e.code === "ENOENT")
         throw error("ARCHIVE_CORRUPT", `Archive metadata or pack is missing: ${id}`);
@@ -30444,15 +30488,16 @@ function validateLoose(root, record6, metrics, options = {}) {
   requireThat(actual.size === record6.size && actual.sha256 === record6.sha256, `Loose/archive collision: ${record6.ref}`, "ARCHIVE_COLLISION");
   return true;
 }
-function logical(root, requested) {
+function logical(root, requested, options = {}) {
+  readContextState(root, options.readContext);
   const ref = reference(root, requested);
   if (!candidate(ref))
     return { ref, record: null };
-  const state = catalog(root, ref);
+  const state = queryCatalog(root, ref, options.readContext);
   return { ref, record: state.records.get(ref) ?? null, metrics: state.metrics };
 }
 function storeStat(root, requested, options = {}) {
-  const { ref, record: record6 } = logical(root, requested);
+  const { ref, record: record6 } = logical(root, requested, options);
   if (record6) {
     const duplicate = validateLoose(root, record6, null, options);
     return {
@@ -30474,9 +30519,9 @@ function storeStat(root, requested, options = {}) {
   const actual = fileDigest(root, ref);
   return { size: actual.size, sha256: actual.sha256, storage: "loose" };
 }
-function storeExists(root, requested) {
+function storeExists(root, requested, options = {}) {
   try {
-    storeStat(root, requested);
+    storeStat(root, requested, options);
     return true;
   } catch (e) {
     if (e.code === "ENOENT")
@@ -30484,8 +30529,8 @@ function storeExists(root, requested) {
     throw e;
   }
 }
-function storeReadFile(root, requested) {
-  const { ref, record: record6 } = logical(root, requested);
+function storeReadFile(root, requested, options = {}) {
+  const { ref, record: record6 } = logical(root, requested, options);
   if (!record6)
     return smallFile(root, ref, ARCHIVE_LIMITS.fileReadBytes);
   validateLoose(root, record6);

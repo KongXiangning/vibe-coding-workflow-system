@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T01:19:54.360Z",
+  "payload_sha256": "f108cd8960397d95caa6f83a268fc4dc720eae13738c9e08ded4842ee2fb100c",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-repair-20261009",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "record-storage-repair-20261009",
+      "plan": {
+        "title": "记录存储三项兼容与查询复用修复",
+        "goal": "修复 Windows 目录同步及内部临时路径，复用单次查询已验证归档结构",
+        "scope": [
+          "目录同步 Windows EPERM",
+          "snapshot 内部相对路径",
+          "查询上下文复用"
+        ],
+        "exclusions": [
+          "真实项目安装清理",
+          "推送发布",
+          "新存储格式或任务状态"
+        ],
+        "steps": [
+          {
+            "id": "R1",
+            "title": "最小实现与复现回归"
+          },
+          {
+            "id": "R2",
+            "title": "独立审查、分发及验证交付"
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "parents": [
+        ".workflow-system/records/events/key-b9e6fd77573cff8db915f43296d73dc3b1ac9f6a9697ff20bb610564aef2a1cc.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-014"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "78e3a5af6602e67ebe53c2c7f6138c8683d93bee41f4d73c7fa096ef11d29591",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

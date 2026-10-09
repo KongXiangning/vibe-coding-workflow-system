@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T01:34:59.933Z",
+  "payload_sha256": "120be60c6f77af8438d1c09931735deb02a2dc2bb7aed8f5594c817ab8108a3c",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-repair-close-20261009",
+    "request": {
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+      "action": "close",
+      "outcome": "completed",
+      "remaining_work": [
+        "Real Windows host validation not performed",
+        "Push or real-project installation/cleanup requires separate authorization"
+      ],
+      "gaps": [
+        "Seven aggregate baseline/host failures remain; later aggregate groups not run",
+        "Existing unrelated CURRENT_TASK display drift retained"
+      ],
+      "idempotency_key": "record-storage-repair-close-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "parents": [
+        ".workflow-system/records/events/key-a62bdce003bc7a9362ea3492cc92e44d995a9d88102c674ded3dd21a805af6e8.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+        "outcome": "completed",
+        "remaining_work": [
+          "Real Windows host validation not performed",
+          "Push or real-project installation/cleanup requires separate authorization"
+        ],
+        "gaps": [
+          "Seven aggregate baseline/host failures remain; later aggregate groups not run",
+          "Existing unrelated CURRENT_TASK display drift retained"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

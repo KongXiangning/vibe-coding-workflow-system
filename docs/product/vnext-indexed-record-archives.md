@@ -32,6 +32,10 @@
 
 assistance 的 read/find/context、record/snapshot 和 task 的事件枚举、baseline、编号保留
 使用统一逻辑存储。任务状态仍按完整事件历史执行现有 reducer；归档不承诺有界全量重放。
+find/task-status/context 在单次同步查询内复用已验证 catalog/index 结构，结束即释放，
+不持久缓存任务状态。每次复用核对已加载归档目录/文件身份，写入使上下文失效；loose
+冲突与选中块校验不省略。结构遍历只需每次查询一次，但保守的签名检查仍随查询次数和
+已加载 backing 文件数增长，不承诺任意多包场景的总成本线性。
 原生产品资料 SourceRef 和 file-context 的精确读取支持旧路径；外部直接文件系统读取者和
 旧版 Runtime 应保留 loose，或显式 restore 后使用。目录搜索的兼容边界由实际实现说明。
 

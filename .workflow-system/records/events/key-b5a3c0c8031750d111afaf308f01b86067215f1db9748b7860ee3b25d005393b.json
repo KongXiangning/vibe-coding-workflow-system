@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T01:34:59.767Z",
+  "payload_sha256": "3f6fa91e829dc41a6573f670499332f7d860d39fa7c476007fe05213284f3c6c",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-repair-execution-r2-20261009",
+    "request": {
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+      "action": "execution",
+      "step_id": "R2",
+      "result": "completed",
+      "summary": "Frozen sources rebuilt and independently reviewed; native216/216; Node install-upgrade5/5. Final aggregate runtime295/7 matches exact b3ec33a baseline failure titles; full pipeline not green. Local commit and recoverable delivery follow; no push or actual-project operation.",
+      "idempotency_key": "record-storage-repair-execution-r2-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "parents": [
+        ".workflow-system/records/events/key-11283360d82a81a11532d5c9b2d6a7c009ab2733f0d8a0cca879223d3e516121.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+        "step_id": "R2",
+        "result": "completed",
+        "summary": "Frozen sources rebuilt and independently reviewed; native216/216; Node install-upgrade5/5. Final aggregate runtime295/7 matches exact b3ec33a baseline failure titles; full pipeline not green. Local commit and recoverable delivery follow; no push or actual-project operation."
+      }
+    }
+  },
+  "issues": []
+}

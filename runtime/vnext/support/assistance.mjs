@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { taskCommand, taskStatus as buildTaskStatus, synchronizeTasks, readTaskDisplay } from './task-management.mjs';
 import { decodeObservation, MAX_LOGICAL_TASK_EVENT_BYTES } from './task-event-codec.mjs';
-import { storeRead, storeReadFile, storeStat, storeExists, storeList, storeReserve, storePublishFile, archiveCommand, archiveInventory } from './record-storage.mjs';
+import { storeRead, storeReadFile, storeStat, storeExists, storeList, storeReserve, storePublishFile, archiveCommand, archiveInventory, withStoreReadContext } from './record-storage.mjs';
 
 export const COMMANDS = ['context', 'record', 'snapshot', 'read', 'find', 'task', 'task-status', 'git-checkpoint', 'archive'];
 const STORE = '.workflow-system/records';
@@ -137,7 +137,7 @@ export function snapshot(root, input) {
   const source = local(root, input.path);
   const directory = `${STORE}/evidence-objects`;
   ensureParent(root, `${directory}/placeholder`);
-  const temp = local(root, `${directory}/${randomUUID()}.tmp`);
+  const tempRef = `${directory}/${randomUUID()}.tmp`, temp = local(root, tempRef);
   const sourceRef = logicalRef(root, input.path), logical = !fs.existsSync(source);
   const fd = logical ? undefined : fs.openSync(source, 'r');
   let out;
@@ -160,7 +160,7 @@ export function snapshot(root, input) {
     if (input.sha256 && input.sha256 !== digest)
       throw failure('HISTORICAL_OBJECT_UNAVAILABLE', 'The live file is not the requested historical content; it was not relabelled.');
     const ref = `${directory}/${digest}.blob`;
-    storePublishFile(root, ref, temp, digest, size);
+    storePublishFile(root, ref, tempRef, digest, size);
     return { ...base(), status: 'saved', ref, sha256: digest, size, source_path: input.path, issues };
   } finally {
     if (fd !== undefined) fs.closeSync(fd); if (out !== undefined) fs.closeSync(out);
@@ -231,9 +231,11 @@ function recordObservation(root, input) {
   }
 }
 // The raw store stays permissive. Management updates are a separately reported result.
-const taskIO = () => ({ local, workflowHome, publish, record: recordObservation, snapshot,
-  readFile: storeReadFile, list: storeList });
+const taskIO = readContext => ({ local, workflowHome, publish, record: recordObservation, snapshot,
+  readFile: (root, ref) => storeReadFile(root, ref, { readContext }),
+  list: (root, ref) => storeList(root, ref, { readContext }) });
 export function task(root, input = {}) {
+  if ((input?.action ?? 'status') === 'status') return taskStatus(root, input);
   try { return taskCommand(root, input, taskIO()); }
   catch (error) {
     if ((input?.action ?? 'status') === 'status') throw error;
@@ -244,7 +246,9 @@ export function task(root, input = {}) {
       issues: [...saved.issues, issue(error)], recovery_options: ['link', 'correct', 'rebuild', 'defer'] };
   }
 }
-export function taskStatus(root, input = {}) { return buildTaskStatus(root, input, taskIO()); }
+export function taskStatus(root, input = {}) {
+  return withStoreReadContext(root, readContext => buildTaskStatus(root, input, taskIO(readContext)));
+}
 export function record(root, input) {
   const saved = recordObservation(root, input);
   try {
@@ -302,6 +306,9 @@ export function read(root, input) {
 }
 export function archive(root, input = {}) { return { ...base(), ...archiveCommand(root, input) }; }
 export function find(root, input) {
+  return withStoreReadContext(root, readContext => findRecords(root, input, readContext));
+}
+function findRecords(root, input, readContext) {
   const { home, issues } = workflowHome(root, input.workflow_home);
   const query = typeof input.query === 'string' ? input.query : '';
   const needle = Buffer.from(query);
@@ -326,7 +333,7 @@ export function find(root, input) {
       try { physical = fs.lstatSync(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
       if (physical?.isDirectory() || (!physical && !item.logical)) {
         if (ref === STORE || ref.startsWith(`${STORE}/`)) {
-          const refs = storeList(root, ref, { hashLoose: false });
+          const refs = storeList(root, ref, { hashLoose: false, readContext });
           if (!(refs.length === 1 && refs[0] === ref)) {
             pending.push(...refs.slice().reverse().map(p => ({ path: p, offset: 0, named: false, logical: true })));
             continue;
@@ -338,7 +345,7 @@ export function find(root, input) {
         }
       }
       if (physical && !physical.isFile()) continue;
-      const stat = storeStat(root, ref, { hashLoose: false });
+      const stat = storeStat(root, ref, { hashLoose: false, readContext });
       if (!item.named && (!query || item.path.includes(query))) {
         matches.push({ path: item.path, offset: null, match: 'path' }); item.named = true;
         if (!query) continue;
@@ -348,7 +355,7 @@ export function find(root, input) {
       const offset = Number.isSafeInteger(item.offset) && item.offset >= 0 ? item.offset : 0;
       const length = Math.min(65536, remaining, Math.max(0, stat.size - offset));
       if (!length) continue;
-      const page = storeRead(root, ref, { offset, length: length + Math.max(0, needle.length - 1), hashLoose: false });
+      const page = storeRead(root, ref, { offset, length: length + Math.max(0, needle.length - 1), hashLoose: false, readContext });
       const bytes = page.bytes, count = bytes.length;
       remaining -= length;
       let from = 0, next = offset + length;
@@ -369,19 +376,22 @@ export function find(root, input) {
     note: 'Literal search over stored bytes, without active-task validation. Pagination is not a failure. Concurrent additions may require a fresh search.' };
 }
 export function context(root, input) {
+  return withStoreReadContext(root, readContext => readContextView(root, input, readContext));
+}
+function readContextView(root, input, readContext) {
   const { home, issues } = workflowHome(root, input.workflow_home);
   const candidates = [`${home}/CURRENT_TASK.md`, `${home}/task-data`, `${home}/task-history`,
     `${home}/evidence-objects`, `${STORE}/events`, `${STORE}/legacy`, `${STORE}/task-view.json`, 'TASKS'];
   const sources = [];
   for (const candidate of candidates) {
-    try { if (fs.existsSync(local(root, candidate)) || storeList(root, candidate).length) sources.push(candidate); }
+    try { if (fs.existsSync(local(root, candidate)) || storeList(root, candidate, { readContext }).length) sources.push(candidate); }
     catch (error) { issues.push({ path: candidate, ...issue(error) }); }
   }
-  const management = taskStatus(root, input);
+  const management = buildTaskStatus(root, input, taskIO(readContext));
   return { ...base(), status: 'available', workflow_home: home, sources, issues,
     current_task: management.current_task, current_task_id: management.current_task_id,
     tasks: management.tasks, management,
-    records: find(root, { query: input.task_ref ?? '', roots: [`${STORE}/events`], max_results: input.max_results ?? 20 }),
+    records: findRecords(root, { query: input.task_ref ?? '', roots: [`${STORE}/events`], max_results: input.max_results ?? 20 }, readContext),
     note: 'Current task state is computed from the whole task journal; sources/search hits are navigation only. Inspect management.issues and unassociated_records. A closed task is not verified completion.' };
 }
 // Presentation only: keep the complete reducer and the existing JS APIs unchanged.

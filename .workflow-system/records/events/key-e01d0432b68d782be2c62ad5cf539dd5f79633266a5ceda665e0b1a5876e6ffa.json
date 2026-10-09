@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T01:22:55.789Z",
+  "payload_sha256": "35ffc2ae7b95c8b2275b84645f771624b9bc3b92dc8d989b03b37e32dfdf34db",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-repair-adopt-20261009",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+      "focus": false,
+      "decision_source": "Sentinel_363cb97c03ec819187c976450ac2a0b9",
+      "decision_text": "对3个问题进行修复",
+      "idempotency_key": "record-storage-repair-adopt-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-402ae468a433b99544a45f11a727e1d2",
+      "parents": [
+        ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-1f21cb6f3921cdf4f66b5d6fb63723b1f8b9512eae076864abf011c3610afc5a.json",
+        "focus": false,
+        "decision_source": "Sentinel_363cb97c03ec819187c976450ac2a0b9",
+        "decision_text": "对3个问题进行修复",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}
