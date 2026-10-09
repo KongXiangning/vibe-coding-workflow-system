@@ -71,15 +71,15 @@ test('Windows directory open permission errors still propagate', t => {
   finally { fs.openSync = original; Object.defineProperty(process, 'platform', descriptor); syncBuiltinESMExports(); }
 });
 
-// Lexical Windows paths with native filesystem I/O mapped to a temporary Linux
-// fixture. This verifies the real snapshot -> storage boundary, not a Windows host.
+// Lexical Windows paths with native filesystem I/O mapped to a temporary fixture
+// on either host platform. This verifies the real snapshot -> storage boundary.
 function windowsPaths(root, action) {
   const winRoot = 'C:\\project', originalPath = new Map(), originalFs = new Map();
-  const nativeJoin = path.join;
+  const nativeJoin = path.join, nativeSep = path.sep;
   function physical(value) {
     if (typeof value !== 'string') return value;
     // Node's native fs.rmSync can call the exported lstatSync with its mapped path.
-    if (value === root || value.startsWith(`${root}/`)) return value;
+    if (value === root || value.startsWith(`${root}${nativeSep}`)) return value;
     assert.ok(path.win32.isAbsolute(value), `Expected resolved Windows filesystem path: ${value}`);
     const relative = path.win32.relative(winRoot, value);
     assert.ok(relative !== '..' && !relative.startsWith('..\\') && !path.win32.isAbsolute(relative));
@@ -114,7 +114,7 @@ test('snapshot publishes relative temporary identity with Windows drive paths an
   assert.deepEqual(fs.readdirSync(path.join(root, STORE, 'evidence-objects')), [`${digest(bytes)}.blob`]);
 });
 
-test('storage still rejects drive-qualified, escaping, traversal, Git and symlink temporary inputs', t => {
+test('storage still rejects drive-qualified, escaping, traversal and Git temporary inputs', t => {
   const root = fixture(t), outside = fixture(t), bytes = Buffer.from('original');
   const source = `${STORE}/capture.tmp`, target = `${STORE}/evidence-objects/${digest(bytes)}.blob`;
   fs.mkdirSync(path.dirname(path.join(root, source)), { recursive: true });
@@ -122,7 +122,20 @@ test('storage still rejects drive-qualified, escaping, traversal, Git and symlin
   for (const unsafe of ['C:\\project\\capture.tmp', '../capture.tmp', `${STORE}/../capture.tmp`,
     '.git/capture.tmp', path.join(outside, 'capture.tmp')])
     assert.throws(() => storePublishFile(root, target, unsafe, digest(bytes), bytes.length), { code: 'UNSAFE_PATH' });
-  fs.symlinkSync(path.join(root, source), path.join(root, STORE, 'link.tmp'));
+  assert.equal(fs.existsSync(path.join(root, target)), false);
+});
+
+test('storage still rejects symlink temporary inputs', t => {
+  const root = fixture(t), bytes = Buffer.from('original');
+  const source = `${STORE}/capture.tmp`, target = `${STORE}/evidence-objects/${digest(bytes)}.blob`;
+  fs.mkdirSync(path.dirname(path.join(root, source)), { recursive: true });
+  fs.writeFileSync(path.join(root, source), bytes);
+  try { fs.symlinkSync(path.join(root, source), path.join(root, STORE, 'link.tmp')); }
+  catch (error) {
+    if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code)) throw error;
+    t.skip(`Windows file symlink creation unavailable (${error.code}); requires Developer Mode or symlink privilege`);
+    return;
+  }
   assert.throws(() => storePublishFile(root, target, `${STORE}/link.tmp`, digest(bytes), bytes.length), { code: 'UNSAFE_PATH' });
   assert.equal(fs.existsSync(path.join(root, target)), false);
 });

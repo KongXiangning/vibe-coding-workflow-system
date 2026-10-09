@@ -129,8 +129,8 @@ for (const kind of ['manifest', 'index', 'pack']) {
   }
 }
 
-test('identical index replacement revalidates structure and safe path checks still reject symlinks', async t => {
-  const root = fixture(t), outside = fixture(t), target = ref('old'), { storage: s, counts } = await instrument(t);
+test('identical index replacement revalidates structure', async t => {
+  const root = fixture(t), target = ref('old'), { storage: s, counts } = await instrument(t);
   put(root, target, 'original'); compact(root);
   const index = path.join(root, archiveInventory(root).archives[0].physical_files.find(f => f.kind === 'index').ref);
   s.withStoreReadContext(root, readContext => {
@@ -138,8 +138,27 @@ test('identical index replacement revalidates structure and safe path checks sti
     s.storeReadFile(root, target, options); assert.equal(counts.entries, 1);
     fs.copyFileSync(index, `${index}.replacement`); fs.renameSync(`${index}.replacement`, index);
     assert.equal(s.storeReadFile(root, target, options).toString(), 'original'); assert.equal(counts.entries, 2);
-    const copy = path.join(outside, 'index.json'); fs.copyFileSync(index, copy); fs.unlinkSync(index); fs.symlinkSync(copy, index);
-    assert.throws(() => s.storeReadFile(root, target, options), { code: 'UNSAFE_PATH' });
+  });
+});
+
+test('warm read contexts reject an index replaced with a symlink', t => {
+  const root = fixture(t), outside = fixture(t), target = ref('old');
+  put(root, target, 'original'); compact(root);
+  const index = path.join(root, archiveInventory(root).archives[0].physical_files.find(f => f.kind === 'index').ref);
+  const copy = path.join(outside, 'index.json'), link = path.join(outside, 'index.link');
+  fs.copyFileSync(index, copy);
+  // Probe the actual capability before changing the index or opening a context.
+  try { fs.symlinkSync(copy, link); }
+  catch (error) {
+    if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code)) throw error;
+    t.skip(`Windows file symlink creation unavailable (${error.code}); requires Developer Mode or symlink privilege`);
+    return;
+  }
+  withStoreReadContext(root, readContext => {
+    const options = { readContext };
+    assert.equal(storeReadFile(root, target, options).toString(), 'original');
+    fs.unlinkSync(index); fs.renameSync(link, index);
+    assert.throws(() => storeReadFile(root, target, options), { code: 'UNSAFE_PATH' });
   });
 });
 
