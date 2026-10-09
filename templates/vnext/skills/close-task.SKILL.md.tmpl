@@ -134,7 +134,11 @@ first making those gaps disappear; preserve them explicitly in the closure repor
 If already authorized, maintain related product summaries using maintain-project
 references/reconcile.md with actual source/coverage; otherwise return pending
 locators. Close remains the existing assistance task disposition, not verification
-or requirement delivery. Summary/plan/binding failure never blocks closure or
+or requirement delivery. Report the arranged next business item or a scoped suggestion
+separately from next_route and actual task/step focus. Preserve parent continuation
+priority; this suggestion does not prepare, switch or execute a task. Use existing
+source-backed progress without demanding a fresh full test run for a summary.
+Summary/plan/binding failure never blocks closure or
 stopping, reopens old tasks, clears pending sources or converts results to PASS.
 
 Return the actual requested result, affected scope, evidence/record references,

@@ -737,3 +737,33 @@ test('bundled Node helper coordinates racing writers and runs without source dep
   const results = await Promise.all([request('planned'), request('retired')]); expect(results.filter(r => r.status === 'saved')).toHaveLength(1);
   const read = JSON.parse(execFileSync('node', [helper, 'read', '--root', root], { input: '{}', encoding: 'utf8' })); expect(read.usable_items).toHaveLength(2);
 });
+
+test('implicit scan exclusions report selected coverage gaps without reading protected trees', () => {
+  const root = fixture();
+  const manifest = run('read', root).manifest;
+  for (const blocked of ['docs/dist/PLAN.md', 'docs/build/PLAN.md', 'node_modules/PLAN.md', '.next/PLAN.md', '.git/PLAN.md', '.workflow-system/runtime/PLAN.md', '.workflow-system/records/PLAN.md']) {
+    put(root, blocked, newDocument([req('REQ-BLOCKED')]));
+    put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: [...manifest.managed_paths, blocked] }));
+    for (const action of ['read', 'check']) {
+      const result = run(action, root);
+      expect(result.coverage.complete).toBe(false);
+      expect(result.coverage.omitted).toContain(blocked);
+      expect(result.diagnostics.some((d: any) => d.code === 'IMPLICIT_PATH_EXCLUDED' && d.path === blocked)).toBe(true);
+      if (action === 'read') {
+        expect(result.usable_items.map((i: any) => i.id)).toContain('REQ-A');
+        expect(result.usable_items.map((i: any) => i.id)).not.toContain('REQ-BLOCKED');
+      }
+    }
+    expect(run('read', root, { paths: ['docs/product/*.md'] }).coverage.complete).toBe(true);
+    put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: [...manifest.managed_paths, blocked], exclude_paths: [blocked] }));
+    expect(run('read', root).coverage.complete).toBe(true);
+  }
+  put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: ['docs/**'] }));
+  const glob = run('read', root);
+  expect(glob.coverage.complete).toBe(false);
+  expect(glob.coverage.omitted).toContain('docs/dist');
+  put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: ['docs/**'], exclude_paths: ['docs/dist/**', 'docs/build/**'] }));
+  expect(run('read', root).coverage.complete).toBe(true);
+  put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, entry: 'docs/dist/PLAN.md', managed_paths: ['docs/dist/PLAN.md'] }));
+  expect(run('read', root).coverage.omitted).toEqual(['docs/dist/PLAN.md']);
+});

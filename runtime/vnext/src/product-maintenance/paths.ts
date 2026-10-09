@@ -92,10 +92,15 @@ export function enumerate(root: string, patterns: string[], excludes: string[], 
     diagnostics.push(diagnostic(code, relative, message));
   }
   function visit(relative: string): void {
-    if (visited.has(relative) || stopped || (relative && (skip(relative) || matches(relative, excludes)))) return;
+    const subtreeExcluded = relative && excludes.some(pattern => pattern.endsWith('/**') && matchPattern(relative, pattern.slice(0, -3)));
+    if (visited.has(relative) || stopped || (relative && (matches(relative, excludes) || subtreeExcluded))) return;
     visited.add(relative);
-    if (++visitedCount > Math.max(10000, maxFiles * 100)) { stopped = true; omit(relative, 'ENUMERATION_LIMIT', 'Directory entry limit reached; remaining paths were not scanned'); return; }
     if (relative && !patterns.some(pattern => matchPattern(relative, pattern) || mayContainMatch(relative, pattern))) return;
+    if (relative && skip(relative)) {
+      omit(relative, 'IMPLICIT_PATH_EXCLUDED', 'Selected path intersects a default scan exclusion; register an authorized document outside this directory or explicitly exclude this scope');
+      return;
+    }
+    if (++visitedCount > Math.max(10000, maxFiles * 100)) { stopped = true; omit(relative, 'ENUMERATION_LIMIT', 'Directory entry limit reached; remaining paths were not scanned'); return; }
     let stat: fs.Stats;
     const absolute = relative ? path.join(root, ...relative.split('/')) : root;
     try { if (relative) safePath(root, relative); stat = fs.lstatSync(absolute); }

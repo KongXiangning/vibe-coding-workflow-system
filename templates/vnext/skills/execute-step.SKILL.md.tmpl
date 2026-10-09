@@ -163,6 +163,9 @@ fresh task-status route. Never present a failed or unrecorded finish as finished
 When enabled product maintenance and existing authorization cover the related
 scope, use maintain-project references/reconcile.md to incorporate actual new
 execution/test sources into the selected delivery assessment or pending_sources.
+Retain useful existing reported coverage and its limits; no new full product test
+is needed just to summarize progress. Maintain clearly adopted local body/arrangement
+changes in the authorized maintenance phase, preserving unrelated scope and history.
 Read actual scope and subjects; unchanged requirement hash and task disposition
 are not verification. Report document/task-operation results separately. Deferred
 or failed maintenance does not prevent authorized implementation, Git, step

@@ -197,3 +197,11 @@ later metadata failure. It does not fetch URLs, enforce Git ignore or erase hist
 All input paths/content are values, never shell command text. Use the host's
 structured APIs or a JSON file/standard-input API; do not interpolate source text
 into shell commands. Scope configuration is not unlimited writing permission.
+
+Default scan exclusions remain enforced for selected files/globs in .git,
+node_modules, .next, dist, build, .workflow-system/runtime/ and
+.workflow-system/records/. Relevant skipped paths now produce IMPLICIT_PATH_EXCLUDED
+and coverage.omitted (exit 1, complete=false), rather than an empty complete read.
+Explicit exclude_paths and unselected scopes stay outside the coverage claim.
+Registered individual sources may still be read by source request subject to the
+existing source permissions and path safety; this is not recursive source scanning.

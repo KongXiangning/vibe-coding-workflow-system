@@ -233,3 +233,11 @@ TraceLens 接入完成标准：
 - 旧报告通过且出现新反证时，同时展示旧范围和待对账；不覆盖为当前完整通过。
 - 缺文件、坏条目、重复 ID、不支持版本或读取预算耗尽时，保留可读部分、原文入口和明确覆盖缺口。
 - 同一数据在独立解析和现有离线样例中得到一致的条目、章节、关系和诊断解释；最终页面需在 TraceLens 仓库另行验证。
+
+## 7. 本轮维护增量交接
+
+机器顺序读取 plan.work_items 原数组；即使 B 在已交付 A 前，仍展示 A 原有报告、日期和绑定。没有总体计划也可有局部 plan；完全无 plan 时展示完整需求与 project 正文，不从正文猜排序。当前采纳可以只有 change／text 来源，无 discussion 不代表没有决定。未知历史身份显示来源与“身份未确认”，不要生成实时 task 状态。
+
+实时 task/step 导航准确入口为安装的 `support/assistance.mjs task-status` 或 `context.management`；查询参数、分页与 detail_request 见 [ASSISTANCE_API.md](../../runtime/vnext/support/ASSISTANCE_API.md)，动作及续接语义见 [TASK_MANAGEMENT_API.md](../../runtime/vnext/support/TASK_MANAGEMENT_API.md)。离线 reader 不计算实时状态，不能从 journal 另造 reducer。
+
+新增重排消费输入位于生成支持资产 `examples/planning/reordered`，预期条目与关系见[规划消费样例](../product/project-maintenance/examples/planning-consumption.md)。隐含排除诊断 IMPLICIT_PATH_EXCLUDED 必须和 omitted 一起展示为读取不完整；显式 exclude_paths 仍在本次覆盖之外。交接只验证文档／解析，不表示 TraceLens 页面已接入。

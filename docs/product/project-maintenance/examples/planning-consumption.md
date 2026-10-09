@@ -55,3 +55,13 @@ coverage。来源、当前任务、业务盘点和交付不是同一类完整性
 
 行为测试比较结构、关系、顺序及范围，不用文案快照证明业务判断。源码 helper、安装后 Node
 helper 和无 Runtime 离线输出分别验证；宿主对自然语言资料的实际判断另行验收。
+
+## 重排与新增范围输入
+
+`examples/planning/reordered` 是虚构离线输入，复用 no-plan 的 8 个条目，加
+PLAN-LOCAL、CHG-ORDER，共 10 个 usable 条目。PLAN-LOCAL 的原数组为 B、A、C；
+CHG-ORDER 保留先前 A、B、C。REQ-IMPORT 仍包含原单设备与新增双设备／错误输入，
+其 3 条绑定分别为原 task、身份未知的历史来源、新范围 task。只有新范围绑定关联
+(PLAN-LOCAL, B)，反向 plan_tasks 对 B 为 1，A/C 为 0；没有关联不抹去 A 的报告。
+AS-BASE 仍为原单设备 partial-reported/pass-reported，版本未知，新范围仍待核对。
+其他 current/planned/candidate/retired 要求完整保留；样例不认证任何真实 task 状态。

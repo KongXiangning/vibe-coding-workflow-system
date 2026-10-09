@@ -70,3 +70,11 @@ and tightened or restored acceptance need their own current-scope check; old bin
 PASS stay historical evidence, not automatic certification of each destination or restored
 text. Use plan.md to arrange or directly prepare authorized nearby work, with or without
 a plan. A partial read establishes only its stated scope, not a complete remaining backlog.
+
+Use useful existing results and explicit user reports to state concrete delivered
+coverage, while naming their source, version/applicability limits and remaining scope.
+Missing a new full test run does not erase prior reported delivery or make everything
+unknown. Conversely a new range is not verified by a closed task's old PASS. Update
+only affected assessments/pending sources and arrangements when actual results arise;
+no full product retest is required merely to write a progress summary. At task end,
+use plan.md for the business next item separately from workflow routing/continuation.

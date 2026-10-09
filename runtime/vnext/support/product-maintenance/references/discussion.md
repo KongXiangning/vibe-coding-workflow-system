@@ -6,7 +6,8 @@ A URL without acquired body is source metadata only, not an archived discussion.
 Do not infer permission to collect other chats, share, redact or delete Git history.
 Normal project storage has no ignore/privacy guarantee; follow the user's actual policy.
 
-Capture first; retain the returned raw_ref and reuse it on retry. discussion uses
+For a requested original-material archive, capture first; retain the returned raw_ref
+and reuse it on retry. discussion uses
 actual submission time, channel and known locator. Speaker/occurrence/context may
 be unknown and must not be invented. If model unavailable, immediately save a
 discussion body saying raw saved, summary/association pending; failed metadata
@@ -51,3 +52,9 @@ new decision (authorized preimage/change if needed), then reassociate. Do not de
 an external document or an extra approval. New bytes alone are not semantic proof.
 An explicit deletion/correction may remove the precise relation via remove_relations
 or an entire field via remove_fields; this is not default retry behavior.
+
+Current explicit adoption is also an update intent. Within existing authority,
+maintain only the affected current body, material change and arrangement immediately;
+use an actual available fragment or labelled text basis. Saving a discussion or the
+whole chat is not required before recording that decision. Mere comparison of B/C
+remains advice or an unresolved alternative, not adopted scope or an adopted plan.

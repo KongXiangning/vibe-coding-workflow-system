@@ -1,7 +1,7 @@
 # vNext 目标需求维护改进与交接计划
 
 更新日期：2026-10-10  
-状态：规划已形成，实施未开始  
+状态：本仓库 A–D 必要增量已实施并验证；已获提交与推送授权，未发布（2026-10-09 UTC）
 实施者：当前会话中的 AI，可由 GPT 6.1 SOL 或 Astra 接续  
 源码勘察基线：`fd088cd8`，软件版本 `0.24.4`
 
@@ -196,13 +196,70 @@ B 的完成条件：每项实际修改有明确原因，已有能力未被重复
 
 | 工作单元 | 当前状态 | 实际结果 | 下一步 |
 |---|---|---|---|
-| 本轮总计划与小步骤 | 已形成 | 已保存目标、基线、A 至 D 本仓库路线及外部交接边界；仅规划文档落盘 | 从 A1、A2 开始核对具体差距 |
-| A | 待实施 | 已有前期勘察，尚未完成逐场景处置清单 | A1 至 A3 |
-| B | 待 A 确定必要范围 | 不预先认定全部候选文件必改 | 根据问题实施 B1 至 B4 |
-| C | 待实际增量确定 | 历史验证保留为参考，未记本轮通过 | C1 至 C3 |
-| D | 待实施 | 已有规范、指南和样例，待按本次增量核对完善 | D1 至 D3，交付标准与指引 |
+| 本轮总计划与小步骤 | 本地实施完成 | 具体结果、证据和边界见下方执行记录 | 用户审阅；外部项目按交接另行实施 |
+| A | 完成 | 实际基线、逐场景分类及最小修改已确定 | 无待实施工具缺陷 |
+| B | 完成 | 源指引、显式遗漏诊断、重排消费样例；复用 v2 与现有 task 服务 | 不新增管理体系 |
+| C | 完成 | 源检查、41 项产品／安装测试、19 项 source 测试、实际 AI 隔离操作与候选升级 | 未发布；真实项目未升级 |
+| D | 完成 | 权威契约、生成副本／模板／Schema核对，TraceLens 与项目整理交接 | 页面和真实资料由所属项目验收 |
 
-本轮只检查计划的内容、链接、范围和写入结果，不运行产品测试或构建。后续提交、推送、发布依实际授权执行；已有充分授权时不再逐文件或逐步骤重复确认。跨项目实施转到对应项目开展，不纳入本文执行记录。
+### 本轮执行记录（2026-10-09 UTC）
+
+原计划日期为 2026-10-10；本环境实际 UTC 日期为 2026-10-09，以下按实际执行时间记录，不回填历史日期。实施者为当前 Codex（系统标注 GPT-6，具体服务构建未暴露）。独立只读复核由本会话另一个审查代理完成；不是独立业务测试团队。
+
+**A1 基线。** 工作目录 `/workspace/vibe-coding-workflow-system`，分支 `work` 初始 HEAD `fd088cd8fea7e0e966da7fae9b0db2da07102f7b`、工作树干净。`git fetch origin main` 后确认 `origin/main=a3496d43c3c6aa1d3f9549f011173cfbb3cf6c8e`，`git merge --ff-only origin/main` 成功。差异只有正式计划及两份已编译 helper 的依赖定位变化；没有用户未提交的三项旧快照改动，不 reset／覆盖／清理工作。根 AGENTS 已读，无下级 AGENTS／本地 .agents skills／冻结登记；源模板与相关 vNext 协议为本轮适用指引。只读 task-status 仍为 6 个历史任务、TASK-010 active；未写本仓库旧任务／记录／CURRENT_TASK。
+
+**A2–A3 场景映射。** 复用依据为当前 requirements、contract、API、writer/catalog/paths 与现有测试，以及 `project-planning-evidence/README.md` 的 0.24.1 历史样例证据。历史通过不算本轮重跑；以下明确本轮增量。
+
+| 计划场景 | 分类／最小处置 | 本轮验证或复用边界 |
+|---|---|---|
+| 目标增加／口径变化 | 已支持身份与局部正文；澄清当前决定同步受影响安排 | update/requirements；复用既有 evolution 03/10/20 证据，未新跑目标数值场景 |
+| 新增／拆分／修改需求 | 已有 v2 局部更新与身份历史保护；补当前决定直接维护 | C2 三设备追加实际保存；拆合复用既有 evolution 30–70 与产品回归 |
+| 法规导入／数据库未准备 | 已有共享前提分析；澄清最小必要工作与展示顺序 | plan 指引；无真实数据库场景新增执行，不凭空扩大设施 |
+| A 已完成后明确 B/C | 指引含糊：project 正文不能兑现机器顺序 | 明确使用适用／局部 plan.work_items；C2 保留 A 报告并安排 B/C |
+| B 移到 A 前 | 格式已支持；补历史不变的直接行为说明 | C2 实际 B/A/C 与旧报告／绑定字节核对；重排样例双 reader 一致 |
+| 普通聊天比较／明确采用 | 指引需区分采纳和收存意图 | update/discussion；C2 无 discussion 直接保存明确决定；备选不采纳复用旧证据 |
+| 无计划工作项直接 prepare | 主 prepare 入口条件过窄 | C2 REQ-AUDIT 实际 prepare 与绑定，无 plan_items，不新增审计 plan |
+| 旧 task 关闭后追加范围 | 已支持范围关联；强调不重开／不继承旧 PASS | C2 原 A 是带准确来源的历史关闭报告，当前 Runtime 不伪造旧关闭事件；新增三设备不扩旧绑定 |
+| task 结束与下一事项 | 原执行／关闭已接 reconcile，补业务建议与 next_route／续接分离 | 未改 reducer；本轮未再执行 close／派生返回，复用现有任务规则和规划证据 |
+| 旧项目资料整理 | 指引没有明确组合到旧 plan/task/CR | inventory 补条件式组合；C2 四份旧原文实际形成正文、plan、历史绑定、assessment、change |
+| 保存冲突／重复操作 | 已有摘要冲突与重试能力 | C2 真实 WRITE_CONFLICT 后保留人工补充，仅补绑定；两个 prepare 总数不变 |
+| 明确 docs/dist/PLAN.md 登记 | 已证实工具缺陷：0 文件却 complete=true | paths 保留隐含排除并报告遗漏；修复前后 JSON、源码／安装／离线回归 |
+
+**B 实际修改。** inventory/update/discussion/plan/reconcile 五份参考指引，maintain-project/prepare-task/execute-step/close-task 四份源模板，requirements/contract 与两份交接指南；paths 唯一行为修复及其回归。增加由 `product-maintenance-assets.ts` 生成的 reordered 样例，保持 v2，不增加 Schema 字段或第二份状态系统。所有 dist、contract 副本、模板／Schema／消费输入从源构建；没有手改生成物。a3496d43 两份 bundle 原有 yaml 路径注释随本环境从 `runtime/vnext/node_modules` 重建为根 `node_modules`，不是额外业务算法变更。
+
+**C1 实际命令及结果。** Node `v24.19.0`，Bun 固定 `1.3.10`（安装在 `/tmp/vnext-toolchain`），npm 缓存 `/tmp/vnext-npm-cache`。以下运行时 PATH 包含该 Bun；不需要目标项目安装 Bun。
+
+| 命令 | 最终结果 | 归档内证据 |
+|---|---|---|
+| `bun install --frozen-lockfile` | 依赖安装成功，锁文件未变 | 环境执行记录 |
+| `bun run build:vnext-runtime` | 成功；包含 product-maintenance 构建 | final-build-runtime-locked.log / run.json |
+| `bun run build:vibe-governance-distribution` | 成功，锁步本地候选 0.24.5 | final-build-distribution-locked.log / run.json |
+| `bun run validate:vnext-source` | PASSED | final-source.log / run.json |
+| `bun test test/workflow-vnext-source.test.ts` | 19 pass，0 fail，115 assertions | final-source-tests.log / run.json |
+| `bun test test/product-maintenance.test.ts test/product-maintenance-install.test.ts` | 41 pass，0 fail，1348 assertions | final-product-install.log / run.json |
+| `node packages/vibe-governance/dist/cli.js install --root <隔离根>` | installed，read_back_verified=true | host-install-cache.json |
+| 同 CLI `upgrade --root <隔离根>` | 0.24.4 初轮候选 → 0.24.5，upgraded／read_back_verified=true | agent/21-upgrade；保留文件摘要清单 |
+| 安装后 helper read、assistance task-status | 9 usable，coverage.complete=true；仍 2 draft tasks | agent/22–23 回读 |
+| `npm pack ./packages/vibe-governance --pack-destination /workspace/deliverables --cache /tmp/vnext-npm-cache` | 生成本地 tgz，不发布 | pack.log、package-sha256.json |
+| `git diff --check` | 通过已跟踪修改；新生成样例单独检查只含生成器末尾空行 | 最终交接检查 |
+
+最终不同通过用例共 60，1463 assertions；不累计中间重复运行。安装测试包含目标 PRODUCT／业务正文／原文／历史保留，独立离线 reader、新样例及遗漏诊断。安装测试中的旧版本夹具通过修改 fixture state 构造；C2 另有真实安装初轮候选再升级，不把它宣称为正式已发布 0.24.4 的全量升级矩阵。
+
+中间失败均保留：首个新测试误对 check envelope 访问 usable_items（测试错误已修）；首次安装因默认 npm cache 不可写而失败，改可写缓存后通过；独立复核发现显式 `dir/**` 排除仍误报遗漏及样例旧建议未转历史，均修正。样例替换曾截断后续 goal，安装用例的 10 usable 断言失败，改为根标题边界替换后通过。版本修改时临时保护断言误把 kernel 中检测冻结的代码字符串当文件冻结，未完成常量修改造成一次锁步构建失败；核对真实头部后仅改版本常量，重新构建通过。以上不是最终通过的隐含例外，也没有绕过安装防护或自动审批拒绝。
+
+**C2 实际 AI 验收。** 输入为本轮设计的四份合成旧原文，未预填最终标准文档或关联。实施 AI 实际读取安装 Skill／reference、原文及 helper 输出，再逐步选择并调用真实工具。通用 `transport.py` 只传 JSON、执行 Node、记录 stdout/stderr/exit 和前后文件，不生成语义答案。`agent-input.md` 明确合成材料与候选任务授权；`agent/00–23` 保留每步请求、实际结果、前后业务文件／记录；`agent-checks.json` 是事后不变量检查。原 A 仅为历史资料中的身份，未伪造本 Runtime 任务。两个实际新身份为 `task-fec57e3033763354c30a3e2813262efb`（审计，无 plan_items）与 `task-719d7c7a1e0ff5c9b75ebc9dfe122d84`（双设备 B）。未采用、执行或关闭它们，未伪造业务测试通过。
+
+实际保存：四份旧原文 → 目标／完整需求、旧 plan、两条历史绑定（含 null）、范围化 AS-A、旧 CR；当前重排 B/A/C 及 change；直接 prepare 与真实绑定；并发正文补充下的失败与仅绑定重试；新增三设备正文及安排变化，原任务仍只覆盖双设备。AS-A 和四份原始资料字节始终不变，未收存整段聊天、未创建 discussion、未重开旧 task。最终 `DEFINITION_UNKNOWN`／`TASK_ID_UNCONFIRMED` 是保留的真实未知，不是整理失败或全量交付证明。
+
+C2 首轮安装与最终软件的四份相关 Skill 和五份业务 references 相同；最终 helper 另补显式子树排除边界，最终新增离线样例也已修正。最终升级后逐文件与源码生成资产相等，见 final-installed-equality.json；不以第一次操作冒称第一次已用最终 helper。实际业务维护不是脚本提前写完答案再做结构测试，也不证明所有宿主模型都永不漏做。
+
+**C3／D 交付。** 为避免同版本不同内容覆盖，将源码包、Runtime 包／lock、contract、kernel 常量和分发包锁步到未发布本地候选 `0.24.5`；Schema 保持 v1 读取／v2 新写。具体 bundle／manifest digest 在最终 build 日志。本地 tgz 位于 `/workspace/deliverables/vibe-governance-0.24.5.tgz`；源构建资产与最终隔离安装逐文件相等。可以在明确授权目标使用该候选或源分发 CLI，真实项目升级不在本轮。
+
+D1 权威契约／生成 support 副本相同，Schema 与模板没有新字段需求。D2 以 `docs/guides/tracelens-product-documents.md` 为交接入口，reordered 10 条目含 B/A/C、旧变更顺序、3 task 关联（含未知历史）与旧范围摘要；源码生成、安装 helper 和离线 reader 一致。实时状态准确入口为 assistance task-status/context 与 TASK_MANAGEMENT_API，不从文档／journal 另造 reducer。D3 使用指南新增所属项目核对、分批正文整理、既有进展、条件式历史安排／绑定／变化及回读判断；TermLink/Lawagent 没有材料不阻塞本仓库，旧 46 条快照不作为本轮事实。
+
+完整原始证据见同目录 `goal-requirement-maintenance-evidence.zip`；独立审查摘要另存于归档 `independent-review.md`。工作树保留完整未提交 diff 与新生成样例、证据包供审阅；没有提交、推送、发布、部署或改真实项目。
+
+**未验证边界。** 未跑 test:workflow-all、完整 Runtime 生命周期／派生续接回归、Windows 原生、TraceLens 页面、真实项目升级／资料整理、真实业务或跨模型重复测试。本轮 task-end 文案保持原服务语义，未用结构通过冒称已真实 close 或宿主业务交付。外部交接各自在所属项目实施。本轮已授权实现、最小验证和独立复核完成；next_route: null。
 
 ## 依据与变更记录
 
@@ -216,3 +273,7 @@ B 的完成条件：每项实际修改有明确原因，已有能力未被重复
 2026-10-10：建立本计划。以 0.24.4 实际勘察为起点，明确先验证差距、按需修改、分项目整理和只读展示；未执行软件修改、升级或业务资料整理。
 
 2026-10-10：按用户澄清收窄仓库职责。原 D 的真实项目整理、原 E 的 TraceLens 实施及原 F 的真实使用验证移为外部交接；本仓库路线改为 A 至 D，共 13 个小步骤，新增 D 负责标准文档规范、解析样例和整理指引的交付。
+
+### 后续 Git 交付授权（2026-10-09 UTC）
+
+用户在 17:03 UTC 明确授权提交并推送本轮完整 0.24.5 改动及必要样例／证据到 origin/main（授权消息 Sentinel_930847db03e8819185c25ecf6ca135a1）。此前执行记录中的“未提交／未推送”描述验收与 Library 打包时的事实，不是本次交付禁令。提交前重新 fetch，远端 main 仍为 a3496d43，无需合并；已验证文件与交付清单逐项摘要一致，本次仅追加交付授权说明。无无关改动或其他 CI 分支纳入；未授权 npm 发布或部署。提交与推送实际结果以 Git 和最终交付回复为准，不追加记录自身 SHA 的递归提交。

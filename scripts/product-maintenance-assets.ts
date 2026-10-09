@@ -80,4 +80,16 @@ function buildPlanningExamples(root: string, write: (relative: string, content: 
   write(`${prefix}/PLAN-IMPORT.md`, newDocument([plan], '已采用的局部安排'));
   write(`${prefix}/PLAN-EXPORT.md`, newDocument([candidate], '独立候选安排'));
   write(`${prefix}/PLAN-LEGACY.md`, newDocument([retired], '历史安排'));
+  const reordered = 'examples/planning/reordered';
+  for (const file of ['.workflow-system/PRODUCT.yaml', 'docs/product/PROJECT.md', 'docs/product/REQUIREMENTS.md', 'docs/product/ASSESSMENTS.md']) {
+    write(`${reordered}/${file}`, fs.readFileSync(path.join(root, 'runtime/vnext/support/product-maintenance/examples/planning/no-plan', file), 'utf8'));
+  }
+  const reorderedProject = path.join(root, 'runtime/vnext/support/product-maintenance', reordered, 'docs/product/PROJECT.md');
+  fs.writeFileSync(reorderedProject, fs.readFileSync(reorderedProject, 'utf8').replace(/### 本轮选取与未决事项[\s\S]*?(?=\n## |$)/, '### 历史选取与当前安排\n此前无 plan 时建议先核对错误输入；该建议已由 PLAN-LOCAL 的当前采用安排接替，现按 B、A、C 展示。完整需求、AS-BASE 与未核对范围继续保留；不在 project 再维护当前顺序。\n'));
+  const localPlan = document({ type: 'plan', id: 'PLAN-LOCAL', intent_state: 'adopted', targets: [{ target: 'REQ-IMPORT', coverage: '基础 A 与新增 B/C 范围' }], work_items: [work('B', '近期', 'REQ-IMPORT', '双设备'), work('A', '历史交付', 'REQ-IMPORT', '单设备有效输入'), work('C', '后续', 'REQ-IMPORT', '错误输入')] }, '重排后的局部安排', ['仅覆盖导入，不是总体计划。', '展示 B、A、C；A 的历史单设备报告仍在 AS-BASE，B/C 尚未验证。', '从 A、B、C 调为 B、A、C；展示变化不重开 A，也不改变 task 状态。']);
+  const evolved = requirements.map(item => ({ ...item, metadata: { ...item.metadata } }));
+  evolved[0]!.metadata.task_bindings = [binding, { id: 'B-UNKNOWN', task: { task_id: null, source: source('旧报告提及错误提示工作，原身份和日期不明。') }, role: 'reference', coverage: '历史错误提示，仅待核对来源', origin: 'declared', state: 'active' }, { id: 'B-NEW', task: { task_id: 'example-new-device-task', source: source('虚构新 task 仅服务新增双设备范围。') }, role: 'implementation', coverage: '新增双设备输入', origin: 'declared', state: 'active', plan_items: [{ plan_id: 'PLAN-LOCAL', work_item_id: 'B' }] }];
+  write(`${reordered}/docs/product/REQUIREMENTS.md`, newDocument(evolved, '新增范围保留历史覆盖'));
+  write(`${reordered}/docs/product/PLAN.md`, newDocument([localPlan], '虚构重排消费输入'));
+  write(`${reordered}/docs/product/CHANGES.md`, newDocument([document({ type: 'change', id: 'CHG-ORDER', recorded_at: '2026-10-09T00:00:00Z', basis: { kind: 'delegated', text: '虚构样例明确重排', sources: [source('将 B 放在已交付 A 前面，保留历史。')] }, deltas: [{ target: 'PLAN-LOCAL', before: 'A、B、C', after: 'B、A、C', note: '稳定工作项 B/A/C；不改变 A 历史。' }] }, '局部展示重排', ['只改变展示顺序。', '原单设备报告保留，新增范围不继承旧 PASS。'])]));
 }

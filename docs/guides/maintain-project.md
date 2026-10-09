@@ -1,6 +1,6 @@
 # 使用 maintain-project 维护项目目标与需求
 
-首版从本地候选 `0.24.0` 提供；本轮规划与可靠性候选为 `0.24.1`，尚未发布。安装后在目标项目调用 `$maintain-project`；其他宿主使用其原生 Skill 调用方式。Agent 负责理解业务、判断影响和整理观点，独立 Node helper 负责格式、定位、摘要和安全文件写入。实际交付与验证见[交付记录](../ops/vnext-project-maintenance-delivery.md)，字段语义见[契约](../product/project-maintenance/document-contract.md)。
+首版从本地候选 `0.24.0` 提供；本轮目标需求维护本地候选为 `0.24.5`，尚未发布。安装后在目标项目调用 `$maintain-project`；其他宿主使用其原生 Skill 调用方式。Agent 负责理解业务、判断影响和整理观点，独立 Node helper 负责格式、定位、摘要和安全文件写入。实际交付与验证见[交付记录](../ops/vnext-project-maintenance-delivery.md)，字段语义见[契约](../product/project-maintenance/document-contract.md)。
 
 ## 1. 安装和启用
 
@@ -80,3 +80,13 @@ node offline-reader.mjs <独立项目目录>
 ```
 
 该示例不需要 Runtime、Bun、npm 模块或模型，可读取目标、需求、设计、plan、TaskBinding、讨论和交付摘要，保留覆盖及诊断。文档报告的状态仍是文档性质，不计算真实 task 生命周期。无 plan 时仍能展示完整已知业务范围与 project 原文选取结论；多个 plan 分别展示范围及采用状态。明确选定 plan 的工作项保持原数组顺序、阶段和覆盖，但显示顺序不等于依赖，未声明依赖也不证明已确认可并行。部分读取、task 关闭或历史 PASS 不能显示成完整交付。TraceLens 接入使用同一契约；本仓库交付了消费者示例，未实施或验证其前端页面。
+
+## 6. 已有项目的整理交接
+
+先在所属项目核对工作副本、AGENTS／冻结约束、用户修改、安装版本和 PRODUCT。TermLink 若已有入口，沿用实际身份和已保存成果；Lawagent 按选定副本实际材料建立入口，不合并其他副本。旧快照、聊天计数和软件升级均不证明当前业务整理完成。
+
+按用户所选资料分批读取正文：先整理目标、完整需求与已有进展，再对仍适用的已采用旧计划维护 plan/work_items，对有依据的历史 task 补 TaskBinding，对重要旧 CR／决定保存必要 change。未知身份用 null 与原来源，未知日期／旧意明确说明；不重新 prepare、重开任务或要求迁移全史。报告已交付的具体覆盖及依据，不由 task 关闭认定需求全完，也不因缺全量新测试把已有进展全部标未知。
+
+当前明确采用的局部变化直接维护正文、必要依据与安排，无需先归档整段聊天。单纯比较 B/C 则保留备选。需要页面按 A、B、C 展示时，将顺序写入已有或局部 plan 的 work_items；不需要总体计划，也不另建权威待办。改为 B、A、C 保留已交付 A 的全部历史。无 plan 直接 prepare 仍可绑定真实需求，plan_items 留空或省略；绑定失败仅补绑定。
+
+回读完整正文、关联、顺序、进展和未整理范围，分别报告软件安装、规范保存、业务整理。task 结束后说明已安排的下一业务项或建议，与 next_route／实际原任务续接分开；建议不自动启动任务。所列来源读完或格式通过，不等于用户要求的全貌成果已齐全。遇到隐含目录排除查看 IMPLICIT_PATH_EXCLUDED／omitted，在授权内调整文档位置或明确读取范围，不将其当成零需求。

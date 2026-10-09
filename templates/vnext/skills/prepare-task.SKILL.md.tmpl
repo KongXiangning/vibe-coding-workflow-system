@@ -138,13 +138,16 @@ adopting a plan does not silently close the other task.
 
 ## Related product documents
 
-When PRODUCT maintenance is enabled and the request selects a project plan work
-item, read its actual goal/requirement coverage, exclusions and unresolved matters
-before task preparation. Carry that business scope into the task plan; project
+When PRODUCT maintenance is enabled, read the relevant goal/requirement bodies,
+coverage, exclusions and unresolved matters before task preparation, including direct
+requests with no project plan or work item. If a work item is selected, also read it. Carry that business scope into the task plan; project
 plan_id is never Runtime plan_ref. Simple requests still prepare directly without
 a project plan. After preparation, preserve returned task_id and original event
 ref, and in an already authorized maintenance write phase supplement TaskBinding
-in related goal/requirement documents using maintain-project references/plan.md.
+in each identifiable related goal/requirement using maintain-project references/plan.md.
+Without a project plan, omit plan_items; do not create a plan just for binding.
+Unknown ownership remains an explicit pending locator; maintenance/exploration can
+legitimately have no requirement. Never invent a requirement to satisfy association.
 If binding fails, retain the successful task and retry only the binding. No new
 prepare/focus/adopt/resume/close operation follows from a document association.
 Missing/paused PRODUCT, helper or malformed/unlinked material never blocks task

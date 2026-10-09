@@ -52,8 +52,11 @@ Do not unconditionally rescan the whole project at every task end or every round
 
 With an applicable selected plan, maintain the arrangement and unresolved conclusions
 there. Without a plan, persist necessary selection, source/basis, read scope and
-unresolved matters in the existing project body; a local plan is optional when useful
-or requested. Do not create a second authoritative backlog, copy full requirements
+unresolved matters in the existing project body when no machine-readable order is
+needed. When the requested display needs order (for example A, B, C), maintain
+existing ordered work_items in an applicable plan, or create a small scoped plan
+without requiring an overall project plan. Do not leave promised machine order only
+in prose. The Agent chooses this representation without a strategy/field interview. Do not create a second authoritative backlog, copy full requirements
 or add speculative task IDs. Keep each current conclusion in one place. If a later
 plan takes over a conclusion, retain a historical locator in the project rather than
 a second live copy. Known unread sources remain in inventory, not invented documents.
@@ -106,3 +109,19 @@ without delivering the product requirement. Keep observations, design difference
 and affected work. An execution-time independent prerequisite uses the existing
 derived-task path and its original limits; those limits are not project-planning
 limits. Do not impose exploration on clear work or require all future tasks now.
+
+## Reordering delivered work and selecting what follows
+
+A may already be delivered while B and C remain arranged. An explicit request for
+B, A, C changes work_items array order; retain all stable IDs, A's original task
+bindings, delivery evidence and dates. It does not reopen A, withdraw its delivery,
+or alter task lifecycle. Retain the prior arrangement and decision in a material
+plan change; check real prerequisites locally without turning display order into a
+gate. Database preparation before regulation import is only the smallest necessary
+work justified by actual missing readiness, not automatic infrastructure expansion.
+
+At task end report the affected progress and the already arranged next business
+item, or a reasoned suggestion if none was adopted. Keep this prose separate from
+public Skill next_route and actual next_task_id/next_step_id. First honor any retained
+parent continuation and its real remaining step; a next business suggestion never
+replaces that return, creates/focuses a task or authorizes execution by itself.

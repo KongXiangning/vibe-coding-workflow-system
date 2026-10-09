@@ -77,3 +77,25 @@ is usable basis under the existing rules; do not introduce a separate candidate-
 workflow. Once an authorized decision adopts a candidate, update the corresponding
 requirement, design or work arrangement with its basis and resolve/reference its former
 unresolved location instead of maintaining duplicate current conclusions.
+
+## Older project material within the requested inventory
+
+For a requested business overview, source registration is the starting point. Read
+selected original bodies, then combine update, plan and reconcile as applicable:
+- Preserve complete goals/requirements and source-backed delivered coverage, not
+  just document titles or a list of uncompleted tasks.
+- If an old plan is still adopted/applicable, retain its scope and stable work IDs
+  in plan/work_items; a historical or undecided plan is not newly adopted. Current
+  explicit arrangements may be saved without reconstructing the entire old order.
+- Associate reliable historical task identities through TaskBinding with precise
+  coverage. Unknown identity uses task_id=null and a locatable original source;
+  a display number is not a guessed identity. Never prepare/reopen old work.
+- For relevant material CR/decision changes, use change with original before/after
+  and source; unknown old meaning stays null with explanation. recorded_at is the
+  actual recording time, not an invented historical occurrence date. Do not migrate
+  every CR or archive all history as a prerequisite.
+
+Process useful batches and read back bodies, bindings, arrangements, progress and
+remaining scope. Say which requested outputs are still missing even if every listed
+source was read or Schema passed. Respect existing PRODUCT identities and prior
+successful writes; only supplement unresolved work on retry.

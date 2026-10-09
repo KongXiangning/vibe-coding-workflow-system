@@ -244,6 +244,29 @@ test('installed maintenance assets execute with Node and upgrade preserves all t
   const result = JSON.parse(execFileSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' }));
   expect(fs.existsSync(path.join(offline, '.workflow-system/runtime'))).toBe(false); expect(fs.existsSync(path.join(offline, 'node_modules'))).toBe(false);
   expect(result.items.map((i: any) => i.type)).toContain('discussion'); expect(result.plan_tasks[0].work_items).toHaveLength(4); expect(result.task_states).toContain('not-computed');
+  // Reordered display retains scoped history and is identical in both Node consumers.
+  const reordered = path.join(support, 'examples/planning/reordered');
+  const orderedRead = JSON.parse(execFileSync('node', [helper, 'read', '--root', reordered], { encoding: 'utf8', input: '{"detail":"items"}' }));
+  const orderedOffline = JSON.parse(execFileSync('node', [path.join(support, 'offline-reader.js'), reordered], { encoding: 'utf8' }));
+  expect(orderedRead.usable_items).toHaveLength(10);
+  expect(orderedOffline.items.map((i: any) => [i.id, i.metadata, i.body])).toEqual(orderedRead.usable_items.map((i: any) => [i.id, i.metadata, i.body]));
+  expect(orderedOffline.items.find((i: any) => i.id === 'PLAN-LOCAL').metadata.work_items.map((i: any) => i.id)).toEqual(['B', 'A', 'C']);
+  const orderedBindings = orderedOffline.items.find((i: any) => i.id === 'REQ-IMPORT').metadata.task_bindings;
+  expect(orderedBindings).toHaveLength(3); expect(orderedBindings[1].task.task_id).toBeNull();
+  expect(orderedOffline.items.find((i: any) => i.id === 'AS-BASE').metadata.verification).toBe('pass-reported');
+  expect(orderedOffline.items.find((i: any) => i.id === 'CHG-ORDER').metadata.deltas[0].before).toBe('A、B、C');
+  const blocked = 'docs/dist/PLAN.md';
+  fs.writeFileSync(manifestPath, stringify({ ...read.manifest, managed_paths: [...read.manifest.managed_paths, blocked] }));
+  const blockedInstalled = attempt('read', {});
+  expect(blockedInstalled.exit).toBe(1); expect(blockedInstalled.result.coverage.complete).toBe(false);
+  expect(blockedInstalled.result.coverage.omitted).toContain(blocked);
+  expect(blockedInstalled.result.diagnostics.some((d: any) => d.code === 'IMPLICIT_PATH_EXCLUDED' && d.path === blocked)).toBe(true);
+  fs.writeFileSync(manifestPath, stringify(read.manifest));
+  const offlineEntryPath = path.join(offline, '.workflow-system/PRODUCT.yaml');
+  fs.writeFileSync(offlineEntryPath, stringify({ ...read.manifest, managed_paths: [...read.manifest.managed_paths, blocked] }));
+  const blockedConsumer = spawnSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' });
+  expect(blockedConsumer.status).toBe(1); expect(JSON.parse(blockedConsumer.stdout).coverage.omitted).toContain(blocked);
+  fs.writeFileSync(offlineEntryPath, stringify(read.manifest));
   // Consume the exact installed samples through both Node entrypoints, without a task service.
   for (const variant of ['no-plan', 'multiple-plans']) {
     const planning = fs.mkdtempSync(path.join(os.tmpdir(), 'product-planning-offline-')); roots.push(planning);

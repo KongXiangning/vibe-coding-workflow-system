@@ -65,7 +65,7 @@ development, task preparation, commit, closure or stopping.
 
 Route the user's combinable intents to these installed references:
 
-- First inventory and material sufficiency/prerequisite candidates: `product-maintenance/references/inventory.md`.
+- First inventory (combine update/plan/reconcile for requested historical business overview) and material sufficiency/prerequisite candidates: `product-maintenance/references/inventory.md`.
 - Current requirements/design/decisions: `product-maintenance/references/update.md`.
 - Preplanning, continuous next-work selection, hybrid planning and actual task binding: `product-maintenance/references/plan.md`.
 - Selected discussion capture, host-model association and recall: `product-maintenance/references/discussion.md`.
@@ -84,7 +84,11 @@ read byte version; preserve unaffected requirements, constraints, exceptions and
 exclusions. Never resolve conflicting truth by timestamp.
 Planning strategies are not Runtime modes. No plan is required to select or prepare
 authorized nearby work; preserve complete requirements and the current task/history.
-Persist necessary decisions in the applicable plan or, without one, the project body. A new inferred link is
+Persist necessary decisions in the applicable plan or, without machine-order needs,
+the project body. For requested parseable order use existing work_items in a scoped
+plan, including when no overall plan exists. Clear adopted decisions update affected
+bodies and arrangements within authority without first archiving the entire chat.
+A new inferred link is
 not a user decision. Candidate plan, adopted design, binding, valid schema, close
 or historical PASS never proves current implementation or complete verification.
 

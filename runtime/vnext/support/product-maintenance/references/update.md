@@ -54,3 +54,19 @@ If manual text puts an explicit constraint in an appendix, keep its authority an
 locate/repair it within the request rather than ignoring it as outside the item.
 Whole candidates may repair selected malformed fields; retain untouched bad neighbors.
 Actual deletions use the API's precise removal declarations, not implicit renaming.
+
+## Current decisions and arrangements
+
+A clear adopted decision within existing maintenance authority updates the affected
+current goal/requirement body, necessary change basis and related arrangement in
+one scoped maintenance pass. Read affected relationships; preserve unrelated bodies
+and delivered history. Alternatives and questions remain undecided. Do not require
+archiving the full chat or invoking discussion first: an accurately labelled text
+SourceRef can retain the current decision or its summary. Use discussion only when
+selected original material is actually requested for preservation.
+
+If the decision needs machine-readable display order, maintain an applicable plan's
+work_items or a small local plan when none exists, following plan.md. The Agent
+chooses the document/fields, without asking the user for an internal strategy.
+New scope after a closed task retains that task's original coverage and evidence;
+a new authorized task serves the added scope, without inheriting old PASS.

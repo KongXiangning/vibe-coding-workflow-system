@@ -289,3 +289,11 @@ coverage.complete 只指本次明确 managed 路径范围的枚举和字节读�
 JSON Schema、AST 章节规则、跨对象语义和样例共同构成契约。Schema 是第一步，不证明来源真实、模型关联正确或业务完成；实现时生成并安装 v1／v2 所需格式说明和结构校验资产。
 
 TraceLens 只扫描规范文档和明确来源。Markdown 不执行 HTML／MDX／脚本，不加载远程资源；文件和 URI 导航做边界及协议检查。正常 task 状态仍由 vNext 既有服务计算，TraceLens 只能展示文档报告性质的状态，不能把绑定存在、计划 adopted 或来源无变化解释为实时完成。
+
+### 9.1 当前维护与消费澄清（保持 v2）
+
+机器可解析的展示顺序保存在 plan.work_items 数组；没有总体计划时可以只建覆盖本次范围的局部 plan。project 正文适合不要求机器顺序的选取结论，不是另一套排序字段。B、A、C 的数组顺序允许 A 已交付；重排不改变 A 的历史日期、TaskBinding、assessment 或实际 task 生命周期。必要 change 以 plan 为 target、稳定工作项 ID 为 note，保留先前安排和当前依据。
+
+当前明确决定可用准确标注的 text SourceRef 记录，不要求先保存整段聊天或创建 discussion。历史整理沿用真实 task_id，未知则 null 加可定位 source；重要旧变化的 recorded_at 是本次实际记录时间，旧发生时间不明在正文说明。已有范围化交付报告不因缺全量新测试消失，也不覆盖新增范围。
+
+默认扫描排除仍适用于显式文件及 glob：.git、node_modules、.next、dist、build 路径段，以及 .workflow-system/runtime/ 和 .workflow-system/records/ 内。选定范围遇到这些隐含排除时报告 IMPLICIT_PATH_EXCLUDED 和 coverage.omitted，complete=false，不读取其中内容；用户明确 exclude_paths 的范围和未选范围不计遗漏。可以在已有授权内调整当前文档位置／登记，或明确缩小读取范围；单个只读历史来源仍按 source_paths 的明确引用读取，.git 与路径安全限制不变。
