@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T06:09:14.134Z",
+  "payload_sha256": "61edd89d9ec9c4cd29969b645bc7179f442b641b2c53ca8e2b41af9303cdf7c7",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-workflow-close-20261009",
+    "request": {
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+      "action": "close",
+      "remaining_work": [],
+      "gaps": [
+        "Windows native execution not verified",
+        "Exact inherited host model/build not exposed",
+        "Relevant legacy baseline test failures retained; full aggregate not rerun in this docs/routing scope",
+        "No push or actual project cleanup authorized/performed"
+      ],
+      "decision_source": "Sentinel_f57a0631ef7c8191a5e73989c0697246",
+      "decision_text": "Authorized scoped implementation and independent validation complete; deliver local commit and recovery evidence.",
+      "idempotency_key": "record-storage-workflow-close-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "parents": [
+        ".workflow-system/records/events/key-da5126d1b5430368dfcf3acdad4c8307bf1918571f708f6979a001ef1313539f.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+        "remaining_work": [],
+        "gaps": [
+          "Windows native execution not verified",
+          "Exact inherited host model/build not exposed",
+          "Relevant legacy baseline test failures retained; full aggregate not rerun in this docs/routing scope",
+          "No push or actual project cleanup authorized/performed"
+        ],
+        "decision_source": "Sentinel_f57a0631ef7c8191a5e73989c0697246",
+        "decision_text": "Authorized scoped implementation and independent validation complete; deliver local commit and recovery evidence."
+      }
+    }
+  },
+  "issues": []
+}

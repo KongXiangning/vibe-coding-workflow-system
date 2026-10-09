@@ -11,6 +11,36 @@ const roots: string[] = [];
 afterAll(() => { for (const root of roots) fs.rmSync(root, { recursive: true, force: true }); });
 const packageRoot = path.resolve(import.meta.dir, '../packages/vibe-governance');
 
+test('installed record-storage maintenance route survives upgrade without enabling product documents', { timeout: 45000 }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'record-maintenance-installed-')); roots.push(root);
+  const business = 'docs/product/UNMANAGED.md', original = Buffer.from('\uFEFF# Existing business notes\r\nKeep this unrelated text exactly.\r\n');
+  const record = '.workflow-system/records/events/retained.json', recordBytes = Buffer.from('{"original":"failed observation"}\r\n');
+  for (const [relative, bytes] of [[business, original], [record, recordBytes]] as const) {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true }); fs.writeFileSync(path.join(root, relative), bytes);
+  }
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"record-maintenance-fixture","private":true,"type":"module"}\n');
+  const reference = '.workflow-system/runtime/support/product-maintenance/references/record-storage.md';
+  const source = fs.readFileSync(path.resolve(import.meta.dir, '../runtime/vnext/support/product-maintenance/references/record-storage.md'));
+  const check = () => {
+    const skill = fs.readFileSync(path.join(root, '.agents/skills/maintain-project/SKILL.md'), 'utf8');
+    expect(skill).toContain('product-maintenance/references/record-storage.md');
+    expect(fs.readFileSync(path.join(root, reference))).toEqual(source);
+    const state = JSON.parse(fs.readFileSync(path.join(root, '.workflow-system/vnext/DISTRIBUTION_STATE.json'), 'utf8'));
+    expect(state.managed_files.some((file: any) => file.path === reference)).toBe(true);
+    const helper = path.join(root, '.workflow-system/runtime/support/assistance.mjs');
+    const invoke = (action: string) => JSON.parse(execFileSync('node', [helper, 'archive', '--root', root], { encoding: 'utf8', input: JSON.stringify({ action }) }));
+    expect(invoke('plan')).toMatchObject({ status: 'planned', count: 1, originals_retained: true, development_gate: false });
+    expect(invoke('verify')).toMatchObject({ status: 'verified', verified: true, development_gate: false });
+    expect(fs.existsSync(path.join(root, '.workflow-system/PRODUCT.yaml'))).toBe(false);
+    expect(fs.readFileSync(path.join(root, business))).toEqual(original);
+    expect(fs.readFileSync(path.join(root, record))).toEqual(recordBytes);
+  };
+  expect(installDistribution({ targetRoot: root, packageRoot }).status).toBe('installed'); check();
+  const statePath = path.join(root, '.workflow-system/vnext/DISTRIBUTION_STATE.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8')); state.distribution_version = '0.0.1'; fs.writeFileSync(statePath, JSON.stringify(state));
+  expect(upgradeDistribution({ targetRoot: root, packageRoot }).status).toBe('upgraded'); check();
+});
+
 test('installed maintenance assets execute with Node and upgrade preserves all target-owned business bytes', { timeout: 45000 }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'product-installed-')); roots.push(root);
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"isolated-product","private":true,"type":"module"}\n');

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T06:09:13.979Z",
+  "payload_sha256": "654c7496a37d7c7b53d5cc126ed00435b49cdff409bff5eb08d1e00c21af02a1",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-workflow-W2-finished-20261009",
+    "request": {
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+      "action": "step",
+      "step_id": "W2",
+      "state": "finished",
+      "decision_ref": ".workflow-system/records/events/key-94f7c3faae61ae108069f0568e774e4265db5f32aea76e5477dd5c547a9cb08d.json",
+      "remaining_work": [],
+      "decision_source": "Sentinel_f57a0631ef7c8191a5e73989c0697246",
+      "decision_text": "Complete the explicitly approved implementation and validation scope; retain stated platform and existing baseline limits.",
+      "idempotency_key": "record-storage-workflow-W2-finished-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "parents": [
+        ".workflow-system/records/events/key-94f7c3faae61ae108069f0568e774e4265db5f32aea76e5477dd5c547a9cb08d.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+        "step_id": "W2",
+        "state": "finished",
+        "decision_ref": ".workflow-system/records/events/key-94f7c3faae61ae108069f0568e774e4265db5f32aea76e5477dd5c547a9cb08d.json",
+        "remaining_work": [],
+        "decision_source": "Sentinel_f57a0631ef7c8191a5e73989c0697246",
+        "decision_text": "Complete the explicitly approved implementation and validation scope; retain stated platform and existing baseline limits."
+      }
+    }
+  },
+  "issues": []
+}

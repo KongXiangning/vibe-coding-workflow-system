@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T06:09:13.372Z",
+  "payload_sha256": "4a98ba75d390359c8e5d4cd6f27a5203f15ac9044237fa3399d8260e4aa47154",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-workflow-W2-execution-20261009",
+    "request": {
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+      "action": "execution",
+      "step_id": "W2",
+      "idempotency_key": "record-storage-workflow-W2-execution-20261009",
+      "result": {
+        "summary": "Five fresh native Agents completed natural-language storage workflows on six final installed synthetic fixtures; independent verification passed each final tree.",
+        "observed": [
+          "Read-only 659 project files unchanged",
+          "Create-only keeps99 originals, adds136130B",
+          "Authorized reclaim311→217 records,2021694→1146817B including pack/receipts",
+          "Corrupt verify fails; no write call, entire tree unchanged",
+          "Restore99 exact original paths; conflicting47B preserved without restore write"
+        ],
+        "limits": [
+          "Linux synthetic host only; exact model build not exposed",
+          "No actual user project cleanup or push",
+          "Existing relevant baseline failures disclosed"
+        ]
+      },
+      "commands": [
+        "Natural-language host discovery and actual installed Node assistance archive calls",
+        "fixture-harness.mjs verify (all6)",
+        "Independent reviewer verify-fixtures.mjs"
+      ]
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "parents": [
+        ".workflow-system/records/events/key-92f6e93ad36e2437f8115f4539a6ec9ed79d78975b1640c670a23dcea1a4274b.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+        "step_id": "W2",
+        "result": null,
+        "commands": [
+          "Natural-language host discovery and actual installed Node assistance archive calls",
+          "fixture-harness.mjs verify (all6)",
+          "Independent reviewer verify-fixtures.mjs"
+        ]
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "896fb36d4c83b377d948b68a805adc70deafc8b07dcd251453557dd086192a50",
+        "references": [
+          {
+            "data_pointer": "/result",
+            "request_pointer": "/result"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

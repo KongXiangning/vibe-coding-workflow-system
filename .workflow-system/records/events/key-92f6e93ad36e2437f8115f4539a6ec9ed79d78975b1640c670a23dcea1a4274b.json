@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T06:05:21.423Z",
+  "payload_sha256": "769d0fd9a9aea8e8c75e0084481e3ec8fe8e2e3f7b4af6a0455cc14aa0013156",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-workflow-W1-execution-20261009",
+    "request": {
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+      "action": "execution",
+      "step_id": "W1",
+      "idempotency_key": "record-storage-workflow-W1-execution-20261009",
+      "result": {
+        "summary": "maintain-project routes record storage before product-document logic; installed reference specifies readonly/create/verify/authorized quarantine-reclaim/restore and failure boundaries. No archive Runtime or PRODUCT schema changes.",
+        "validation": [
+          "Build and source/freshness checks passed",
+          "Installed route and simulated version-state upgrade: 2/2,271 assertions",
+          "Native assistance regression:216/216",
+          "Related suite failures reproduced on exact617 baseline; details in validation report"
+        ]
+      },
+      "commands": [
+        "bun run gen:all",
+        "bun run validate:vnext-source",
+        "bun run build:vnext-runtime",
+        "bun run build:vibe-governance-distribution",
+        "bun test test/product-maintenance-install.test.ts",
+        "bun run test:workflow-assistance",
+        "bun run validate:freshness"
+      ]
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "parents": [
+        ".workflow-system/records/events/key-dc7ae712679c44616116aaa313bee905b00aa8b6fc1c03b1a58deb67410c1322.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+        "step_id": "W1",
+        "result": null,
+        "commands": [
+          "bun run gen:all",
+          "bun run validate:vnext-source",
+          "bun run build:vnext-runtime",
+          "bun run build:vibe-governance-distribution",
+          "bun test test/product-maintenance-install.test.ts",
+          "bun run test:workflow-assistance",
+          "bun run validate:freshness"
+        ]
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "1e0b5bb8179f1ef9f88b69ca3b791447e9cb8f2a0cc238b9f85a52aa01020e91",
+        "references": [
+          {
+            "data_pointer": "/result",
+            "request_pointer": "/result"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}
