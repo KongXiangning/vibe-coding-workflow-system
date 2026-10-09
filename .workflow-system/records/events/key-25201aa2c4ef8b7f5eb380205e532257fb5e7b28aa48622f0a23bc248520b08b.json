@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T05:51:25.231Z",
+  "payload_sha256": "d943bc710af896582ffcd06ecc653cdf76c265f990d1c6e119ad7330d8c65180",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-workflow-20261009",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "record-storage-workflow-20261009",
+      "plan": {
+        "title": "maintain-project 记录存储整理子流程",
+        "goal": "补齐可发现的存储检查、归档、回收、恢复流程与实际宿主验收",
+        "scope": [
+          "maintain-project 路由与已安装参考",
+          "宿主引导及安装契约",
+          "五条隔离自然语言验收"
+        ],
+        "exclusions": [
+          "新 Skill 或 PRODUCT intent",
+          "Runtime 格式/资格规则",
+          "CI 分支与推送",
+          "真实项目整理"
+        ],
+        "steps": [
+          {
+            "id": "W1",
+            "title": "补齐路由、参考及安装产物"
+          },
+          {
+            "id": "W2",
+            "title": "真实宿主验收、审查与交付"
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "parents": [
+        ".workflow-system/records/events/key-5ad415bad446bed4b25a68e149079cd4ed060892dc9bd71ba83b23eb4ed4c8b9.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-015"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "fe96ec40d8e9a81aa836dcbd85801c91bcbca659da9cf938d326b54efed8f758",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

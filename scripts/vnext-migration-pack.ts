@@ -2902,6 +2902,13 @@ function loadAndValidateBundle(
       ...['product-doc-v1', 'product-doc-v2', 'product-manifest-v1', 'product-manifest-v2', 'request-v1', 'result-v1'].map(name => `${support}/schemas/${name}.json`),
       `${support}/templates/PRODUCT.yaml`, `${support}/templates/PROJECT.md`, `${support}/templates/REQUIREMENTS.md`, `${support}/templates/PLAN.md`,
     ];
+    const skill = artifacts.find(a => a.target_path === canonicalVNextSkillTarget('maintain-project'))!;
+    const skillContent = fs.readFileSync(resolveRepoPath(bundleDir, skill.source_path, 'Project maintenance Skill'), 'utf8');
+    // Old entries remain installable; an entry advertising the storage subflow
+    // must ship its actual reference, rather than a dangling instruction.
+    if (skillContent.includes('product-maintenance/references/record-storage.md')) {
+      required.push(`${support}/references/record-storage.md`);
+    }
     for (const target of required) {
       if (!artifacts.some(a => a.target_path === target && a.required)) throw new MigrationPackError('BUNDLE_INVALID', `Project maintenance bundle is missing required software asset ${target}.`);
     }

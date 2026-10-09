@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T05:51:25.294Z",
+  "payload_sha256": "5f789b1dbf72fbf1b953826ecc12c70b600bde108c82dbc352aabe083077cf90",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-workflow-adopt-20261009",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+      "focus": false,
+      "decision_source": "Sentinel_f57a0631ef7c8191a5e73989c0697246",
+      "decision_text": "好，按这个方案实施",
+      "idempotency_key": "record-storage-workflow-adopt-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "parents": [
+        ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+        "focus": false,
+        "decision_source": "Sentinel_f57a0631ef7c8191a5e73989c0697246",
+        "decision_text": "好，按这个方案实施",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

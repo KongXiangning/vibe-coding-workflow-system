@@ -259,3 +259,15 @@ this run. This convention never removes an explicit request to capture a complet
 changes a failure into success, merges distinct runs or decisions, or drops changed and
 uncommitted intermediate state because it resembles previous content. A missing/corrupt
 reference remains a reported gap; do not substitute live bytes under an old digest.
+
+## Explicit record storage maintenance
+
+Route record-usage checks, lossless archiving/reclamation and restore requests to
+maintain-project's installed `product-maintenance/references/record-storage.md`.
+This assistance subflow is independent of PRODUCT documents and task lifecycle.
+Default inspection is read-only; creating packs retains originals. Reclamation
+needs actual authority, verified recoverable backing and the scoped Runtime
+operations. Existing explicit authority covers the requested sequence without
+per-command reconfirmation. No install, upgrade, close or commit automatically
+starts storage cleanup. Fixed evidence references above govern new captures;
+they do not authorize historical archive maintenance or evidence pruning.

@@ -1,10 +1,10 @@
 ---
 name: maintain-project
-description: Maintain complete project goals, requirements, designs, implementation plans, task bindings, delivery assessments and selected discussions with non-blocking assistance.
+description: Maintain project documents and explicitly requested record storage; inspect record usage, archive retained evidence, reclaim verified duplicates or restore archives.
 entry_contract:
   entry: maintain-project
   mode: [default, inventory, update, plan, discussion, reconcile]
-  intent: Maintain the authorized business assets using the host model and versioned document helper.
+  intent: Maintain authorized business assets or route record-storage work to the existing assistance archive service.
   input_contract:
     required: [user_request]
     optional: [selected_material, selected_items, selected_work_items, existing_task, existing_plan, caller_context]
@@ -27,6 +27,27 @@ entry_contract:
 # vNext Skill: maintain-project
 
 runtime_role: assistance/v1
+
+## Route the request first
+
+Requests such as “检查记录占用”, “归档历史记录”, “归档并回收重复散文件”, or
+“恢复归档” concern record storage. Read the installed
+`.workflow-system/runtime/support/product-maintenance/references/record-storage.md`
+and follow that subflow using `assistance.mjs archive`. It works without a PRODUCT
+manifest, enabled business maintenance, an active task, or new product documents.
+Default inspection is read-only. Archive creation retains originals; reclamation
+needs authority covering that separate effect. Sufficient explicit authority covers
+the whole requested sequence without a confirmation at every command.
+
+The direct `product_files` boundary below applies to business-document edits.
+Record storage is delegated only to the existing assistance API; do not directly
+delete, rewrite or move managed records. `runtime_operations` lists historical typed
+transactions, not these assistance commands. Storage work does not call the product
+document helper or create a PRODUCT intent/schema. If a vague “归档项目/任务” could
+mean task closure or document archiving, clarify that material scope before a write.
+For mixed requests, handle each authorized scope with its own helper and report separately.
+
+The remainder of this Skill describes business-document maintenance.
 
 Follow `.workflow-system/WORKFLOW_PROTOCOL.md`, especially its one-time informed
 choice rule. Read the project-local Skill at each explicit invocation. Query the

@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-09T06:09:13.830Z",
+  "payload_sha256": "98ccda989368254dade76f80d4ba48c685a8c7ee5d126a0cec0eb803093bdea4",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:record-storage-workflow-W2-review-20261009",
+    "request": {
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+      "action": "review",
+      "stage": "change",
+      "step_id": "W2",
+      "execution_ref": ".workflow-system/records/events/key-b04625eb53d9282c54be04b17b5ffcb9968a0d739a101ca433ee58f8e4828b7c.json",
+      "verdict": "no-confirmed-blockers",
+      "findings": [],
+      "coverage": "Installed routing/authorization/backup/net-size semantics; six final fixture trees, original logical bytes, protected inodes and actual host command traces; frozen source/install bytes. Existing baseline failures and Windows/model limits retained.",
+      "provenance": {
+        "reviewer": "independent record storage reviewer",
+        "report_sha256": "906e1dcb66cb73158b8cc1d89ea3fb82732b302f7f5cf0f9e3d1958cae43eaed"
+      },
+      "idempotency_key": "record-storage-workflow-W2-review-20261009"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-3095f03a7b3c00effb04f6caab961a06",
+      "parents": [
+        ".workflow-system/records/events/key-ea9dcd7e7cfdba65073f8cbfe218236645360a25351b2785446026b41b5dca9f.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-25201aa2c4ef8b7f5eb380205e532257fb5e7b28aa48622f0a23bc248520b08b.json",
+        "stage": "change",
+        "step_id": "W2",
+        "execution_ref": ".workflow-system/records/events/key-b04625eb53d9282c54be04b17b5ffcb9968a0d739a101ca433ee58f8e4828b7c.json",
+        "verdict": "no-confirmed-blockers",
+        "findings": [],
+        "coverage": "Installed routing/authorization/backup/net-size semantics; six final fixture trees, original logical bytes, protected inodes and actual host command traces; frozen source/install bytes. Existing baseline failures and Windows/model limits retained.",
+        "provenance": {
+          "reviewer": "independent record storage reviewer",
+          "report_sha256": "906e1dcb66cb73158b8cc1d89ea3fb82732b302f7f5cf0f9e3d1958cae43eaed"
+        }
+      }
+    }
+  },
+  "issues": []
+}
