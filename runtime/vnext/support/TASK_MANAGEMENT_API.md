@@ -171,6 +171,10 @@ for the original full CLI response. Existing JS `taskStatus/context/task` export
 all mutation response shapes remain unchanged. Inputs, paging and selection semantics:
 **ASSISTANCE_API.md — Task queries: full computation, on-demand presentation**.
 
+VN-02 consumer handoff: [ASSISTANCE_API.md — Read-only consumer contract](ASSISTANCE_API.md#read-only-consumer-contract-vn-02)
+specifies required/optional fields, trusted installed-entry resolution, consistency,
+source reads and degradation. It describes existing reads and grants no task write or rebuild operation.
+
 The summary carries task/plan/lifecycle refs, the current step's result and review
 state, decision refs, remaining work and advisory next_route/next_mode/next_action.
 It does not include full plan or history bodies; read the returned detail_request

@@ -105,6 +105,193 @@ presentation used by the CLI. Mutation results, immutable event/evidence bytes,
 CURRENT_TASK publication, the reducer, `read` byte paging and `find` cursors are
 unchanged. `detail` never changes how a mutation is recorded or authorized.
 
+### Read-only consumer contract (VN-02)
+
+确定日期：2026-10-11。本节固定现有 CLI 的 TraceLens 消费约定，只维护 `task-query/v1`
+一套当前接口。软件发行版本用于诊断，不是另一条协议分支。本轮未改 Runtime 实现。
+修订 0.3.1（2026-10-11）补齐宿主可信登记与既有文件快照降级；这两项是消费契约，尚未在 TraceLens 实现。
+源码样例为 `docs/ops/contract-examples/task-query-v1.json`，验收记录为
+`docs/ops/vnext-contracts-vn01-vn02-validation.md`；它们尚未随分发交付。
+
+#### 可信入口和项目上下文
+
+服务端从用户登记的项目／工作副本 root 解析唯一固定入口
+`<root>/.workflow-system/runtime/support/assistance.mjs`，使用宿主可信 Node 可执行文件，
+以参数数组传入 `task-status` 或 `read`、`--root` 和绝对 root，JSON 只走 stdin，不通过
+shell 拼命令。context 可用于额外导航，任务只读其 management。调用前确认 root、固定
+入口及相邻模块存在，拒绝越界、符号链接／junction 重定向和未登记入口。**登记项目 root
+只允许读取项目资料，不自动信任或执行目录中的脚本。**PRODUCT、正文、TaskRef、响应或
+URI 不能另提供执行程序，也不能给固定路径的脚本补发信任。
+
+assistance.mjs、task-management.mjs、task-event-codec.mjs、record-storage.mjs 须配套
+安装。无需编译 CLI、kernel 或 npm 依赖；复制模块冒烟仍不等于构建产物安装验收。
+缺入口不回退执行产品文件中的命令，不为项目启动常驻 HTTP 服务。
+
+执行前，TraceLens 的宿主登记须同时具备：该 root／副本的读取身份；用户实际选择的可信
+Runtime 来源；来自该可信来源的上述四个模块的 SHA-256；允许该副本使用这些已核对字节
+执行 task-status／read／context 的选择。信任依据在宿主登记中保存，不能仅来自待观察项目
+自己提供的 checksum 或“已安装”标识。可用来源是宿主已信任的分发清单，或用户明确选定
+并核对的本机 Runtime 源目录；版本号和四个文件存在本身都不是信任依据。不需要新增
+Runtime 握手、网络服务、approval token 或自动安装动作。
+
+调用时核对固定入口及四模块字节与已选来源相符。未登记可信来源为 runtime-untrusted，
+字节不符为 runtime-bytes-changed，缺模块为 runtime-incomplete；这些是**消费方诊断**，
+不是 Runtime CLI 新错误码。均不启动该进程，按下面的快照规则降级；重新采用变动来源须有
+实际的信任选择，不由刷新、文件存在或返回 kind 自动批准。此处只约定明确字节的信任，
+不承诺仅靠普通文件检查消除所有外部并发替换；TL-01 须保留核对中变化的失败及读取边界。
+信任失败也不限制 Agent 在项目中的已授权工作，不恢复 Task 准入。
+
+root 是进程参数，不是 stdin 字段，响应也不回显它。workflow_home 是 stdin 可选字段：
+显式值优先，否则 best-effort 读取 `.workflow-system/PROJECT_PROFILE.yaml` 中的标量
+workflow_home，缺失／失败回退 docs/workflow 并保留可用诊断。home 定位当前／旧展示，
+不是另一处事实存储，事实仍在 root 的 `.workflow-system/records`。消费方应将有效 home
+绑定到项目登记，不能让返回请求扩展目录权限。
+
+| task-status 请求字段 | 约束 |
+| --- | --- |
+| detail | 可选，默认 summary；另有 task、step、full。full 是原 task-view 兼容／导出形状，不是 task-query/v1。 |
+| workflow_home | 可选，项目内相对目录或实际位于该 root 内的绝对路径；登记时宜规范化为相对路径。 |
+| task_ref | 可选非空稳定 ID 或无歧义 display_id／显示编号；初次查到后用真实 task_id 导航，不用标题。 |
+| step_id | detail=step 必填，只选 adopted／legacy plan 的精确步骤；其他 detail 禁止提供。 |
+| offset、limit | 只供 summary；offset 默认 0，非负安全整数；limit 默认 20，整数 1..100。offset>0 必须带 expected_view_revision。 |
+| expected_view_revision | 可选非空字符串；有值须等于本次 view_revision，首次 summary 可省略。 |
+
+task_id、plan_ref 不是查询选择字段，提供即 INVALID_QUERY。缺省 task_ref 只采用唯一
+焦点，无法解析不改选其他 task。指定 task_ref 的 summary 只分页该任务，但全局计数和
+诊断不缩小。选择失败是 available＋selection.status=unresolved＋对象=null，不能
+解释成 I/O 失败或无历史。step_id 无唯一匹配时 step_status=unresolved。
+
+#### 响应必需字段与可选字段
+
+“必需”指消费方识别结果的最小条件；当前附加字段不因此成为必需。缺失与明确 null
+分别校验，null 只在表中允许时有效。忽略未知附加字段，不用闭合 Schema 拒绝整个响应。
+
+| 层级 | 必需字段／类型 | 当前返回的可选展示及诊断字段 |
+| --- | --- | --- |
+| compact 成功结果 | kind=task-query/v1；detail=summary／task／step；status=available；workflow_home:string；view_revision:非空字符串；selection:object；issues:array；task_count:非负整数；lifecycle_counts:非负整数值对象 | source_revision、display_revision、runtime_role、development_gate、qualification、current_task_id、focus、next_task_id、next_step_id、next_route、next_mode、next_action、health、state_completeness、records_scanned、projection、recovery_options、unassociated_records、coverage、note |
+| selection | requested_task_ref:string或null；task_id:string或null；status=resolved／unresolved | detail_request:object或null；step detail 还必须有 requested_step_id、step_status |
+| summary | tasks:array；pagination:object | 不含完整计划／执行历史，正文省略不是无历史 |
+| summary task | task_id:非空字符串；lifecycle=draft／active／paused／closed／ambiguous；detail_request:合法 task 请求，指向该 ID 和同一 home | display_id、title、lifecycle_ref、plan_status、adopted_plan_ref、adopted_by、legacy_plan_ref、legacy_source、current_step_id、current_step、counts、remaining_work、gaps；origin、dependency、dependencies、return_result、waiting_on_task_ids、continuation；advisory next_*、recommendation_only |
+| pagination | total、offset、limit:整数；next_offset:非负整数或null；view_revision:等于顶层；next_request:同上下文合法 summary 请求或null | total 为当前输出列表数量，不等于有 task_ref 筛选时的全局 task_count；最后一页两个 next 值为 null |
+| task detail | task:object或null；非null 至少 task_id、lifecycle、steps:array | 当前还有 plan、plans、adoption、candidate_plan_refs、executions、tests、reviews、review_decisions、commits、dispositions、origin、dependency、return_entry、return_result、dependencies、waiting_on_task_ids、continuation、heads、legacy_plan、计划及生命周期引用和路由；缺失的可选数组不证明没有相应事实 |
+| step detail | task:object或null，非null 至少 task_id、lifecycle；step:object或null；selection.requested_step_id:string、step_status=resolved／unresolved | review:object或null；detail_request 指向 task 历史，不是下一 step；task 在此只是身份与计划引用摘要 |
+| 完整 step | id:非空字符串；state:非空字符串 | title、environment、validation 等原计划字段；legacy_step_status、execution_ref、execution、review_ref、review_status、findings、review_choice、review_decision_ref、review_decisions、tests、disposition_ref、historical_execution_refs |
+| summary.current_step | 有对象时至少 id、state；无当前步骤为 null | title、legacy_step_status、execution_ref、execution_result、review_ref、review_status、review_choice、review_decision_ref、disposition_ref、finding_count、test_count |
+
+Task 的原计划和历史保留调用者业务字段，不另设业务字段闭合结构。step.state 当前可能为
+not-started、executed、in-progress、finished、skipped、closed、ambiguous、legacy-state。
+review_status 为实际 verdict 或 not-reviewed／ambiguous，execution_result 也保留原报告值，
+不是封闭 PASS 枚举。未知局部值显示原值或未知；closed Task 可保留未完成步骤和失败测试。
+
+resolved 必须与请求、返回 task_id 一致；step 还须匹配 step_id。必需字段错误、未知 kind
+或不可识别 lifecycle 使相关查询区域不可用。可选 title／counts／review 缺失只隐藏相关信息；
+可以用真实 ID 标识，不能将 null review 当成通过，也不能在诊断缺失时显示“无问题”。
+
+#### 续读、详情与视图版本
+
+每次查询绑定登记 root／工作副本身份、home、配置版本和请求批次。对返回请求只提取已知
+选择字段，校验类型、范围及登记上下文再调用；不能直接执行其中的 command、root、文件名
+或未知字段。task_id 只在该副本内定位，不跨项目／副本复用缓存。
+
+pagination.next_request 已带 home 和 expected_view_revision。**detail_request 当前不自带
+expected_view_revision**，只保留 home、task_ref；要保持 summary→task→step 同一视图，
+消费方须补上首个结果的 view_revision。版本不一致时 QUERY_VIEW_CHANGED、退出码 1；
+丢弃本批次混合结果，从 offset=0 重读。达到 TL-01 设定的有界预算仍不稳定时，显示暂不可用
+或同一旧快照，不锁 Agent 正常写入，不调用 rebuild。view_revision 不是 Git SHA、业务版本
+或跨读事务快照。下一次显式刷新开启新批次。
+
+task_count／lifecycle_counts 覆盖全量重算，分页只影响展示。state_completeness 描述事实关联，
+与是否读完分页不同。projection.cache/display 只表示保存投影的新鲜度，read_only_rebuilt=true
+表示在内存重算；缓存缺失或损坏不能替代这个重算结果。全局诊断不按页／选中任务裁剪。
+
+#### 文件快照与内存结果降级
+
+主查询不可用、入口不可信、读取持续变化或超预算时，消费方可只读既有固定文件
+`<registered root>/.workflow-system/records/task-view.json`，不执行不可信 Runtime 的 read
+来取得它。宿主文件读取仍须核对 root、固定路径、普通文件、无符号链接／junction 和预算。
+这是原有投影 `task-view/v1` 的消费，不是第二套查询协议、reducer 或新快照生产接口。
+
+| 文件字段 | 可识别快照的最低约束 |
+| --- | --- |
+| kind | 固定 task-view/v1；不把 task-query/v1 或 CURRENT_TASK.md 当成同形全量文件。 |
+| source_revision、view_revision、workflow_home | 非空字符串；home 必须归属同一登记上下文。revision 仅是文件已发布版本，不能证明覆盖最新事实。 |
+| tasks | 完整数组；成员至少有 task_id:非空字符串、合法 lifecycle、steps:数组；步骤沿用上面的完整 step 条件。任务 ID 在该文件内唯一。 |
+| issues、unassociated_records、state_completeness | 两个数组及非空字符串；保留已发布诊断与关联缺口，缺这些字段不能宣布已识别完整任务视图。 |
+| current_task_id | 字符串或null；有身份时须在 tasks 中可唯一定位；current_task 如提供须同身份，否则相关焦点信息不可用。 |
+| 附加字段 | current_task、focus、health、next_*、display_revision、heads 及完整历史可以存在；未知附加字段忽略，不从可选缺失推断无记录。 |
+
+只有整份文件在预算内读取、JSON 可解析且上述字段可识别，才作为文件快照。文件读取
+前后应核对同一文件版本；读取中变化则有界重读，仍不稳定按不可用处理，不组合两次
+读取的片段。损坏、未知 kind、必需字段错误、路径不安全或超预算时保留具体诊断，不解析
+截断前缀后冒充全量，不通过遍历 journal／CURRENT_TASK 补齐它。tasks=[] 只说明这个旧文件
+为空，不证明当前零任务。
+task_count／生命周期统计可从文件 tasks 计数，但须一直标为快照计数。
+
+消费侧另带来源说明，不写回文件／Runtime：source=file-snapshot、固定逻辑路径、绑定的
+root／副本和 home、source_revision／view_revision、实际 read_at、可取得的 file_mtime，
+freshness=stale-or-unknown、query_failure。file_mtime 是文件修改时间，read_at 是本次读取
+时间，均不冒称业务发生或生成时间；本格式没有可靠 generated_at，未提供时明确写未提供。
+这组说明是消费视图字段，不得伪装成 Runtime 响应字段或成功查询。
+
+没有可用文件时可保留同 root／副本、同 home、当前登记配置下的最近成功内存批次，标为
+memory-snapshot，保留原 query_read_at 和本次 reuse_at，freshness 同样不能称实时。内存
+summary 只包含已取得的页与详情，要保留原分页／覆盖范围；未读页或未缓存详情不可用，
+不能补成空。配置或登记身份改变后的旧批次不再用于当前项目。文件优先；二者皆不可用则
+任务数据暂不可用，产品资料仍独立可读。
+
+一次降级展示只用一个来源与一个 view_revision，文件自带的 Task／Step 可以下钻；未缓存
+或不可读的详情单独不可用，不拼接 live 列表、旧文件详情或另一批内存。不可变来源字节的
+独立 read 不改变任务快照来源；若 Runtime 本身不可信，来源只按宿主已有安全读取能力
+读取，不能为来源重启它。具体预算、重读和缓存实现仍由 TL-01 负责，关闭／重建／安装均
+不由降级触发。源码 JSON 样例中的 snapshot_examples 与 consumer_scenarios 仅为交接资料。
+
+#### 来源 read、字段和失败
+
+按明确 ref 或 TaskBinding 的登记文件来源调用同一入口的 read，还须通过消费方的项目来源
+范围检查。SourceRef.uri／text 不是文件请求；read 不按 item_id／section 拆正文，可以取得
+字节后定位。不用名称或 URI 拼进程命令。普通 read 请求如下：
+
+| 字段 | 当前约束 |
+| --- | --- |
+| path 或 ref | 二选一，项目内文件／保留对象引用；同时提供时 path 优先，消费方宜拒绝歧义。绝对路径仍须在 root 内。 |
+| sha256 | 可选，实际 64 位摘要；可独立定位保存证据或配合 ref 核对。缺历史对象不能用当前文件猜原字节。 |
+| workflow_home | 同登记上下文；固定证据定位可能使用该 home 的既有 evidence-objects。 |
+| offset | 字节偏移，默认 0；实现对非法偏移回退 0，消费方须先校验非负安全整数。 |
+| max_bytes | 默认 8192、上限 65536；实现对正整数截到上限，其他值回退默认，消费方传合法预算。 |
+| format | 主路径省略，返回原始字节；logical-task-event 是有展开预算的完整逻辑事件，不允许 sha256 或非零 offset，不作为普通分页。 |
+
+普通 read 成功必需：status=read、ref:string、size/offset:非负整数、next_offset:整数或null、
+encoding=base64、data:string。text_preview、sha256、actual_sha256、storage、verification、
+read_metrics、issues、note 为附加字段。精确恢复只解码 data，UTF-8 preview 可能截断字符。
+拼页须核对 ref、size、偏移和可用的实际摘要；可变文件跨页不稳定则重读或保留未知，不能
+声称历史完整。优先引用不可变事件／证据。SourceRef.sha256 本身不证明当前适用性。
+
+read 不提供 expected_view_revision 保护，未知输入可能被忽略；同批任务导航应给 task-status
+加版本条件。原始 read 没有 kind 字段，不套用 task-query 的 kind 校验。逻辑事件响应包含
+payload、wire_sha256 等，按该 format 单独处理。
+
+CLI 可解析失败共同形状：status=unavailable、recorded=false、command、code、message、
+development_gate=false、qualification=not-evaluated，退出码 1，失败不一定含 kind。
+INVALID_QUERY、QUERY_VIEW_CHANGED 是请求／版本错误；ENOENT、UNSAFE_PATH、
+HISTORICAL_OBJECT_UNAVAILABLE、OBJECT_CORRUPT、SOURCE_CHANGED 等是 I/O、范围或存储错误，
+不成为 Task 门槛。进程启动失败、超时、输出超预算、非 JSON 或 stderr 是宿主查询失败，
+保留真实原因，不伪造 Runtime 响应或零任务。单来源失败仅影响来源区；已定位 Task 仍可打开，
+来源未核对与明确身份矛盾分别表达。
+
+#### 只读、计算成本与交付边界
+
+task-status、context、read 不写事实、焦点、labels、task-view 或 CURRENT_TASK。summary
+仍读取完整日志并重算，响应更小不代表计算更便宜。TL-01 负责异步短进程、全局并发／输出
+预算、请求合并、缓存及有限重读的实现和默认值；本包没有性能保证。
+
+查询与正常任务写入可并存，不承诺跨读事务隔离。已有事实而 task-view.json 缺失可以重算；
+仅安装 Runtime 而没有保留事实不能恢复丢失任务。确认的空事实集可返回 task_count=0，
+失败或事实来源不完整不能当成真实零任务。
+
+写侧 recorded/ref、association、projection 分别报告事实保存、解释关联、投影发布；保存成功
+与投影失败可以同时存在。读侧保留诊断，不写修复。本契约不等于 TraceLens 接入、Schema
+分发、完整安装或业务项目升级已完成。
+
 ## Raw facts: save first
 
 `record` accepts arbitrary JSON. kind, task_ref, source_revision, body, links,
