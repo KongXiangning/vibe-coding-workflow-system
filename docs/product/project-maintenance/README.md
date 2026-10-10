@@ -2,9 +2,9 @@
 
 设计版本：0.2。状态：首版已实施；规划与可靠性增量的本地候选 `0.24.1`，未发布。使用方式见[指南](../../guides/maintain-project.md)，本轮与历史验证分别见[交付记录](../../ops/vnext-project-maintenance-delivery.md)。
 
-2026-10-11 增量：VN-01／VN-02 契约与共用样例已确定。[文档契约第 10 节](document-contract.md#10-vn-01-最小增量目标需求顺序与范围化报告)定义待实施的 product-doc/v3；[只读查询契约](../../../runtime/vnext/support/ASSISTANCE_API.md#read-only-consumer-contract-vn-02)约定现有 task-query/v1 的消费。当前 Schema、生产和离线解析仍仅支持原有格式，未实施 VN-03 及后续工作；有限验证见[验收记录](../../ops/vnext-contracts-vn01-vn02-validation.md)。
+2026-10-11 增量：VN-01／VN-02 契约交接完成。[文档契约第 10 节](document-contract.md#10-vn-01-最小增量目标需求顺序与范围化报告)定义 product-doc/v3；[只读查询契约](../../../runtime/vnext/support/ASSISTANCE_API.md#read-only-consumer-contract-vn-02)约定现有 task-query/v1 的消费。VN-03 源码与本地产物已支持 v3 Schema、生产和离线读取，验证见[VN-03 交付记录](../../ops/vnext-vn03-product-validation.md)。VN-04、VN-05 和 TraceLens 后续工作包尚未推进；契约阶段证据保留在[原验收记录](../../ops/vnext-contracts-vn01-vn02-validation.md)。
 
-仓库勘察基线：`main@c40726fa54f5c88acf65a1a6266392829da916c9`（0.23.8）。本目录整合此前设计 0.1 及后续六项能力修订；实施不需要查找聊天、外部压缩包或旧版设计。公开文档格式按本版 `vnext-product-*/v2` 实施；旧 v1 资料的读取与显式迁移规则见契约。
+仓库勘察基线：`main@c40726fa54f5c88acf65a1a6266392829da916c9`（0.23.8）。本目录整合此前设计 0.1 及后续六项能力修订；实施不需要查找聊天、外部压缩包或旧版设计。公开文档格式支持 product-doc/v1／v2／v3，Manifest 保持 v1／v2；旧资料的读取与显式迁移规则见契约。
 
 ## 1. 要达到的结果
 

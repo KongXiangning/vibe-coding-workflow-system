@@ -9,6 +9,10 @@ export function buildProductAssets(root: string): void {
   const support = path.join(root, 'runtime/vnext/support/product-maintenance');
   const write = (relative: string, content: string) => { const file = path.join(support, relative); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content); };
   fs.copyFileSync(path.join(root, 'docs/product/project-maintenance/document-contract.md'), path.join(support, 'contract.md'));
+  // VN-03 schema handoff fixture; no TraceLens or distribution installation.
+  const scoped = fs.readFileSync(path.join(root, 'docs/product/project-maintenance/examples/scoped-contract.md'), 'utf8');
+  const scopedBlocks = [...scoped.matchAll(/`([^`\r\n]+)`：\r?\n\r?\n```(?:yaml|markdown)\r?\n([\s\S]*?)\r?\n```/g)];
+  for (const block of scopedBlocks.filter(b => ['.workflow-system/PRODUCT.yaml', 'docs/product/PROJECT.md', 'docs/product/ASSESSMENTS.md', 'docs/evidence/import.md'].includes(b[1]!))) write(`examples/scoped/${block[1]}`, `${block[2]}\n`);
   const manifest = { schema: 'vnext-product-manifest/v2', project_id: 'replace-with-stable-project-id', entry: 'docs/product/PROJECT.md', managed_paths: ['docs/product/*.md', 'docs/product/discussions/*.md'], source_paths: ['docs/evidence/**', 'docs/product/history/**', 'docs/product/discussions/raw/**', '.workflow-system/records/events/*.json', 'TASKS/**/*.md'], capture_paths: ['docs/product/history/**', 'docs/product/discussions/raw/**'], exclude_paths: [], maintenance: 'enabled' };
   write('templates/PRODUCT.yaml', stringify(manifest));
   const source = { kind: 'text', text: '模板占位，替换为已取得且获授权的实际依据。', label: '非事实模板' };

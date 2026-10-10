@@ -614,6 +614,70 @@
       },
       "minItems": 0
     },
+    "assessment_query": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "goal_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "scope_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "subject": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "working-copy",
+                "commit",
+                "release",
+                "unknown"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "limitations": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "target",
+        "goal_id",
+        "subject"
+      ],
+      "additionalProperties": false
+    },
     "files": {
       "type": "array",
       "items": {
@@ -693,7 +757,11 @@
             "minItems": 0
           },
           "migrate": {
-            "const": "v2"
+            "type": "string",
+            "enum": [
+              "v2",
+              "v3"
+            ]
           },
           "preimage_path": {
             "type": "string",

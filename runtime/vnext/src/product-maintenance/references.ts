@@ -3,7 +3,7 @@ import remarkParse from 'remark-parse';
 import { storeRead, storeReadFile, storeStat } from '../../support/record-storage.mjs';
 import { diagnostic, type Catalog, type ObjectValue } from './model';
 import { allowed, safePath } from './paths';
-import { decode, parseProduct, requirementDigest, sha256 } from './parser';
+import { decode, definitionAlgorithm, parseProduct, requirementDigest, sha256 } from './parser';
 import { collectSources } from './plans';
 
 const markdown = unified().use(remarkParse);
@@ -35,6 +35,10 @@ export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectV
           if (matches.length !== 1) throw new Error('SOURCE_ITEM: source item is missing or ambiguous');
           const item = matches[0]!;
           if (item.usable && item.type === 'requirement') base.requirement_definition_sha256 = requirementDigest(item);
+          if (item.usable && (item.type === 'requirement' || item.type === 'goal' && item.version === 3)) {
+            base.definition_sha256 = requirementDigest(item);
+            base.definition_algorithm = definitionAlgorithm(item);
+          }
           charStart = item.start; charEnd = item.end;
           if (source.section) {
             const sections = item.sections[source.section] ?? [];
@@ -74,14 +78,15 @@ export function resolveSources(catalog: Catalog, ids?: string[]): ObjectValue[] 
   const refs = catalog.items.filter(i => i.usable && (!ids || ids.includes(i.id))).flatMap(i => collectSources(i.metadata));
   return [...new Map(refs.map(r => [JSON.stringify(r), r])).values()].map(r => {
     const result = readSource(catalog, r, { max_bytes: 1 });
-    const basisChecks = catalog.items.filter(i => i.usable && i.type === 'assessment' && JSON.stringify(i.metadata.target_basis) === JSON.stringify(r)).map(i => {
-      const expected = i.metadata.target_definition_sha256;
-      const actual = result.requirement_definition_sha256 ?? null;
+    const basisChecks = catalog.items.filter(i => i.usable && i.type === 'assessment').flatMap(i => ['target', ...(i.version === 3 ? ['goal'] : [])].filter(role => JSON.stringify(i.metadata[`${role}_basis`]) === JSON.stringify(r)).map(role => {
+      const expected = i.metadata[`${role}_definition_sha256`];
+      const actual = result.definition_sha256 ?? null;
+      const algorithm = i.version === 3 ? i.metadata[`${role}_definition_algorithm`] : 'vnext-requirement-definition/v1';
       let alignment = 'unknown';
-      if (expected && actual) alignment = expected === actual ? 'same-definition' : 'different-definition';
+      if (expected && actual && algorithm === result.definition_algorithm) alignment = expected === actual ? 'same-definition' : 'different-definition';
       if (alignment === 'different-definition') result.diagnostics.push(diagnostic('BASIS_DEFINITION_MISMATCH', r.path, `Referenced material definition differs from ${i.id}'s reported definition`, { item_id: i.id }));
-      return { assessment_id: i.id, expected_definition_sha256: expected, actual_definition_sha256: actual, definition_alignment: alignment, referenced_byte_availability: result.byte_status, current_code_applicability: 'not-evaluated' };
-    });
+      return { assessment_id: i.id, role, expected_definition_sha256: expected, actual_definition_sha256: actual, expected_definition_algorithm: algorithm, actual_definition_algorithm: result.definition_algorithm ?? null, definition_alignment: alignment, referenced_byte_availability: result.byte_status, current_code_applicability: 'not-evaluated' };
+    }));
     const { data_base64, text_preview, text, ...summary } = result;
     return { ...summary, ...(basisChecks.length ? { basis_checks: basisChecks } : {}) };
   });

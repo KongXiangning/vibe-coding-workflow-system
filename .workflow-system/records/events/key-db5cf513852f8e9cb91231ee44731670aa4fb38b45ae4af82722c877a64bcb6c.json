@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T20:08:40.841Z",
+  "payload_sha256": "34b7ecab455b2997d0a2cf42a62ecc3a00ddb954e64093fa1fd0d0532f8dc9cc",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:adopt-vn03-product-v3-20261011",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+      "focus": true,
+      "idempotency_key": "adopt-vn03-product-v3-20261011",
+      "decision_source": "本对话用户指令",
+      "decision_text": "先提交，然后按拆分计划开始 VN-03，暂不推进 VN-04、VN-05 和 TraceLens 后续工作包。"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "parents": [
+        ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+        "focus": true,
+        "decision_source": "本对话用户指令",
+        "decision_text": "先提交，然后按拆分计划开始 VN-03，暂不推进 VN-04、VN-05 和 TraceLens 后续工作包。",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

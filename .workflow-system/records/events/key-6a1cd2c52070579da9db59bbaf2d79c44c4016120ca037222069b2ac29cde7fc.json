@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T20:22:09.649Z",
+  "payload_sha256": "a59909924c662ff60d714d344a6e4f136394ed22396c456a78d4847df666bb9b",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn03-source-test-20261011",
+    "request": {
+      "action": "test",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+      "step_id": "VN03",
+      "idempotency_key": "vn03-source-test-20261011",
+      "command": "bun test test/product-maintenance.test.ts test/product-maintenance-v3.test.ts",
+      "selector": "41 existing product regressions + 12 v3 focused tests; build before run; no full workflow or installation.",
+      "result": "passed",
+      "summary": "Final run: 53 pass, 0 fail.",
+      "report_ref": "docs/ops/vnext-vn03-product-validation.md"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "parents": [
+        ".workflow-system/records/events/key-e6eb85fca71ae13c394968dccde9820b9a76327a1c3cab5aeedeefaffdc67f94.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+        "step_id": "VN03",
+        "command": "bun test test/product-maintenance.test.ts test/product-maintenance-v3.test.ts",
+        "selector": "41 existing product regressions + 12 v3 focused tests; build before run; no full workflow or installation.",
+        "result": "passed",
+        "summary": "Final run: 53 pass, 0 fail.",
+        "report_ref": "docs/ops/vnext-vn03-product-validation.md"
+      }
+    }
+  },
+  "issues": []
+}

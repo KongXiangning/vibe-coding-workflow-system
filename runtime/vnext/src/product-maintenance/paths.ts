@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createGlobCoverageCheck } from './glob-coverage';
 import { diagnostic, type Diagnostic, type ObjectValue } from './model';
 
 export function relativePath(value: string, glob = false): string {
@@ -87,6 +88,7 @@ export function enumerate(root: string, patterns: string[], excludes: string[], 
   const explicitFiles = new Set(patterns.filter(p => !/[*?]/.test(p)));
   const skip = (p: string) => p.split('/').some(s => ['.git', 'node_modules', '.next', 'dist', 'build'].includes(s)) || p.startsWith('.workflow-system/runtime/') || p.startsWith('.workflow-system/records/');
   let visitedCount = 0;
+  let scopeExcluded: ((directory: string) => boolean) | undefined;
   function omit(relative: string, code: string, message: string): void {
     omitted.add(relative);
     diagnostics.push(diagnostic(code, relative, message));
@@ -97,6 +99,10 @@ export function enumerate(root: string, patterns: string[], excludes: string[], 
     visited.add(relative);
     if (relative && !patterns.some(pattern => matchPattern(relative, pattern) || mayContainMatch(relative, pattern))) return;
     if (relative && skip(relative)) {
+      if (excludes.length && !matches(relative, patterns)) {
+        scopeExcluded ??= createGlobCoverageCheck(patterns, excludes);
+        if (scopeExcluded(relative)) return;
+      }
       omit(relative, 'IMPLICIT_PATH_EXCLUDED', 'Selected path intersects a default scan exclusion; register an authorized document outside this directory or explicitly exclude this scope');
       return;
     }

@@ -24,13 +24,15 @@ export interface Item {
   usable: boolean;
   diagnostics: Diagnostic[];
   definition_sha256?: string;
+  definition_algorithm?: string;
+  version?: 1 | 2 | 3;
 }
 export interface ProductDocument {
   path: string;
   text: string;
   sha256: string;
   schema: string | null;
-  version: 1 | 2 | null;
+  version: 1 | 2 | 3 | null;
   items: Item[];
   diagnostics: Diagnostic[];
   frontmatter_start: number;

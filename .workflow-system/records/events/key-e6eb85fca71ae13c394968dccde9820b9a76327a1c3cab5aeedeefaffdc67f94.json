@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T20:22:09.464Z",
+  "payload_sha256": "39a46067cf095553d41cbdf7a6d1a8b225ffbefa43058417c6ede99936bea2fc",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn03-source-execution-20261011",
+    "request": {
+      "action": "execution",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+      "step_id": "VN03",
+      "idempotency_key": "vn03-source-execution-20261011",
+      "source_revision": "Uncommitted working copy based on f54d355; package 0.24.5; product helper SHA256 6a8e7d5e9ebc7bfae2019484557df0226c76dec0ff391e66961c5ddcab024b2b; not a whole-project snapshot.",
+      "result": "completed",
+      "summary": "VN-03 v3 Schema、解析、两份定义摘要、范围化报告选择、安全保存、项目批次顺序与本地交接资产完成；不含 VN-04、VN-05 或 TraceLens。",
+      "commands": [
+        "bun run build:product-maintenance",
+        "bun test test/product-maintenance.test.ts test/product-maintenance-v3.test.ts"
+      ],
+      "report_ref": "docs/ops/vnext-vn03-product-validation.md"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "parents": [
+        ".workflow-system/records/events/key-db5cf513852f8e9cb91231ee44731670aa4fb38b45ae4af82722c877a64bcb6c.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+        "step_id": "VN03",
+        "source_revision": "Uncommitted working copy based on f54d355; package 0.24.5; product helper SHA256 6a8e7d5e9ebc7bfae2019484557df0226c76dec0ff391e66961c5ddcab024b2b; not a whole-project snapshot.",
+        "result": "completed",
+        "summary": "VN-03 v3 Schema、解析、两份定义摘要、范围化报告选择、安全保存、项目批次顺序与本地交接资产完成；不含 VN-04、VN-05 或 TraceLens。",
+        "commands": [
+          "bun run build:product-maintenance",
+          "bun test test/product-maintenance.test.ts test/product-maintenance-v3.test.ts"
+        ],
+        "report_ref": "docs/ops/vnext-vn03-product-validation.md"
+      }
+    }
+  },
+  "issues": []
+}

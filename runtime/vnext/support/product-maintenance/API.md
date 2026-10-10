@@ -6,7 +6,7 @@ JSON stdin; JSON stdout. Exit 1 means a real failed/partial service result or in
 requested read coverage, never a development veto. Read status=available describes
 service availability, not complete coverage or usable structure.
 `kind=product-maintenance-result/v1`, `development_gate=false`, `qualification=not-evaluated`.
-Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents/manifest in v1/v2 Schema plus `contract.md`.
+Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents in v1/v2/v3 Schema and manifests in v1/v2 Schema plus `contract.md`. VN-03 supports v3 in the source helper and local product assets; full distribution/installation remains VN-05 work.
 
 ## Read and check
 
@@ -21,6 +21,38 @@ bodies. `discussion_targets=[...]` recalls related active discussion summaries a
 source positions. `impact_ids=[...]` finds direct candidates for host-model judgment,
 not transitive invalidation. Scope selection never claims unenumerated files checked.
 `paths=[...]` limits managed enumeration; cross-object completeness is then unknown.
+
+### v3 product view and scoped assessment selection (VN-03)
+
+`read.product_view` adds `root_goal: {status,id}`, `requirement_order`,
+`unordered_requirements`, `current_relations` and local diagnostics. Registered order
+includes historical positions; callers filter it without reordering. Unordered IDs
+are sorted only for navigation. Current relations contain uniquely resolved,
+declared/active, type-valid, noncyclic part_of/supports/depends_on edges; the raw
+reverse relations retain other material for diagnosis. No Task state is computed.
+Usable definitions add `definition_algorithm` alongside `definition_sha256`.
+
+To select one explicitly reported scope/object:
+
+```json
+{"assessment_query":{"target":"R-IMPORT","goal_id":"G-DEMO","scope_id":"FULL","subject":{"kind":"working-copy","value":"sample-copy-a","revision":"sample-baseline"}}}
+```
+
+Scope may be omitted only when the selected target has one current declaration.
+`read.assessment_selection` returns the resolved selection, conclusion, selected
+assessment_id or null, reasons, candidate reports with original conclusions and
+locators, historical_reports and pending_reports. Missing localization is never
+inferred from prose. A precisely located incomplete report remains a candidate;
+legally superseded reports and their old anomalies stay historical. Multiple
+surviving reports are not merged or sorted by time. Different goals, scopes,
+subjects and roots are not combined. Basis checks read only the selected reports'
+registered file references within max_file_bytes, using their actual algorithms;
+unknown or changed definitions and pending evidence yield undetermined while
+retaining achievements. Diagnostics do not authorize business judgments or Task
+operations. This read does not write records, definitions or reports.
+
+VN-01 fields and digest algorithms remain defined by contract.md section 10.
+The source handoff fixture is `examples/scoped/`; its data is synthetic evidence.
 
 `resolve_sources=true` checks selected references' bytes/availability without
 returning all bodies. Fetch a specific actual source as follows:
@@ -159,8 +191,29 @@ Every file requires expected_sha256; null means must not exist. The optional
 expected_manifest_sha256 detects changed write scope. A manifest is itself applied
 at its explicit manifest path with content; absent entry is not automatically
 created by read/install. Initialize manifest first, then authorized documents.
-New writes use v2. Old v1 files are read-only until this operation explicitly says
-`migrate:"v2"`; unrelated files/history are not migrated. Do not repurpose IDs/types.
+New writes use v2 or v3. Old v1 files are read-only until this operation explicitly
+says `migrate:"v2"` or (for product documents) `migrate:"v3"`. Existing v2 documents
+require explicit `migrate:"v3"` to change format; manifests stay v2. Unrelated
+files/history are not migrated; untouched incomplete old reports remain readable
+with diagnostics rather than receiving fabricated fields. Do not repurpose IDs/types
+or downgrade v3 to v2. The source `newDocument(items,title,3)` creates a v3 candidate;
+the default remains v2 for existing callers.
+
+When a unique usable v3 project exists, the helper appends successfully saved new
+v2 and v3 requirement IDs in batch/file-item order to its requirement_order,
+preserving old entries and each requirement file's format.
+If this request explicitly supplies/removes project order, that choice takes precedence,
+including intentional unregistered requirements. Dependencies, bindings and report
+updates do not reorder existing IDs. `requirement_order_update` separately reports
+the follow-up project's saved bytes or pending/failed result. Pure v2 additions
+without a usable v3 project retain the legacy save behavior without automatic
+migration; new v3 additions still report pending order maintenance in that case.
+Missing v3 project, freeze or conflict leaves successfully saved requirements intact and visible in the
+unordered entry; retry only the failed order update. The follow-up is a separate
+per-file save, so consumers reread files after the whole result, rather than assuming
+the initial file result is still the last version. Reports must be stored separately
+from goal/requirement definitions; changing a definition does not require its reports
+to be current or evidence to pass before saving.
 Unrelated malformed items retain exact original body and YAML bytes; only changed
 items must be valid. Conflicts preserve actual user bytes.
 Historical comparisons tolerate malformed old source/relation members; those members

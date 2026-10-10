@@ -59,7 +59,7 @@ export function parseProduct(text: string, file: string): ProductDocument {
   result.body_start = result.frontmatter_end + closing[0].length;
   const yaml = strictYaml(text.slice(result.frontmatter_start, result.frontmatter_end), file);
   result.schema = yaml.value?.schema ?? null;
-  result.version = result.schema === 'vnext-product-doc/v2' ? 2 : result.schema === 'vnext-product-doc/v1' ? 1 : null;
+  result.version = result.schema === 'vnext-product-doc/v3' ? 3 : result.schema === 'vnext-product-doc/v2' ? 2 : result.schema === 'vnext-product-doc/v1' ? 1 : null;
   if (!result.version) {
     result.diagnostics.push(diagnostic('UNSUPPORTED_VERSION', file, `Unsupported schema ${JSON.stringify(result.schema)}; raw content is retained`, { severity: 'error' }), ...yaml.problems.map(p => p.diagnostic));
     return result;
@@ -86,6 +86,14 @@ export function parseProduct(text: string, file: string): ProductDocument {
     const location = matches[0];
     const diagnostics = validate(metadata, itemSchema(result.version), rootSchema.$defs).map(e => diagnostic('ITEM_METADATA', file, e.message, { severity: 'error', item_id: metadata?.id, pointer: `/items/${index}${e.pointer}` }));
     diagnostics.push(...yaml.problems.filter(p => node?.range && p.offset >= node.range[0] && p.offset < node.range[2]).map(p => ({ ...p.diagnostic, item_id: metadata?.id })));
+    if (result.version === 3 && metadata?.type === 'assessment') {
+      const problem = (message: string) => diagnostics.push(diagnostic('ASSESSMENT_METADATA', file, message, { severity: 'error', item_id: metadata.id }));
+      if (metadata.target_basis?.item_id !== metadata.target || metadata.goal_basis?.item_id !== metadata.applicability?.goal_id) problem('Definition basis item_id must match target and applicability.goal_id');
+      if (!/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(metadata.checked_at ?? '') || !Number.isFinite(Date.parse(metadata.checked_at))) problem('checked_at must be an actual ISO time with timezone');
+      if (metadata.subject?.kind === 'working-copy' && !metadata.subject.revision && !metadata.subject.limitations) problem('Unfixed working copy requires limitations');
+      if (metadata.target === metadata.applicability?.goal_id && (metadata.target_definition_algorithm !== metadata.goal_definition_algorithm || metadata.target_definition_sha256 !== metadata.goal_definition_sha256)) problem('Goal self-assessment requires equal target and goal algorithms/digests');
+      if (yaml.value.items.some((m: any) => ['requirement', 'goal'].includes(m?.type))) problem('Assessments must be stored separately from requirement and goal definitions');
+    }
     if (matches.length !== 1) diagnostics.push(diagnostic('ITEM_HEADING', file, `Expected exactly one root level ## [${metadata?.id}] heading; found ${matches.length}`, { severity: 'error', item_id: metadata?.id }));
     if (yaml.value.items.filter((m: any) => m?.id === metadata?.id).length !== 1) diagnostics.push(diagnostic('DUPLICATE_ID', file, 'Metadata ID is not unique', { severity: 'error', item_id: metadata?.id }));
     const sections: Item['sections'] = Object.create(null);
@@ -101,7 +109,7 @@ export function parseProduct(text: string, file: string): ProductDocument {
       });
     }
     for (const name of sectionsByType[metadata?.type] ?? []) if (sections[name]?.length !== 1) diagnostics.push(diagnostic('REQUIRED_SECTION', file, `Expected exactly one ### ${name}`, { severity: 'error', item_id: metadata?.id, line: location?.line }));
-    result.items.push({ id: metadata?.id, type: metadata?.type, metadata, path: file, title: location?.title ?? '', body: location ? text.slice(location.start, location.end) : '', sections,
+    result.items.push({ id: metadata?.id, type: metadata?.type, metadata, version: result.version, path: file, title: location?.title ?? '', body: location ? text.slice(location.start, location.end) : '', sections,
       start: location?.start ?? -1, end: location?.end ?? -1, metadata_start: result.frontmatter_start + (node?.range?.[0] ?? 0), metadata_end: result.frontmatter_start + (node?.range?.[1] ?? 0), line: location?.line ?? 1, usable: !diagnostics.some(d => d.severity === 'error'), diagnostics });
   }
   for (const h of identified) if (h.id && !result.items.some(i => i.id === h.id)) result.diagnostics.push(diagnostic('UNREGISTERED_HEADING', file, `Heading ${h.id} is not registered in items`, { line: h.line, severity: 'error' }));
@@ -112,6 +120,11 @@ export function parseProduct(text: string, file: string): ProductDocument {
 export function requirementDigest(item: Item): string {
   const relations = [...new Map((item.metadata.links ?? []).filter((l: any) => l.origin === 'declared' && l.state === 'active' && ['part_of', 'supports', 'depends_on', 'replaces', 'derived_from'].includes(l.relation)).map((l: any) => [[l.relation, l.target].join('\u0000'), [l.relation, l.target]])).values()] as string[][];
   relations.sort((a,b) => a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : a[1]! < b[1]! ? -1 : a[1]! > b[1]! ? 1 : 0);
-  const definition = { type: item.type, id: item.id, scope: item.metadata.scope, relations, body: item.body.replace(/\r\n|\r/g, '\n').replace(/\n+$/, '') };
-  return sha256(`vnext-requirement-definition/v1\n${JSON.stringify(definition)}`);
+  const body = item.body.replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
+  if (item.version === 3) {
+    const assessment_scopes = item.type === 'goal' ? (item.metadata.assessment_scopes ?? []).map((s: any) => ({ target: s.target, scope_id: s.scope_id, coverage: s.coverage.replace(/\r\n|\r/g, '\n') })).sort((a: any,b: any) => a.target < b.target ? -1 : a.target > b.target ? 1 : a.scope_id < b.scope_id ? -1 : a.scope_id > b.scope_id ? 1 : 0) : null;
+    return sha256(`vnext-product-definition/v1\n${JSON.stringify({ type: item.type, id: item.id, scope: item.metadata.scope, goal_kind: item.type === 'goal' ? item.metadata.goal_kind ?? 'outcome' : null, relations, assessment_scopes, body })}`);
+  }
+  return sha256(`vnext-requirement-definition/v1\n${JSON.stringify({ type: item.type, id: item.id, scope: item.metadata.scope, relations, body })}`);
 }
+export const definitionAlgorithm = (item: Item): string => item.version === 3 ? 'vnext-product-definition/v1' : 'vnext-requirement-definition/v1';

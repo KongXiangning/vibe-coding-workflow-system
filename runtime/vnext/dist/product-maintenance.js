@@ -45,7 +45,7 @@ var __export = (target, all) => {
 };
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/yaml/dist/nodes/identity.js
+// runtime/vnext/node_modules/yaml/dist/nodes/identity.js
 var require_identity = __commonJS((exports) => {
   var ALIAS = Symbol.for("yaml.alias");
   var DOC = Symbol.for("yaml.document");
@@ -99,7 +99,7 @@ var require_identity = __commonJS((exports) => {
   exports.isSeq = isSeq;
 });
 
-// node_modules/yaml/dist/visit.js
+// runtime/vnext/node_modules/yaml/dist/visit.js
 var require_visit = __commonJS((exports) => {
   var identity = require_identity();
   var BREAK = Symbol("break visit");
@@ -254,7 +254,7 @@ var require_visit = __commonJS((exports) => {
   exports.visitAsync = visitAsync;
 });
 
-// node_modules/yaml/dist/doc/directives.js
+// runtime/vnext/node_modules/yaml/dist/doc/directives.js
 var require_directives = __commonJS((exports) => {
   var identity = require_identity();
   var visit = require_visit();
@@ -406,7 +406,7 @@ var require_directives = __commonJS((exports) => {
   exports.Directives = Directives;
 });
 
-// node_modules/yaml/dist/doc/anchors.js
+// runtime/vnext/node_modules/yaml/dist/doc/anchors.js
 var require_anchors = __commonJS((exports) => {
   var identity = require_identity();
   var visit = require_visit();
@@ -468,7 +468,7 @@ var require_anchors = __commonJS((exports) => {
   exports.findNewAnchor = findNewAnchor;
 });
 
-// node_modules/yaml/dist/doc/applyReviver.js
+// runtime/vnext/node_modules/yaml/dist/doc/applyReviver.js
 var require_applyReviver = __commonJS((exports) => {
   function applyReviver(reviver, obj, key, val) {
     if (val && typeof val === "object") {
@@ -515,7 +515,7 @@ var require_applyReviver = __commonJS((exports) => {
   exports.applyReviver = applyReviver;
 });
 
-// node_modules/yaml/dist/nodes/toJS.js
+// runtime/vnext/node_modules/yaml/dist/nodes/toJS.js
 var require_toJS = __commonJS((exports) => {
   var identity = require_identity();
   function toJS(value, arg, ctx) {
@@ -542,7 +542,7 @@ var require_toJS = __commonJS((exports) => {
   exports.toJS = toJS;
 });
 
-// node_modules/yaml/dist/nodes/Node.js
+// runtime/vnext/node_modules/yaml/dist/nodes/Node.js
 var require_Node = __commonJS((exports) => {
   var applyReviver = require_applyReviver();
   var identity = require_identity();
@@ -579,7 +579,7 @@ var require_Node = __commonJS((exports) => {
   exports.NodeBase = NodeBase;
 });
 
-// node_modules/yaml/dist/nodes/Alias.js
+// runtime/vnext/node_modules/yaml/dist/nodes/Alias.js
 var require_Alias = __commonJS((exports) => {
   var anchors = require_anchors();
   var visit = require_visit();
@@ -598,8 +598,6 @@ var require_Alias = __commonJS((exports) => {
       });
     }
     resolve(doc, ctx) {
-      if (ctx?.maxAliasCount === 0)
-        throw new ReferenceError("Alias resolution is disabled");
       let nodes;
       if (ctx?.aliasResolveCache) {
         nodes = ctx.aliasResolveCache;
@@ -689,7 +687,7 @@ var require_Alias = __commonJS((exports) => {
   exports.Alias = Alias;
 });
 
-// node_modules/yaml/dist/nodes/Scalar.js
+// runtime/vnext/node_modules/yaml/dist/nodes/Scalar.js
 var require_Scalar = __commonJS((exports) => {
   var identity = require_identity();
   var Node = require_Node();
@@ -717,7 +715,7 @@ var require_Scalar = __commonJS((exports) => {
   exports.isScalarValue = isScalarValue;
 });
 
-// node_modules/yaml/dist/doc/createNode.js
+// runtime/vnext/node_modules/yaml/dist/doc/createNode.js
 var require_createNode = __commonJS((exports) => {
   var Alias = require_Alias();
   var identity = require_identity();
@@ -789,7 +787,7 @@ var require_createNode = __commonJS((exports) => {
   exports.createNode = createNode;
 });
 
-// node_modules/yaml/dist/nodes/Collection.js
+// runtime/vnext/node_modules/yaml/dist/nodes/Collection.js
 var require_Collection = __commonJS((exports) => {
   var createNode = require_createNode();
   var identity = require_identity();
@@ -904,7 +902,7 @@ var require_Collection = __commonJS((exports) => {
   exports.isEmptyPath = isEmptyPath;
 });
 
-// node_modules/yaml/dist/stringify/stringifyComment.js
+// runtime/vnext/node_modules/yaml/dist/stringify/stringifyComment.js
 var require_stringifyComment = __commonJS((exports) => {
   var stringifyComment = (str) => str.replace(/^(?!$)(?: $)?/gm, "#");
   function indentComment(comment, indent) {
@@ -921,7 +919,7 @@ var require_stringifyComment = __commonJS((exports) => {
   exports.stringifyComment = stringifyComment;
 });
 
-// node_modules/yaml/dist/stringify/foldFlowLines.js
+// runtime/vnext/node_modules/yaml/dist/stringify/foldFlowLines.js
 var require_foldFlowLines = __commonJS((exports) => {
   var FOLD_FLOW = "flow";
   var FOLD_BLOCK = "block";
@@ -1058,7 +1056,7 @@ ${indent}${text.slice(fold + 1, end2)}`;
   exports.foldFlowLines = foldFlowLines;
 });
 
-// node_modules/yaml/dist/stringify/stringifyString.js
+// runtime/vnext/node_modules/yaml/dist/stringify/stringifyString.js
 var require_stringifyString = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var foldFlowLines = require_foldFlowLines();
@@ -1356,7 +1354,7 @@ ${indent}`);
   exports.stringifyString = stringifyString;
 });
 
-// node_modules/yaml/dist/stringify/stringify.js
+// runtime/vnext/node_modules/yaml/dist/stringify/stringify.js
 var require_stringify = __commonJS((exports) => {
   var anchors = require_anchors();
   var identity = require_identity();
@@ -1477,7 +1475,7 @@ ${ctx.indent}${str}`;
   exports.stringify = stringify;
 });
 
-// node_modules/yaml/dist/stringify/stringifyPair.js
+// runtime/vnext/node_modules/yaml/dist/stringify/stringifyPair.js
 var require_stringifyPair = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -1613,7 +1611,7 @@ ${ctx.indent}`;
   exports.stringifyPair = stringifyPair;
 });
 
-// node_modules/yaml/dist/log.js
+// runtime/vnext/node_modules/yaml/dist/log.js
 var require_log = __commonJS((exports) => {
   var node_process = __require("process");
   function debug(logLevel, ...messages) {
@@ -1632,7 +1630,7 @@ var require_log = __commonJS((exports) => {
   exports.warn = warn;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/merge.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/merge.js
 var require_merge = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -1649,18 +1647,18 @@ var require_merge = __commonJS((exports) => {
   };
   var isMergeKey = (ctx, key) => (merge.identify(key) || identity.isScalar(key) && (!key.type || key.type === Scalar.Scalar.PLAIN) && merge.identify(key.value)) && ctx?.doc.schema.tags.some((tag) => tag.tag === merge.tag && tag.default);
   function addMergeToJSMap(ctx, map, value) {
-    const source = resolveAliasValue(ctx, value);
-    if (identity.isSeq(source))
-      for (const it of source.items)
+    value = ctx && identity.isAlias(value) ? value.resolve(ctx.doc) : value;
+    if (identity.isSeq(value))
+      for (const it of value.items)
         mergeValue(ctx, map, it);
-    else if (Array.isArray(source))
-      for (const it of source)
+    else if (Array.isArray(value))
+      for (const it of value)
         mergeValue(ctx, map, it);
     else
-      mergeValue(ctx, map, source);
+      mergeValue(ctx, map, value);
   }
   function mergeValue(ctx, map, value) {
-    const source = resolveAliasValue(ctx, value);
+    const source = ctx && identity.isAlias(value) ? value.resolve(ctx.doc) : value;
     if (!identity.isMap(source))
       throw new Error("Merge sources must be maps or map aliases");
     const srcMap = source.toJSON(null, ctx, Map);
@@ -1681,15 +1679,12 @@ var require_merge = __commonJS((exports) => {
     }
     return map;
   }
-  function resolveAliasValue(ctx, value) {
-    return ctx && identity.isAlias(value) ? value.resolve(ctx.doc, ctx) : value;
-  }
   exports.addMergeToJSMap = addMergeToJSMap;
   exports.isMergeKey = isMergeKey;
   exports.merge = merge;
 });
 
-// node_modules/yaml/dist/nodes/addPairToJSMap.js
+// runtime/vnext/node_modules/yaml/dist/nodes/addPairToJSMap.js
 var require_addPairToJSMap = __commonJS((exports) => {
   var log = require_log();
   var merge = require_merge();
@@ -1750,7 +1745,7 @@ var require_addPairToJSMap = __commonJS((exports) => {
   exports.addPairToJSMap = addPairToJSMap;
 });
 
-// node_modules/yaml/dist/nodes/Pair.js
+// runtime/vnext/node_modules/yaml/dist/nodes/Pair.js
 var require_Pair = __commonJS((exports) => {
   var createNode = require_createNode();
   var stringifyPair = require_stringifyPair();
@@ -1788,7 +1783,7 @@ var require_Pair = __commonJS((exports) => {
   exports.createPair = createPair;
 });
 
-// node_modules/yaml/dist/stringify/stringifyCollection.js
+// runtime/vnext/node_modules/yaml/dist/stringify/stringifyCollection.js
 var require_stringifyCollection = __commonJS((exports) => {
   var identity = require_identity();
   var stringify = require_stringify();
@@ -1940,7 +1935,7 @@ ${indent}${end}`;
   exports.stringifyCollection = stringifyCollection;
 });
 
-// node_modules/yaml/dist/nodes/YAMLMap.js
+// runtime/vnext/node_modules/yaml/dist/nodes/YAMLMap.js
 var require_YAMLMap = __commonJS((exports) => {
   var stringifyCollection = require_stringifyCollection();
   var addPairToJSMap = require_addPairToJSMap();
@@ -2067,7 +2062,7 @@ var require_YAMLMap = __commonJS((exports) => {
   exports.findPair = findPair;
 });
 
-// node_modules/yaml/dist/schema/common/map.js
+// runtime/vnext/node_modules/yaml/dist/schema/common/map.js
 var require_map = __commonJS((exports) => {
   var identity = require_identity();
   var YAMLMap = require_YAMLMap();
@@ -2086,7 +2081,7 @@ var require_map = __commonJS((exports) => {
   exports.map = map;
 });
 
-// node_modules/yaml/dist/nodes/YAMLSeq.js
+// runtime/vnext/node_modules/yaml/dist/nodes/YAMLSeq.js
 var require_YAMLSeq = __commonJS((exports) => {
   var createNode = require_createNode();
   var stringifyCollection = require_stringifyCollection();
@@ -2179,7 +2174,7 @@ var require_YAMLSeq = __commonJS((exports) => {
   exports.YAMLSeq = YAMLSeq;
 });
 
-// node_modules/yaml/dist/schema/common/seq.js
+// runtime/vnext/node_modules/yaml/dist/schema/common/seq.js
 var require_seq = __commonJS((exports) => {
   var identity = require_identity();
   var YAMLSeq = require_YAMLSeq();
@@ -2198,7 +2193,7 @@ var require_seq = __commonJS((exports) => {
   exports.seq = seq;
 });
 
-// node_modules/yaml/dist/schema/common/string.js
+// runtime/vnext/node_modules/yaml/dist/schema/common/string.js
 var require_string = __commonJS((exports) => {
   var stringifyString = require_stringifyString();
   var string = {
@@ -2214,7 +2209,7 @@ var require_string = __commonJS((exports) => {
   exports.string = string;
 });
 
-// node_modules/yaml/dist/schema/common/null.js
+// runtime/vnext/node_modules/yaml/dist/schema/common/null.js
 var require_null = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var nullTag = {
@@ -2229,7 +2224,7 @@ var require_null = __commonJS((exports) => {
   exports.nullTag = nullTag;
 });
 
-// node_modules/yaml/dist/schema/core/bool.js
+// runtime/vnext/node_modules/yaml/dist/schema/core/bool.js
 var require_bool = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var boolTag = {
@@ -2250,7 +2245,7 @@ var require_bool = __commonJS((exports) => {
   exports.boolTag = boolTag;
 });
 
-// node_modules/yaml/dist/stringify/stringifyNumber.js
+// runtime/vnext/node_modules/yaml/dist/stringify/stringifyNumber.js
 var require_stringifyNumber = __commonJS((exports) => {
   function stringifyNumber({ format, minFractionDigits, tag, value }) {
     if (typeof value === "bigint")
@@ -2259,7 +2254,7 @@ var require_stringifyNumber = __commonJS((exports) => {
     if (!isFinite(num))
       return isNaN(num) ? ".nan" : num < 0 ? "-.inf" : ".inf";
     let n = Object.is(value, -0) ? "-0" : JSON.stringify(value);
-    if (!format && minFractionDigits && (!tag || tag === "tag:yaml.org,2002:float") && /^-?\d/.test(n) && !n.includes("e")) {
+    if (!format && minFractionDigits && (!tag || tag === "tag:yaml.org,2002:float") && /^\d/.test(n)) {
       let i = n.indexOf(".");
       if (i < 0) {
         i = n.length;
@@ -2274,7 +2269,7 @@ var require_stringifyNumber = __commonJS((exports) => {
   exports.stringifyNumber = stringifyNumber;
 });
 
-// node_modules/yaml/dist/schema/core/float.js
+// runtime/vnext/node_modules/yaml/dist/schema/core/float.js
 var require_float = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var stringifyNumber = require_stringifyNumber();
@@ -2317,7 +2312,7 @@ var require_float = __commonJS((exports) => {
   exports.floatNaN = floatNaN;
 });
 
-// node_modules/yaml/dist/schema/core/int.js
+// runtime/vnext/node_modules/yaml/dist/schema/core/int.js
 var require_int = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2359,7 +2354,7 @@ var require_int = __commonJS((exports) => {
   exports.intOct = intOct;
 });
 
-// node_modules/yaml/dist/schema/core/schema.js
+// runtime/vnext/node_modules/yaml/dist/schema/core/schema.js
 var require_schema = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -2384,7 +2379,7 @@ var require_schema = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// node_modules/yaml/dist/schema/json/schema.js
+// runtime/vnext/node_modules/yaml/dist/schema/json/schema.js
 var require_schema2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var map = require_map();
@@ -2448,7 +2443,7 @@ var require_schema2 = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/binary.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/binary.js
 var require_binary = __commonJS((exports) => {
   var node_buffer = __require("buffer");
   var Scalar = require_Scalar();
@@ -2503,7 +2498,7 @@ var require_binary = __commonJS((exports) => {
   exports.binary = binary;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/pairs.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/pairs.js
 var require_pairs = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -2578,7 +2573,7 @@ ${cn.comment}` : item.comment;
   exports.resolvePairs = resolvePairs;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/omap.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/omap.js
 var require_omap = __commonJS((exports) => {
   var identity = require_identity();
   var toJS = require_toJS();
@@ -2650,7 +2645,7 @@ var require_omap = __commonJS((exports) => {
   exports.omap = omap;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/bool.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/bool.js
 var require_bool2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   function boolStringify({ value, source }, ctx) {
@@ -2679,7 +2674,7 @@ var require_bool2 = __commonJS((exports) => {
   exports.trueTag = trueTag;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/float.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/float.js
 var require_float2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var stringifyNumber = require_stringifyNumber();
@@ -2725,7 +2720,7 @@ var require_float2 = __commonJS((exports) => {
   exports.floatNaN = floatNaN;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/int.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/int.js
 var require_int2 = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2801,7 +2796,7 @@ var require_int2 = __commonJS((exports) => {
   exports.intOct = intOct;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/set.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/set.js
 var require_set = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -2884,7 +2879,7 @@ var require_set = __commonJS((exports) => {
   exports.set = set;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
 var require_timestamp = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   function parseSexagesimal(str, asBigInt) {
@@ -2966,7 +2961,7 @@ var require_timestamp = __commonJS((exports) => {
   exports.timestamp = timestamp;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/schema.js
+// runtime/vnext/node_modules/yaml/dist/schema/yaml-1.1/schema.js
 var require_schema3 = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -3007,7 +3002,7 @@ var require_schema3 = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// node_modules/yaml/dist/schema/tags.js
+// runtime/vnext/node_modules/yaml/dist/schema/tags.js
 var require_tags = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -3098,7 +3093,7 @@ var require_tags = __commonJS((exports) => {
   exports.getTags = getTags;
 });
 
-// node_modules/yaml/dist/schema/Schema.js
+// runtime/vnext/node_modules/yaml/dist/schema/Schema.js
 var require_Schema = __commonJS((exports) => {
   var identity = require_identity();
   var map = require_map();
@@ -3128,7 +3123,7 @@ var require_Schema = __commonJS((exports) => {
   exports.Schema = Schema;
 });
 
-// node_modules/yaml/dist/stringify/stringifyDocument.js
+// runtime/vnext/node_modules/yaml/dist/stringify/stringifyDocument.js
 var require_stringifyDocument = __commonJS((exports) => {
   var identity = require_identity();
   var stringify = require_stringify();
@@ -3208,7 +3203,7 @@ var require_stringifyDocument = __commonJS((exports) => {
   exports.stringifyDocument = stringifyDocument;
 });
 
-// node_modules/yaml/dist/doc/Document.js
+// runtime/vnext/node_modules/yaml/dist/doc/Document.js
 var require_Document = __commonJS((exports) => {
   var Alias = require_Alias();
   var Collection = require_Collection();
@@ -3443,7 +3438,7 @@ var require_Document = __commonJS((exports) => {
   exports.Document = Document;
 });
 
-// node_modules/yaml/dist/errors.js
+// runtime/vnext/node_modules/yaml/dist/errors.js
 var require_errors = __commonJS((exports) => {
   class YAMLError extends Error {
     constructor(name, pos, code, message) {
@@ -3508,7 +3503,7 @@ ${pointer}
   exports.prettifyError = prettifyError;
 });
 
-// node_modules/yaml/dist/compose/resolve-props.js
+// runtime/vnext/node_modules/yaml/dist/compose/resolve-props.js
 var require_resolve_props = __commonJS((exports) => {
   function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIndent, startOnNewline }) {
     let spaceBefore = false;
@@ -3638,7 +3633,7 @@ var require_resolve_props = __commonJS((exports) => {
   exports.resolveProps = resolveProps;
 });
 
-// node_modules/yaml/dist/compose/util-contains-newline.js
+// runtime/vnext/node_modules/yaml/dist/compose/util-contains-newline.js
 var require_util_contains_newline = __commonJS((exports) => {
   function containsNewline(key) {
     if (!key)
@@ -3678,7 +3673,7 @@ var require_util_contains_newline = __commonJS((exports) => {
   exports.containsNewline = containsNewline;
 });
 
-// node_modules/yaml/dist/compose/util-flow-indent-check.js
+// runtime/vnext/node_modules/yaml/dist/compose/util-flow-indent-check.js
 var require_util_flow_indent_check = __commonJS((exports) => {
   var utilContainsNewline = require_util_contains_newline();
   function flowIndentCheck(indent, fc, onError) {
@@ -3693,7 +3688,7 @@ var require_util_flow_indent_check = __commonJS((exports) => {
   exports.flowIndentCheck = flowIndentCheck;
 });
 
-// node_modules/yaml/dist/compose/util-map-includes.js
+// runtime/vnext/node_modules/yaml/dist/compose/util-map-includes.js
 var require_util_map_includes = __commonJS((exports) => {
   var identity = require_identity();
   function mapIncludes(ctx, items, search) {
@@ -3706,7 +3701,7 @@ var require_util_map_includes = __commonJS((exports) => {
   exports.mapIncludes = mapIncludes;
 });
 
-// node_modules/yaml/dist/compose/resolve-block-map.js
+// runtime/vnext/node_modules/yaml/dist/compose/resolve-block-map.js
 var require_resolve_block_map = __commonJS((exports) => {
   var Pair = require_Pair();
   var YAMLMap = require_YAMLMap();
@@ -3813,7 +3808,7 @@ var require_resolve_block_map = __commonJS((exports) => {
   exports.resolveBlockMap = resolveBlockMap;
 });
 
-// node_modules/yaml/dist/compose/resolve-block-seq.js
+// runtime/vnext/node_modules/yaml/dist/compose/resolve-block-seq.js
 var require_resolve_block_seq = __commonJS((exports) => {
   var YAMLSeq = require_YAMLSeq();
   var resolveProps = require_resolve_props();
@@ -3861,7 +3856,7 @@ var require_resolve_block_seq = __commonJS((exports) => {
   exports.resolveBlockSeq = resolveBlockSeq;
 });
 
-// node_modules/yaml/dist/compose/resolve-end.js
+// runtime/vnext/node_modules/yaml/dist/compose/resolve-end.js
 var require_resolve_end = __commonJS((exports) => {
   function resolveEnd(end, offset, reqSpace, onError) {
     let comment = "";
@@ -3901,7 +3896,7 @@ var require_resolve_end = __commonJS((exports) => {
   exports.resolveEnd = resolveEnd;
 });
 
-// node_modules/yaml/dist/compose/resolve-flow-collection.js
+// runtime/vnext/node_modules/yaml/dist/compose/resolve-flow-collection.js
 var require_resolve_flow_collection = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -4092,7 +4087,7 @@ var require_resolve_flow_collection = __commonJS((exports) => {
   exports.resolveFlowCollection = resolveFlowCollection;
 });
 
-// node_modules/yaml/dist/compose/compose-collection.js
+// runtime/vnext/node_modules/yaml/dist/compose/compose-collection.js
 var require_compose_collection = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -4154,7 +4149,7 @@ var require_compose_collection = __commonJS((exports) => {
   exports.composeCollection = composeCollection;
 });
 
-// node_modules/yaml/dist/compose/resolve-block-scalar.js
+// runtime/vnext/node_modules/yaml/dist/compose/resolve-block-scalar.js
 var require_resolve_block_scalar = __commonJS((exports) => {
   var Scalar = require_Scalar();
   function resolveBlockScalar(ctx, scalar, onError) {
@@ -4347,7 +4342,7 @@ var require_resolve_block_scalar = __commonJS((exports) => {
   exports.resolveBlockScalar = resolveBlockScalar;
 });
 
-// node_modules/yaml/dist/compose/resolve-flow-scalar.js
+// runtime/vnext/node_modules/yaml/dist/compose/resolve-flow-scalar.js
 var require_resolve_flow_scalar = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var resolveEnd = require_resolve_end();
@@ -4484,7 +4479,7 @@ var require_resolve_flow_scalar = __commonJS((exports) => {
           while (next === " " || next === "\t")
             next = source[++i + 1];
         } else if (next === "x" || next === "u" || next === "U") {
-          const length = next === "x" ? 2 : next === "u" ? 4 : 8;
+          const length = { x: 2, u: 4, U: 8 }[next];
           res += parseCharCode(source, i + 1, length, onError);
           i += length;
         } else {
@@ -4553,18 +4548,17 @@ var require_resolve_flow_scalar = __commonJS((exports) => {
     const cc = source.substr(offset, length);
     const ok = cc.length === length && /^[0-9a-fA-F]+$/.test(cc);
     const code = ok ? parseInt(cc, 16) : NaN;
-    try {
-      return String.fromCodePoint(code);
-    } catch {
+    if (isNaN(code)) {
       const raw = source.substr(offset - 2, length + 2);
       onError(offset - 2, "BAD_DQ_ESCAPE", `Invalid escape sequence ${raw}`);
       return raw;
     }
+    return String.fromCodePoint(code);
   }
   exports.resolveFlowScalar = resolveFlowScalar;
 });
 
-// node_modules/yaml/dist/compose/compose-scalar.js
+// runtime/vnext/node_modules/yaml/dist/compose/compose-scalar.js
 var require_compose_scalar = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -4642,7 +4636,7 @@ var require_compose_scalar = __commonJS((exports) => {
   exports.composeScalar = composeScalar;
 });
 
-// node_modules/yaml/dist/compose/util-empty-scalar-position.js
+// runtime/vnext/node_modules/yaml/dist/compose/util-empty-scalar-position.js
 var require_util_empty_scalar_position = __commonJS((exports) => {
   function emptyScalarPosition(offset, before, pos) {
     if (before) {
@@ -4669,7 +4663,7 @@ var require_util_empty_scalar_position = __commonJS((exports) => {
   exports.emptyScalarPosition = emptyScalarPosition;
 });
 
-// node_modules/yaml/dist/compose/compose-node.js
+// runtime/vnext/node_modules/yaml/dist/compose/compose-node.js
 var require_compose_node = __commonJS((exports) => {
   var Alias = require_Alias();
   var identity = require_identity();
@@ -4772,7 +4766,7 @@ var require_compose_node = __commonJS((exports) => {
   exports.composeNode = composeNode;
 });
 
-// node_modules/yaml/dist/compose/compose-doc.js
+// runtime/vnext/node_modules/yaml/dist/compose/compose-doc.js
 var require_compose_doc = __commonJS((exports) => {
   var Document = require_Document();
   var composeNode = require_compose_node();
@@ -4812,7 +4806,7 @@ var require_compose_doc = __commonJS((exports) => {
   exports.composeDoc = composeDoc;
 });
 
-// node_modules/yaml/dist/compose/composer.js
+// runtime/vnext/node_modules/yaml/dist/compose/composer.js
 var require_composer = __commonJS((exports) => {
   var node_process = __require("process");
   var directives = require_directives();
@@ -5001,7 +4995,7 @@ ${end.comment}` : end.comment;
   exports.Composer = Composer;
 });
 
-// node_modules/yaml/dist/parse/cst-scalar.js
+// runtime/vnext/node_modules/yaml/dist/parse/cst-scalar.js
 var require_cst_scalar = __commonJS((exports) => {
   var resolveBlockScalar = require_resolve_block_scalar();
   var resolveFlowScalar = require_resolve_flow_scalar();
@@ -5191,7 +5185,7 @@ var require_cst_scalar = __commonJS((exports) => {
   exports.setScalarValue = setScalarValue;
 });
 
-// node_modules/yaml/dist/parse/cst-stringify.js
+// runtime/vnext/node_modules/yaml/dist/parse/cst-stringify.js
 var require_cst_stringify = __commonJS((exports) => {
   var stringify = (cst) => ("type" in cst) ? stringifyToken(cst) : stringifyItem(cst);
   function stringifyToken(token) {
@@ -5249,7 +5243,7 @@ var require_cst_stringify = __commonJS((exports) => {
   exports.stringify = stringify;
 });
 
-// node_modules/yaml/dist/parse/cst-visit.js
+// runtime/vnext/node_modules/yaml/dist/parse/cst-visit.js
 var require_cst_visit = __commonJS((exports) => {
   var BREAK = Symbol("break visit");
   var SKIP = Symbol("skip children");
@@ -5308,7 +5302,7 @@ var require_cst_visit = __commonJS((exports) => {
   exports.visit = visit;
 });
 
-// node_modules/yaml/dist/parse/cst.js
+// runtime/vnext/node_modules/yaml/dist/parse/cst.js
 var require_cst = __commonJS((exports) => {
   var cstScalar = require_cst_scalar();
   var cstStringify = require_cst_stringify();
@@ -5409,7 +5403,7 @@ var require_cst = __commonJS((exports) => {
   exports.tokenType = tokenType;
 });
 
-// node_modules/yaml/dist/parse/lexer.js
+// runtime/vnext/node_modules/yaml/dist/parse/lexer.js
 var require_lexer = __commonJS((exports) => {
   var cst = require_cst();
   function isEmpty(ch) {
@@ -5995,7 +5989,7 @@ var require_lexer = __commonJS((exports) => {
   exports.Lexer = Lexer;
 });
 
-// node_modules/yaml/dist/parse/line-counter.js
+// runtime/vnext/node_modules/yaml/dist/parse/line-counter.js
 var require_line_counter = __commonJS((exports) => {
   class LineCounter {
     constructor() {
@@ -6023,7 +6017,7 @@ var require_line_counter = __commonJS((exports) => {
   exports.LineCounter = LineCounter;
 });
 
-// node_modules/yaml/dist/parse/parser.js
+// runtime/vnext/node_modules/yaml/dist/parse/parser.js
 var require_parser = __commonJS((exports) => {
   var node_process = __require("process");
   var cst = require_cst();
@@ -6872,7 +6866,7 @@ var require_parser = __commonJS((exports) => {
   exports.Parser = Parser;
 });
 
-// node_modules/yaml/dist/public-api.js
+// runtime/vnext/node_modules/yaml/dist/public-api.js
 var require_public_api = __commonJS((exports) => {
   var composer = require_composer();
   var Document = require_Document();
@@ -7704,7 +7698,7 @@ function diagnostic(code, path, message, extras = {}) {
 // runtime/vnext/src/product-maintenance/parser.ts
 import { createHash } from "node:crypto";
 
-// node_modules/yaml/dist/index.js
+// runtime/vnext/node_modules/yaml/dist/index.js
 var composer = require_composer();
 var Document = require_Document();
 var Schema = require_Schema();
@@ -15708,13 +15702,14 @@ var definitions = {
     sources
   }, ["id", "title", "outcome", "scope", "targets", "state", "origin"])
 };
+var subject = (version) => object({ kind: choice("working-copy", "commit", "release", "unknown"), value: nullable(string3), ...version === 3 ? { revision: string3, limitations: string3 } : {} }, ["kind", "value"]);
 function itemSchema(version) {
   const common = { id, links: array(ref("Link")), sources, extensions };
   const types2 = {
     project: { fields: { inventory: object({ state: choice("partial", "reconciled"), checked_sources: sources, unreviewed_sources: sources, note: string3 }, ["state", "checked_sources", "unreviewed_sources"]) }, required: ["inventory"] },
-    goal: { fields: { scope, ...version === 2 ? { task_bindings: array(ref("TaskBinding")) } : {} }, required: ["scope"] },
+    goal: { fields: { scope, ...version >= 2 ? { task_bindings: array(ref("TaskBinding")) } : {} }, required: ["scope"] },
     module: { fields: { scope }, required: ["scope"] },
-    requirement: { fields: { scope, assessment_id: nullable(id), ...version === 2 ? { task_bindings: array(ref("TaskBinding")) } : {} }, required: ["scope"] },
+    requirement: { fields: { scope, assessment_id: nullable(id), ...version >= 2 ? { task_bindings: array(ref("TaskBinding")) } : {} }, required: ["scope"] },
     design: { fields: { intent_state: intent }, required: ["intent_state"] },
     change: { fields: { recorded_at: string3, basis: object({ kind: choice("user", "delegated", "document-edit"), text: string3, sources }, ["kind", "text"]), deltas: array(object({ target: id, before: nullable(string3), after: nullable(string3), note: string3 }, ["target", "before", "after"]), 1) }, required: ["recorded_at", "basis", "deltas"] },
     assessment: {
@@ -15723,21 +15718,39 @@ function itemSchema(version) {
         target_basis: { ...ref("SourceRef") },
         target_definition_sha256: nullable(digest),
         checked_at: string3,
-        subject: object({ kind: choice("working-copy", "commit", "release", "unknown"), value: nullable(string3) }),
+        subject: subject(version),
         implementation: choice("unknown", "none-reported", "partial-reported", "delivered-reported"),
         verification: choice("unknown", "not-run-reported", "failure-reported", "pass-reported", "mixed-reported"),
-        ...version === 2 ? { pending_sources: sources } : {}
+        ...version >= 2 ? { pending_sources: sources } : {}
       },
       required: ["target", "target_basis", "target_definition_sha256", "checked_at", "subject", "implementation", "verification"]
     },
     discussion: { fields: { raw_ref: source, submitted_at: string3, origin: object({ channel: choice("chat", "codex", "other", "unknown"), locator: string3, occurred_at: nullable(string3) }, ["channel"]), record_state: choice("active", "archived") }, required: ["raw_ref", "submitted_at", "origin", "record_state"] }
   };
-  if (version === 2)
+  if (version >= 2)
     types2.plan = { fields: { intent_state: intent, targets: array(targetCoverage, 1), work_items: array(ref("WorkItem")) }, required: ["intent_state", "targets", "work_items"] };
+  if (version === 3) {
+    Object.assign(types2.project.fields, { root_goal_id: nullable(id), requirement_order: array(id) });
+    Object.assign(types2.goal.fields, { goal_kind: choice("outcome", "stage"), assessment_scopes: array(object({ target: id, scope_id: id, coverage: string3 })) });
+    Object.assign(types2.assessment.fields, {
+      applicability: object({ goal_id: id, scope_id: id, coverage: string3 }),
+      target_definition_algorithm: string3,
+      goal_basis: ref("SourceRef"),
+      goal_definition_algorithm: string3,
+      goal_definition_sha256: nullable(digest),
+      conclusion: choice("satisfied", "partially-satisfied", "not-satisfied", "undetermined"),
+      supersedes: array(id)
+    });
+    types2.assessment.required.push("applicability", "target_definition_algorithm", "goal_basis", "goal_definition_algorithm", "goal_definition_sha256", "conclusion");
+  }
   return { oneOf: Object.entries(types2).map(([type, spec]) => {
     const extra = [];
     if (type === "assessment")
       extra.push({ properties: { target_basis: { properties: { kind: { const: "file" } }, required: ["kind"] } } });
+    if (type === "assessment" && version === 3) {
+      extra.push({ properties: { target_basis: { required: ["item_id"] }, goal_basis: { properties: { kind: { const: "file" } }, required: ["kind", "item_id"] } } });
+      extra.push({ if: { properties: { conclusion: choice("satisfied", "partially-satisfied", "not-satisfied") }, required: ["conclusion"] }, then: { required: ["sources"], properties: { sources: array(source, 1) } } });
+    }
     if (type === "discussion")
       extra.push({ properties: { raw_ref: { properties: { kind: { const: "file" }, sha256: digest }, required: ["kind", "sha256"] } } });
     if (type === "project")
@@ -15766,7 +15779,7 @@ var fileOperation = object({
   content: { type: "string" },
   updates: array(object({ id, metadata: { type: "object" }, body: { type: "string" }, remove_fields: array(string3) }, ["id"])),
   append: array(object({ metadata: { type: "object" }, body: string3 })),
-  migrate: { const: "v2" },
+  migrate: choice("v2", "v3"),
   preimage_path: string3,
   remove_items: array(id),
   remove_relations: array(object({ item_id: id, field: choice("links", "task_bindings"), id }))
@@ -15788,6 +15801,7 @@ var requestSchema = {
     max_bytes: { type: "integer", minimum: 1, maximum: 1048576 },
     impact_ids: array(id),
     discussion_targets: array(id),
+    assessment_query: object({ target: id, goal_id: id, scope_id: id, subject: subject(3) }, ["target", "goal_id", "subject"]),
     files: array(fileOperation, 1),
     path: string3,
     text: { type: "string" },
@@ -15954,7 +15968,7 @@ function parseProduct(text3, file) {
   result.body_start = result.frontmatter_end + closing[0].length;
   const yaml = strictYaml(text3.slice(result.frontmatter_start, result.frontmatter_end), file);
   result.schema = yaml.value?.schema ?? null;
-  result.version = result.schema === "vnext-product-doc/v2" ? 2 : result.schema === "vnext-product-doc/v1" ? 1 : null;
+  result.version = result.schema === "vnext-product-doc/v3" ? 3 : result.schema === "vnext-product-doc/v2" ? 2 : result.schema === "vnext-product-doc/v1" ? 1 : null;
   if (!result.version) {
     result.diagnostics.push(diagnostic("UNSUPPORTED_VERSION", file, `Unsupported schema ${JSON.stringify(result.schema)}; raw content is retained`, { severity: "error" }), ...yaml.problems.map((p) => p.diagnostic));
     return result;
@@ -15982,6 +15996,19 @@ function parseProduct(text3, file) {
     const location = matches[0];
     const diagnostics = validate(metadata, itemSchema(result.version), rootSchema.$defs).map((e) => diagnostic("ITEM_METADATA", file, e.message, { severity: "error", item_id: metadata?.id, pointer: `/items/${index2}${e.pointer}` }));
     diagnostics.push(...yaml.problems.filter((p) => node2?.range && p.offset >= node2.range[0] && p.offset < node2.range[2]).map((p) => ({ ...p.diagnostic, item_id: metadata?.id })));
+    if (result.version === 3 && metadata?.type === "assessment") {
+      const problem = (message) => diagnostics.push(diagnostic("ASSESSMENT_METADATA", file, message, { severity: "error", item_id: metadata.id }));
+      if (metadata.target_basis?.item_id !== metadata.target || metadata.goal_basis?.item_id !== metadata.applicability?.goal_id)
+        problem("Definition basis item_id must match target and applicability.goal_id");
+      if (!/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(metadata.checked_at ?? "") || !Number.isFinite(Date.parse(metadata.checked_at)))
+        problem("checked_at must be an actual ISO time with timezone");
+      if (metadata.subject?.kind === "working-copy" && !metadata.subject.revision && !metadata.subject.limitations)
+        problem("Unfixed working copy requires limitations");
+      if (metadata.target === metadata.applicability?.goal_id && (metadata.target_definition_algorithm !== metadata.goal_definition_algorithm || metadata.target_definition_sha256 !== metadata.goal_definition_sha256))
+        problem("Goal self-assessment requires equal target and goal algorithms/digests");
+      if (yaml.value.items.some((m) => ["requirement", "goal"].includes(m?.type)))
+        problem("Assessments must be stored separately from requirement and goal definitions");
+    }
     if (matches.length !== 1)
       diagnostics.push(diagnostic("ITEM_HEADING", file, `Expected exactly one root level ## [${metadata?.id}] heading; found ${matches.length}`, { severity: "error", item_id: metadata?.id }));
     if (yaml.value.items.filter((m) => m?.id === metadata?.id).length !== 1)
@@ -16006,6 +16033,7 @@ function parseProduct(text3, file) {
       id: metadata?.id,
       type: metadata?.type,
       metadata,
+      version: result.version,
       path: file,
       title: location?.title ?? "",
       body: location ? text3.slice(location.start, location.end) : "",
@@ -16028,15 +16056,122 @@ function parseProduct(text3, file) {
 function requirementDigest(item) {
   const relations = [...new Map((item.metadata.links ?? []).filter((l) => l.origin === "declared" && l.state === "active" && ["part_of", "supports", "depends_on", "replaces", "derived_from"].includes(l.relation)).map((l) => [[l.relation, l.target].join("\x00"), [l.relation, l.target]])).values()];
   relations.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
-  const definition2 = { type: item.type, id: item.id, scope: item.metadata.scope, relations, body: item.body.replace(/\r\n|\r/g, `
-`).replace(/\n+$/, "") };
+  const body = item.body.replace(/\r\n|\r/g, `
+`).replace(/\n+$/, "");
+  if (item.version === 3) {
+    const assessment_scopes = item.type === "goal" ? (item.metadata.assessment_scopes ?? []).map((s) => ({ target: s.target, scope_id: s.scope_id, coverage: s.coverage.replace(/\r\n|\r/g, `
+`) })).sort((a, b) => a.target < b.target ? -1 : a.target > b.target ? 1 : a.scope_id < b.scope_id ? -1 : a.scope_id > b.scope_id ? 1 : 0) : null;
+    return sha256(`vnext-product-definition/v1
+${JSON.stringify({ type: item.type, id: item.id, scope: item.metadata.scope, goal_kind: item.type === "goal" ? item.metadata.goal_kind ?? "outcome" : null, relations, assessment_scopes, body })}`);
+  }
   return sha256(`vnext-requirement-definition/v1
-${JSON.stringify(definition2)}`);
+${JSON.stringify({ type: item.type, id: item.id, scope: item.metadata.scope, relations, body })}`);
 }
+var definitionAlgorithm = (item) => item.version === 3 ? "vnext-product-definition/v1" : "vnext-requirement-definition/v1";
 
 // runtime/vnext/src/product-maintenance/paths.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
+
+// runtime/vnext/src/product-maintenance/glob-coverage.ts
+function matchesEdge(edge, char) {
+  if (edge.kind === "literal")
+    return char === edge.char;
+  if (edge.kind === "segment")
+    return char !== "/";
+  return !`\r
+\u2028\u2029`.includes(char);
+}
+function compile(patterns) {
+  const states = [];
+  function addState() {
+    states.push({ epsilon: [], edges: [], accepting: false });
+    return states.length - 1;
+  }
+  const start = addState();
+  for (const pattern of patterns) {
+    let current = addState();
+    states[start].epsilon.push(current);
+    for (let i = 0;i < pattern.length; i++) {
+      const char = pattern[i], next = addState();
+      if (char === "*" && pattern[i + 1] === "*") {
+        i++;
+        states[current].epsilon.push(next);
+        if (pattern[i + 1] === "/") {
+          i++;
+          const segment = addState();
+          states[current].edges.push({ to: segment, kind: "segment" });
+          states[segment].edges.push({ to: segment, kind: "segment" }, { to: current, kind: "literal", char: "/" });
+        } else
+          states[current].edges.push({ to: current, kind: "any" });
+      } else if (char === "*") {
+        states[current].epsilon.push(next);
+        states[current].edges.push({ to: current, kind: "segment" });
+      } else if (char === "?")
+        states[current].edges.push({ to: next, kind: "segment" });
+      else
+        states[current].edges.push({ to: next, kind: "literal", char });
+      current = next;
+    }
+    states[current].accepting = true;
+  }
+  function closure(seeds) {
+    const result = new Set(seeds), pending = [...seeds];
+    while (pending.length) {
+      for (const next of states[pending.pop()].epsilon) {
+        if (!result.has(next)) {
+          result.add(next);
+          pending.push(next);
+        }
+      }
+    }
+    return [...result].sort((a, b) => a - b);
+  }
+  function advance(active, char) {
+    const next = [];
+    for (const state2 of active) {
+      for (const edge of states[state2].edges) {
+        if (matchesEdge(edge, char))
+          next.push(edge.to);
+      }
+    }
+    return closure(next);
+  }
+  return { start: closure([start]), advance, accepts: (active) => active.some((s) => states[s].accepting) };
+}
+function createGlobCoverageCheck(patterns, excludes) {
+  const selected = compile(patterns), excluded = compile(excludes);
+  const alphabet = [...new Set([...patterns, ...excludes].join("").split("").filter((c) => c !== "*" && c !== "?").concat(["/", "\x00", "\u2028", "\u2029"]))];
+  return (directory) => {
+    let selection = selected.start, exclusion = excluded.start;
+    for (const char of `${directory}/`.split("")) {
+      selection = selected.advance(selection, char);
+      exclusion = excluded.advance(exclusion, char);
+    }
+    const pending = [{ selection, exclusion, inSegment: false }], visited = new Set;
+    while (pending.length) {
+      const current = pending.pop();
+      if (!current.selection.length)
+        continue;
+      const key = `${current.selection.join(",")}|${current.exclusion.join(",")}|${current.inSegment}`;
+      if (visited.has(key))
+        continue;
+      visited.add(key);
+      if (current.inSegment && selected.accepts(current.selection) && !excluded.accepts(current.exclusion))
+        return false;
+      if (visited.size > 4096)
+        return false;
+      for (const char of alphabet) {
+        if (char === "/" && !current.inSegment)
+          continue;
+        pending.push({ selection: selected.advance(current.selection, char), exclusion: excluded.advance(current.exclusion, char), inSegment: char !== "/" });
+      }
+    }
+    return true;
+  };
+}
+
+// runtime/vnext/src/product-maintenance/paths.ts
 function relativePath(value, glob = false) {
   if (typeof value !== "string" || !value || /[\u0000-\u001f\\:]/.test(value) || value.startsWith("/") || value.split("/").some((p) => p === ".." || p === "." || !p || /[. ]$/.test(p)))
     throw new Error("UNSAFE_PATH: expected a relative /-separated path without traversal, alternate streams or ambiguous Windows segments");
@@ -16143,6 +16278,7 @@ function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
   const explicitFiles = new Set(patterns.filter((p) => !/[*?]/.test(p)));
   const skip = (p) => p.split("/").some((s) => [".git", "node_modules", ".next", "dist", "build"].includes(s)) || p.startsWith(".workflow-system/runtime/") || p.startsWith(".workflow-system/records/");
   let visitedCount = 0;
+  let scopeExcluded;
   function omit(relative2, code, message) {
     omitted.add(relative2);
     diagnostics.push(diagnostic(code, relative2, message));
@@ -16155,6 +16291,11 @@ function enumerate(root, patterns, excludes, maxFiles, diagnostics) {
     if (relative2 && !patterns.some((pattern) => matchPattern(relative2, pattern) || mayContainMatch(relative2, pattern)))
       return;
     if (relative2 && skip(relative2)) {
+      if (excludes.length && !matches(relative2, patterns)) {
+        scopeExcluded ??= createGlobCoverageCheck(patterns, excludes);
+        if (scopeExcluded(relative2))
+          return;
+      }
       omit(relative2, "IMPLICIT_PATH_EXCLUDED", "Selected path intersects a default scan exclusion; register an authorized document outside this directory or explicitly exclude this scope");
       return;
     }
@@ -16250,6 +16391,22 @@ function analyze(catalog) {
       } else if (source2.kind === "uri" && !/^(https?:|mailto:)/i.test(source2.uri))
         report("UNSAFE_URI", item, "URI is retained as text; unsafe/unknown protocol must not be navigated");
     }
+    if (item.type === "project" && item.version === 3) {
+      if (!m.root_goal_id)
+        report("ROOT_GOAL_UNSPECIFIED", item, "No overall goal is selected; do not infer one from file or graph order");
+      else {
+        const goal = expectTarget(item, m.root_goal_id, ["goal"], "Overall goal");
+        if (goal && (goal.type !== "goal" || goal.metadata.scope !== "current"))
+          report("ROOT_GOAL_INVALID", item, "Overall goal must be a current goal");
+      }
+      const order2 = new Set;
+      for (const id2 of m.requirement_order ?? []) {
+        if (order2.has(id2))
+          report("REQUIREMENT_ORDER_DUPLICATE", item, `Requirement ${id2} occurs more than once in registered order`);
+        order2.add(id2);
+        expectTarget(item, id2, ["requirement"], "Registered requirement order");
+      }
+    }
     const seenLinks = new Set;
     for (const link of m.links ?? []) {
       if (seenLinks.has(link.id))
@@ -16267,6 +16424,10 @@ function analyze(catalog) {
         derived_from: [["goal", "module", "requirement", "design", "plan"], [item.type]],
         references: [Object.keys({ project: 1, goal: 1, module: 1, requirement: 1, design: 1, change: 1, assessment: 1, discussion: 1, plan: 1 }), Object.keys({ project: 1, goal: 1, module: 1, requirement: 1, design: 1, change: 1, assessment: 1, discussion: 1, plan: 1 })]
       };
+      if (item.version === 3) {
+        rules.part_of = item.type === "goal" ? [["goal"], ["goal"]] : item.type === "requirement" ? [["requirement"], ["module", "requirement"]] : rules.part_of;
+        rules.supports = [["goal", "requirement", "module"], ["goal"]];
+      }
       const rule = rules[link.relation];
       if (rule && !rule[0].includes(item.type))
         report("LINK_DIRECTION", item, `${item.type} cannot originate ${link.relation}`);
@@ -16279,7 +16440,7 @@ function analyze(catalog) {
         report("ASSESSMENT_TARGET", item, "Selected assessment belongs to another requirement");
     }
     if (item.type === "assessment") {
-      const target = expectTarget(item, m.target, ["requirement"], "Assessment");
+      const target = expectTarget(item, m.target, item.version === 3 ? ["requirement", "goal"] : ["requirement"], "Assessment");
       if (target && m.target_definition_sha256 && m.target_definition_sha256 !== target.definition_sha256)
         report("DEFINITION_CHANGED", item, "Current requirement definition differs from the reported basis; semantic/current code applicability is not evaluated");
       if (!m.target_definition_sha256)
@@ -16288,6 +16449,13 @@ function analyze(catalog) {
         report("REPORT_SOURCE_MISSING", item, "Reported implementation/verification requires actual sources and a coverage explanation");
       if (m.pending_sources?.length)
         report("PENDING_SOURCES", item, "New material is pending reconciliation; existing PASS is not a current completeness claim");
+      if (item.version === 3) {
+        const goal = expectTarget(item, m.applicability.goal_id, ["goal"], "Assessment goal");
+        if (target?.type === "goal" && target.id !== m.applicability.goal_id)
+          report("ASSESSMENT_GOAL", item, "A goal assessment must select that goal itself");
+        if (goal && m.goal_definition_sha256 !== goal.definition_sha256)
+          report("GOAL_DEFINITION_CHANGED", item, "Goal definition alignment requires checking; this is not business invalidation");
+      }
     }
     if (item.type === "change") {
       for (const delta of m.deltas)
@@ -16482,12 +16650,25 @@ function readCatalog(rootInput, input = {}) {
       catalog.diagnostics.push(diagnostic("AMBIGUOUS_ID", item.path, `ID ${item.id} has multiple current definitions; no newest-file selection`, { severity: "error", item_id: item.id }));
     }
     if (item.usable) {
-      if (item.type === "requirement")
+      if (item.type === "requirement" || item.type === "goal" && item.version === 3) {
         item.definition_sha256 = requirementDigest(item);
+        item.definition_algorithm = definitionAlgorithm(item);
+      }
       catalog.byId.set(item.id, item);
     }
   }
   const projects = catalog.items.filter((i) => i.usable && i.type === "project");
+  for (const goal of catalog.items.filter((i) => i.usable && i.type === "goal" && i.version === 3)) {
+    const seen = new Set;
+    for (const scope2 of goal.metadata.assessment_scopes ?? []) {
+      const key = JSON.stringify([scope2.target, scope2.scope_id]), target = catalog.byId.get(scope2.target);
+      if (seen.has(key) || !target || target.type !== "requirement" && target.id !== goal.id) {
+        delete goal.definition_sha256;
+        catalog.diagnostics.push(diagnostic("ASSESSMENT_SCOPE_CONFLICT", goal.path, "Duplicate or unresolved current scope declaration cannot supply a valid goal digest", { item_id: goal.id }));
+      }
+      seen.add(key);
+    }
+  }
   if (projects.length !== 1 || projects[0]?.path !== manifest.entry)
     catalog.diagnostics.push(diagnostic("PROJECT_ENTRY", manifestPath, "Expected a unique project entry in the manifest entry document"));
   analyze(catalog);
@@ -16997,6 +17178,10 @@ function readSource(catalog2, source2, input = {}) {
           const item = matches2[0];
           if (item.usable && item.type === "requirement")
             base.requirement_definition_sha256 = requirementDigest(item);
+          if (item.usable && (item.type === "requirement" || item.type === "goal" && item.version === 3)) {
+            base.definition_sha256 = requirementDigest(item);
+            base.definition_algorithm = definitionAlgorithm(item);
+          }
           charStart = item.start;
           charEnd = item.end;
           if (source2.section) {
@@ -17047,16 +17232,17 @@ function resolveSources(catalog2, ids) {
   const refs = catalog2.items.filter((i) => i.usable && (!ids || ids.includes(i.id))).flatMap((i) => collectSources(i.metadata));
   return [...new Map(refs.map((r) => [JSON.stringify(r), r])).values()].map((r) => {
     const result = readSource(catalog2, r, { max_bytes: 1 });
-    const basisChecks = catalog2.items.filter((i) => i.usable && i.type === "assessment" && JSON.stringify(i.metadata.target_basis) === JSON.stringify(r)).map((i) => {
-      const expected = i.metadata.target_definition_sha256;
-      const actual = result.requirement_definition_sha256 ?? null;
+    const basisChecks = catalog2.items.filter((i) => i.usable && i.type === "assessment").flatMap((i) => ["target", ...i.version === 3 ? ["goal"] : []].filter((role) => JSON.stringify(i.metadata[`${role}_basis`]) === JSON.stringify(r)).map((role) => {
+      const expected = i.metadata[`${role}_definition_sha256`];
+      const actual = result.definition_sha256 ?? null;
+      const algorithm = i.version === 3 ? i.metadata[`${role}_definition_algorithm`] : "vnext-requirement-definition/v1";
       let alignment = "unknown";
-      if (expected && actual)
+      if (expected && actual && algorithm === result.definition_algorithm)
         alignment = expected === actual ? "same-definition" : "different-definition";
       if (alignment === "different-definition")
         result.diagnostics.push(diagnostic("BASIS_DEFINITION_MISMATCH", r.path, `Referenced material definition differs from ${i.id}'s reported definition`, { item_id: i.id }));
-      return { assessment_id: i.id, expected_definition_sha256: expected, actual_definition_sha256: actual, definition_alignment: alignment, referenced_byte_availability: result.byte_status, current_code_applicability: "not-evaluated" };
-    });
+      return { assessment_id: i.id, role, expected_definition_sha256: expected, actual_definition_sha256: actual, expected_definition_algorithm: algorithm, actual_definition_algorithm: result.definition_algorithm ?? null, definition_alignment: alignment, referenced_byte_availability: result.byte_status, current_code_applicability: "not-evaluated" };
+    }));
     const { data_base64, text_preview, text: text3, ...summary } = result;
     return { ...summary, ...basisChecks.length ? { basis_checks: basisChecks } : {} };
   });
@@ -17235,10 +17421,10 @@ function candidate2(original, operation, parsed2) {
       patches.push({ start: item.start, end: item.end, text: update.body + separator });
     }
   }
-  if (operation.migrate === "v2" && parsed2.version === 1) {
+  if (operation.migrate === "v2" && parsed2.version === 1 || operation.migrate === "v3" && parsed2.version !== 3) {
     const yaml = strictYaml(text3.slice(parsed2.frontmatter_start, parsed2.frontmatter_end), operation.path);
     const schema = yaml.doc.get("schema", true);
-    patches.push({ start: parsed2.frontmatter_start + schema.range[0], end: parsed2.frontmatter_start + schema.range[1], text: "vnext-product-doc/v2" });
+    patches.push({ start: parsed2.frontmatter_start + schema.range[0], end: parsed2.frontmatter_start + schema.range[1], text: `vnext-product-doc/${operation.migrate}` });
   }
   let next = applyPatches(text3, patches);
   if (operation.append?.length) {
@@ -17453,8 +17639,19 @@ function validateManifestCandidate(text3, file) {
   if (!allowed(yaml.value, yaml.value.entry, "managed"))
     throw new Error("MANIFEST_PATH: entry is outside managed_paths or excluded");
 }
+function suppliesOrder(operation, document4) {
+  return document4.items.some((item) => {
+    if (item.type !== "project" || item.version !== 3)
+      return false;
+    if ("content" in operation && Object.hasOwn(item.metadata, "requirement_order"))
+      return true;
+    return operation.updates?.some((update) => update.id === item.id && (Object.hasOwn(update.metadata ?? {}, "requirement_order") || update.remove_fields?.includes("requirement_order"))) ?? false;
+  });
+}
 function apply(root, input) {
   const results = [];
+  const addedRequirements = [];
+  let explicitOrder = false;
   for (const operation of input.files ?? []) {
     try {
       const catalog2 = readCatalog(root, { manifest: input.manifest });
@@ -17481,30 +17678,58 @@ function apply(root, input) {
         }
         if (!version)
           throw new Error("UNSUPPORTED_VERSION: edit raw source with ordinary authorized tools; no guessed migration");
-        if (version === 1 && operation.migrate !== "v2")
-          throw new Error("V1_READ_ONLY: explicitly migrate this file to v2 before writing");
+        if (version === 1 && operation.migrate !== "v2" && (isManifest || operation.migrate !== "v3"))
+          throw new Error("V1_READ_ONLY: explicitly migrate this file to v2 or v3 before writing");
       }
       const next = candidate2(original, operation, previous2);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024))
         throw new Error("WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced");
       let diagnostics = [];
+      let newRequirements = [];
       if (isManifest)
         validateManifestCandidate(next.text, operation.path);
       else {
         const parsed2 = parseProduct(next.text, operation.path);
-        if (parsed2.version !== 2)
-          throw new Error("V2_REQUIRED: new writes must use the v2 document protocol");
+        if (parsed2.version !== 2 && parsed2.version !== 3)
+          throw new Error("V2_REQUIRED: new writes must use the v2 or v3 document protocol");
+        if (previous2?.version === 3 && parsed2.version !== 3)
+          throw new Error("VERSION_DOWNGRADE: preserve v3 fields and history");
+        if (previous2?.version !== 3 && previous2 && parsed2.version === 3 && operation.migrate !== "v3")
+          throw new Error("MIGRATION_REQUIRED: explicitly select migrate=v3 for this document");
         next.affected = validateProductCandidate(previous2, parsed2, operation, next.affected, catalog2);
         diagnostics = parsed2.diagnostics;
+        newRequirements = parsed2.items.filter((i) => i.type === "requirement" && i.usable && !previous2?.items.some((old) => old.id === i.id));
+        explicitOrder ||= suppliesOrder(operation, parsed2);
       }
       const saved = publish(catalog2.root, operation.path, Buffer.from(next.text, "utf8"), operation.expected_sha256, operation.preimage_path, catalog2);
       results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics });
+      addedRequirements.push(...newRequirements);
     } catch (error2) {
       results.push({ path: operation.path, status: "failed", saved: false, error: error2.message });
     }
   }
+  let order2 = { status: "unchanged", saved: true };
+  if (addedRequirements.length && !explicitOrder) {
+    const catalog2 = readCatalog(root, { manifest: input.manifest });
+    const projects = catalog2.items.filter((i) => i.type === "project");
+    const project = projects.length === 1 && projects[0].usable ? projects[0] : undefined;
+    if (!project || project.version !== 3) {
+      const v3Ids = addedRequirements.filter((i) => i.version === 3).map((i) => i.id);
+      if (v3Ids.length)
+        order2 = { status: "pending", saved: false, requirement_ids: v3Ids, reason: "Project order needs an explicitly maintained v3 project; no automatic migration" };
+    } else {
+      const addedIds = addedRequirements.map((i) => i.id);
+      const current = project.metadata.requirement_order ?? [];
+      const next = [...current, ...new Set(addedIds.filter((id2) => !current.includes(id2)))];
+      if (next.length !== current.length) {
+        const document4 = catalog2.documents.find((d) => d.path === project.path);
+        const saved = apply(root, { manifest: input.manifest, files: [{ path: project.path, expected_sha256: document4.sha256, updates: [{ id: project.id, metadata: { requirement_order: next } }] }] });
+        order2 = { ...saved.files[0], requirement_ids: addedIds };
+      }
+    }
+  }
   const failures = results.filter((r) => !r.saved).length;
-  return { status: failures ? failures === results.length ? "failed" : "partial" : "saved", files: results, task_operations: "not-performed", association: "not-evaluated", reconciliation: "not-evaluated", transaction: "per-file; no cross-file atomicity" };
+  return { status: failures ? failures === results.length ? "failed" : "partial" : !order2.saved ? "partial" : "saved", files: results, requirement_order_update: order2, task_operations: "not-performed", association: "not-evaluated", reconciliation: "not-evaluated", transaction: "per-file; no cross-file atomicity" };
 }
 function captureBytes(catalog2, relative3, bytes) {
   try {
@@ -17556,6 +17781,185 @@ function capture(root, input) {
   }
 }
 
+// runtime/vnext/src/product-maintenance/scoped.ts
+var normalize = (text3) => text3.replace(/\r\n|\r/g, `
+`);
+var subjectKey = (s) => JSON.stringify([s?.kind, s?.value, s?.revision ?? null]);
+var located = (m) => typeof m.target === "string" && typeof m.applicability?.goal_id === "string" && typeof m.applicability?.scope_id === "string" && ["working-copy", "commit", "release"].includes(m.subject?.kind) && typeof m.subject.value === "string" && !!m.subject.value;
+var tuple = (m) => JSON.stringify([m.target, m.applicability?.goal_id, m.applicability?.scope_id, subjectKey(m.subject)]);
+function rootGoal(catalog2, project) {
+  if (!project)
+    return { status: "conflict", id: null };
+  const id2 = project.metadata.root_goal_id;
+  if (!id2)
+    return { status: "unspecified", id: null };
+  const goal = catalog2.byId.get(id2);
+  if (!goal)
+    return { status: "unresolved", id: id2 };
+  if (goal.type !== "goal" || goal.metadata.scope !== "current")
+    return { status: "invalid", id: id2 };
+  return { status: "resolved", id: id2 };
+}
+function scopes(catalog2, goal) {
+  const declarations = goal.metadata.assessment_scopes ?? [];
+  const seen = new Set;
+  let conflict = false;
+  for (const s of declarations) {
+    const target = catalog2.byId.get(s.target), key = JSON.stringify([s.target, s.scope_id]);
+    if (seen.has(key) || !target || target.type !== "requirement" && target.id !== goal.id)
+      conflict = true;
+    seen.add(key);
+  }
+  return { declarations, conflict };
+}
+function productView(catalog2) {
+  const projects = catalog2.items.filter((i) => i.type === "project");
+  const project = projects.length === 1 && projects[0].usable && projects[0].path === catalog2.manifest?.entry ? projects[0] : undefined;
+  const registered = [], seen = new Set, diagnostics = [];
+  for (const id2 of project?.metadata.requirement_order ?? []) {
+    if (seen.has(id2))
+      diagnostics.push({ code: "REQUIREMENT_ORDER_DUPLICATE", id: id2 });
+    seen.add(id2);
+    const requirement = catalog2.byId.get(id2);
+    if (requirement?.type !== "requirement")
+      diagnostics.push({ code: "REQUIREMENT_ORDER_UNRESOLVED", id: id2 });
+    else if (!registered.includes(id2))
+      registered.push(id2);
+  }
+  const unordered = catalog2.items.filter((i) => i.usable && i.type === "requirement" && !registered.includes(i.id)).map((i) => i.id).sort();
+  const relations = catalog2.items.filter((i) => i.usable).flatMap((owner) => (owner.metadata.links ?? []).filter((l) => l.origin === "declared" && l.state === "active" && ["part_of", "supports", "depends_on"].includes(l.relation)).map((l) => ({ owner: owner.id, ...l })));
+  const legal = relations.filter((r) => {
+    const owner = catalog2.byId.get(r.owner), target = catalog2.byId.get(r.target);
+    if (!target || r.owner === r.target)
+      return false;
+    if (r.relation === "supports")
+      return ["requirement", "module", ...owner.version === 3 ? ["goal"] : []].includes(owner.type) && target.type === "goal";
+    if (r.relation === "depends_on")
+      return ["requirement", "design"].includes(owner.type) && ["requirement", "design"].includes(target.type);
+    return owner.type === "module" && target.type === "module" || owner.type === "requirement" && (target.type === "module" || owner.version === 3 && target.type === "requirement") || owner.version === 3 && owner.type === "goal" && target.type === "goal";
+  });
+  const reaches = (from, to, relation, visited = new Set) => {
+    if (from === to)
+      return true;
+    if (visited.has(from))
+      return false;
+    visited.add(from);
+    return legal.some((r) => r.relation === relation && r.owner === from && reaches(r.target, to, relation, visited));
+  };
+  const current = legal.filter((r) => !reaches(r.target, r.owner, r.relation));
+  for (const r of relations.filter((r2) => !current.includes(r2)))
+    diagnostics.push({ code: "CURRENT_RELATION_INVALID", owner: r.owner, id: r.id });
+  for (const g of catalog2.items.filter((i) => i.usable && i.type === "goal" && i.version === 3))
+    if (scopes(catalog2, g).conflict)
+      diagnostics.push({ code: "ASSESSMENT_SCOPE_CONFLICT", goal_id: g.id });
+  return { project_id: project?.id ?? null, root_goal: rootGoal(catalog2, project), requirement_order: registered, unordered_requirements: unordered, current_relations: current, diagnostics };
+}
+function selectAssessment(catalog2, query, budget = {}) {
+  const reasons = [], candidates = [], historical = [];
+  const pending = catalog2.items.filter((i) => i.type === "assessment" && !located(i.metadata)).map((i) => i.id);
+  const result = () => ({
+    selection: query,
+    conclusion: reasons.length ? "undetermined" : candidates[0]?.metadata.conclusion ?? "undetermined",
+    assessment_id: reasons.length ? null : candidates[0]?.id ?? null,
+    reasons: [...new Set(reasons)],
+    reports: candidates.map((i) => ({ id: i.id, conclusion: i.metadata.conclusion ?? null, usable: i.usable, locator: { kind: "file", path: i.path, item_id: i.id } })),
+    historical_reports: historical,
+    pending_reports: pending,
+    business_validity: "not-evaluated"
+  });
+  const fail = (reason) => {
+    reasons.push(reason);
+    return result();
+  };
+  const goal = catalog2.byId.get(query.goal_id), target = catalog2.byId.get(query.target);
+  if (!goal || goal.type !== "goal" || goal.version !== 3)
+    return fail("scope-unavailable");
+  if (!target || !["requirement", "goal"].includes(target.type) || target.type === "goal" && target.id !== goal.id)
+    return fail("conflict");
+  const declared = scopes(catalog2, goal);
+  if (declared.conflict)
+    return fail("conflict");
+  const available = declared.declarations.filter((s) => s.target === query.target);
+  if (!available.length)
+    return fail("scope-unavailable");
+  if (!query.scope_id && available.length > 1)
+    return { ...fail("scope-selection-required"), available_scopes: available };
+  const scope2 = available.find((s) => s.scope_id === (query.scope_id ?? available[0].scope_id));
+  if (!scope2)
+    return fail("scope-not-current");
+  query = { ...query, scope_id: scope2.scope_id };
+  if (!["working-copy", "commit", "release"].includes(query.subject.kind) || !query.subject.value)
+    return fail("no-applicable-report");
+  const key = tuple({ ...query, applicability: { goal_id: query.goal_id, scope_id: query.scope_id } });
+  const all2 = catalog2.items.filter((i) => i.type === "assessment" && located(i.metadata) && tuple(i.metadata) === key);
+  const edges = new Map, invalid = new Set;
+  for (const report of all2) {
+    const valid = [];
+    for (const id2 of Array.isArray(report.metadata.supersedes) ? report.metadata.supersedes : []) {
+      const matches2 = catalog2.items.filter((i) => i.id === id2);
+      if (matches2.length !== 1 || matches2[0].type !== "assessment" || !all2.includes(matches2[0]))
+        invalid.add(report.id);
+      else
+        valid.push(id2);
+    }
+    edges.set(report.id, valid);
+  }
+  const reaches = (from, to, seen = new Set) => {
+    if (from === to)
+      return true;
+    if (seen.has(from))
+      return false;
+    seen.add(from);
+    return (edges.get(from) ?? []).some((id2) => reaches(id2, to, seen));
+  };
+  const removed = new Set;
+  for (const report of all2)
+    for (const id2 of edges.get(report.id) ?? []) {
+      if (reaches(id2, report.id))
+        invalid.add(report.id);
+      else
+        removed.add(id2);
+    }
+  for (const report of all2) {
+    if (removed.has(report.id))
+      historical.push(report.id);
+    else
+      candidates.push(report);
+  }
+  if (!candidates.length)
+    return fail("no-applicable-report");
+  if (candidates.some((i) => invalid.has(i.id) || catalog2.items.filter((x) => x.id === i.id).length !== 1))
+    reasons.push("conflict");
+  if (candidates.some((i) => !i.usable || i.version !== 3))
+    reasons.push("metadata-incomplete");
+  if (candidates.length > 1)
+    reasons.push("multiple-reports");
+  for (const report of candidates) {
+    const m = report.metadata;
+    if (typeof m.applicability.coverage !== "string" || normalize(m.applicability.coverage) !== normalize(scope2.coverage))
+      reasons.push("scope-definition-changed");
+    for (const [prefix, definition2] of [["target", target], ["goal", goal]]) {
+      const label = prefix === "target" ? "definition" : "goal-definition";
+      const algorithm = m[`${prefix}_definition_algorithm`], digest3 = m[`${prefix}_definition_sha256`];
+      if (["vnext-product-definition/v1", "vnext-requirement-definition/v1"].includes(algorithm) && algorithm !== definition2.definition_algorithm)
+        reasons.push("definition-algorithm-changed");
+      if (algorithm === definition2.definition_algorithm && digest3 && digest3 !== definition2.definition_sha256)
+        reasons.push(`${label}-changed`);
+      const basis = m[`${prefix}_basis`];
+      if (!digest3 || !basis || algorithm !== definition2.definition_algorithm) {
+        reasons.push(`${label}-unverified`);
+        continue;
+      }
+      const source2 = readSource(catalog2, basis, { max_file_bytes: budget.max_file_bytes, max_bytes: 1 });
+      if (source2.status !== "available" || source2.definition_algorithm !== algorithm || source2.definition_sha256 !== digest3 || source2.byte_status === "changed")
+        reasons.push(`${label}-unverified`);
+    }
+    if (m.pending_sources?.length)
+      reasons.push("pending-evidence");
+  }
+  return result();
+}
+
 // runtime/vnext/src/product-maintenance/cli.ts
 function run(action, root, input = {}) {
   const envelope = { kind: "product-maintenance-result/v1", action, development_gate: false, qualification: "not-evaluated", task_operations: "not-performed" };
@@ -17595,8 +17999,10 @@ function run(action, root, input = {}) {
         manifest_path: catalog2.manifest_path,
         manifest_sha256: catalog2.manifest_sha256,
         documents: catalog2.documents.map((d) => ({ path: d.path, sha256: d.sha256, schema: d.schema, usable_count: d.items.filter((i) => i.usable).length, raw_locator: { kind: "file", path: d.path } })),
-        usable_items: selected.filter((i) => i.usable).map((i) => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, ...input.detail === "items" ? { body: i.body } : {}, ...i.type === "discussion" ? { summary: i.sections["整理摘要"]?.[0]?.text ?? "" } : {}, locator: { kind: "file", path: i.path, item_id: i.id } })),
+        usable_items: selected.filter((i) => i.usable).map((i) => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, definition_algorithm: i.definition_algorithm ?? null, ...input.detail === "items" ? { body: i.body } : {}, ...i.type === "discussion" ? { summary: i.sections["整理摘要"]?.[0]?.text ?? "" } : {}, locator: { kind: "file", path: i.path, item_id: i.id } })),
         unusable_items: selected.filter((i) => !i.usable).map((i) => ({ id: i.id ?? null, type: i.type ?? null, path: i.path, line: i.line, diagnostics: i.diagnostics, raw_locator: { kind: "file", path: i.path }, ...input.detail === "items" ? { body: i.body } : {} })),
+        product_view: productView(catalog2),
+        assessment_selection: input.assessment_query ? selectAssessment(catalog2, input.assessment_query, input) : null,
         reverse_relations: reverseRelations(catalog2),
         plan_tasks: planTasks(catalog2),
         discussions: input.discussion_targets ? recallDiscussions(catalog2, input.discussion_targets) : [],

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { diagnostic, type Catalog, type ObjectValue } from './model';
-import { decode, parseProduct, requirementDigest, sha256, strictYaml } from './parser';
+import { decode, definitionAlgorithm, parseProduct, requirementDigest, sha256, strictYaml } from './parser';
 import { allowed, enumerate, matches, relativePath, safePath } from './paths';
 import { manifestSchema, validate } from './schemas';
 import { analyze } from './plans';
@@ -73,11 +73,25 @@ export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog
       catalog.diagnostics.push(diagnostic('AMBIGUOUS_ID', item.path, `ID ${item.id} has multiple current definitions; no newest-file selection`, { severity: 'error', item_id: item.id }));
     }
     if (item.usable) {
-      if (item.type === 'requirement') item.definition_sha256 = requirementDigest(item);
+      if (item.type === 'requirement' || item.type === 'goal' && item.version === 3) {
+        item.definition_sha256 = requirementDigest(item);
+        item.definition_algorithm = definitionAlgorithm(item);
+      }
       catalog.byId.set(item.id, item);
     }
   }
   const projects = catalog.items.filter(i => i.usable && i.type === 'project');
+  for (const goal of catalog.items.filter(i => i.usable && i.type === 'goal' && i.version === 3)) {
+    const seen = new Set<string>();
+    for (const scope of goal.metadata.assessment_scopes ?? []) {
+      const key = JSON.stringify([scope.target, scope.scope_id]), target = catalog.byId.get(scope.target);
+      if (seen.has(key) || !target || target.type !== 'requirement' && target.id !== goal.id) {
+        delete goal.definition_sha256;
+        catalog.diagnostics.push(diagnostic('ASSESSMENT_SCOPE_CONFLICT', goal.path, 'Duplicate or unresolved current scope declaration cannot supply a valid goal digest', { item_id: goal.id }));
+      }
+      seen.add(key);
+    }
+  }
   if (projects.length !== 1 || projects[0]?.path !== manifest.entry) catalog.diagnostics.push(diagnostic('PROJECT_ENTRY', manifestPath, 'Expected a unique project entry in the manifest entry document'));
   analyze(catalog);
   catalog.coverage = { ...catalog.coverage, omitted: [...new Set(catalog.coverage.omitted)], complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter(i => i.usable).length, invalid_count: catalog.items.filter(i => !i.usable).length };

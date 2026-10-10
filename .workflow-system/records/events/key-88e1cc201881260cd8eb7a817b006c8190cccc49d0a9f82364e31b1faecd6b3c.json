@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T20:39:33.939Z",
+  "payload_sha256": "9417efb2006941dbf993b725ab05a8ce80b4fd96939c9a04482b61474d07e932",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn03-mixed-order-repair-review-20261011",
+    "request": {
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+      "step_id": "VN03",
+      "report_ref": "docs/ops/vnext-vn03-product-validation.md",
+      "action": "review",
+      "stage": "change",
+      "idempotency_key": "vn03-mixed-order-repair-review-20261011",
+      "execution_ref": ".workflow-system/records/events/key-a6eb81ee83673bdae8c63cb9056882db11d517fbe9eaf52537be229c15f93a95.json",
+      "verdict": "no-necessary-findings",
+      "findings": [],
+      "coverage": [
+        "VN-01 section 10.3, API and shared sample section 6",
+        "Mixed v2/v3 batch registration, no migration, explicit order, retry and partial save",
+        "Original focused selection/digest regressions and scope boundary"
+      ],
+      "provenance": "Implementing assistant self-review under design 7.1.1; closes the previously reported P2 v2 registration omission; not an independent reviewer."
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "parents": [
+        ".workflow-system/records/events/key-66486214030d4d1d048fa5abd2a680a7da474067186d60cfd0c6a82cbe344c5a.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+        "step_id": "VN03",
+        "report_ref": "docs/ops/vnext-vn03-product-validation.md",
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-a6eb81ee83673bdae8c63cb9056882db11d517fbe9eaf52537be229c15f93a95.json",
+        "verdict": "no-necessary-findings",
+        "findings": [],
+        "coverage": [
+          "VN-01 section 10.3, API and shared sample section 6",
+          "Mixed v2/v3 batch registration, no migration, explicit order, retry and partial save",
+          "Original focused selection/digest regressions and scope boundary"
+        ],
+        "provenance": "Implementing assistant self-review under design 7.1.1; closes the previously reported P2 v2 registration omission; not an independent reviewer."
+      }
+    }
+  },
+  "issues": []
+}

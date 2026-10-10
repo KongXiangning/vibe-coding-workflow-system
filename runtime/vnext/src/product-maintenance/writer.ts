@@ -136,10 +136,10 @@ function candidate(original: Buffer | null, operation: ObjectValue, parsed?: Pro
       patches.push({ start: item.start, end: item.end, text: update.body + separator });
     }
   }
-  if (operation.migrate === 'v2' && parsed.version === 1) {
+  if ((operation.migrate === 'v2' && parsed.version === 1) || (operation.migrate === 'v3' && parsed.version !== 3)) {
     const yaml = strictYaml(text.slice(parsed.frontmatter_start, parsed.frontmatter_end), operation.path);
     const schema: any = yaml.doc.get('schema', true);
-    patches.push({ start: parsed.frontmatter_start + schema.range[0], end: parsed.frontmatter_start + schema.range[1], text: 'vnext-product-doc/v2' });
+    patches.push({ start: parsed.frontmatter_start + schema.range[0], end: parsed.frontmatter_start + schema.range[1], text: `vnext-product-doc/${operation.migrate}` });
   }
   let next = applyPatches(text, patches);
   if (operation.append?.length) {
@@ -334,8 +334,18 @@ function validateManifestCandidate(text: string, file: string): void {
   for (const p of [...yaml.value.managed_paths, ...yaml.value.source_paths, ...yaml.value.exclude_paths, ...(yaml.value.capture_paths ?? [])]) relativePath(p, true);
   if (!allowed(yaml.value, yaml.value.entry, 'managed')) throw new Error('MANIFEST_PATH: entry is outside managed_paths or excluded');
 }
+function suppliesOrder(operation: ObjectValue, document: ProductDocument): boolean {
+  return document.items.some(item => {
+    if (item.type !== 'project' || item.version !== 3) return false;
+    if ('content' in operation && Object.hasOwn(item.metadata, 'requirement_order')) return true;
+    return operation.updates?.some((update: ObjectValue) => update.id === item.id &&
+      (Object.hasOwn(update.metadata ?? {}, 'requirement_order') || update.remove_fields?.includes('requirement_order'))) ?? false;
+  });
+}
 export function apply(root: string, input: ObjectValue): ObjectValue {
   const results: ObjectValue[] = [];
+  const addedRequirements: Item[] = [];
+  let explicitOrder = false;
   for (const operation of input.files ?? []) {
     try {
       const catalog = readCatalog(root, { manifest: input.manifest });
@@ -357,24 +367,49 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
           if (previous.diagnostics.some(d => d.severity === 'error' && (!d.item_id || ['DUPLICATE_ID', 'ITEM_HEADING'].includes(d.code)))) throw new Error('ORIGINAL_UNRESOLVED: original identities/AST locations are ambiguous; preserve raw bytes and use an authorized raw repair');
         }
         if (!version) throw new Error('UNSUPPORTED_VERSION: edit raw source with ordinary authorized tools; no guessed migration');
-        if (version === 1 && operation.migrate !== 'v2') throw new Error('V1_READ_ONLY: explicitly migrate this file to v2 before writing');
+        if (version === 1 && operation.migrate !== 'v2' && (isManifest || operation.migrate !== 'v3')) throw new Error('V1_READ_ONLY: explicitly migrate this file to v2 or v3 before writing');
       }
       const next = candidate(original, operation, previous);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024)) throw new Error('WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced');
       let diagnostics: any[] = [];
+      let newRequirements: Item[] = [];
       if (isManifest) validateManifestCandidate(next.text, operation.path);
       else {
         const parsed = parseProduct(next.text, operation.path);
-        if (parsed.version !== 2) throw new Error('V2_REQUIRED: new writes must use the v2 document protocol');
+        if (parsed.version !== 2 && parsed.version !== 3) throw new Error('V2_REQUIRED: new writes must use the v2 or v3 document protocol');
+        if (previous?.version === 3 && parsed.version !== 3) throw new Error('VERSION_DOWNGRADE: preserve v3 fields and history');
+        if (previous?.version !== 3 && previous && parsed.version === 3 && operation.migrate !== 'v3') throw new Error('MIGRATION_REQUIRED: explicitly select migrate=v3 for this document');
         next.affected = validateProductCandidate(previous, parsed, operation, next.affected, catalog);
         diagnostics = parsed.diagnostics;
+        newRequirements = parsed.items.filter(i => i.type === 'requirement' && i.usable && !previous?.items.some(old => old.id === i.id));
+        explicitOrder ||= suppliesOrder(operation, parsed);
       }
       const saved = publish(catalog.root, operation.path, Buffer.from(next.text, 'utf8'), operation.expected_sha256, operation.preimage_path, catalog);
       results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics });
+      addedRequirements.push(...newRequirements);
     } catch (error: any) { results.push({ path: operation.path, status: 'failed', saved: false, error: error.message }); }
   }
+  let order: ObjectValue = { status: 'unchanged', saved: true };
+  if (addedRequirements.length && !explicitOrder) {
+    const catalog = readCatalog(root, { manifest: input.manifest });
+    const projects = catalog.items.filter(i => i.type === 'project');
+    const project = projects.length === 1 && projects[0]!.usable ? projects[0] : undefined;
+    if (!project || project.version !== 3) {
+      const v3Ids = addedRequirements.filter(i => i.version === 3).map(i => i.id);
+      if (v3Ids.length) order = { status: 'pending', saved: false, requirement_ids: v3Ids, reason: 'Project order needs an explicitly maintained v3 project; no automatic migration' };
+    } else {
+      const addedIds = addedRequirements.map(i => i.id);
+      const current: string[] = project.metadata.requirement_order ?? [];
+      const next = [...current, ...new Set(addedIds.filter(id => !current.includes(id)))];
+      if (next.length !== current.length) {
+        const document = catalog.documents.find(d => d.path === project.path)!;
+        const saved = apply(root, { manifest: input.manifest, files: [{ path: project.path, expected_sha256: document.sha256, updates: [{ id: project.id, metadata: { requirement_order: next } }] }] });
+        order = { ...saved.files[0], requirement_ids: addedIds };
+      }
+    }
+  }
   const failures = results.filter(r => !r.saved).length;
-  return { status: failures ? failures === results.length ? 'failed' : 'partial' : 'saved', files: results, task_operations: 'not-performed', association: 'not-evaluated', reconciliation: 'not-evaluated', transaction: 'per-file; no cross-file atomicity' };
+  return { status: failures ? failures === results.length ? 'failed' : 'partial' : !order.saved ? 'partial' : 'saved', files: results, requirement_order_update: order, task_operations: 'not-performed', association: 'not-evaluated', reconciliation: 'not-evaluated', transaction: 'per-file; no cross-file atomicity' };
 }
 function captureBytes(catalog: Catalog, relative: string, bytes: Buffer): ObjectValue {
   try {
@@ -412,6 +447,6 @@ export function capture(root: string, input: ObjectValue): ObjectValue {
   } catch (error: any) { return { status: 'failed', saved: false, error: error.message, raw_capture: false }; }
 }
 
-export function newDocument(items: { metadata: ObjectValue; body: string }[], title = '项目业务资料'): string {
-  return `---\n${stringify({ schema: 'vnext-product-doc/v2', items: items.map(i => i.metadata) }, { lineWidth: 0, aliasDuplicateObjects: false })}---\n# ${title}\n\n${items.map(i => i.body).join('\n\n')}\n`;
+export function newDocument(items: { metadata: ObjectValue; body: string }[], title = '项目业务资料', version: 2 | 3 = 2): string {
+  return `---\n${stringify({ schema: `vnext-product-doc/v${version}`, items: items.map(i => i.metadata) }, { lineWidth: 0, aliasDuplicateObjects: false })}---\n# ${title}\n\n${items.map(i => i.body).join('\n\n')}\n`;
 }

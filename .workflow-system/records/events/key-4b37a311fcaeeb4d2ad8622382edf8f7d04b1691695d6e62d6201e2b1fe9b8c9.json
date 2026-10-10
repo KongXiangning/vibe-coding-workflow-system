@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T20:08:40.572Z",
+  "payload_sha256": "d4a76d0e116f216cb6c39618d05ed78b94e690d1168ea05b1df77467b43a9684",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn03-product-v3-20261011",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "vn03-product-v3-20261011",
+      "plan": {
+        "title": "VN-03 产品文档生产与维护能力",
+        "goal": "依据已交接 VN-01 与共用样例实现 v3 读写与范围化维护",
+        "scope": [
+          "Schema、解析、引用、关系、顺序、报告选择与安全保存",
+          "对应 API、交接资产和聚焦回归"
+        ],
+        "exclusions": [
+          "VN-04 Skill",
+          "VN-05 完整分发安装",
+          "TraceLens 后续工作包"
+        ],
+        "steps": [
+          {
+            "id": "VN03",
+            "title": "实现与验证 v3 产品维护",
+            "environment": [
+              "本源码仓库"
+            ],
+            "validation": [
+              "共用样例读写回读",
+              "两目标范围隔离与旧格式引用",
+              "并发与部分保存、既有产品回归"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "parents": [
+        ".workflow-system/records/events/key-f74faaa8210c3564c7ef42d5b897f07326faabb7d9e33a5971858166d5f99127.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-016"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "720c5ae75dd16412b804e51128577820013b687697b7b557ff63ec0dcc4edcee",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

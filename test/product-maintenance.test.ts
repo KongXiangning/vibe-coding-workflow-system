@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { stringify } from 'yaml';
 import { run } from '../runtime/vnext/src/product-maintenance/cli';
 import { parseProduct, requirementDigest, sha256 } from '../runtime/vnext/src/product-maintenance/parser';
@@ -622,7 +622,7 @@ test('E6 keeps one requirement and stable work items; task binding retry has no 
 });
 test('planning samples preserve no-plan prose, independent plan order, cross-stage coverage and open scope', () => {
   const assets = fs.mkdtempSync(path.join(os.tmpdir(), 'product-consumer-assets-')); roots.push(assets);
-  for (const file of ['document-contract.md', 'examples/e6-repair.md', 'examples/planning-consumption.md']) {
+  for (const file of ['document-contract.md', 'examples/e6-repair.md', 'examples/planning-consumption.md', 'examples/scoped-contract.md']) {
     put(assets, `docs/product/project-maintenance/${file}`, fs.readFileSync(path.resolve(import.meta.dir, '../docs/product/project-maintenance', file)));
   }
   fs.mkdirSync(path.join(assets, 'runtime/vnext/support/product-maintenance'), { recursive: true });
@@ -766,4 +766,58 @@ test('implicit scan exclusions report selected coverage gaps without reading pro
   expect(run('read', root).coverage.complete).toBe(true);
   put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, entry: 'docs/dist/PLAN.md', managed_paths: ['docs/dist/PLAN.md'] }));
   expect(run('read', root).coverage.omitted).toEqual(['docs/dist/PLAN.md']);
+});
+
+test('explicit glob exclusions suppress only fully excluded implicit scan ranges', () => {
+  const root = fixture(), manifest = run('read', root).manifest;
+  put(root, 'docs/dist/PLAN.md', newDocument([req('REQ-BLOCKED')]));
+  const cases = [
+    { selected: ['docs/dist/*.md'], excluded: ['docs/dist/*.md'], complete: true },
+    { selected: ['docs/dist/P*.md'], excluded: ['docs/dist/*.md'], complete: true },
+    { selected: ['docs/dist/P?.md'], excluded: ['docs/dist/*.md'], complete: true },
+    { selected: ['docs/dist/**/PLAN.md'], excluded: ['docs/dist/**/*.md'], complete: true },
+    { selected: ['docs/dist/*/PLAN.md'], excluded: ['docs/dist/**/PLAN.md'], complete: true },
+    { selected: ['docs/*/*.md'], excluded: ['docs/dist/*.md'], complete: true },
+    { selected: ['docs/dist/P*.md', 'docs/dist/Q*.md'], excluded: ['docs/dist/P*.md', 'docs/dist/Q*.md'], complete: true },
+    { selected: ['docs/dist/P*.md'], excluded: ['docs/dist/P.md', 'docs/dist/P?*.md'], complete: true },
+    { selected: ['docs/dist/*.md'], excluded: ['docs/dist/PLAN.md'], complete: false },
+    { selected: ['docs/dist/P*.md'], excluded: ['docs/dist/P?.md'], complete: false },
+    { selected: ['docs/dist/P**.md'], excluded: ['docs/dist/P*.md'], complete: false },
+    { selected: ['docs/dist/**/*.md'], excluded: ['docs/dist/*.md'], complete: false },
+    { selected: ['docs/dist/*.md', 'docs/dist/*.txt'], excluded: ['docs/dist/*.md'], complete: false },
+  ];
+  for (const { selected, excluded, complete } of cases) {
+    put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: [...manifest.managed_paths, ...selected], exclude_paths: excluded }));
+    for (const action of ['read', 'check']) {
+      const result = run(action, root);
+      expect(result.coverage.complete).toBe(complete);
+      expect(result.coverage.omitted).toEqual(complete ? [] : ['docs/dist']);
+      expect(result.diagnostics.some((d: any) => d.code === 'IMPLICIT_PATH_EXCLUDED')).toBe(!complete);
+      if (action === 'read') expect(result.usable_items.map((i: any) => i.id)).toEqual(['PROJECT-A', 'REQ-A']);
+    }
+  }
+});
+
+test('bundled helper and offline reader preserve explicit glob exclusion coverage', () => {
+  const root = fixture(), manifest = run('read', root).manifest;
+  put(root, 'docs/dist/PLAN.md', newDocument([req('REQ-BLOCKED')]));
+  const helper = path.join(root, 'helper/product-maintenance.js'), reader = path.join(root, 'helper/offline-reader.js');
+  put(root, 'helper/package.json', '{"type":"module"}');
+  put(root, 'helper/product-maintenance.js', fs.readFileSync(path.resolve(import.meta.dir, '../runtime/vnext/dist/product-maintenance.js')));
+  put(root, 'helper/offline-reader.js', fs.readFileSync(path.resolve(import.meta.dir, '../runtime/vnext/support/product-maintenance/offline-reader.js')));
+  for (const excluded of ['docs/dist/P*.md', 'docs/dist/*.md', 'docs/dist/PLAN.md']) {
+    const complete = excluded !== 'docs/dist/PLAN.md';
+    put(root, '.workflow-system/PRODUCT.yaml', stringify({ ...manifest, managed_paths: [...manifest.managed_paths, 'docs/dist/P*.md'], exclude_paths: [excluded] }));
+    for (const args of [[helper, 'read', '--root', root], [helper, 'check', '--root', root], [reader, root]]) {
+      const child = spawnSync('node', args, { input: '{}', encoding: 'utf8' });
+      expect(child.error).toBeUndefined();
+      expect(child.status).toBe(complete ? 0 : 1);
+      const result = JSON.parse(child.stdout);
+      expect(result.coverage.complete).toBe(complete);
+      expect(result.coverage.omitted).toEqual(complete ? [] : ['docs/dist']);
+      expect(result.diagnostics.some((d: any) => d.code === 'IMPLICIT_PATH_EXCLUDED')).toBe(!complete);
+      const items = result.usable_items ?? result.items;
+      if (items) expect(items.map((i: any) => i.id)).toEqual(['PROJECT-A', 'REQ-A']);
+    }
+  }
 });

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T20:39:33.751Z",
+  "payload_sha256": "d315722e091f6062909e233635decab893491674b18dd5a1c40bed3921884147",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn03-mixed-order-repair-test-20261011",
+    "request": {
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+      "step_id": "VN03",
+      "report_ref": "docs/ops/vnext-vn03-product-validation.md",
+      "action": "test",
+      "idempotency_key": "vn03-mixed-order-repair-test-20261011",
+      "command": "bun test test/product-maintenance.test.ts test/product-maintenance-v3.test.ts",
+      "selector": "41 existing regressions + 15 v3/mixed-format focused tests; source and local Node bundle; no whole distribution/installation.",
+      "result": "passed",
+      "summary": "先补回归并在旧代码复现 v2 两项漏登记；修复重建后的完整产品回归 56 pass, 0 fail."
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-1a541d0e2040a6999d60755697e786fd",
+      "parents": [
+        ".workflow-system/records/events/key-a6eb81ee83673bdae8c63cb9056882db11d517fbe9eaf52537be229c15f93a95.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-4b37a311fcaeeb4d2ad8622382edf8f7d04b1691695d6e62d6201e2b1fe9b8c9.json",
+        "step_id": "VN03",
+        "report_ref": "docs/ops/vnext-vn03-product-validation.md",
+        "command": "bun test test/product-maintenance.test.ts test/product-maintenance-v3.test.ts",
+        "selector": "41 existing regressions + 15 v3/mixed-format focused tests; source and local Node bundle; no whole distribution/installation.",
+        "result": "passed",
+        "summary": "先补回归并在旧代码复现 v2 两项漏登记；修复重建后的完整产品回归 56 pass, 0 fail."
+      }
+    }
+  },
+  "issues": []
+}

@@ -31,6 +31,19 @@ export function analyze(catalog: Catalog): void {
         } catch (error: any) { report('UNSAFE_SOURCE', item, error.message); }
       } else if (source.kind === 'uri' && !/^(https?:|mailto:)/i.test(source.uri)) report('UNSAFE_URI', item, 'URI is retained as text; unsafe/unknown protocol must not be navigated');
     }
+    if (item.type === 'project' && item.version === 3) {
+      if (!m.root_goal_id) report('ROOT_GOAL_UNSPECIFIED', item, 'No overall goal is selected; do not infer one from file or graph order');
+      else {
+        const goal = expectTarget(item, m.root_goal_id, ['goal'], 'Overall goal');
+        if (goal && (goal.type !== 'goal' || goal.metadata.scope !== 'current')) report('ROOT_GOAL_INVALID', item, 'Overall goal must be a current goal');
+      }
+      const order = new Set<string>();
+      for (const id of m.requirement_order ?? []) {
+        if (order.has(id)) report('REQUIREMENT_ORDER_DUPLICATE', item, `Requirement ${id} occurs more than once in registered order`);
+        order.add(id);
+        expectTarget(item, id, ['requirement'], 'Registered requirement order');
+      }
+    }
     const seenLinks = new Set<string>();
     for (const link of m.links ?? []) {
       if (seenLinks.has(link.id)) report('DUPLICATE_LINK_ID', item, `Link ID ${link.id} is duplicated`);
@@ -42,6 +55,10 @@ export function analyze(catalog: Catalog): void {
         replaces: [['goal', 'module', 'requirement', 'design', 'plan'], [item.type]], derived_from: [['goal', 'module', 'requirement', 'design', 'plan'], [item.type]],
         references: [Object.keys({ project: 1, goal: 1, module: 1, requirement: 1, design: 1, change: 1, assessment: 1, discussion: 1, plan: 1 }), Object.keys({ project: 1, goal: 1, module: 1, requirement: 1, design: 1, change: 1, assessment: 1, discussion: 1, plan: 1 })],
       };
+      if (item.version === 3) {
+        rules.part_of = item.type === 'goal' ? [['goal'], ['goal']] : item.type === 'requirement' ? [['requirement'], ['module', 'requirement']] : rules.part_of!;
+        rules.supports = [['goal', 'requirement', 'module'], ['goal']];
+      }
       const rule = rules[link.relation];
       if (rule && !rule[0].includes(item.type)) report('LINK_DIRECTION', item, `${item.type} cannot originate ${link.relation}`);
       if (rule) expectTarget(item, link.target, rule[1], link.relation);
@@ -51,11 +68,16 @@ export function analyze(catalog: Catalog): void {
       if (assessment && assessment.metadata.target !== item.id) report('ASSESSMENT_TARGET', item, 'Selected assessment belongs to another requirement');
     }
     if (item.type === 'assessment') {
-      const target = expectTarget(item, m.target, ['requirement'], 'Assessment');
+      const target = expectTarget(item, m.target, item.version === 3 ? ['requirement', 'goal'] : ['requirement'], 'Assessment');
       if (target && m.target_definition_sha256 && m.target_definition_sha256 !== target.definition_sha256) report('DEFINITION_CHANGED', item, 'Current requirement definition differs from the reported basis; semantic/current code applicability is not evaluated');
       if (!m.target_definition_sha256) report('DEFINITION_UNKNOWN', item, 'Requirement version alignment is unknown');
       if ((m.implementation !== 'unknown' || m.verification !== 'unknown') && !m.sources?.length) report('REPORT_SOURCE_MISSING', item, 'Reported implementation/verification requires actual sources and a coverage explanation');
       if (m.pending_sources?.length) report('PENDING_SOURCES', item, 'New material is pending reconciliation; existing PASS is not a current completeness claim');
+      if (item.version === 3) {
+        const goal = expectTarget(item, m.applicability.goal_id, ['goal'], 'Assessment goal');
+        if (target?.type === 'goal' && target.id !== m.applicability.goal_id) report('ASSESSMENT_GOAL', item, 'A goal assessment must select that goal itself');
+        if (goal && m.goal_definition_sha256 !== goal.definition_sha256) report('GOAL_DEFINITION_CHANGED', item, 'Goal definition alignment requires checking; this is not business invalidation');
+      }
     }
     if (item.type === 'change') for (const delta of m.deltas) if (!byId.has(delta.target)) report('CHANGE_TARGET', item, `Changed target ${delta.target} is unresolved; history is retained`);
     if (item.type === 'plan') {
