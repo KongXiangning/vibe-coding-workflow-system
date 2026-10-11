@@ -1,8 +1,8 @@
 # TraceLens 与 vNext 实施任务拆分与验收计划
 
-状态：VN-01、VN-02 契约交接完成；VN-03 源码与本地产物实现及聚焦验证完成，混合格式需求顺序登记审查意见已闭环。VN-04、VN-05、TraceLens 和 INT-01 未开始。整理及更新日期：2026-10-11。
+状态：VN-01 至 VN-05、TraceLens TL-01 至 TL-05 及 INT-01 已完成本轮限定范围，云端父线程统一核定通过。验收基于有限合成资料、单宿主真实页面交互及匹配候选安装，不是盲测、普遍 Agent 行为保证或真实业务全面验收；尚未正式发布或升级真实项目。整理及更新日期：2026-10-11。
 
-契约阶段结果见[VN-01／VN-02 验收记录](./vnext-contracts-vn01-vn02-validation.md)，当前实现结果见[VN-03 交付记录](./vnext-vn03-product-validation.md)。产品字段、版本、选择规则以[文档契约第 10 节](../product/project-maintenance/document-contract.md#10-vn-01-最小增量目标需求顺序与范围化报告)为准，当前只读查询以[ASSISTANCE_API 消费契约](../../runtime/vnext/support/ASSISTANCE_API.md#read-only-consumer-contract-vn-02)为准。v3 已由 VN-03 在源码及本地产物支持，尚未验证完整分发安装或真实 TraceLens 消费。
+契约阶段结果见[VN-01／VN-02 验收记录](./vnext-contracts-vn01-vn02-validation.md)，实现及联合结果见[VN-03 交付记录](./vnext-vn03-product-validation.md)及[VN-04／VN-05 验证与联合交付记录](./vnext-vn04-vn05-validation.md)。产品字段、版本、选择规则以[文档契约第 10 节](../product/project-maintenance/document-contract.md#10-vn-01-最小增量目标需求顺序与范围化报告)为准，当前只读查询以[ASSISTANCE_API 消费契约](../../runtime/vnext/support/ASSISTANCE_API.md#read-only-consumer-contract-vn-02)为准。候选分发、TraceLens 消费与 INT-01 已由云端核定本轮限定范围通过；正式发布及真实项目升级不在本轮完成声明内。
 
 依据：[目标需求管理及可视化完整方案](./TraceLens与vNext_目标需求管理及可视化完整方案.md)。产品口径以该定稿为准，本计划将其拆为 vNext 五个工作包、TraceLens 五个工作包和一个联合验收工作包，明确交接、依赖与完成标准。
 
@@ -112,6 +112,8 @@ VN-01 与 VN-02 可以并行；TL-01 与产品生产线可以并行。TL-04、TL
 
 ### VN-04 Skill 引导与关闭后局部评估
 
+验收状态：完成（2026-10-11）；五类有限 Agent 请求及补充真实保存冲突均有原始记录，最终云端独立审查通过。这些场景由实际宿主编写并执行，不是盲测或普遍行为保证。见[验证与审查记录](./vnext-vn04-vn05-validation.md)。
+
 目的：由执行任务的 Agent 在合适时机做语义评估，保持 Runtime 只负责记录和查询。
 
 主要位置：`templates/vnext/skills/` 中的 `maintain-project`、`prepare-task`、`close-task` 模板，必要的 `task-lifecycle` 引用，以及现有 `runtime/vnext/support/product-maintenance/references/`。
@@ -126,6 +128,8 @@ VN-01 与 VN-02 可以并行；TL-01 与产品生产线可以并行。TL-04、TL
 
 ### VN-05 生成分发与隔离安装验证
 
+验收状态：完成（2026-10-11）；源码构建、实际 npm 打包、离线安装包及隔离目标项目安装已验证，116 项分发资产摘要一致，最终云端独立审查通过。匹配 TraceLens 候选的 INT-01 限定联合验收亦由云端核定通过；尚未正式发布或升级真实项目。见[安装与联合交接记录](./vnext-vn04-vn05-validation.md)。
+
 目的：确保交给 TraceLens 与目标项目的产物包含前述能力，而非只有源码工作区可用。
 
 范围：按现有生成和打包路径更新受影响产物，核对 Schema、离线产品读取资产、Skill references、Runtime 查询入口及分发清单。不得手工编辑生成目录来制造表面一致。
@@ -135,6 +139,8 @@ VN-01 与 VN-02 可以并行；TL-01 与产品生产线可以并行。TL-04、TL
 交付说明分别列出源码验证、构建、隔离安装和仍未完成的事项。本包不默认升级 LawAgent、TermLink 等真实项目，也不把有限安装验证称为正式发布完成。
 
 ## 四 TraceLens 实施任务
+
+本轮结果：TL-01 至 TL-05 已由云端父线程结合独立审查、修复复核、测试和有限真实页面交互统一核定通过；K-PC vNext 实施者仅登记父线程明确返回的结果，不代称本地执行了 TraceLens 测试或独立审查。候选身份及证据范围见[联合验收结果](./vnext-vn04-vn05-validation.md#int-01-限定联合验收与本轮收口)。
 
 ### TL-01 Runtime 读取与多项目隔离
 
@@ -245,6 +251,8 @@ flowchart TD
 ## 六 联合验收范围
 
 ### INT-01 共用资料与完整链路
+
+验收状态：本轮限定范围完成（2026-10-11），由云端父线程统一核定通过。TraceLens 使用 r3 候选及 r4 两文件补丁，与正式 VN-05 tgz、116 项安装资产精确匹配；有限单宿主合成链路的页面操作、来源、降级、隔离、写入期间分页重启及云端安装查询核对有效。完整边界及 Library 证据标识见[联合验收记录](./vnext-vn04-vn05-validation.md#int-01-限定联合验收与本轮收口)，不将本轮结果延伸为真实业务或多宿主全面验收。
 
 共用一组有限合成资料，覆盖一个总目标、两个适用范围不同的支撑目标、一个被共同支撑的需求及其不同结论、父子细化和真实替代、项目顺序与未登记需求、具备多种生命周期的任务、来源缺失与身份冲突。再使用另一个项目和同仓库另一工作副本验证隔离。
 

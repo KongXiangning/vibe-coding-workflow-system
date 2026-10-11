@@ -28,6 +28,25 @@ be withdrawn with its failure retained; if that failure affects remaining capabi
 describe that actual scope. Never require repairing retired scope before honoring
 new intent, stopping or continuing other authorized work.
 
+For v3 keep root_goal_id an explicit project choice and current part_of/supports
+relations distinct from dependencies and historical replaces/derived_from. Adding
+a child retains the parent's identity/scope by default; real replacement needs
+explicit withdrawn coverage and the corresponding old scope/relations changed,
+not just a replaces edge. Preserve any other goal the old item still supports.
+Maintain one project requirement_order: initial adopted decomposition order, then
+append each new batch's v2/v3 requirements in the adopted order when a usable v3
+project exists. Do not migrate the requirement files merely to register order.
+Only an explicitly adopted reorder changes existing positions; record its basis
+and old/new order. Dependency, task, work-item and report changes never reorder it.
+Keep all readable unordered requirements visible rather than inventing order.
+
+Apply an authorized requirement change first. Definition or goal/scope digest
+changes flag the affected reports for local reconciliation; they do not invalidate
+achievements, require whole-project evaluation or block the change/task. Put
+progress and conclusions in independent reports, not the definition body. Reuse
+actual acceptance without adding KPIs. Keep current goal assessment_scopes explicit;
+reports do not define today's scope. See reconcile.md for scoped report handling.
+
 Use localized apply updates and read back. Malformed neighbor entries remain intact;
 repair only selected structure without restoring the former business meaning.
 On partial saves report which current bodies, changes and designs actually saved;
@@ -35,9 +54,11 @@ record pending synchronization without blocking development or faking successful
 
 Distinguish goal tuning from replacement. A numerical/wording adjustment to the same
 business outcome can keep its ID; a materially different outcome retains the former
-goal and a replacement destination. Result material belongs in goal body/sources:
-include observed time, population, measurement scope and unknowns, not a new KPI
-system or requirement-only assessment. A shipped feature does not prove that outcome.
+goal and a replacement destination. Include observed time, population, measurement
+scope and unknowns in result material. For v3 put the result in an independent
+goal-targeted assessment with its declared scope/object; retain the goal's
+requirements separately. Do not add a KPI system. A shipped feature does not prove
+that outcome. See reconcile.md for report production.
 
 Before splitting a requirement ask the business question internally: are there
 independent obligations, or just several implementation batches? Batches belong in

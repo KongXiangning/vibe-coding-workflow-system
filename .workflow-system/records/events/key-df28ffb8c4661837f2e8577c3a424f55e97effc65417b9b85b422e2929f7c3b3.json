@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:39:22.032Z",
+  "payload_sha256": "e26b7b6de2ec7eb5451f0f91557b36daabc10cf6e51a3f72f86fe3a5a170f022",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-wip-20261011-source-338ee097",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "step_id": "VN04",
+      "action": "execution",
+      "idempotency_key": "vn04-wip-20261011-source-338ee097",
+      "source_revision": "main@4ac444cf711d467930b47927c791d35e0d94414b + working-tree source manifest in libfile_2a06dee096a4819181faaa5f6f6fa470",
+      "result": "in-progress",
+      "summary": "8个VN-04模板/references文件已修改；静态契约及19项定向测试通过。有限Agent行为、云端独立审查、VN-05尚未执行。",
+      "commands": [
+        {
+          "command": "bun run validate:vnext-source",
+          "result": "passed; native Windows"
+        },
+        {
+          "command": "bun test test/workflow-vnext-source.test.ts",
+          "result": "19 passed / 0 failed; native Windows"
+        }
+      ],
+      "evidence": {
+        "library_file_id": "libfile_2a06dee096a4819181faaa5f6f6fa470",
+        "archive_sha256": "338ee09737fefbdb17c9e0b9546115154e31b2c63dcb6647e323e063592e65da",
+        "limits": [
+          "sandbox Bun attempts failed on cwd/temp environment and are retained",
+          "no Agent behavior evidence",
+          "no independent review",
+          "no VN05 installation"
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-49626ef9c1a9998c981a979487027d4097cdf57775a2808decf95363a93bfd23.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN04",
+        "source_revision": "main@4ac444cf711d467930b47927c791d35e0d94414b + working-tree source manifest in libfile_2a06dee096a4819181faaa5f6f6fa470",
+        "result": "in-progress",
+        "summary": "8个VN-04模板/references文件已修改；静态契约及19项定向测试通过。有限Agent行为、云端独立审查、VN-05尚未执行。",
+        "commands": [
+          {
+            "command": "bun run validate:vnext-source",
+            "result": "passed; native Windows"
+          },
+          {
+            "command": "bun test test/workflow-vnext-source.test.ts",
+            "result": "19 passed / 0 failed; native Windows"
+          }
+        ],
+        "evidence": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "a4011aeb6077c6c67bbf4fc5a1ff6b995a0b0124dbc51cb4a5920ba5bedf26bb",
+        "references": [
+          {
+            "data_pointer": "/evidence",
+            "request_pointer": "/evidence"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

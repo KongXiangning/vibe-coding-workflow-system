@@ -124,6 +124,18 @@ separately. If view publication failed, the saved close remains real; use live s
 and offer rebuild/correction/defer rather than claiming every management update finished.
 Retain useful lessons as observations; legacy archive mirrors are not the current view.
 
+After that close is saved and read back, perform local product evaluation when
+maintenance is enabled and the existing authorization covers it, using
+maintain-project references/reconcile.md. Start with this task's actual related
+requirements/goals, current goal-declared scopes, evaluated subject and available
+evidence. Do not evaluate every step or scan the whole project. Reuse explicit
+deferral and qualitative acceptance; do not add KPIs or derive satisfaction from
+task/child counts. Runtime close itself only records facts and never starts a model.
+Paused/missing PRODUCT, explicit deferral, unavailable evidence or an assessment
+save failure leaves the close intact. Report saved closure and evaluated/deferred
+scope separately; never reopen the task, force new checks or create a repair task
+merely to obtain an assessment. Details and report production belong in reconcile.md.
+
 Apply the shared rule to all closure deviations, not only missing approval. Gather
 unfinished steps, failed/not-run checks and open findings into one consequence summary.
 Once the user confirms the chosen disposition, close through the task management action without
@@ -131,9 +143,8 @@ first making those gaps disappear; preserve them explicitly in the closure repor
 
 ## Result
 
-If already authorized, maintain related product summaries using maintain-project
-references/reconcile.md with actual source/coverage; otherwise return pending
-locators. Close remains the existing assistance task disposition, not verification
+Return local assessment results and any pending/deferred maintenance locators.
+Close remains the existing assistance task disposition, not verification
 or requirement delivery. Report the arranged next business item or a scoped suggestion
 separately from next_route and actual task/step focus. Preserve parent continuation
 priority; this suggestion does not prepare, switch or execute a task. Use existing

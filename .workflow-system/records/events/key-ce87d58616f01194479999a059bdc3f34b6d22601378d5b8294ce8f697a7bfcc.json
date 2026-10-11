@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:55:08.011Z",
+  "payload_sha256": "2f113231b0e4323c4070696c5e021adf39f60956589f9012da285df7f3354644",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn05-final-install-contract-20261011",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "action": "test",
+      "step_id": "VN05",
+      "execution_ref": ".workflow-system/records/events/key-d59f60c68b12dfcb907083b9843b649602a1a1d18c9211f73094d1c6899fb309.json",
+      "idempotency_key": "vn05-final-install-contract-20261011",
+      "command": "bun test test/product-maintenance-install.test.ts; actual packed installed CLI/helper/offline-reader contract chain",
+      "selector": "2 existing install cases plus isolated packed artifact write/read and read-only summary/detail/source",
+      "result": "passed",
+      "report_ref": "docs/ops/vnext-vn04-vn05-validation.md; final source/evidence snapshot vnext-vn04-vn05-review-4ac444cf.zip",
+      "limits": "initial fixture/path/enum/CLI-argument failures retained; corrected chain passed; no source runtime fix or public release"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-d59f60c68b12dfcb907083b9843b649602a1a1d18c9211f73094d1c6899fb309.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN05",
+        "execution_ref": ".workflow-system/records/events/key-d59f60c68b12dfcb907083b9843b649602a1a1d18c9211f73094d1c6899fb309.json",
+        "command": "bun test test/product-maintenance-install.test.ts; actual packed installed CLI/helper/offline-reader contract chain",
+        "selector": "2 existing install cases plus isolated packed artifact write/read and read-only summary/detail/source",
+        "result": "passed",
+        "report_ref": "docs/ops/vnext-vn04-vn05-validation.md; final source/evidence snapshot vnext-vn04-vn05-review-4ac444cf.zip",
+        "limits": "initial fixture/path/enum/CLI-argument failures retained; corrected chain passed; no source runtime fix or public release"
+      }
+    }
+  },
+  "issues": []
+}

@@ -6,7 +6,7 @@ Agent reproduction separately. Discussion suggestion and actual observation may
 cite one raw fragment but are different facts. Never create a verification task
 just to receive a failure or assert Agent reproduction of a user report.
 
-Read selected requirement, selected assessment_id, original reports and actual
+Read selected requirement/goal, applicable scoped reports (or legacy assessment_id), original reports and actual
 implementation subjects/input coverage. Use impact_ids to get direct candidates,
 then read their bodies and judge actual dependencies. Ordinary references and
 inferred links do not invalidate an entire graph or mandate project-wide rechecks.
@@ -49,8 +49,9 @@ Historical CSV attribution and current Excel repair are separate bindings. If cu
 compatibility support is explicit it still needs coverage; retired alone does not
 erase that obligation. Pure history without current effect/authority can be recorded.
 
-For goal result material use the goal's actual body/sources and observed measurement
-scope, not assessment (whose target is a requirement). For split requirements and
+For goal result material use its actual requirements/sources and observed measurement
+scope. In v3 an independent goal-targeted assessment is valid; it is not a task or
+child-count aggregate. For split requirements and
 multi-owner tasks compare each delivered/input scope individually. Different versions
 or new formats do not automatically contradict every historical report. New failure
 with unchanged definition must remain pending or be reconciled; repair close never
@@ -78,3 +79,59 @@ unknown. Conversely a new range is not verified by a closed task's old PASS. Upd
 only affected assessments/pending sources and arrangements when actual results arise;
 no full product retest is required merely to write a progress summary. At task end,
 use plan.md for the business next item separately from workflow routing/continuation.
+
+## Local assessment after task closure
+
+The host Agent performs semantic evaluation; Runtime saves/queries facts and the
+product helper validates, hashes and saves reports. A direct Runtime close does
+not call a model. In close-task, save the actual closure first and read task-status
+to confirm closed and removed from active focus; separately report publication
+gaps. Only then, when maintenance is enabled and the current authority covers it,
+evaluate this task's actually related requirements/goals, their current scope and
+the evaluated object. Do not evaluate each step, scan all project history or treat
+closure as evidence of satisfaction. Pure read-only requests do not save reports.
+
+Read those definitions, relevant declared relationships, existing applicable
+reports and available delivery/verification evidence. Take scope_id/coverage from
+the selected goal.assessment_scopes, never from an old report or a guessed range;
+retain ambiguous/missing declarations as pending scope. Use the reported subject
+(working-copy, commit or release and actual revision/limitations) rather than
+assuming today's working copy matches a historical result. Requirements, reports,
+definitions' alignment and evidence applicability answer different questions.
+
+Judge against the actual agreed acceptance and scope, preserving qualitative
+criteria; do not invent KPI thresholds or demand fresh tests just to close or
+write a summary. Use the existing four conclusions: satisfied, partially-satisfied,
+not-satisfied, undetermined. Partial means known fulfilled and known unfulfilled
+portions; known achievements plus unknown remainder is undetermined with those
+achievements retained. No report is unknown, not a failure or zero progress. Goal
+results require their own scope/evidence, never counts or percentages of tasks,
+steps or children. One requirement may have different conclusions for different
+goals, scopes and objects; never overwrite them with one global status.
+
+Use API.md and contract.md section 10 to produce independent v3 assessment report
+files, not result updates to requirement/goal definition bodies. Save one target
+and explicit applicability/subject, actual target/goal source locators and their
+definition algorithms/digests, actual checked_at, evidence and the required body
+sections (coverage, delivery/verification basis, remaining/pending). Let the
+helper compute/check bytes; these checks do not certify the judgment. Preserve
+old reports; explicitly supersede only the same exact target/goal/scope/subject
+when correcting that conclusion. Read the saved report and scoped selection back
+with the helper; report persistence separately from selectable current conclusion.
+Legacy reports remain navigable and do not gain missing scope or satisfied from
+old PASS. New v3 reports may cite v1/v2 requirements without wholesale migration.
+
+Respect paused maintenance and explicit deferral without reasking. Missing PRODUCT,
+unreadable scope/evidence or report write failure leaves closure intact: state the
+known achievements, unknown or deferred scope, and any saved/unsaved report. When
+enough scope metadata is available, an undetermined report may retain the lack of
+evidence; otherwise keep a pending locator without inventing fields. Do not reopen
+the task, force tests, create a remedial task or undo an already saved part because
+another maintenance write failed. Retry only an authorized failed report/binding
+write, preserving concurrent-edit protection and successful task/report identities.
+
+On a direct user requirement change, first save the authorized definition and
+only then reconcile the affected old conclusions locally. Changed digests are
+check hints, not automatic business invalidation or Runtime admission. Preserve
+unaffected goals/scopes and earlier outcomes; do not rerun all evaluation merely
+because the same goal's conservative digest also changed for another scope.

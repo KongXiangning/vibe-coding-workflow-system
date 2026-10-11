@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:36:11.009Z",
+  "payload_sha256": "acc50499d571088c0dad111e1eae5adb9d2555fedf35678fb5eb290df7f1eb37",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-vn05-authorized-20261011-plan",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "vn04-vn05-authorized-20261011-plan",
+      "plan": {
+        "title": "VN-04 指引与 VN-05 隔离分发验证",
+        "goal": "按已授权实施计划完成剩余 vNext 工作，交接云端独立审查与 TraceLens 集成。",
+        "acceptance": [
+          "主 Skill 与 references 支持范围化维护及关闭后非阻塞局部评估",
+          "有限 Agent 交互保留实际动作与保存结果",
+          "云端独立审查完成，问题修复并回交",
+          "匹配实际产物在隔离项目安装及查询、写读验证"
+        ],
+        "scope": [
+          "VN-04",
+          "VN-05",
+          "INT-01 vNext交接配合"
+        ],
+        "exclusions": [
+          "重做VN-01/02/03",
+          "K-PC独立审查",
+          "TraceLens实施",
+          "旧任务关闭或修复",
+          "提交推送",
+          "发布部署",
+          "真实业务项目升级",
+          "电脑睡眠"
+        ],
+        "steps": [
+          {
+            "id": "VN04",
+            "title": "Skill及references实施、自测与云端审查交接",
+            "environment": [
+              "K-PC",
+              "云端父线程独立审查"
+            ],
+            "validation": [
+              "源码契约与权限静态核对",
+              "有限Agent交互",
+              "云端审查"
+            ]
+          },
+          {
+            "id": "VN05",
+            "title": "生成分发与隔离安装验证及跨仓库交接",
+            "environment": [
+              "K-PC隔离临时项目",
+              "TraceLens交接"
+            ],
+            "validation": [
+              "实际构建及隔离安装",
+              "产品写读和只读查询",
+              "正式Schema来源匹配",
+              "云端审查"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-88e1cc201881260cd8eb7a817b006c8190cccc49d0a9f82364e31b1faecd6b3c.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-017"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "bf35c4aa87666fef456b92d05648cd54847c5abdafab1846e219b47dbe973289",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

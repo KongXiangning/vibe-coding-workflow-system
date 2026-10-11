@@ -102,6 +102,10 @@ from actual preserved work; do not rerun completed commands because a receipt wa
 Supersede links the replacement to the retained original without resetting history. Changes
 to external resources, deletion or rollback need their own actual authorization. Lifecycle
 recording is not a verified-result claim.
+Pause/resume/focus does not start product evaluation. For a requested close or
+supersede termination, keep the closure result separate from any authorized local
+assessment and follow close-task/reconcile.md's close-first and deferral rules.
+Product maintenance or assessment failure never reverses the lifecycle choice.
 
 For a derived-task switch or manual return, inspect explicit origin, checkpoint, dependency
 outcome and return_result. focus/resume never completes the parent step or resolves a

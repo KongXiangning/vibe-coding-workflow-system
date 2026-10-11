@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:55:07.563Z",
+  "payload_sha256": "cb0960b1626317f3e6004e73c3d651559246f07f3d9a30196dfe49decee96b55",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn05-final-packed-isolated-20261011",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "action": "execution",
+      "step_id": "VN05",
+      "idempotency_key": "vn05-final-packed-isolated-20261011",
+      "source_revision": "main@4ac444cf711d467930b47927c791d35e0d94414b + working-tree-files/a1cd58d6b58c41c1569ad183bc41e4068ebd5fb7e2edfd07992b5b67dcec7e16",
+      "result": "completed",
+      "summary": "现有Runtime/分发构建、npm实际打包离线安装、公开CLI隔离项目安装及v3/task-query/source写读完成；116资产一致。最终云端审查、TraceLens消费和INT01未验收。",
+      "commands": [
+        {
+          "command": "bun run build:vnext-runtime",
+          "result": "passed"
+        },
+        {
+          "command": "bun run build:vibe-governance-distribution",
+          "result": "passed"
+        },
+        {
+          "command": "bun test test/product-maintenance-install.test.ts",
+          "result": "2 passed / 0 failed / 284 assertions"
+        },
+        {
+          "command": "npm pack --ignore-scripts; npm install --offline --ignore-scripts --no-audit --no-fund <actual tgz>; installed public CLI install",
+          "result": "passed"
+        }
+      ],
+      "evidence": {
+        "report_ref": "docs/ops/vnext-vn04-vn05-validation.md; final source/evidence snapshot vnext-vn04-vn05-review-4ac444cf.zip",
+        "manifest_digest": "9a3bc3f567b31ae7ca4ad579c78ce74b7b5035b85230aa1d1ce435b123cfe909",
+        "tgz_sha256": "4bb219ff72cde1a64c11976731971103b0e70a3801609145628e8a73dbe77e53",
+        "limits": [
+          "isolated synthetic installation, not publication",
+          "no LawAgent/TermLink upgrade",
+          "no INT01 verification"
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-64aa7eb2250192a9e7a54fcf0dc8b88dcafc63ef7f0f0fc33d67e6170b0636df.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN05",
+        "source_revision": "main@4ac444cf711d467930b47927c791d35e0d94414b + working-tree-files/a1cd58d6b58c41c1569ad183bc41e4068ebd5fb7e2edfd07992b5b67dcec7e16",
+        "result": "completed",
+        "summary": "现有Runtime/分发构建、npm实际打包离线安装、公开CLI隔离项目安装及v3/task-query/source写读完成；116资产一致。最终云端审查、TraceLens消费和INT01未验收。",
+        "commands": null,
+        "evidence": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "a7f85077a98002e310b7bd0c002d2a9ed18f8573b5fb01be278d4f8d0e5219a2",
+        "references": [
+          {
+            "data_pointer": "/commands",
+            "request_pointer": "/commands"
+          },
+          {
+            "data_pointer": "/evidence",
+            "request_pointer": "/evidence"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

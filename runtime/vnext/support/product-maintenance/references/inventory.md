@@ -12,6 +12,14 @@ Do not create new business requirements merely to fill templates or match task c
 Code/report shows actual implementation or observed behavior, not confirmed user intent.
 Existing explicit constraints in design retain their authority.
 
+For v3 use the unique project's explicit root_goal_id; missing, unreadable or
+conflicting roots remain gaps, never a first/current goal chosen by file order.
+Read necessary child/stage goals and declared current part_of/supports relations.
+Keep depends_on separate and replaces/derived_from historical; a child does not
+retire its parent. Preserve one requirement identity even when it supports several
+goals, with one project.requirement_order and a visible unordered entry point.
+Task/work-item counts and order are not requirement order or a completion rate.
+
 Create project.inventory with checked_sources and unreviewed_sources; partial is
 normal when only one area was requested. Reconciled requires nonempty checked
 sources and no unreviewed sources and means those listed sources only. Include

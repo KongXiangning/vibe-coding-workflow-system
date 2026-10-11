@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:39:22.250Z",
+  "payload_sha256": "5da437984781ce52c0f7fcd527d1f107ad15726aa348956ed0f2d1f35017f5ab",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-wip-20261011-static-tests",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "step_id": "VN04",
+      "action": "test",
+      "idempotency_key": "vn04-wip-20261011-static-tests",
+      "execution_ref": ".workflow-system/records/events/key-df28ffb8c4661837f2e8577c3a424f55e97effc65417b9b85b422e2929f7c3b3.json",
+      "command": "bun run validate:vnext-source; bun test test/workflow-vnext-source.test.ts",
+      "selector": "existing source contract and 19 source template cases",
+      "result": "passed",
+      "report_ref": "Library libfile_2a06dee096a4819181faaa5f6f6fa470 evidence/vn04-source-validation-native.log and evidence/vn04-source-tests-native.log",
+      "limits": "static validation only; not Agent behavior, independent review or installed distribution"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-df28ffb8c4661837f2e8577c3a424f55e97effc65417b9b85b422e2929f7c3b3.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN04",
+        "execution_ref": ".workflow-system/records/events/key-df28ffb8c4661837f2e8577c3a424f55e97effc65417b9b85b422e2929f7c3b3.json",
+        "command": "bun run validate:vnext-source; bun test test/workflow-vnext-source.test.ts",
+        "selector": "existing source contract and 19 source template cases",
+        "result": "passed",
+        "report_ref": "Library libfile_2a06dee096a4819181faaa5f6f6fa470 evidence/vn04-source-validation-native.log and evidence/vn04-source-tests-native.log",
+        "limits": "static validation only; not Agent behavior, independent review or installed distribution"
+      }
+    }
+  },
+  "issues": []
+}

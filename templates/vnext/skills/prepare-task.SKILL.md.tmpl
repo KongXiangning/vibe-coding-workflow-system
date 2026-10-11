@@ -142,9 +142,12 @@ When PRODUCT maintenance is enabled, read the relevant goal/requirement bodies,
 coverage, exclusions and unresolved matters before task preparation, including direct
 requests with no project plan or work item. If a work item is selected, also read it. Carry that business scope into the task plan; project
 plan_id is never Runtime plan_ref. Simple requests still prepare directly without
-a project plan. After preparation, preserve returned task_id and original event
-ref, and in an already authorized maintenance write phase supplement TaskBinding
-in each identifiable related goal/requirement using maintain-project references/plan.md.
+a project plan. During prepare retain the returned task_id/event ref and present
+known ownership and optional association recommendations; preparation alone does
+not adopt suggested bindings. In confirm, save bindings for the actually adopted
+coverage using maintain-project references/plan.md within existing maintenance
+authority. Reuse explicit user association or non-association choices without
+asking again; confirmation does not adopt recommendations outside that choice.
 Without a project plan, omit plan_items; do not create a plan just for binding.
 Unknown ownership remains an explicit pending locator; maintenance/exploration can
 legitimately have no requirement. Never invent a requirement to satisfy association.

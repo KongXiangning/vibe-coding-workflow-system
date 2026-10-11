@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:52:50.151Z",
+  "payload_sha256": "8aa3540ea82baf3632888e3b9d133994d7d51ce50ea3f712881ab8819d42b238",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-wip-cloud-source-review-338ee097",
+    "request": {
+      "action": "review",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "stage": "change",
+      "execution_ref": ".workflow-system/records/events/key-df28ffb8c4661837f2e8577c3a424f55e97effc65417b9b85b422e2929f7c3b3.json",
+      "idempotency_key": "vn04-wip-cloud-source-review-338ee097",
+      "verdict": "clean",
+      "findings": [],
+      "coverage": {
+        "kind": "source-only",
+        "source_archive_sha256": "338ee09737fefbdb17c9e0b9546115154e31b2c63dcb6647e323e063592e65da",
+        "library_file_id": "libfile_2a06dee096a4819181faaa5f6f6fa470",
+        "source_files": 320,
+        "changed_files": 8,
+        "behavior": "not-reviewed",
+        "distribution": "not-reviewed",
+        "limits": "Cloud parent reviewed the WIP source only; not final VN04 behavior/VN05 approval"
+      },
+      "provenance": {
+        "kind": "independent-cloud-review",
+        "source_thread_id": "01a0f15d-1fd1-746a-87d4-d73beb633020",
+        "result_received": "用户代理消息明确转述云端已审查8文件diff和320文件摘要；未发现必要修订项。此处只登记该实际范围，本地未执行独立审查。"
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "review",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-63e122473291fedfee83945b973655f7b68da231f33e23cf6a754d98cce866a4.json"
+      ],
+      "data": {
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-df28ffb8c4661837f2e8577c3a424f55e97effc65417b9b85b422e2929f7c3b3.json",
+        "verdict": "clean",
+        "findings": [],
+        "coverage": null,
+        "provenance": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "48026db971788a898e7a0a010df6a8209ca668cb25d5d3c108f4765fb60d65fd",
+        "references": [
+          {
+            "data_pointer": "/coverage",
+            "request_pointer": "/coverage"
+          },
+          {
+            "data_pointer": "/provenance",
+            "request_pointer": "/provenance"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

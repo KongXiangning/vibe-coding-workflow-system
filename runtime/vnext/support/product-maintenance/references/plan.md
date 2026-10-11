@@ -63,6 +63,13 @@ a second live copy. Known unread sources remain in inventory, not invented docum
 
 ## Plans and actual work
 
+Project requirement_order is independent of plan work_items order and Runtime
+steps. Retain its registered relative positions when filtering goals; show
+unregistered readable requirements separately. Batch additions append and only
+explicit adopted reorder changes existing positions. Dependencies or repair tasks
+do not move or duplicate requirement entries. Necessary child/stage goals and
+current decomposition/support stay distinct from historical replacement.
+
 For a plan use targets and stable work_items: expected outcome, coverage/exclusions,
 optional stage, declared order or engineering prerequisite with reasons, and unknowns.
 Preplanning can include all known work; hybrid can retain coarse distant work. Proposed
@@ -87,7 +94,13 @@ real task_id/display_id/event ref; only actual prepare allocates identity. Read 
 detail=task for existing task/plan/step selection; preserve actual historical refs.
 Source-only history uses task_id=null with identity-unconfirmed text, never fake IDs.
 
-After successful prepare write a TaskBinding in each affected goal/requirement:
+During prepare recommend the actual related coverage and retain its locators,
+without adopting optional suggestions. In confirm, after successful adoption and
+within authorized maintenance, write TaskBinding for the actually adopted coverage
+in each identifiable related goal/requirement. Reuse explicit user choices to
+associate or leave association empty; do not ask again or invent a requirement.
+Retain existing draft bindings as historical material without migration; their
+presence does not prove adoption. A binding has:
 stable binding ID, actual TaskRef, implementation/repair/verification/exploration/
 reference role and precise coverage, declared/inferred basis, optional plan_items
 and repairs referencing original historical work. No plan_items is valid without a
@@ -97,7 +110,7 @@ Repair association does not identify the defect's author or restore a retired go
 
 Before retry read existing bindings; deduplicate by actual identity, role and
 equivalent coverage with Agent judgment. Retain dismissed relations/reasons.
-If task creation succeeded but binding conflicted/failed, preserve its returned
+If task adoption succeeded but binding conflicted/failed, preserve its returned
 identity and only supplement binding; do not prepare again. Binding never focus,
 adopt, close, resume or supersede any task. Revise an existing task only when its
 own scope truly changes, using existing prepare(task_id, base_plan_ref)/adopt.

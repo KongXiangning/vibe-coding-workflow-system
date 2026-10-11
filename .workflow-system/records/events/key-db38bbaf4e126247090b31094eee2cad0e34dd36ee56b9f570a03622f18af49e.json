@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T22:02:24.475Z",
+  "payload_sha256": "4f70aa6f3d3b6c38b10eef90c154c8fea44db19ae56ccd2dd1d3d47e2d364013",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-finished-cloud-final-53b91600",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "action": "step",
+      "step_id": "VN04",
+      "state": "finished",
+      "review_ref": ".workflow-system/records/events/key-6705f8060df5f3e75883b4407bbc14199ee41b19f8b911749695a2a7633f88ca.json",
+      "decision_ref": ".workflow-system/records/events/key-cea753e94edec2a8687d137570ab8e58a0fa1a58dc733603851ee002d50241f8.json",
+      "idempotency_key": "vn04-finished-cloud-final-53b91600",
+      "decision_source": "云端父线程最终审查及完成请求",
+      "decision_text": "VN04云端审查与该步验收完成；不代报INT01联合验收。",
+      "remaining_work": []
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-cea753e94edec2a8687d137570ab8e58a0fa1a58dc733603851ee002d50241f8.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN04",
+        "state": "finished",
+        "review_ref": ".workflow-system/records/events/key-6705f8060df5f3e75883b4407bbc14199ee41b19f8b911749695a2a7633f88ca.json",
+        "decision_ref": ".workflow-system/records/events/key-cea753e94edec2a8687d137570ab8e58a0fa1a58dc733603851ee002d50241f8.json",
+        "decision_source": "云端父线程最终审查及完成请求",
+        "decision_text": "VN04云端审查与该步验收完成；不代报INT01联合验收。",
+        "remaining_work": []
+      }
+    }
+  },
+  "issues": []
+}

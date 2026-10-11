@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T22:02:24.946Z",
+  "payload_sha256": "e79a1d6b21e5e7a3cd89c0b6a3fbab660ef3b12f2483a98e403dfc8e925d6c87",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn05-final-cloud-review-53b91600",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "action": "review",
+      "step_id": "VN05",
+      "stage": "change",
+      "execution_ref": ".workflow-system/records/events/key-d59f60c68b12dfcb907083b9843b649602a1a1d18c9211f73094d1c6899fb309.json",
+      "idempotency_key": "vn05-final-cloud-review-53b91600",
+      "verdict": "clean",
+      "findings": [],
+      "coverage": {
+        "kind": "final-package-independent-cloud-review",
+        "library_file_id": "libfile_075c82e792988191a0f086835dff5449",
+        "archive_sha256": "53b91600cc3251ed14dddbc4e55d8031d2398dc1477e65f891878941de9266db",
+        "scope": "实际tgz、116项包内资产、源码及安装摘要、公开CLI安装与后续读取证据",
+        "exclusions": [
+          "TraceLens/INT01 independent acceptance",
+          "public release",
+          "real-project upgrade",
+          "post-review status/receipt-only documentation updates"
+        ]
+      },
+      "provenance": {
+        "kind": "independent-cloud-review",
+        "source_thread_id": "01a0f15d-1fd1-746a-87d4-d73beb633020",
+        "result_received": "云端独立审查已完成 VN-04/VN-05，未发现必须修订的源码或分发缺陷。实际 tgz、116 项包内资产、源码及安装摘要一致，公开 CLI 安装和后续读取证据有效。VN-04 仅按真实宿主编写并执行的有限合成场景验收，不称为盲测或普遍行为保证。",
+        "local_independent_review": "not-performed"
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "review",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-db38bbaf4e126247090b31094eee2cad0e34dd36ee56b9f570a03622f18af49e.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN05",
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-d59f60c68b12dfcb907083b9843b649602a1a1d18c9211f73094d1c6899fb309.json",
+        "verdict": "clean",
+        "findings": [],
+        "coverage": null,
+        "provenance": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "cc5791dbd6f95991b60b2ab86b0f0611495a40198f6a27f2e3fc3f7e94f30617",
+        "references": [
+          {
+            "data_pointer": "/coverage",
+            "request_pointer": "/coverage"
+          },
+          {
+            "data_pointer": "/provenance",
+            "request_pointer": "/provenance"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

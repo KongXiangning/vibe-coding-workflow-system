@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:36:11.248Z",
+  "payload_sha256": "4815ea7c3818f4b8a31ba3ccb7ba223208847341db3ad7b1bea3e2440c6923e5",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-vn05-authorized-20261011-adopt",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "focus": true,
+      "decision_source": "父线程 01a0f15d-1fd1-746a-87d4-d73beb633020 转述用户当前授权",
+      "decision_text": "开始执行整个实施计划；本线程负责VN-04、VN-05实施及自测；独立审查由父线程在云端负责，不在K-PC开展独立审查；不提交推送、发布、升级真实项目或睡眠电脑。",
+      "idempotency_key": "vn04-vn05-authorized-20261011-adopt"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "focus": true,
+        "decision_source": "父线程 01a0f15d-1fd1-746a-87d4-d73beb633020 转述用户当前授权",
+        "decision_text": "开始执行整个实施计划；本线程负责VN-04、VN-05实施及自测；独立审查由父线程在云端负责，不在K-PC开展独立审查；不提交推送、发布、升级真实项目或睡眠电脑。",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

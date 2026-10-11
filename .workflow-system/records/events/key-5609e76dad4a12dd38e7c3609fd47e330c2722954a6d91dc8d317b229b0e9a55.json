@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T22:43:43.939Z",
+  "payload_sha256": "daac663f9844dd91dbd8bf866c3254161b71cfd8cee964d976d1b52284fc8691",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:task017-int01-joint-confirmed-close-20261011",
+    "request": {
+      "action": "close",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "idempotency_key": "task017-int01-joint-confirmed-close-20261011",
+      "decision_source": "云端父线程最新明确授权收口TASK017；INT01限定范围已统一核定通过",
+      "decision_text": "两真实步骤finished/clean且INT01交接配合现已完成，关闭本轮TASK017。保留未提交和既存管理缺口，不改已验收源码或旧任务，不提交推送，不睡眠。",
+      "remaining_work": [
+        "源码、文档和本轮任务事实未提交；按明确指令不提交推送。"
+      ],
+      "gaps": [
+        "有限合成单宿主验收，不认证真实业务全面验收或所有Agent行为。",
+        "既存CURRENT_TASK_DRIFT与LEGACY_ASSOCIATION_REQUIRED保留；旧任务不修复或关闭。"
+      ],
+      "closure_summary": "VN04/VN05及INT01 vNext交接配合完成本轮授权限定范围；未发布部署或升级真实项目。",
+      "evidence": {
+        "source": "云端父线程明确统一核定INT01通过本轮限定范围",
+        "source_thread_id": "01a0f15d-1fd1-746a-87d4-d73beb633020",
+        "tracelens_r3_library_file_id": "libfile_97d2e9a0c86c81918a23257b1fca8490",
+        "tracelens_r4_library_file_id": "libfile_a5439b0c32f88191992d5273b42e31ff",
+        "vnext_review_library_file_id": "libfile_075c82e792988191a0f086835dff5449",
+        "installation": "正式VN05 tgz与116安装资产精确一致",
+        "interaction": "真实合成页面18+5条操作；四值/范围/对象、报告到Task/Step返回、归档来源、旧快照、缺失Runtime、副本隔离、正常写入分页重启；截图请求只读摘要有效",
+        "cloud_read": "已安装summary与页面revision匹配；全树字节不变",
+        "tests": "r3 19文件223通过、2 Windows专用跳过；r4相关26通过及构建通过",
+        "limitations": "有限合成单宿主；不是盲测、普遍Agent行为保证、真实业务或多宿主全面验收"
+      },
+      "source_refs": [
+        ".workflow-system/records/events/key-6705f8060df5f3e75883b4407bbc14199ee41b19f8b911749695a2a7633f88ca.json",
+        ".workflow-system/records/events/key-b8defdb390231df2b20f59e767f924fa4ec4411dba470811417af11a44724534.json",
+        ".workflow-system/records/events/key-db38bbaf4e126247090b31094eee2cad0e34dd36ee56b9f570a03622f18af49e.json",
+        ".workflow-system/records/events/key-20775aa34d380773850962a89390c81a7254d31f9e612e84f4b1867f725f3c19.json",
+        "docs/ops/vnext-vn04-vn05-validation.md",
+        "docs/ops/TraceLens与vNext_实施任务拆分与验收计划.md"
+      ]
+    },
+    "task_event": {
+      "version": 2,
+      "action": "close",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-20775aa34d380773850962a89390c81a7254d31f9e612e84f4b1867f725f3c19.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "decision_source": "云端父线程最新明确授权收口TASK017；INT01限定范围已统一核定通过",
+        "decision_text": "两真实步骤finished/clean且INT01交接配合现已完成，关闭本轮TASK017。保留未提交和既存管理缺口，不改已验收源码或旧任务，不提交推送，不睡眠。",
+        "remaining_work": [
+          "源码、文档和本轮任务事实未提交；按明确指令不提交推送。"
+        ],
+        "gaps": [
+          "有限合成单宿主验收，不认证真实业务全面验收或所有Agent行为。",
+          "既存CURRENT_TASK_DRIFT与LEGACY_ASSOCIATION_REQUIRED保留；旧任务不修复或关闭。"
+        ],
+        "closure_summary": "VN04/VN05及INT01 vNext交接配合完成本轮授权限定范围；未发布部署或升级真实项目。",
+        "evidence": null,
+        "source_refs": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "4ccaf52112e01a10e3558b2453bc7e20203342c6d6b84b29d805c76d360c804c",
+        "references": [
+          {
+            "data_pointer": "/evidence",
+            "request_pointer": "/evidence"
+          },
+          {
+            "data_pointer": "/source_refs",
+            "request_pointer": "/source_refs"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

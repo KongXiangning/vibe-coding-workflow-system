@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:55:06.353Z",
+  "payload_sha256": "3ddaaf6a128b1377f3a8aa6e8eb1a6765dd6e101941366bf95361bb565463a95",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-final-finite-agent-20261011",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "action": "execution",
+      "step_id": "VN04",
+      "idempotency_key": "vn04-final-finite-agent-20261011",
+      "source_revision": "main@4ac444cf711d467930b47927c791d35e0d94414b + working-tree-files/a1cd58d6b58c41c1569ad183bc41e4068ebd5fb7e2edfd07992b5b67dcec7e16",
+      "result": "completed",
+      "summary": "八个模板及reference修改；19项源码测试、静态校验、五类有限Agent交互及真实保存冲突子场景完成。首轮云端源码审查已登记，最终行为与交付云端验收待确认。",
+      "evidence": {
+        "report_ref": "docs/ops/vnext-vn04-vn05-validation.md; final source/evidence snapshot vnext-vn04-vn05-review-4ac444cf.zip",
+        "agent_evidence": "six synthetic case directories with requests, commands, raw results and final bytes",
+        "limits": [
+          "not independent local review",
+          "does not guarantee all Agent behavior",
+          "no real business deployment"
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-e6a0e377ec58bbc88da660c4eaf0f1229a6300187b20f722a3d691e76153a90e.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN04",
+        "source_revision": "main@4ac444cf711d467930b47927c791d35e0d94414b + working-tree-files/a1cd58d6b58c41c1569ad183bc41e4068ebd5fb7e2edfd07992b5b67dcec7e16",
+        "result": "completed",
+        "summary": "八个模板及reference修改；19项源码测试、静态校验、五类有限Agent交互及真实保存冲突子场景完成。首轮云端源码审查已登记，最终行为与交付云端验收待确认。",
+        "evidence": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "8c25621fad36cdca621afa728c225f53cda8a4a711e06d6b4c4e2b0c136bee95",
+        "references": [
+          {
+            "data_pointer": "/evidence",
+            "request_pointer": "/evidence"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

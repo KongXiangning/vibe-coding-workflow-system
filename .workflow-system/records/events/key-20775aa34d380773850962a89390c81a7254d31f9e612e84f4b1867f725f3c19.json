@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T22:02:25.938Z",
+  "payload_sha256": "708a8d9e5ad015bed12e45a148f82f6c3198c25415e3b8b56e42f9be69b61ca7",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn05-finished-cloud-final-53b91600",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "action": "step",
+      "step_id": "VN05",
+      "state": "finished",
+      "review_ref": ".workflow-system/records/events/key-b8defdb390231df2b20f59e767f924fa4ec4411dba470811417af11a44724534.json",
+      "decision_ref": ".workflow-system/records/events/key-67deb6a1c6ee50c844e44e2952c9dc0f062460a1ba3194831c915fc39b3e219a.json",
+      "idempotency_key": "vn05-finished-cloud-final-53b91600",
+      "decision_source": "云端父线程最终审查及完成请求",
+      "decision_text": "VN05云端审查与该步验收完成；不代报INT01联合验收。",
+      "remaining_work": [
+        "Task级剩余范围：INT-01 vNext交接配合待联合结果确认；两包审查及候选交接已完成，未发布或升级真实项目。"
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-67deb6a1c6ee50c844e44e2952c9dc0f062460a1ba3194831c915fc39b3e219a.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN05",
+        "state": "finished",
+        "review_ref": ".workflow-system/records/events/key-b8defdb390231df2b20f59e767f924fa4ec4411dba470811417af11a44724534.json",
+        "decision_ref": ".workflow-system/records/events/key-67deb6a1c6ee50c844e44e2952c9dc0f062460a1ba3194831c915fc39b3e219a.json",
+        "decision_source": "云端父线程最终审查及完成请求",
+        "decision_text": "VN05云端审查与该步验收完成；不代报INT01联合验收。",
+        "remaining_work": [
+          "Task级剩余范围：INT-01 vNext交接配合待联合结果确认；两包审查及候选交接已完成，未发布或升级真实项目。"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

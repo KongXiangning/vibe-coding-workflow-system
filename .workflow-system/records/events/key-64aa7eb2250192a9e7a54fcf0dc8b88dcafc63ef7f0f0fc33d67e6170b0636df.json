@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T21:55:06.828Z",
+  "payload_sha256": "3c5f95f9dd18fcb4643df9ca69a5eab780924bcbb798e56c6b7c397e884995c9",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-final-observed-agent-20261011",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "action": "test",
+      "step_id": "VN04",
+      "execution_ref": ".workflow-system/records/events/key-2e878c00e21d59f7bc2b50d941556ca93f27e8d2c54f9f540eb0aa80f3d0b91f.json",
+      "idempotency_key": "vn04-final-observed-agent-20261011",
+      "command": "有限Agent实际请求与真实CLI操作；实施者只读核对日志/事件/产品字节",
+      "selector": "five planned scenarios plus actual stale-digest save-conflict subscenario",
+      "result": "passed",
+      "report_ref": "docs/ops/vnext-vn04-vn05-validation.md; final source/evidence snapshot vnext-vn04-vn05-review-4ac444cf.zip",
+      "limits": "finite synthetic observations only; final cloud independent behavior review pending"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-2e878c00e21d59f7bc2b50d941556ca93f27e8d2c54f9f540eb0aa80f3d0b91f.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN04",
+        "execution_ref": ".workflow-system/records/events/key-2e878c00e21d59f7bc2b50d941556ca93f27e8d2c54f9f540eb0aa80f3d0b91f.json",
+        "command": "有限Agent实际请求与真实CLI操作；实施者只读核对日志/事件/产品字节",
+        "selector": "five planned scenarios plus actual stale-digest save-conflict subscenario",
+        "result": "passed",
+        "report_ref": "docs/ops/vnext-vn04-vn05-validation.md; final source/evidence snapshot vnext-vn04-vn05-review-4ac444cf.zip",
+        "limits": "finite synthetic observations only; final cloud independent behavior review pending"
+      }
+    }
+  },
+  "issues": []
+}

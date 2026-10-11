@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-10T22:02:24.002Z",
+  "payload_sha256": "625aff2d4f6a6f37a6b9164f7696195c2f33705278b685ac6ccc41fd4a30c324",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vn04-accept-cloud-final-53b91600",
+    "request": {
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+      "action": "review-decision",
+      "step_id": "VN04",
+      "review_ref": ".workflow-system/records/events/key-6705f8060df5f3e75883b4407bbc14199ee41b19f8b911749695a2a7633f88ca.json",
+      "choice": "accept",
+      "idempotency_key": "vn04-accept-cloud-final-53b91600",
+      "decision_source": "云端父线程明确授权登记最终独立审查并完成负责步骤",
+      "decision_text": "按实际云端审查范围接受，完成VN04；原Task scope包含INT01 vNext交接配合，联合验收前保留Task active，旧任务不动。"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review-decision",
+      "task_id": "task-d3907c7f781a99cbb70078fc1082ab7b",
+      "parents": [
+        ".workflow-system/records/events/key-6705f8060df5f3e75883b4407bbc14199ee41b19f8b911749695a2a7633f88ca.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-5172b756517023c8b8809424cb5f55a31cdf68d435a9d77f9e8910b0b1aabeb7.json",
+        "step_id": "VN04",
+        "review_ref": ".workflow-system/records/events/key-6705f8060df5f3e75883b4407bbc14199ee41b19f8b911749695a2a7633f88ca.json",
+        "choice": "accept",
+        "decision_source": "云端父线程明确授权登记最终独立审查并完成负责步骤",
+        "decision_text": "按实际云端审查范围接受，完成VN04；原Task scope包含INT01 vNext交接配合，联合验收前保留Task active，旧任务不动。"
+      }
+    }
+  },
+  "issues": []
+}
