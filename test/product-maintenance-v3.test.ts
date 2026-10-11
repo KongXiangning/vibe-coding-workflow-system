@@ -28,6 +28,68 @@ const read = (root: string, selection: any = query()) => run('read', root, { det
 const op = (root: string, file: string, rest: any) => ({ path: file, expected_sha256: sha256(get(root, file)), ...rest });
 const report = (root: string, id = 'A-DEMO') => parseProduct(get(root, reportPath), reportPath).items.find(i => i.id === id)!;
 
+function applyWith(root: string, input: any, bundled: boolean): any {
+  if (!bundled) return run('apply', root, input);
+  const response = spawnSync('node', ['runtime/vnext/dist/product-maintenance.js', 'apply', '--root', root], { input: JSON.stringify(input), encoding: 'utf8' });
+  expect(response.error).toBeUndefined();
+  const result = JSON.parse(response.stdout);
+  expect(response.status).toBe(result.status === 'failed' ? 1 : 0);
+  return result;
+}
+
+test.each([false, true])('VN03 P2 report isolation rejects appended definitions and preserves existing malformed reports (bundle=%s)', bundled => {
+  const root = fixture();
+  const definitions = parseProduct(get(root, projectPath), projectPath);
+  const before = get(root, reportPath), projectBefore = get(root, projectPath);
+  for (const [sourceId, id] of [['R-NEW', 'R-ADDED'], ['G-DEMO', 'G-ADDED']]) {
+    const source = definitions.items.find(i => i.id === sourceId)!;
+    const saved = applyWith(root, { files: [op(root, reportPath, { append: [{
+      metadata: { ...source.metadata, id }, body: source.body.replaceAll(sourceId!, id!),
+    }] })] }, bundled);
+    expect(saved.status).toBe('failed');
+    expect(saved.files[0].saved).toBe(false);
+    expect(saved.files[0].error).toContain('STRUCTURE_INVALID');
+    expect(get(root, reportPath)).toBe(before);
+    expect(get(root, projectPath)).toBe(projectBefore);
+    expect(read(root).assessment_selection.assessment_id).toBe('A-DEMO');
+    expect(read(root).unusable_items).toHaveLength(0);
+  }
+
+  // A pre-existing incomplete neighbor must not become a new write prerequisite.
+  const old = report(root);
+  const incomplete = { ...old.metadata }; delete incomplete.goal_definition_sha256;
+  const other = report(root, 'A-LIVE');
+  put(root, reportPath, newDocument([{ metadata: incomplete, body: old.body }, { metadata: other.metadata, body: other.body }], 'Existing incomplete report', 3));
+  const malformedBefore = get(root, reportPath), oldItem = report(root);
+  expect(oldItem.usable).toBe(false);
+  const saved = applyWith(root, { files: [op(root, reportPath, { updates: [{ id: 'A-LIVE', metadata: { conclusion: 'undetermined' } }] })] }, bundled);
+  expect(saved.status).toBe('saved');
+  const malformedAfter = get(root, reportPath), retained = report(root);
+  expect(retained.usable).toBe(false);
+  expect(retained.body).toBe(oldItem.body);
+  expect(malformedAfter.slice(retained.metadata_start, retained.metadata_end)).toBe(malformedBefore.slice(oldItem.metadata_start, oldItem.metadata_end));
+});
+
+test.each([false, true])('VN03 P2 appended project honors explicit order including empty order (bundle=%s)', bundled => {
+  for (const order of [['R-SECOND', 'R-FIRST'], [], undefined]) {
+    const root = fixture();
+    put(root, projectPath, newDocument([], 'Empty project', 3));
+    put(root, reportPath, newDocument([], 'Empty reports', 3));
+    const project = {
+      metadata: { id: 'PROJECT', type: 'project', inventory: { state: 'partial', checked_sources: [], unreviewed_sources: [] }, ...(order === undefined ? {} : { requirement_order: order }) },
+      body: '## [PROJECT] Project\n### 项目定位\nSynthetic.\n### 盘点范围与未核对项\nSynthetic.\n',
+    };
+    const ids = ['R-FIRST', 'R-SECOND', 'R-UNORDERED'];
+    const requirements = ids.map(id => ({ metadata: { id, type: 'requirement', scope: 'current' }, body: `## [${id}] Requirement\n### 需求内容\nExample.\n### 范围边界\nExample.\n### 验收要求\nExample.\n` }));
+    const saved = applyWith(root, { files: [op(root, projectPath, { append: [project, ...requirements] })] }, bundled);
+    expect(saved.status).toBe('saved');
+    const view = read(root).product_view;
+    expect(view.requirement_order).toEqual(order ?? ids);
+    expect(view.unordered_requirements).toEqual(order === undefined ? [] : ids.filter(id => !order.includes(id)).sort());
+    if (order !== undefined) expect(saved.requirement_order_update).toEqual({ status: 'unchanged', saved: true });
+  }
+});
+
 test('VN03 authoritative sample parses and selects separate scopes, subjects and the overall goal', () => {
   const root = fixture(), out = read(root);
   expect(out.usable_items).toHaveLength(14);

@@ -2,6 +2,8 @@
 
 状态：VN-03 源码与本地产物实现及聚焦验证完成，混合格式需求顺序登记审查意见已修复并复核；2026-10-11。依据：[拆分计划 VN-03](TraceLens与vNext_实施任务拆分与验收计划.md#vn-03-产品生产与维护能力)、[VN-01 契约](../product/project-maintenance/document-contract.md#10-vn-01-最小增量目标需求顺序与范围化报告)及[共用样例](../product/project-maintenance/examples/scoped-contract.md)。审查遵循定稿方案 7.1.1 节，聚焦实际保存、读取与机器消费，不扩展假设边界。
 
+基于 `6c4d8536` 的后续审查发现两项 P2 保存缺陷，已修复并完成定向回归及实施者复核，见末节。此前各阶段的测试数量、摘要和交付边界保留为历史证据。
+
 开始前已提交 VN-01／VN-02 契约交接资料：`f54d355`。原有路径／glob、测试和两个 bundle 修改未纳入该提交；本轮保留并在其基础上实施，不将原有修复归作 VN-03 新功能。
 
 ## 实现范围
@@ -73,3 +75,18 @@ bun test test/product-maintenance.test.ts test/product-maintenance-v3.test.ts
 - 修复复核：`.workflow-system/records/events/key-88e1cc201881260cd8eb7a817b006c8190cccc49d0a9f82364e31b1faecd6b3c.json`
 
 本轮按用户指令将 VN-03 实现、混合格式修复、测试、交接资产及本记录纳入阶段提交；此前保留且已被产物依赖的路径／glob 修复和对应回归一并保存，不归作 VN-03 新功能。尚未发布。没有修改 VN-04 Skill／references、VN-02 查询实现、完整分发安装逻辑或任何业务项目；VN-03 达到本包源码交接范围，后续工作仍按用户授权推进。
+
+## 后续两项 P2 保存缺陷修复与复核（2026-10-11）
+
+基线 `6c4d8536b69017c6f4ad43223635360d725626b3`。按计划及定稿方案 7.1.1 节，两项均为产品 helper 执行的确定性保存规则缺陷；不是 AI 判断缺陷、保守摘要策略调整或新的 Task 门槛。
+
+| 问题、依据与触发条件 | 实际影响与修复 | 定向验证 |
+| --- | --- | --- |
+| P2 报告混存：契约 10.1 要求报告与需求／目标定义分离；向有效 v3 报告文件 append 需求或目标。 | 原写入器只检查选中条目，漏掉旧报告因混存新增的错误，保存成功却使原报告不可用。现在同时检查原先有效的 v3 报告，在发布前拒绝这类候选；既有异常邻居及 v1／v2 显式迁移边界保留。 | 需求、目标两个方向均拒绝；报告及项目文件字节不变，原 A-DEMO 仍可选。另核对既有不完整报告旁的合法更新成功，异常报告正文与 YAML 字节保留。 |
+| P2 显式顺序：契约 10.3 与 VN-03 要求显式用户数组优先；通过 append 新建 project 并同批新增需求。 | 原 suppliesOrder 漏识别 append 中的 requirement_order，自动把故意未登记的需求加入数组。现在 append 与 content／updates 一样识别显式数组。 | 非空数组保留原顺序及未登记项；显式空数组保持为空；省略数组时仍按批次登记。 |
+
+新增两个参数化测试、共四项执行，分别覆盖源码与 Node bundle。修复前四项均实际失败；修复并通过现有 `build:product-maintenance` 重建后，执行 `bun test test/product-maintenance.test.ts test/product-maintenance-v3.test.ts`：**60 通过、0 失败、1409 次断言**。既有 v1／v2 混合与迁移、并发保护、冻结及部分保存回归继续通过；`git diff --check` 通过。
+
+实施者按相同审查约束复核了触发条件、保存与回读结果、旧异常保留及生成产物，两项必要意见已闭环，修复范围内未发现新的必要修订项；使用 simplify 检查新增代码的清晰度。本次不是独立审查或新的 Agent 行为验收，没有扩大 Schema、字段、状态机或业务流程。
+
+本次重建的 `runtime/vnext/dist/product-maintenance.js` SHA-256 为 `827a112c6f3ad810440bd1af6c7c8f23268f6c7b83dba4d843d73af54396de0f`。该摘要不同于此前 VN-05 已验收候选：旧 tgz、安装目录及云端验收记录保留原身份，不能作为这次修复已安装的证明。本次验证限于源码和重新生成的本地 Node helper，未重新打包安装、发布、升级真实项目或复验 TraceLens，也未自动运行全量 workflow 测试。

@@ -17622,7 +17622,7 @@ function validateProductCandidate(previous2, next, operation, selectedIds, catal
       throw new Error(`BODY_BOUNDARY: body must remain entirely inside ## [${fragment.id}], with no extra root heading or swallowed neighbor`);
   }
   const newRootErrors = next.diagnostics.filter((d) => d.severity === "error" && !d.item_id && !previous2?.diagnostics.some((old) => old.code === d.code && old.message === d.message && old.pointer === d.pointer));
-  const selected = next.items.filter((item) => affected.includes(item.id));
+  const selected = next.items.filter((item) => affected.includes(item.id) || item.type === "assessment" && previous2?.version === 3 && previous2.items.some((old) => old.id === item.id && old.usable));
   const errors2 = [...newRootErrors, ...selected.flatMap((item) => item.diagnostics.filter((d) => d.severity === "error"))];
   if (errors2.length)
     throw new Error(`STRUCTURE_INVALID: ${errors2.map((e) => `${e.item_id ?? ""} ${e.pointer ?? ""} ${e.message}`).join("; ")}`);
@@ -17644,6 +17644,8 @@ function suppliesOrder(operation, document4) {
     if (item.type !== "project" || item.version !== 3)
       return false;
     if ("content" in operation && Object.hasOwn(item.metadata, "requirement_order"))
+      return true;
+    if (operation.append?.some((addition) => addition.metadata.id === item.id && Object.hasOwn(addition.metadata, "requirement_order")))
       return true;
     return operation.updates?.some((update) => update.id === item.id && (Object.hasOwn(update.metadata ?? {}, "requirement_order") || update.remove_fields?.includes("requirement_order"))) ?? false;
   });

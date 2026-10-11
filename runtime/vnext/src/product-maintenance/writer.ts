@@ -321,7 +321,11 @@ function validateProductCandidate(previous: ProductDocument | undefined, next: P
     if (!item || normalizedBody(item.body) !== normalizedBody(fragment.body)) throw new Error(`BODY_BOUNDARY: body must remain entirely inside ## [${fragment.id}], with no extra root heading or swallowed neighbor`);
   }
   const newRootErrors = next.diagnostics.filter(d => d.severity === 'error' && !d.item_id && !previous?.diagnostics.some(old => old.code === d.code && old.message === d.message && old.pointer === d.pointer));
-  const selected = next.items.filter(item => affected.includes(item.id));
+  // Appended definitions can invalidate untouched reports through document-wide
+  // isolation rules. Preserve valid v3 reports, while allowing existing malformed
+  // neighbors and explicit migrations of incomplete v1/v2 reports as before.
+  const selected = next.items.filter(item => affected.includes(item.id)
+    || (item.type === 'assessment' && previous?.version === 3 && previous.items.some(old => old.id === item.id && old.usable)));
   const errors = [...newRootErrors, ...selected.flatMap(item => item.diagnostics.filter(d => d.severity === 'error'))];
   if (errors.length) throw new Error(`STRUCTURE_INVALID: ${errors.map(e => `${e.item_id ?? ''} ${e.pointer ?? ''} ${e.message}`).join('; ')}`);
   return [...new Set(affected)];
@@ -338,6 +342,7 @@ function suppliesOrder(operation: ObjectValue, document: ProductDocument): boole
   return document.items.some(item => {
     if (item.type !== 'project' || item.version !== 3) return false;
     if ('content' in operation && Object.hasOwn(item.metadata, 'requirement_order')) return true;
+    if (operation.append?.some((addition: ObjectValue) => addition.metadata.id === item.id && Object.hasOwn(addition.metadata, 'requirement_order'))) return true;
     return operation.updates?.some((update: ObjectValue) => update.id === item.id &&
       (Object.hasOwn(update.metadata ?? {}, 'requirement_order') || update.remove_fields?.includes('requirement_order'))) ?? false;
   });
