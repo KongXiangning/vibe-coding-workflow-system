@@ -135,6 +135,8 @@ Paused/missing PRODUCT, explicit deferral, unavailable evidence or an assessment
 save failure leaves the close intact. Report saved closure and evaluated/deferred
 scope separately; never reopen the task, force new checks or create a repair task
 merely to obtain an assessment. Details and report production belong in reconcile.md.
+Retain any actual parent continuation and selected focus during this local
+evaluation; advice or a maintenance failure never replaces or blocks that return.
 
 Apply the shared rule to all closure deviations, not only missing approval. Gather
 unfinished steps, failed/not-run checks and open findings into one consequence summary.

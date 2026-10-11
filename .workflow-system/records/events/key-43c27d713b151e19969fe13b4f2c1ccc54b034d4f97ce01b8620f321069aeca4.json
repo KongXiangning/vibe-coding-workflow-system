@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T17:08:25.470Z",
+  "payload_sha256": "802c207df83279efe998df2b012eaa12ffd3e2fbc60fe21ae1d9c985aabc9a79",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vnext-actual-selected-tests-summary-20261011",
+    "request": {
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+      "action": "test",
+      "step_id": "D",
+      "source_revision": "uncommitted working tree on fdc71a895663f33dc96c522ff81b5caa742879ff",
+      "result": "passed-with-declared-scope",
+      "checks": [
+        "40项聚焦既有检查通过",
+        "3项原生Task续做/依赖/发布失败幂等恢复检查通过",
+        "116项全部源码/生成/安装字节相等且父审独立核对通过"
+      ],
+      "limits": [
+        "单模型有限合成场景",
+        "Linux Chromium；非真实业务全面验证",
+        "无Windows/一万条实际实验/真实业务修复/全历史UI测试"
+      ],
+      "idempotency_key": "vnext-actual-selected-tests-summary-20261011"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "test",
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "parents": [
+        ".workflow-system/records/events/key-651e6eae5df61a48484030e9e85354c7d6906b02562a083ae9250010aae229e2.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+        "step_id": "D",
+        "source_revision": "uncommitted working tree on fdc71a895663f33dc96c522ff81b5caa742879ff",
+        "result": "passed-with-declared-scope",
+        "checks": [
+          "40项聚焦既有检查通过",
+          "3项原生Task续做/依赖/发布失败幂等恢复检查通过",
+          "116项全部源码/生成/安装字节相等且父审独立核对通过"
+        ],
+        "limits": [
+          "单模型有限合成场景",
+          "Linux Chromium；非真实业务全面验证",
+          "无Windows/一万条实际实验/真实业务修复/全历史UI测试"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

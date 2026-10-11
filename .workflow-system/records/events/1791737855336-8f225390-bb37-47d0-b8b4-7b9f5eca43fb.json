@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T16:57:35.337Z",
+  "payload_sha256": "b80c271d5ba9ded0c085004da41f6077d59101b23e39ac1586fd8967cc6182af",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "request": {
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+      "action": "execution",
+      "step_id": "D",
+      "source_revision": "uncommitted working tree on fdc71a895663f33dc96c522ff81b5caa742879ff",
+      "result": "本宿主全部本次选定检查已实际完成；最终分发补包与交接由父审核对后收口，当前不关闭整体Task。",
+      "commands": [
+        "Bun1.3.10冻结安装、runtime及distribution构建、validate:vnext-source",
+        "40项聚焦检查通过",
+        "3项原生Task派生返回、依赖上下文、发布失败恢复检查通过",
+        "7项选定资产及116项全分发源码/生成/安装字节一致"
+      ],
+      "evidence_index": "evidence/final-index.json"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "parents": [
+        ".workflow-system/records/events/1791737855167-f3213a03-ec10-4dfd-b908-b2cbcd4889bd.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+        "step_id": "D",
+        "source_revision": "uncommitted working tree on fdc71a895663f33dc96c522ff81b5caa742879ff",
+        "result": "本宿主全部本次选定检查已实际完成；最终分发补包与交接由父审核对后收口，当前不关闭整体Task。",
+        "commands": [
+          "Bun1.3.10冻结安装、runtime及distribution构建、validate:vnext-source",
+          "40项聚焦检查通过",
+          "3项原生Task派生返回、依赖上下文、发布失败恢复检查通过",
+          "7项选定资产及116项全分发源码/生成/安装字节一致"
+        ],
+        "evidence_index": "evidence/final-index.json"
+      }
+    }
+  },
+  "issues": []
+}

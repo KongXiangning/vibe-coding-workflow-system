@@ -82,6 +82,16 @@ use plan.md for the business next item separately from workflow routing/continua
 
 ## Local assessment after task closure
 
+When a child requirement changes or produces evidence, read its actual current
+part_of parents and compare only the affected obligation against each parent's
+declared coverage. A parent may be evaluated from direct integration evidence;
+it does not require reports for every child and never equals all(children).
+Adding a child does not by itself invalidate an older explicitly scoped report.
+If the new obligation actually changes current parent coverage, reconcile that
+coverage locally. If maintenance is deferred or fails, retain the earlier report
+and explain the newly unchecked/unsaved scope rather than certifying it from the
+old conclusion. Do not recursively invalidate ancestors or other goal scopes.
+
 The host Agent performs semantic evaluation; Runtime saves/queries facts and the
 product helper validates, hashes and saves reports. A direct Runtime close does
 not call a model. In close-task, save the actual closure first and read task-status
@@ -90,6 +100,9 @@ gaps. Only then, when maintenance is enabled and the current authority covers it
 evaluate this task's actually related requirements/goals, their current scope and
 the evaluated object. Do not evaluate each step, scan all project history or treat
 closure as evidence of satisfaction. Pure read-only requests do not save reports.
+Read and retain the actual parent continuation/focus first. Product evaluation
+and next-business advice do not focus a new task, replace that continuation or
+block its already authorized remaining step when maintenance fails.
 
 Read those definitions, relevant declared relationships, existing applicable
 reports and available delivery/verification evidence. Take scope_id/coverage from

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T17:08:25.641Z",
+  "payload_sha256": "7ddd00adc8ac815680d51ce41ab2f700aee6d386a23830897586b73c5ccb3a37",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vnext-finish-D-20261011",
+    "request": {
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+      "action": "step",
+      "step_id": "D",
+      "state": "finished",
+      "remaining_work": [],
+      "decision_source": "父线程最终独立复核与既有用户A/B/C/D授权",
+      "decision_text": "本次选定实施/验收/独立核对已完成，完成D工作处置；保留范围限制和历史展示漂移，不修改原始失败记录。",
+      "idempotency_key": "vnext-finish-D-20261011"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "parents": [
+        ".workflow-system/records/events/key-43c27d713b151e19969fe13b4f2c1ccc54b034d4f97ce01b8620f321069aeca4.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+        "step_id": "D",
+        "state": "finished",
+        "remaining_work": [],
+        "decision_source": "父线程最终独立复核与既有用户A/B/C/D授权",
+        "decision_text": "本次选定实施/验收/独立核对已完成，完成D工作处置；保留范围限制和历史展示漂移，不修改原始失败记录。"
+      }
+    }
+  },
+  "issues": []
+}

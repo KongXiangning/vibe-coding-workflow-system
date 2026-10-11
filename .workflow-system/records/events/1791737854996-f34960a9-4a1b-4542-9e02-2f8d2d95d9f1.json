@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T16:57:34.996Z",
+  "payload_sha256": "61a3871bd02489fb24262ad10a67d3a3debc3884248c2bd57b472f4f15318c5b",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "request": {
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+      "action": "review",
+      "stage": "change",
+      "execution_ref": ".workflow-system/records/events/1791736968556-783ed7be-d4bf-4a5a-a50c-17c4c5f39683.json",
+      "verdict": "no-required-P0-P1-P2-findings",
+      "findings": [],
+      "coverage": [
+        "父线程独立指导源码审查：初始P2在当前指导源码闭合，无新必要修复项",
+        "父线程用compiled helper回读最终21条；当前能力/BOM/candidate/shared identity正确",
+        "固定合成范围satisfied与查询undetermined分离；PROJECT与保存收据一致",
+        "冲突前后及报告重试Task回读字节一致；paused局部Task与closed未执行探索保留",
+        "此审查不含尚待父审的完整116项安装字节补包"
+      ],
+      "provenance": {
+        "reviewer": "父线程独立云端审查",
+        "source_thread_id": "01a0f15d-1fd1-746a-87d4-d73beb633020",
+        "artifact": "libfile_9094422f60148191a26e1db4cd865765",
+        "artifact_sha256": "ad7ccfda002f7a813829e0c6b44aba3e52c870a27de8f319ce4f4d13ca149c9c",
+        "decision_text": "VN独立源码及有限宿主复核已通过，没有新必要修复项；安装补包尚待父审核对。"
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "review",
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "parents": [
+        ".workflow-system/records/events/1791736969137-13bde293-aeed-45b2-937f-e1e3f433bffd.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/1791736968556-783ed7be-d4bf-4a5a-a50c-17c4c5f39683.json",
+        "verdict": "no-required-P0-P1-P2-findings",
+        "findings": [],
+        "coverage": null,
+        "provenance": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "7c68ec136e895b397286fb72caaa99e22afe7d29a2fa2ce8f7c6a4f77597e38d",
+        "references": [
+          {
+            "data_pointer": "/coverage",
+            "request_pointer": "/coverage"
+          },
+          {
+            "data_pointer": "/provenance",
+            "request_pointer": "/provenance"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

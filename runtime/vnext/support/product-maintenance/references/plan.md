@@ -8,6 +8,14 @@ rules or replace the complete requirements with a remaining-work list.
 
 ## Three usable strategies, not Runtime modes
 
+For a request to plan the complete current product, first enumerate all known
+adopted current capability from the authorized materials, including work intended
+for later implementation. Retain parent capabilities and meaningful acceptance;
+late implementation alone does not make an agreed requirement planned/candidate.
+Only genuine unadopted future ideas or unresolved decisions stay outside current
+scope. State unread/conflicting/necessary-unknown material locally. Do not demand
+design exploration when the requested behavior and constraints are already clear.
+
 - Preplanning can arrange all known implementation scope into stable work items,
   order and actual dependencies, while leaving future tasks uncreated. Explain
   where each known part of this planning scope belongs, including deferred work
@@ -18,7 +26,9 @@ rules or replace the complete requirements with a remaining-work list.
   including in a complex project; do not demand a full plan or rank all work first.
 - Hybrid planning retains broad architecture, stages or milestones and details
   nearby work. Distinguish concrete near-term outcomes from coarse distant scope
-  and unknowns; a stage title alone is not an implementation rationale.
+  and unknowns; a stage title alone is not an implementation rationale. Coarse
+  distant work concerns implementation detail or uncommitted ideas, not omission
+  of known adopted current requirement definitions and acceptance.
 
 Respect an existing strategy and switch it for a project phase or business scope
 when requested/covered by authorization. Do not ask for a strategy every time or

@@ -12,6 +12,19 @@ Do not create new business requirements merely to fill templates or match task c
 Code/report shows actual implementation or observed behavior, not confirmed user intent.
 Existing explicit constraints in design retain their authority.
 
+For a new project or an explicitly defined current delivery scope, normally form
+a reviewable full-scope functional analysis before arranging implementation.
+Read the raw business material, map user scenarios and end-to-end input/output,
+then examine important failure/recovery cases, quality constraints and interface
+combinations that affect that scope. Turn supported implications into concrete
+capability, boundary and meaningful acceptance proposals, not just copied titles;
+explain their source/reason and unresolved assumptions. Analysis is not automatic
+adoption. Save current definitions after the real adoption/within an already clear
+decision, without reconfirming that decision. Full current analysis and a formal
+increment use different read scopes. A local repair, explicit implement-first
+request or genuinely unknown exploration remains usable independently; this
+default never requires whole-project planning before every task.
+
 For v3 use the unique project's explicit root_goal_id; missing, unreadable or
 conflicting roots remain gaps, never a first/current goal chosen by file order.
 Read necessary child/stage goals and declared current part_of/supports relations.

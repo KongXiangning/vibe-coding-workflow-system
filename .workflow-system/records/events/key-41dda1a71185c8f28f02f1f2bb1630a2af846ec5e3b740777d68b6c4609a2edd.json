@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T17:08:25.809Z",
+  "payload_sha256": "11d0f7bd36d97c2927c007f297136a1b75a3ce53ce056345ea32124f3259b902",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:vnext-close-implementation-20261011",
+    "request": {
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+      "action": "close",
+      "remaining_work": [],
+      "decision_source": "父线程明确授权正常Task收口；用户已授权A/B/C/D",
+      "decision_text": "父线程最终独立复核无剩余必要finding，本次实施任务关闭。只表示本次工作已处置；不声明真实业务完成、全平台验证或qualification PASS。",
+      "provenance": {
+        "received_at": "2026-10-11T17:08:25.186204+00:00",
+        "reviewer": "父线程独立云端审查",
+        "source_thread_id": "01a0f15d-1fd1-746a-87d4-d73beb633020",
+        "decision_text": "最终独立复核全部通过；无剩余必要finding。授权仅正常Task审查/处置/关闭及回读，更新交接；不改已审产品源码、原历史漂移，不提交推送。",
+        "coverage": [
+          "116/116实际源码=生成payload=安装文件=manifest checksum=安装state checksum，无缺失",
+          "manifest规范化摘要10a52f6ddd1b3c19787793074d9e0d65482a267bea9ef2ba3145e6ab92be16f6与state一致；0.24.6",
+          "安装补包423项文件清单尺寸/摘要全匹配；7份指导与已审版本同字节",
+          "已独立核对最后scoped18组/降级5组报告及证据；最终TL src与已审C包无差异"
+        ],
+        "artifacts": [
+          "libfile_3ce7097203588191baf332abd4240d44",
+          "libfile_09f2b20832e08191903d81302c3c194e",
+          "libfile_c5f6fcf7ddf48191b550233fc15308cc"
+        ],
+        "remaining_required_findings": []
+      },
+      "idempotency_key": "vnext-close-implementation-20261011"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "close",
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "parents": [
+        ".workflow-system/records/events/key-d57290afeb2b81cbdcbf06c1bd2183431ab2d0b27a7a97be43611f5d6ad248b8.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+        "remaining_work": [],
+        "decision_source": "父线程明确授权正常Task收口；用户已授权A/B/C/D",
+        "decision_text": "父线程最终独立复核无剩余必要finding，本次实施任务关闭。只表示本次工作已处置；不声明真实业务完成、全平台验证或qualification PASS。",
+        "provenance": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "0fc44761c51c48c3b6f3d92fa36c4a06c04ac1fcedb57187fc3b81156eef3c05",
+        "references": [
+          {
+            "data_pointer": "/provenance",
+            "request_pointer": "/provenance"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

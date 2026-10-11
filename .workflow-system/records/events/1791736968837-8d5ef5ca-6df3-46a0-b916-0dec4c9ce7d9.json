@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T16:42:48.837Z",
+  "payload_sha256": "5228f49871c530ddb7b4109f599f171113ddfe6372c77f3df7b46c36058a4ee3",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "request": {
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+      "action": "execution",
+      "step_id": "B",
+      "source_revision": "uncommitted working tree on fdc71a895663f33dc96c522ff81b5caa742879ff",
+      "result": "已完成本步范围修改与实际证据交接，独立审查由父线程进行；不声明审查通过",
+      "commands": [
+        "真实 helper apply/read；分发与隔离安装"
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "parents": [
+        ".workflow-system/records/events/1791736968698-cfceb6b3-abef-43ba-99e5-893882b6d1f4.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+        "step_id": "B",
+        "source_revision": "uncommitted working tree on fdc71a895663f33dc96c522ff81b5caa742879ff",
+        "result": "已完成本步范围修改与实际证据交接，独立审查由父线程进行；不声明审查通过",
+        "commands": [
+          "真实 helper apply/read；分发与隔离安装"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

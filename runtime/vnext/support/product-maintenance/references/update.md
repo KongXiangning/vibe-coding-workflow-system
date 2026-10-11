@@ -6,6 +6,18 @@ Verify current explicit intent against historical sources; do not let task plans
 freeze business goals or use modified time to pick a truth. Read code only when
 needed to describe actual implementation; an adopted design is still a target.
 
+For a formal added requirement, analyze the complete requested increment first:
+read its raw request and affected current definitions, trace normal and important
+exception paths, quality/interface combinations and actual impact on parent or
+shared capability. Present concrete added/changed acceptance and exclusions,
+separating new current obligations, clarification of existing meaning and optional
+future enhancements. Do not copy a coarse new heading and leave its essential
+behavior undefined, or expand into unrelated project analysis. Proposals remain
+proposals; use the actual adoption to save the increment and local arrangements.
+An already explicit adopted decision is sufficient and is not asked again.
+Ordinary narrow fixes, explicit maintenance deferral and bounded exploration do
+not trigger this full-increment method or a mandatory overall plan.
+
 Apply real requested changes to current body. New/add/modify/defer/cancel/restore
 are ordinary scope updates: planned/candidate/retired do not mean done. Split or
 merge by retaining retired/withdrawn prior IDs and declaring replaces/derived_from

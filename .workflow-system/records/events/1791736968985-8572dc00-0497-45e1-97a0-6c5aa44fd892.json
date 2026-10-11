@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T16:42:48.985Z",
+  "payload_sha256": "5ab590ce0331ba6902dc18c3626e954baef2f63f334f83b97928018157659bfe",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "request": {
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+      "action": "step",
+      "step_id": "B",
+      "state": "finished",
+      "decision_ref": ".workflow-system/records/events/1791736968837-8d5ef5ca-6df3-46a0-b916-0dec4c9ce7d9.json",
+      "remaining_work": [
+        "父线程独立审查仍待进行；D额外旧scoped回归未完成"
+      ],
+      "decision_source": "本次云端实施检查点；原用户授权",
+      "decision_text": "本步实现与范围内证据已交接，保留未完成验收／独立审查。"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-e6f0c568a0972c5a8946fba58b359e5b",
+      "parents": [
+        ".workflow-system/records/events/1791736968837-8d5ef5ca-6df3-46a0-b916-0dec4c9ce7d9.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-0e048d4b5164251be16d50d40760632e1fa70ecb5139351950a915c9042e0fb8.json",
+        "step_id": "B",
+        "state": "finished",
+        "decision_ref": ".workflow-system/records/events/1791736968837-8d5ef5ca-6df3-46a0-b916-0dec4c9ce7d9.json",
+        "remaining_work": [
+          "父线程独立审查仍待进行；D额外旧scoped回归未完成"
+        ],
+        "decision_source": "本次云端实施检查点；原用户授权",
+        "decision_text": "本步实现与范围内证据已交接，保留未完成验收／独立审查。"
+      }
+    }
+  },
+  "issues": []
+}
