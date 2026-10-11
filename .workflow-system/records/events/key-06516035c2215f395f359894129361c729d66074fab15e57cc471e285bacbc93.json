@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T18:37:20.892Z",
+  "payload_sha256": "8c63216362250298fa3f8d7d2b0eaef8691a562507a34119df96d59e16440536",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:docs-D4-disposition-20261011",
+    "request": {
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "plan_ref": ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json",
+      "action": "step",
+      "idempotency_key": "docs-D4-disposition-20261011",
+      "step_id": "D4",
+      "state": "finished",
+      "remaining_work": [],
+      "decision_ref": ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json",
+      "decision_source": "父线程实际独立审查及正常收口指令",
+      "decision_text": "本轮文档修改与独立审查处置完成；按指令关闭并回读，不声明未运行测试通过。"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "parents": [
+        ".workflow-system/records/events/key-ea014cccce9e3e080de571965573d8bc733d58665e37ea2ae4feb0002463e4a4.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json",
+        "step_id": "D4",
+        "state": "finished",
+        "remaining_work": [],
+        "decision_ref": ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json",
+        "decision_source": "父线程实际独立审查及正常收口指令",
+        "decision_text": "本轮文档修改与独立审查处置完成；按指令关闭并回读，不声明未运行测试通过。"
+      }
+    }
+  },
+  "issues": []
+}

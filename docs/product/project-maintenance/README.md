@@ -1,10 +1,14 @@
 # vNext 项目目标、需求与实施规划维护
 
-设计版本：0.2。状态：首版已实施；规划与可靠性增量的本地候选 `0.24.1`，未发布。使用方式见[指南](../../guides/maintain-project.md)，本轮与历史验证分别见[交付记录](../../ops/vnext-project-maintenance-delivery.md)。
+当前使用入口是[maintain-project 指南](../../guides/maintain-project.md)。当前能力依据已验收源码和本地构建 `0.24.6`：vNext 已实现 v3 文档生产／读取、宿主维护指导及分发安装；TraceLens 已实现相应只读消费、范围报告及本轮组成 DAG／Task 汇集展示。不能把这些本地交付推断为 npm 已发布、已合并 main，或用户项目已升级。
 
-2026-10-11 增量：VN-01／VN-02 契约交接完成。[文档契约第 10 节](document-contract.md#10-vn-01-最小增量目标需求顺序与范围化报告)定义 product-doc/v3；[只读查询契约](../../../runtime/vnext/support/ASSISTANCE_API.md#read-only-consumer-contract-vn-02)约定现有 task-query/v1 的消费。VN-03 源码与本地产物已支持 v3 Schema、生产和离线读取，验证见[VN-03 交付记录](../../ops/vnext-vn03-product-validation.md)。VN-04、VN-05 和 TraceLens 后续工作包尚未推进；契约阶段证据保留在[原验收记录](../../ops/vnext-contracts-vn01-vn02-validation.md)。
+最新交付与验证边界见[完整当前需求规划实施与验收交接](../../ops/full-scope-planning-evidence/实施与验收交接.md)。VN-04 指导和 VN-05 分发／安装已完成相应有限验收，不能继续按未推进处理；最新功能源码基线为 vNext 工作分支 `a0c1a3735101f0fbeeff26694c9e1b1889a0d752`、TraceLens 工作分支 `dfad23e8ffa65d0c9223846cada8fd3f402e960c`。交接中的原始未提交状态是验收时快照，后续已授权提交不会改写原记录。单模型有限合成、实际安装字节和 Linux Chromium 证据不等于真实业务／Windows／全平台验证。
 
-仓库勘察基线：`main@c40726fa54f5c88acf65a1a6266392829da916c9`（0.23.8）。本目录整合此前设计 0.1 及后续六项能力修订；实施不需要查找聊天、外部压缩包或旧版设计。公开文档格式支持 product-doc/v1／v2／v3，Manifest 保持 v1／v2；旧资料的读取与显式迁移规则见契约。
+字段权威仍是[文档契约](document-contract.md)，第 10 节描述 product-doc/v3；Manifest 保持 v1／v2，文件按自己的格式版本读取，相关文件显式迁移而非强制全项目迁移。真实任务消费遵循[只读查询契约](../../../runtime/vnext/support/ASSISTANCE_API.md#read-only-consumer-contract-vn-02)。模板与旧格式兼容说明见[TraceLens 解析交接](../../guides/tracelens-product-documents.md)。
+
+以下第 1–4 节保留设计 0.2、首版实施目标及历史阅读顺序；其中交给实施 Agent 的目标和当时阶段状态是历史背景，不是重建已完成能力的当前任务指令。需求与格式约束继续在对应正文维护；当前用户使用方式及交付状态以以上入口为准。原首版证据见[交付记录](../../ops/vnext-project-maintenance-delivery.md)、[VN-03 记录](../../ops/vnext-vn03-product-validation.md)和[契约阶段原验收](../../ops/vnext-contracts-vn01-vn02-validation.md)。
+
+历史仓库勘察基线：`main@c40726fa54f5c88acf65a1a6266392829da916c9`（0.23.8）。本目录整合此前设计 0.1 及后续六项能力修订；无需查找聊天、外部压缩包或旧版设计。
 
 ## 1. 要达到的结果
 

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T18:37:20.508Z",
+  "payload_sha256": "9741fb82d1260539fc44c439ebb04b3237c0111fa2c78e507c3ad066667ee9a4",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:docs-parent-review-decision-20261011",
+    "request": {
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "plan_ref": ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json",
+      "action": "review-decision",
+      "idempotency_key": "docs-parent-review-decision-20261011",
+      "review_ref": ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json",
+      "choice": "accept",
+      "decision_source": "父线程实际独立审查消息，source_thread_id: 01a0f15d-1fd1-746a-87d4-d73beb633020",
+      "decision_text": "落实唯一用词澄清并保留其余文字，完成最小检查后正常收口；不提交推送。"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review-decision",
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "parents": [
+        ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json",
+        "review_ref": ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json",
+        "choice": "accept",
+        "decision_source": "父线程实际独立审查消息，source_thread_id: 01a0f15d-1fd1-746a-87d4-d73beb633020",
+        "decision_text": "落实唯一用词澄清并保留其余文字，完成最小检查后正常收口；不提交推送。"
+      }
+    }
+  },
+  "issues": []
+}

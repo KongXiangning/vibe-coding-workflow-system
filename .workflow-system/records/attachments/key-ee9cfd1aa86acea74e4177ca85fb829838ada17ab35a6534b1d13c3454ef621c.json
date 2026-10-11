@@ -1,0 +1,18 @@
+{
+  "event_ref": ".workflow-system/records/events/key-ee9cfd1aa86acea74e4177ca85fb829838ada17ab35a6534b1d13c3454ef621c.json",
+  "captured_at": "2026-10-11T18:37:21.085Z",
+  "attachments": [
+    {
+      "status": "unavailable",
+      "request": ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json",
+      "code": "INVALID_EVIDENCE_REFERENCE",
+      "message": "Use an existing immutable ref with SHA256 (or a known CAS SHA256), optional size/label/purpose/role/workflow_home; live paths belong in files."
+    },
+    {
+      "status": "unavailable",
+      "request": ".workflow-system/records/events/key-ea014cccce9e3e080de571965573d8bc733d58665e37ea2ae4feb0002463e4a4.json",
+      "code": "INVALID_EVIDENCE_REFERENCE",
+      "message": "Use an existing immutable ref with SHA256 (or a known CAS SHA256), optional size/label/purpose/role/workflow_home; live paths belong in files."
+    }
+  ]
+}
