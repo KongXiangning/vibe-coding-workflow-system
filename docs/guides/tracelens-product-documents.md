@@ -1,8 +1,8 @@
 # 需求与目标维护成果：标准模板与 TraceLens 解析交接
 
-本文面向产品文档维护者和 TraceLens 实施者，整理现有成果的模板、格式、解析入口与展示要求。使用现有 `vnext-product-manifest/v2` 和 `vnext-product-doc/v2`，不新增格式版本。字段权威是[文档契约](../product/project-maintenance/document-contract.md)与[生产 Schema](../../runtime/vnext/support/product-maintenance/schemas/)；本文是使用索引，发生差异时先核对契约和实际解析器。
+本文面向产品文档维护者和 TraceLens 实施者。下文模板、字段速查和示例保留 `vnext-product-manifest/v2`／`vnext-product-doc/v2` 的兼容交接背景；它们仍可用，不是 v3 的完整字段清单。当前 Manifest 可登记 v1／v2／v3 文档，并按每份文档的版本读取；v3 的总目标、目标／需求组成、显式需求顺序、范围声明及独立目标报告见[文档契约第 10 节](../product/project-maintenance/document-contract.md#10-vn-01-最小增量目标需求顺序与范围化报告)。字段权威仍是[文档契约](../product/project-maintenance/document-contract.md)与[生产 Schema](../../runtime/vnext/support/product-maintenance/schemas/)，不从旧速查表推断 v3 关系受 v2 方向限制。
 
-交付范围是文档、可复用模板和消费者样例；没有修改 TraceLens 源码或验证其页面。
+当前 TraceLens 已实现 v3 只读消费、Runtime 任务查询、精确范围报告，以及当前组成 DAG 折叠、共享子项、父需求 Task 汇集、关联警示与可信生命周期分离、报告片段／来源导航。用户能力与场景见[maintain-project 指南](maintain-project.md)，最新本地 `0.24.6` 分发、跨仓源码及有限 Linux Chromium 验收边界见[实施与验收交接](../ops/full-scope-planning-evidence/实施与验收交接.md)。这不表示 npm 发布、main 合并或目标项目升级；下文的旧模板与消费者样例不代表当前 TraceLens 未接入。
 
 ## 1. 成果清单与模板选择
 

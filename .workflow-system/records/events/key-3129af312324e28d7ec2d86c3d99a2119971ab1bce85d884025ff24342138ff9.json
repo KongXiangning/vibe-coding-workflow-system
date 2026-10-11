@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T18:15:08.904Z",
+  "payload_sha256": "ebdf93a7abb50e6bd0a2f31199e29b4083e7616c1df973f99dcbec6286062638",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:capability-user-guide-20261011",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "capability-user-guide-20261011",
+      "plan": {
+        "title": "补齐当前项目目标需求维护能力说明",
+        "goal": "据已验收源码完善熟悉vNext的用户指南及文档入口，保留历史正文和验证边界",
+        "scope": [
+          "云端现有vNext工作分支",
+          "仅必要docs及正常任务记录"
+        ],
+        "exclusions": [
+          "Runtime/前端代码修改",
+          "提交推送发布",
+          "真实项目升级",
+          "同义权威手册或新增gate/百分比"
+        ],
+        "steps": [
+          {
+            "id": "D1",
+            "title": "核对源码契约与现有文档",
+            "validation": [
+              "精确HEAD/状态、规则、已有能力及安装限制"
+            ]
+          },
+          {
+            "id": "D2",
+            "title": "补齐指南与当前入口",
+            "validation": [
+              "场景清楚、必要文档最小修改、保留历史正文"
+            ]
+          },
+          {
+            "id": "D3",
+            "title": "最小核验与父审交接",
+            "validation": [
+              "链接/路径/事实、diff --check、完整docs diff及小型文件包"
+            ]
+          },
+          {
+            "id": "D4",
+            "title": "独立审查后正常收口",
+            "validation": [
+              "父审实际结论、正常API处置/关闭/回读"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "parents": [
+        ".workflow-system/records/events/key-41dda1a71185c8f28f02f1f2bb1630a2af846ec5e3b740777d68b6c4609a2edd.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-019"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "8538aa32d3b4d8b4686e9293beeac8a54fb513e2042524e42ae1007e793da8f0",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

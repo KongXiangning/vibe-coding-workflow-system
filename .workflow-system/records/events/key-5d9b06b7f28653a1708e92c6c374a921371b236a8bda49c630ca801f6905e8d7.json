@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T18:15:09.129Z",
+  "payload_sha256": "1913ea004bb1163abd9d525d5176533940a73a3f31ffafb91142647feace05cf",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:adopt-capability-user-guide-20261011",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "plan_ref": ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json",
+      "focus": true,
+      "decision_source": "用户最新功能说明补齐请求，由父线程委托",
+      "decision_text": "在当前云端分支补必要文档和任务记录；未授权提交推送，待父审后正常收口。",
+      "idempotency_key": "adopt-capability-user-guide-20261011"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "parents": [
+        ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json",
+        "focus": true,
+        "decision_source": "用户最新功能说明补齐请求，由父线程委托",
+        "decision_text": "在当前云端分支补必要文档和任务记录；未授权提交推送，待父审后正常收口。",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

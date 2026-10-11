@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T18:39:14.918Z",
+  "payload_sha256": "ab1607ec1f34a8a8ff1cdc6985aa68aba7f08bb891b96255a56990dcb2c762da",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:docs-close-evidence-identity-correction-20261011",
+    "request": {
+      "action": "correct",
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "record_ref": ".workflow-system/records/events/key-ee9cfd1aa86acea74e4177ca85fb829838ada17ab35a6534b1d13c3454ef621c.json",
+      "event": {
+        "action": "close",
+        "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+        "data": {
+          "evidence_refs": [
+            {
+              "ref": ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json",
+              "sha256": "4ff783f1ca85727be66f56d0a2730fb2d38f01e57a70a9a454c2fac629b1a41f",
+              "size": 3373,
+              "role": "close-source"
+            },
+            {
+              "ref": ".workflow-system/records/events/key-ea014cccce9e3e080de571965573d8bc733d58665e37ea2ae4feb0002463e4a4.json",
+              "sha256": "4385b3924687029b6b3488744c89c3bf0c507eb6f292c197a3b4032c72335247",
+              "size": 2202,
+              "role": "close-source"
+            }
+          ]
+        }
+      },
+      "evidence_refs": [
+        {
+          "ref": ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json",
+          "sha256": "4ff783f1ca85727be66f56d0a2730fb2d38f01e57a70a9a454c2fac629b1a41f",
+          "size": 3373,
+          "role": "close-source"
+        },
+        {
+          "ref": ".workflow-system/records/events/key-ea014cccce9e3e080de571965573d8bc733d58665e37ea2ae4feb0002463e4a4.json",
+          "sha256": "4385b3924687029b6b3488744c89c3bf0c507eb6f292c197a3b4032c72335247",
+          "size": 2202,
+          "role": "close-source"
+        }
+      ],
+      "idempotency_key": "docs-close-evidence-identity-correction-20261011",
+      "decision_source": "本轮交接核验发现证据附件引用缺少SHA256；依据实际原始read返回的身份补正",
+      "decision_text": "只补正关闭来源的附加证据引用；保留原请求、未捕获记录、关闭选择、审查结果和验证边界。"
+    },
+    "evidence_refs": [
+      {
+        "ref": ".workflow-system/records/events/key-a264bd1dc66d08cec36f2f2762f6e40d5224b58c41c79d2a57e8738e34b8ac23.json",
+        "sha256": "4ff783f1ca85727be66f56d0a2730fb2d38f01e57a70a9a454c2fac629b1a41f",
+        "size": 3373,
+        "role": "close-source"
+      },
+      {
+        "ref": ".workflow-system/records/events/key-ea014cccce9e3e080de571965573d8bc733d58665e37ea2ae4feb0002463e4a4.json",
+        "sha256": "4385b3924687029b6b3488744c89c3bf0c507eb6f292c197a3b4032c72335247",
+        "size": 2202,
+        "role": "close-source"
+      }
+    ],
+    "task_event": {
+      "version": 2,
+      "action": "correct",
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "parents": [
+        ".workflow-system/records/events/key-ee9cfd1aa86acea74e4177ca85fb829838ada17ab35a6534b1d13c3454ef621c.json"
+      ],
+      "data": {
+        "record_ref": ".workflow-system/records/events/key-ee9cfd1aa86acea74e4177ca85fb829838ada17ab35a6534b1d13c3454ef621c.json",
+        "event": null,
+        "evidence_refs": null,
+        "decision_source": "本轮交接核验发现证据附件引用缺少SHA256；依据实际原始read返回的身份补正",
+        "decision_text": "只补正关闭来源的附加证据引用；保留原请求、未捕获记录、关闭选择、审查结果和验证边界。"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "295a084dda4aa2a45c46c8eb8809ff618bb403b5be2c1030f5fc7bf061595c99",
+        "references": [
+          {
+            "data_pointer": "/event",
+            "request_pointer": "/event"
+          },
+          {
+            "data_pointer": "/evidence_refs",
+            "request_pointer": "/event/data/evidence_refs"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

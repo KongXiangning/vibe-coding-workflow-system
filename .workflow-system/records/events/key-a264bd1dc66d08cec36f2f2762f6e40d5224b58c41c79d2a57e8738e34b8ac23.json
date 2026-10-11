@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-11T18:37:20.315Z",
+  "payload_sha256": "58b19e7f0c27c4a58799c125a3c054939b54ad6f891ca6b8b7450e1da6953134",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:docs-parent-review-20261011",
+    "request": {
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "plan_ref": ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json",
+      "action": "review",
+      "idempotency_key": "docs-parent-review-20261011",
+      "stage": "change",
+      "execution_ref": ".workflow-system/records/events/1791743017729-4b0df5aa-5179-4649-a0e6-ce01b61f8b87.json",
+      "verdict": "独立审查无必改项；一处关联状态用词澄清已按意见落实",
+      "findings": [],
+      "coverage": [
+        "完整四文件diff成功应用至父线程基线副本",
+        "当前源码/契约/安装限制核对",
+        "其余已审文字保持原样；最终SHA见final-minimal-docs-checks.json"
+      ],
+      "provenance": {
+        "source_thread_id": "01a0f15d-1fd1-746a-87d4-d73beb633020",
+        "review_source": "父线程本次实际消息：已从消息取得完整四文件 diff，成功应用至基线副本，并独立核对源码、契约、安装限制",
+        "review_conclusion": "独立审查通过，无必改项；只澄清 active Task 关联 为 状态为 active 的 TaskBinding（关联）；其余已审文字不动。",
+        "closure_instruction": "diff --check 后通过正常 API 完成 TASK-019 review/close/readback；不提交推送。",
+        "scope": "四份文档内容及最小核验；不是运行时全面测试或真实业务验证",
+        "clarification_applied": true,
+        "verification_evidence": "final-minimal-docs-checks.json"
+      },
+      "source_revision": "uncommitted docs on a0c1a3735101f0fbeeff26694c9e1b1889a0d752"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "review",
+      "task_id": "task-6def40d9b972281d3611dd97518ab2c2",
+      "parents": [
+        ".workflow-system/records/events/1791743018269-3370e226-07ec-4b55-ac2b-40bfcc2efa3b.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-3129af312324e28d7ec2d86c3d99a2119971ab1bce85d884025ff24342138ff9.json",
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/1791743017729-4b0df5aa-5179-4649-a0e6-ce01b61f8b87.json",
+        "verdict": "独立审查无必改项；一处关联状态用词澄清已按意见落实",
+        "findings": [],
+        "coverage": [
+          "完整四文件diff成功应用至父线程基线副本",
+          "当前源码/契约/安装限制核对",
+          "其余已审文字保持原样；最终SHA见final-minimal-docs-checks.json"
+        ],
+        "provenance": null,
+        "source_revision": "uncommitted docs on a0c1a3735101f0fbeeff26694c9e1b1889a0d752"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "a3e1412aea9b5fbea90bf90afee3f1e07550c69f50912c69a9fa1f95812cc650",
+        "references": [
+          {
+            "data_pointer": "/provenance",
+            "request_pointer": "/provenance"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}
