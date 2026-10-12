@@ -862,7 +862,18 @@ function writeJournal(targetRoot: string, journal: DistributionJournal, manifest
 
 function removeJournal(targetRoot: string, manifest: DistributionManifest): void {
   const markerPath = journalPath(targetRoot, manifest);
-  if (fileExists(markerPath)) fs.rmSync(markerPath, { force: true });
+  try {
+    fs.unlinkSync(markerPath);
+  } catch (error) {
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') throw error;
+  }
+  try {
+    fs.lstatSync(markerPath);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
+    throw error;
+  }
+  throw new Error('Distribution journal cleanup did not remove the transaction marker: ' + markerPath);
 }
 
 function pruneCreatedEmptyDirectories(targetRoot: string, relativePaths: readonly string[], preexisting: ReadonlySet<string>): void {

@@ -622,7 +622,7 @@ test('E6 keeps one requirement and stable work items; task binding retry has no 
 });
 test('planning samples preserve no-plan prose, independent plan order, cross-stage coverage and open scope', () => {
   const assets = fs.mkdtempSync(path.join(os.tmpdir(), 'product-consumer-assets-')); roots.push(assets);
-  for (const file of ['document-contract.md', 'examples/e6-repair.md', 'examples/planning-consumption.md', 'examples/scoped-contract.md']) {
+  for (const file of ['document-contract.md', 'examples/e6-repair.md', 'examples/planning-consumption.md', 'examples/scoped-contract.md', 'examples/adopted-structure.md']) {
     put(assets, `docs/product/project-maintenance/${file}`, fs.readFileSync(path.resolve(import.meta.dir, '../docs/product/project-maintenance', file)));
   }
   fs.mkdirSync(path.join(assets, 'runtime/vnext/support/product-maintenance'), { recursive: true });

@@ -88,7 +88,7 @@ UTF-8 读取可接受 BOM、LF、CRLF。YAML 只允许 JSON 兼容值，禁止�
 |---|---|---|
 | project | inventory 必填：`{state: partial或reconciled, checked_sources: SourceRef[], unreviewed_sources: SourceRef[], note?: string}` | 项目定位；盘点范围与未核对项 |
 | goal | scope 必填；task_bindings 可选 | 目标说明；范围边界 |
-| module | scope 必填 | 业务能力；范围边界 |
+| module | scope 必填 | 可选分类／导航；范围边界，不作为交付评估对象 |
 | requirement | scope 必填；assessment_id 为可选 ID／null；task_bindings 可选 | 需求内容；范围边界；验收要求 |
 | design | intent_state 必填：proposed／adopted／retired | 设计方案；约束与取舍；实际实现与差异 |
 
@@ -340,11 +340,21 @@ assessment 保留 target_basis、target_definition_sha256、checked_at、impleme
 
 只将 declared＋active 且端点唯一、类型合法的关系用于已声明当前图。inferred 保留为候选，dismissed 为历史。part_of 表示当前细化或组成，supports 表示支撑，depends_on 是单独的局部依赖；replaces／derived_from 只进演变视图。循环、自关联、悬空和跨类型错误保留来源并诊断，异常边不冒充有效层次；合法的多父／多目标关系保留同一需求身份。
 
+declared 表示当前规范明确记录、有可追溯依据的关系，不要求用户亲口填写内部 ID 或逐边确认。用户已采用的层级、正式源材料明确表达的关系，或当前授权明确涵盖且不改变业务范围的既有内容归类，可以由宿主分配／复用 ID 后保存 declared＋active，并保留实际来源；Agent 转述须标为转述，不能冒称用户原话。只请求盘点／比较时的新推断、冲突或依据不足的归属仍是 inferred 或未决。不得全库 inferred→declared，也不得把 Agent 整理的关系永久限定为 inferred；旧否定仍按已有来源与重关联规则保留。关系采用不证明交付、验证或业务执行授权。
+
+有独立业务范围、需核对达成情况的上层能力默认使用父 requirement，具体功能或质量义务使用子 requirement，以子→父 part_of 组成；纯导航分类才可使用 module，module 不是必经层或交付评估对象。平台、原始章节、编号及简单描述／例子／验收条件可留在 sources、extensions 或正文。需要独立展开、关联或评估的明确功能应有独立 requirement；不机械将每个编号对象化。组织已采用范围可建立必要结构身份，但不能借新父项增加指标、设备覆盖、架构前提或其他业务承诺；共享内容保留一份身份和当前正文。
+
+已采用且需要被当前图使用的结构必须通过稳定条目和核心 links 保存。extensions、正文分类或编号映射只能补充解释，不能代替组成／支撑关系，也不为每个祖先机械复制直接 supports。新增、细化、变更或采用归类时，在同一授权维护过程中处理受影响定义、关系、来源和新身份顺序；具体方法见安装 references/update.md。“同次”允许多次 helper、各文件独立保存，成功结果保留，冲突后只补未保存部分，不重复 Task／业务操作。
+
+维护结束用实际 read/check、受影响原条目及 product_view.current_relations 回读本次采用的路径，分别说明正式关系、候选、未归属／未保存和只留正文的细项。格式合法、分类字段存在或文件 saved 都不证明结构已交付；无可靠归属本身不是坏文档，也不阻塞 Task。此核对针对本次采用关系，不新增永久期望关系库、完整性认证或后台同步。
+
 补充子需求时父项默认保留原 scope 和身份。真实替代须同时保留新项 replaces→旧项、明确旧项退出哪些范围的依据，并实际更新旧项 scope 或适用关系。replaces 本身不退休旧项；旧项只退出一个目标时可以仍为 current，调整该目标的关系而不删掉其他目标的支撑。未同步部分显示待维护，不自动修正文档。
 
 ### 10.3 唯一项目级需求顺序
 
 初次登记按本次采用的拆分顺序写入 project.requirement_order；以后每批按本批明确顺序追加，仅追加尚未登记的 ID。新增依赖、工作项、Task、改名、正文或报告更新均不重排已有 ID。只有用户明确采用重排时才更新该数组，并记录 change 的 project 目标、旧／新顺序与依据；重排后的列表称“当前登记顺序”，不声称历史创建顺序。
+
+父子展开只是视图组织；不能为使已有子项紧邻新增父项而重排登记数组。完整当前范围包含已采用但较后实施、尚无 Task 的能力，不按 Task 清单截断要求或降为候选。
 
 消费者按登记数组去重展示可唯一定位的需求；重复、非 requirement、悬空或身份冲突的引用逐项诊断，不隐藏其他需求。所有未被有效登记的可读需求保留“未指定顺序”入口；该入口可以为定位采用标明非业务排序的 ID 排序，但不能将其附加成已登记业务顺序。筛选目标／scope 后只取原列表子序列；retired 被筛选隐藏时仍保留其位置和来源，不重编号。工作项顺序继续只服务 plan。
 

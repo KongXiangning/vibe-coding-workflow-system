@@ -1,5 +1,19 @@
 # maintain-project 首版交付记录
 
+## 2026-10-12 联合结构维护：停止边界与 Git 收口
+
+本轮从 `89d2ffe17c424b30aff4ccc840b2b083f079c716` 在 `codex/structure-maintenance-cloud-20261012` 实施。已完成规则、Skill、references、结构样例及正常分发候选 `0.24.8`；Windows 实测发现的 journal 清理问题沿原安装事务作最小修正。没有新增 Schema、gate、reducer 或业务承诺，TermLink 的业务代码和旧 Task/记录/报告保持只读。
+
+Cloud 已完成原定向检查、隔离正常构建/安装/升级及有限真实浏览器检查。父线程转述 K-PC 的最终 Windows 7/7 路径矩阵、helper 15/15、独立清理故障 4/4，以及 117 资产、完整 manifest 和 CLI 对齐通过；这些是具体有限范围的结果，不代表全平台或全部业务验收。运行候选 SHA-256 为 `73dcc491f2603992178d5bdfbfefed302fbaa250f93553f4b17f2def820312ef`，最后的测试兼容修正没有重建运行包。
+
+Windows 原受影响 source test 已改为 `pathToFileURL(preload).href`，断言未改。Cloud 使用已有候选对原测试体作有限验证，1 项、29 断言通过；K-PC 最后一次原测试重跑因 Codex 6.1 sol capacity 失败未执行完成，不得标成通过。
+
+旧 J4 runner 只证明脚本驱动 helper 保存及局部重试，未证成写 runner 前模型先读资料的可见时序。另一个 `fork_turns=none` 独立 Agent 已实际先读安装 Skill、自然原文和父项，再选择、helper 保存、回读及同值重试；原始留痕已产生。父线程对这次新 J4 的最终独立复核被用户停止，仍未完成，不能以自查或证据上传代替。
+
+2026-10-12 12:41 UTC，用户明确要求“可以停止了，剩下的工作不用做了”，随后授权“把已完成的工作都提交并推送”。本轮仅按已完成改动作 Git 收口，不继续上述剩余测试或审查，不合并主分支、不发布或部署、不升级真实 K-PC 副本。实际提交及远端事实以 Git 为准，不新增记录自身提交 SHA 的递归记录。
+
+阶段源码与原始证据见 [J1–J10 索引](https://chatgpt.com/api/library/files/libfile_d1a2bb57bcdc81919c9ef5d6aa183dda/download)、[联合原始证据](https://chatgpt.com/api/library/files/libfile_1fae23f5ccf48191851fe9448d628720/download)和[新 J4 可读留痕](https://chatgpt.com/api/library/files/libfile_cb213fdaac3c81918e1bacc10cd406a9/download)。这些文件是停止前的阶段证据；本节保留最终停止边界，不继承下文历史通过数。
+
 > 2026-10-08，已从 `84589392` 实施项目规划与持续选取增量：三种策略、共享资料充分性／前提候选分析、消费约定和样例，以及两组安装后真实宿主增量链。实际检查、独立复审、原 packed 用例环境失败与既有辅助链接问题见[本轮交付证据](project-planning-evidence/README.md)。本轮未发布或向真实项目安装；本地提交身份以交付包报告为准，不继承下文历史通过数。
 
 > 2026-10-05 本轮可靠性修复已在 `project-goals-requirements` / `codex/maintain-project-v1` 工作副本实施，基线及当前 HEAD 为 `20ba0275270493b94b4f02eca33cc3b8c38b198d`。本地候选 `0.24.1`，未提交、推送、发布或部署。本轮 F01～F06 原行为/修后正反证据、S01～S13 映射、53 项实际测试、四层交付和具体未执行项见 [本轮交付证据](project-maintenance-hardening-evidence/README.md)。

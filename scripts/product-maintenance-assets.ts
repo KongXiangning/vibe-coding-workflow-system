@@ -49,6 +49,7 @@ export function buildProductAssets(root: string): void {
   const rawRef = { kind: 'file', path: 'docs/product/raw/selected.txt', sha256: createHash('sha256').update(raw).digest('hex') };
   write('examples/e6/docs/product/DISCUSSIONS.md', newDocument([{ metadata: { type: 'discussion', id: 'DISC-E6', raw_ref: rawRef, submitted_at: '2026-10-04T00:00:00Z', origin: { channel: 'unknown', occurred_at: null }, record_state: 'active', links: [{ id: 'L-IMPORT', relation: 'discusses', target: 'REQ-IMPORT', origin: 'inferred', state: 'active', reason: '仅示例同一导入主题，未采纳备选观点', sources: [{ ...rawRef, lines: { start: 1, end: 1 } }] }] }, body: '## [DISC-E6] 示例讨论\n### 整理摘要\n三设备是备选，不是本期任务。\n### 议题与未决问题\n本夹具只演示离线召回和来源位置，不是实际 Agent 行为证据。\n' }], '离线讨论示例'));
   buildPlanningExamples(root, write);
+  write('examples/structure/README.md', fs.readFileSync(path.join(root, 'docs/product/project-maintenance/examples/adopted-structure.md'), 'utf8'));
 }
 
 // Consumer inputs only: these synthetic decisions are not host semantic acceptance evidence.

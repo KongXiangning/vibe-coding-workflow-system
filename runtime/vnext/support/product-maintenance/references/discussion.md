@@ -58,3 +58,10 @@ maintain only the affected current body, material change and arrangement immedia
 use an actual available fragment or labelled text basis. Saving a discussion or the
 whole chat is not required before recording that decision. Mere comparison of B/C
 remains advice or an unresolved alternative, not adopted scope or an adopted plan.
+
+When a selected fragment actually adopts a hierarchy or clearly authorizes a
+source-grounded classification of existing scope, continue through update.md's
+same-pass structure path: persist affected stable definitions/core links/order
+and read back the saved paths. The user need not name internal IDs. Confirming
+discussion relevance still does not adopt its business views, and archiving text
+or saving a discusses link cannot stand in for current structure maintenance.

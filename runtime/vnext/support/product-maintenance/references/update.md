@@ -52,6 +52,75 @@ Only an explicitly adopted reorder changes existing positions; record its basis
 and old/new order. Dependency, task, work-item and report changes never reorder it.
 Keep all readable unordered requirements visible rather than inventing order.
 
+## Adopted structure in the same maintenance pass
+
+Read the actual request, affected definitions and adoption/source basis before
+choosing structure. Complete-current planning includes adopted capability that
+will be implemented later or has no Task; original obligations do not require a
+historical Task to exist. Formal increments analyze only the increment and its
+actual impact, not the whole project on every update.
+
+Use a parent requirement for an adopted capability with business scope whose
+delivery matters, and child requirements for independent functional or quality
+obligations. Pure navigation may use module; it is optional and not a delivery
+assessment target. Keep examples, simple detail and acceptance conditions in the
+body. Original feature numbers are not automatically independent objects.
+Reuse identities for classification, rename and moves. A shared capability has
+one identity/body with multiple source-backed paths, not copied definitions or
+automatically inherited TaskBindings. Moving detail to a child leaves the parent
+with overall scope/common constraints and references, not a second current copy.
+Organization may create needed structure IDs within existing adopted scope; it
+must not add KPIs, device matrices, architecture promises or other obligations.
+
+declared means explicitly recorded with traceable adopted/source-grounded basis,
+not that the user recited an internal ID. Within maintenance authority, save
+declared + active for an already adopted hierarchy, a relationship explicit in
+formal source material, or clearly delegated classification of existing scope
+with sufficient basis and no business expansion. Assign/reuse actual IDs without
+another per-edge confirmation. Label Agent paraphrases accurately and retain the
+real source. A broad inventory request does not adopt every new inferred relation;
+title/code similarity, a convenient unused parent or Agent authorship alone do
+not decide origin. Keep new uncertain relations inferred or unresolved, preserve
+prior rejections and never bulk-convert inferred links. Adoption proves neither
+implementation nor execution authority.
+
+For each affected operation, save and verify together within this authorized pass:
+
+- Addition: complete definition, sources, scope, established parent/goal links and
+  append the new identity in project.requirement_order.
+- Refinement: retain the parent, append independent children with child→parent
+  part_of, and reference detail moved out of the parent body.
+- Adopted hierarchy/classification: persist stable entries and core links;
+  extensions, body indexes and classification counters cannot replace structure.
+- Scope change or real replacement: adjust only affected current relations/scope,
+  preserve history/destinations and reconcile applicable reports locally.
+- Unknown ownership: save the known definition and actual candidate/unresolved
+  basis without inventing a parent or blocking a Task.
+
+Use supports for goal support, part_of for current composition and depends_on for
+engineering prerequisites; replaces/derived_from remain historical. Do not copy a
+direct supports edge for every ancestor. Migrate only affected v2 definition files
+explicitly to v3 when child→parent requirement links are needed, or use a legal
+mixed-version layout; a v3 parent does not grant v3 link directions to a v2 child.
+Manifest stays v2 and old reports/Task identities/results remain intact. Tree
+layout does not move old requirement_order positions next to their parents.
+
+After helper writes, read/check the affected complete items and actual
+product_view.current_relations. Compare this pass's adopted paths with saved core
+relations; report formed paths, real candidates, unassigned/unsaved parts and
+detail retained only in prose. Schema valid, file saved or all classified is not
+structure delivery. A legitimately independent requirement is not a defect.
+This is a local result check, not a permanent expected-edge database or score;
+the helper cannot infer missing business adoption from free text.
+
+One pass may use several helper calls and independent file results. Read current
+digests and successful receipts after a conflict; retry only missing definitions,
+relations/order or reports. Keep saved work and real Task identity/focus; never
+repeat prepare, tests or product effects for a document receipt. Deferral, paused
+maintenance or missing PRODUCT retains ordinary task paths and explicit gaps.
+These instructions run when the relevant Skill is invoked within authority;
+they are not background listening or automatic synchronization of manual edits.
+
 Apply an authorized requirement change first. Definition or goal/scope digest
 changes flag the affected reports for local reconciliation; they do not invalidate
 achievements, require whole-project evaluation or block the change/task. Put

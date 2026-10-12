@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
 import {
   buildVibeGovernanceDistribution,
@@ -273,6 +274,8 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(result.read_back_verified).toBe(true);
     expect(result.next).toBe(VIBE_GOVERNANCE_FRESH_INSTALL_NEXT_HINT);
     expect(classifyDistribution(target, undefined).state).toBe('vnext');
+    expect(classifyDistribution(target, undefined).valid).toBe(true);
+    expect(fs.existsSync(targetPath(target, '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json'))).toBe(false);
     expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(true);
     expect(fs.existsSync(targetPath(target, '.workflow-system/PROJECT_PROFILE.yaml'))).toBe(false);
     expect(fs.existsSync(targetPath(target, 'docs/workflow/CURRENT_TASK.md'))).toBe(false);
@@ -361,6 +364,77 @@ describe('Vibe Governance Distribution / Installer', () => {
     fs.unlinkSync(taskPath);
     execFileSync('git', ['-c', 'core.autocrlf=true', 'checkout-index', '--', 'docs/workflow/CURRENT_TASK.md'], { cwd: target });
     expect(fs.readFileSync(taskPath)).toEqual(taskBytes);
+  });
+
+  test('journal cleanup completes fresh install and upgrade under a non-ASCII path', { timeout: 60000 }, () => {
+    const target = path.join(tempRoot('vibe-governance-journal-'), '中文 安装目录');
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'package.json'), '{"name":"unicode-target","private":true}\n');
+    const cli = path.join(packageRoot, 'dist/cli.js');
+    const marker = targetPath(target, '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json');
+    const install = spawnSync('node', [cli, 'install', '--root', target, '--json'], { encoding: 'utf8' });
+    expect(install.status).toBe(0);
+    expect(JSON.parse(install.stdout)).toMatchObject({ status: 'installed', read_back_verified: true });
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(classifyDistribution(target).valid).toBe(true);
+    const stateFile = targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH);
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    // Simulated older-version registration with current payload bytes, not an
+    // actual 0.24.7 release upgrade. Real baseline installation is separate evidence.
+    state.distribution_version = '0.24.7';
+    fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
+    const original = Buffer.from('# 合成业务资料\r\n升级不重写正文或Task。\r\n');
+    fs.writeFileSync(path.join(target, 'BUSINESS.md'), original);
+    const preview = spawnSync('node', [cli, 'upgrade', '--root', target, '--json', '--dry-run'], { encoding: 'utf8' });
+    expect(preview.status).toBe(0);
+    expect(JSON.parse(preview.stdout).status).toBe('ready');
+    expect(fs.existsSync(marker)).toBe(false);
+    const upgrade = spawnSync('node', [cli, 'upgrade', '--root', target, '--json'], { encoding: 'utf8' });
+    expect(upgrade.status).toBe(0);
+    expect(JSON.parse(upgrade.stdout)).toMatchObject({ status: 'upgraded', read_back_verified: true });
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(classifyDistribution(target).valid).toBe(true);
+    expect(fs.readFileSync(path.join(target, 'BUSINESS.md'))).toEqual(original);
+  });
+
+  test('journal cleanup never reports success while the marker remains or deletion fails', { timeout: 60000 }, () => {
+    for (const mode of ['unchanged', 'false-ENOENT', 'EACCES', 'removed-ENOENT']) {
+      const target = freshTarget();
+      const marker = targetPath(target, '.workflow-system/vnext/DISTRIBUTION_IN_PROGRESS.json');
+      const preload = path.join(tempRoot('vibe-governance-unlink-probe-'), 'preload.mjs');
+      fs.writeFileSync(preload, `import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const original = fs.unlinkSync;
+fs.unlinkSync = function (file) {
+  if (String(file).endsWith('DISTRIBUTION_IN_PROGRESS.json')) {
+    const mode = ${JSON.stringify(mode)};
+    if (mode === 'unchanged') return;
+    if (mode === 'removed-ENOENT') original(file);
+    throw Object.assign(new Error('injected journal deletion ' + mode), { code: mode === 'EACCES' ? 'EACCES' : 'ENOENT' });
+  }
+  return original(file);
+};
+syncBuiltinESMExports();
+`);
+      const execution = spawnSync('node', ['--import', pathToFileURL(preload).href, path.join(packageRoot, 'dist/cli.js'), 'install', '--root', target, '--json'], { encoding: 'utf8' });
+      const result = JSON.parse(execution.stdout);
+      if (mode === 'removed-ENOENT') {
+        expect(execution.status).toBe(0);
+        expect(result.status).toBe('installed');
+        expect(result.read_back_verified).toBe(true);
+        expect(fs.existsSync(marker)).toBe(false);
+        expect(classifyDistribution(target).valid).toBe(true);
+      } else {
+        expect(execution.status).toBe(1);
+        expect(result.status).toBe('rejected');
+        expect(result.read_back_verified).toBe(false);
+        expect(result.blockers.some((issue: { code: string }) => issue.code === 'PROMOTION_FAILED')).toBe(true);
+        expect(result.warnings.some((issue: { code: string }) => issue.code === 'ROLLBACK_UNVERIFIED')).toBe(true);
+        expect(fs.existsSync(marker)).toBe(true);
+        expect(classifyDistribution(target).valid).toBe(false);
+        expect(fs.existsSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH))).toBe(true);
+      }
+    }
   });
 
   test('fresh install and vNext upgrade ignore unmanaged business symlink trees in rollback preimage', { timeout: 60000 }, () => {

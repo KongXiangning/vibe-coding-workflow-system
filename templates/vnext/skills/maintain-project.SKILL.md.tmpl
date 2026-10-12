@@ -95,6 +95,9 @@ Use the project's explicit root goal and registered requirement order; current
 decomposition, goal support, engineering dependencies and historical replacement
 are different relationships. Keep results in independent scope/object assessments,
 including goal assessments, rather than rewriting requirement definitions with progress.
+For adopted structure, follow update.md to save affected definitions, core links,
+sources and stable order in this maintenance pass, then read back actual paths;
+classification prose/extensions or schema success alone do not deliver structure.
 Use reconcile.md for four-value conclusions and local evaluation; the helper's
 selection and digest checks do not make the host's business judgment for it.
 Planning strategies are not Runtime modes. No plan is required to select or prepare

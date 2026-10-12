@@ -12,6 +12,22 @@ Do not create new business requirements merely to fill templates or match task c
 Code/report shows actual implementation or observed behavior, not confirmed user intent.
 Existing explicit constraints in design retain their authority.
 
+For existing material, start with original adopted product scope and subsequent
+effective changes, not only the current Task list or feature count. For each
+selected original obligation explain its current destination, source-backed exit
+or actual unresolved/unread scope. A later implementation date or no Task does
+not remove an adopted current requirement.
+
+Distinguish business parent/child requirements, optional pure-navigation modules,
+independent functional obligations and body detail. Reuse current identities and
+shared definitions; an original number is not by itself a new requirement.
+When authorized to organize an adopted hierarchy, follow update.md's same-pass
+structure method and read back core links, rather than treating extensions or a
+classification index as delivery. Only inventory/compare authority leaves new
+inferences as candidates; do not adopt all relations or expand business promises.
+Any original-number→destination map is migration evidence, not a second ongoing
+current feature database.
+
 For a new project or an explicitly defined current delivery scope, normally form
 a reviewable full-scope functional analysis before arranging implementation.
 Read the raw business material, map user scenarios and end-to-end input/output,
