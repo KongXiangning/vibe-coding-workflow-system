@@ -166,4 +166,9 @@ already covered by the user's instruction before choosing the route. The route i
 advice, not permission or the only allowed next action. Do not invoke it solely
 because it was recommended or widen validation or external effects without authorization.
 
+Implementation Roadmap differences do not gate closure. Keep scoped delivery reconciliation
+and parent continuation priority; consume a selected applicable Roadmap only when actually
+selecting a new business candidate. Do not scan all requirements, create/focus future Tasks,
+advance planning_baseline or mark a whole Requirement delivered merely because this Task closed.
+
 terminal_boundary: public-entry-terminal/v1

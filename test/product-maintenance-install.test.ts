@@ -11,6 +11,70 @@ const roots: string[] = [];
 afterAll(() => { for (const root of roots) fs.rmSync(root, { recursive: true, force: true }); });
 const packageRoot = path.resolve(import.meta.dir, '../packages/vibe-governance');
 
+test('installed v4 Roadmap initializes and detects manual changes without writing on reads', { timeout: 45000 }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'roadmap-installed-')); roots.push(root);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"roadmap-install-fixture","private":true,"type":"module"}\n');
+  expect(installDistribution({ targetRoot: root, packageRoot }).status).toBe('installed');
+  const support = path.join(root, '.workflow-system/runtime/support/product-maintenance');
+  const helper = path.join(root, '.workflow-system/runtime/support/product-maintenance.js');
+  expect(fs.existsSync(path.join(support, 'schemas/product-doc-v4.json'))).toBe(true);
+  expect(fs.existsSync(path.join(support, 'templates/IMPLEMENTATION_ROADMAP.md'))).toBe(true);
+  const example = path.join(support, 'examples/roadmap');
+  fs.cpSync(path.join(example, 'docs'), path.join(root, 'docs'), { recursive: true });
+  fs.copyFileSync(path.join(example, '.workflow-system/PRODUCT.yaml'), path.join(root, '.workflow-system/PRODUCT.yaml'));
+  const invoke = (action: string, input: any) => JSON.parse(execFileSync('node', [helper, action, '--root', root], { encoding: 'utf8', input: JSON.stringify(input) }));
+  const query = { plan_id: 'PLAN-PERMISSIONS', selector: { kind: 'explicit-requirements', requirement_ids: ['REQ-20'] } };
+  const first = invoke('read', { roadmap_query: query });
+  expect(first.roadmap_reconciliation.status).toBe('unknown');
+  const relative = 'docs/product/IMPLEMENTATION_ROADMAP.md', file = path.join(root, relative);
+  const baseline = { ...first.roadmap_reconciliation.snapshot_proposal, checked_at: '2026-10-14T00:00:00Z', working_copy: first.working_copy.identity,
+    sources: [{ kind: 'text', label: '安装夹具核对', text: '合成定义和范围已核对，不是实际业务验收。' }], unread_sources: [], exceptions: [] };
+  const saved = invoke('apply', { files: [{ path: relative, expected_sha256: sha256(fs.readFileSync(file)), updates: [{ id: query.plan_id, metadata: { planning_baseline: baseline } }] }] });
+  expect(saved.files[0].baseline_readback).toEqual([{ plan_id: query.plan_id, status: 'matched' }]);
+  const before = fs.readFileSync(file);
+  expect(invoke('read', { roadmap_query: { plan_id: query.plan_id } }).roadmap_reconciliation.status).toBe('current');
+  const offline = JSON.parse(execFileSync('node', [path.join(support, 'offline-reader.js'), root, query.plan_id], { encoding: 'utf8' }));
+  expect(offline.supported_formats).toContain('vnext-product-doc/v4');
+  expect(offline.roadmap_reconciliation.status).toBe('current');
+  const requirements = path.join(root, 'docs/product/PROJECT.md');
+  fs.writeFileSync(requirements, fs.readFileSync(requirements, 'utf8').replace('角色权限。', '角色权限及新的隔离范围。'));
+  const changed = invoke('check', { roadmap_query: { plan_id: query.plan_id } });
+  expect(changed.roadmap_reconciliation.status).toBe('changes-pending');
+  expect(changed.roadmap_reconciliation.affected_work_items).toEqual(['W20-A', 'W20-B']);
+  expect(changed.development_gate).toBe(false);
+  expect(fs.readFileSync(file)).toEqual(before);
+  expect(fs.existsSync(path.join(root, '.workflow-system/records'))).toBe(false);
+  // Regression evidence must also hold in the installed Node program.
+  const requirement = parseProduct(fs.readFileSync(requirements, 'utf8'), 'docs/product/PROJECT.md').items.find(i => i.id === 'REQ-20')!;
+  const duplicate = path.join(root, 'docs/product/DUPLICATE.md');
+  fs.writeFileSync(duplicate, newDocument([{ metadata: requirement.metadata, body: requirement.body }], '重复身份', 3));
+  const restricted = invoke('read', { paths: ['docs/product/PROJECT.md', relative], roadmap_query: { plan_id: query.plan_id } }).roadmap_reconciliation;
+  expect(restricted.status).toBe('unknown'); expect(restricted.reasons).toContain('enumeration-incomplete');
+  fs.unlinkSync(duplicate);
+  expect(invoke('apply', { files: [{ path: 'docs/product/PROJECT.md', expected_sha256: sha256(fs.readFileSync(requirements)), append: [{
+    metadata: { id: 'REQ-21', type: 'requirement', scope: 'current' }, body: requirement.body.replaceAll('REQ-20', 'REQ-21'),
+  }] }] }).status).toBe('saved');
+  const selection = { ...query, selector: { kind: 'explicit-requirements', requirement_ids: ['REQ-20','REQ-21'] } };
+  const fullBaseline = { ...baseline, ...invoke('read', { roadmap_query: selection }).roadmap_reconciliation.snapshot_proposal };
+  const saveBaseline = (value: any) => invoke('apply', { files: [{ path: relative, expected_sha256: sha256(fs.readFileSync(file)), updates: [{ id: query.plan_id, metadata: { planning_baseline: value } }] }] });
+  expect(saveBaseline(fullBaseline).status).toBe('saved');
+  fs.writeFileSync(requirements, fs.readFileSync(requirements, 'utf8').replaceAll('角色权限及新的隔离范围。', '再次变化的权限要求。'));
+  const advanced = invoke('read', { roadmap_query: { plan_id: query.plan_id } }).roadmap_reconciliation.snapshot_proposal;
+  const partialBaseline = { ...fullBaseline, definitions: fullBaseline.definitions.map((d: any) => d.id === 'REQ-20' ? advanced.definitions.find((now: any) => now.id === d.id) : d) };
+  const partialSaved = saveBaseline(partialBaseline);
+  expect(partialSaved.status).toBe('saved');
+  expect(partialSaved.files[0].baseline_readback[0].retained_snapshots).toEqual([{ field: 'definitions', id: 'REQ-21' }]);
+  const pending = invoke('read', { roadmap_query: { plan_id: query.plan_id } }).roadmap_reconciliation;
+  expect(pending.status).toBe('changes-pending');
+  expect(pending.changes.filter((c: any) => c.kind === 'definition-changed').map((c: any) => c.id)).toEqual(['REQ-21']);
+  expect(fs.existsSync(path.join(root, '.workflow-system/records'))).toBe(false);
+  const statePath = path.join(root, '.workflow-system/vnext/DISTRIBUTION_STATE.json');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8')); state.distribution_version = '0.0.1'; fs.writeFileSync(statePath, JSON.stringify(state));
+  const owned = [file, requirements, path.join(root, '.workflow-system/PRODUCT.yaml')].map(p => [p, fs.readFileSync(p)] as const);
+  expect(upgradeDistribution({ targetRoot: root, packageRoot }).status).toBe('upgraded');
+  for (const [p, bytes] of owned) expect(fs.readFileSync(p)).toEqual(bytes);
+});
+
 test('installed record-storage maintenance route survives upgrade without enabling product documents', { timeout: 45000 }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'record-maintenance-installed-')); roots.push(root);
   const business = 'docs/product/UNMANAGED.md', original = Buffer.from('\uFEFF# Existing business notes\r\nKeep this unrelated text exactly.\r\n');

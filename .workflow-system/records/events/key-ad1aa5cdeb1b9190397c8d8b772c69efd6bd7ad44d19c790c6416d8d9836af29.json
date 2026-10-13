@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T16:48:00.305Z",
+  "payload_sha256": "31da96041fbda79371f28f53e331eeb9dfd3867b906fbfbe9003f814d078ac56",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:roadmap-v4-recheck-S1-20261014",
+    "request": {
+      "idempotency_key": "roadmap-v4-recheck-S1-20261014",
+      "findings": [],
+      "verdict": "pass",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "coverage": {
+        "limits": [
+          "本轮是修复复审，没有重跑全量测试或真实宿主/TraceLens 页面验收",
+          "没有实施代码改动、步骤结束、任务关闭或 Git 操作"
+        ],
+        "validation": [
+          "36 项 roadmap/v3 测试通过，含源码与 Node bundle 反例",
+          "3 项实际隔离安装/升级测试通过",
+          "Node bundle 隔离故障注入：rename 发布后立即将 R1 从已核对 V1 改为 V2，file.saved=true、status=partial、baseline_readback=pending-recheck，消费为 changes-pending、development_gate=false",
+          "git diff --check 通过"
+        ],
+        "target": "73ce058c7cad1dc20cca2575ab38e941a1207c77 + 当前未提交 RM4-R1/R2 修复",
+        "resolved_findings": [
+          {
+            "id": "RM4-R1",
+            "result": "受限/遗漏/无法解析身份范围为 unknown，隐藏重复 ID 不再返回 current；完整读取下局部范围仍不误判无关新增需求。"
+          },
+          {
+            "id": "RM4-R2",
+            "result": "同项目/工作副本/selector 下原样保留旧需求及 Goal 快照，明确版本变化及旧延期处置仍可见；首次建立、换范围或伪造值不能借保留绕过。保存前/发布前/回读使用原基线，不用新基线自证。"
+          }
+        ],
+        "source_hashes": {
+          "writer": "02014e88ff7df50aee049e7dca71ef37151538b25c7f8ac2bbcd8d2c12438715",
+          "roadmaps": "e2c5a4839fee62bf617d9a6f91a53d449097e2f7130c327d6f8bbbb34a527d9f",
+          "node_bundle": "e41735a6be281cc3a7d8c9374bbe52cb693fd678684a130892b8d8612072f0fc"
+        }
+      },
+      "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+      "action": "review",
+      "step_id": "S1",
+      "previous_review_ref": ".workflow-system/records/events/key-0c39bb1657edd991535f13404f197a6d948237773896d3121c151104707a1eb2.json",
+      "provenance": "self-review: 同一实施 Agent 按用户复审请求核查当前未提交修复；不是独立 Agent 审查",
+      "execution_ref": ".workflow-system/records/events/key-26fad77b80f5ab924e09f05de4a96e6a4f8bc85b14fe91830b9f430b61bcaacf.json",
+      "stage": "change"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "review",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "parents": [
+        ".workflow-system/records/events/key-5e38c60dd78e760f1084ff00ff02d1033ae236479d41412ea098eaadc090c427.json"
+      ],
+      "data": {
+        "findings": [],
+        "verdict": "pass",
+        "coverage": null,
+        "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+        "step_id": "S1",
+        "previous_review_ref": ".workflow-system/records/events/key-0c39bb1657edd991535f13404f197a6d948237773896d3121c151104707a1eb2.json",
+        "provenance": "self-review: 同一实施 Agent 按用户复审请求核查当前未提交修复；不是独立 Agent 审查",
+        "execution_ref": ".workflow-system/records/events/key-26fad77b80f5ab924e09f05de4a96e6a4f8bc85b14fe91830b9f430b61bcaacf.json",
+        "stage": "change"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "682ff80fb6e85457616ff33ac4b6b43f3450a869d70bf6f5a06b87f78437e14f",
+        "references": [
+          {
+            "data_pointer": "/coverage",
+            "request_pointer": "/coverage"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

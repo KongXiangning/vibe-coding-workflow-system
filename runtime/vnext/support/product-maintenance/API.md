@@ -6,7 +6,7 @@ JSON stdin; JSON stdout. Exit 1 means a real failed/partial service result or in
 requested read coverage, never a development veto. Read status=available describes
 service availability, not complete coverage or usable structure.
 `kind=product-maintenance-result/v1`, `development_gate=false`, `qualification=not-evaluated`.
-Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents in v1/v2/v3 Schema and manifests in v1/v2 Schema plus `contract.md`. VN-03 supports v3 in the source helper and local product assets; full distribution/installation remains VN-05 work.
+Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents in v1/v2/v3/v4 Schema and manifests in v1/v2 Schema plus `contract.md`. v4 adds optional plan.planning_baseline; migrate only the selected document with migrate=v4. Old paths and internal plan IDs remain compatible. Source, distribution, installed helper, host behavior and TraceLens delivery are separate evidence scopes.
 
 ## Read and check
 
@@ -105,6 +105,54 @@ checks candidate structure. Neither certifies user intent, source truth or deliv
 Cross-object diagnostics are from existing catalog; read back after saving changes.
 
 ## Apply
+
+### Implementation Roadmap reconciliation (v4)
+
+Use read or check with an explicitly selected plan. Existing baseline supplies its selector;
+initialization needs an explicit selector:
+
+```json
+{"detail":"items","roadmap_query":{"plan_id":"PLAN-IMPORT","selector":{"kind":"explicit-requirements","requirement_ids":["REQ-IMPORT"]}}}
+```
+
+Selectors: project-current (all registered current requirements), target-subgraph with
+target_ids (effective declared composition/support descendants), explicit-requirements
+with requirement_ids. Each may include exclude_ids. All selectors require complete registered
+identity reads before claiming current: restricted paths, omissions or unparseable documents
+can hide another definition of a selected ID and therefore retain unknown. This is an identity
+coverage check, not whole-project business review or an expansion of the selected requirements.
+Explicit local selection never claims unrelated additions omitted from that Roadmap.
+
+roadmap_reconciliation returns status=current|changes-pending|reviewed-deferred|unknown,
+reasons, changes, scope (member_ids, outside_scope, unassigned, completeness), arrangement,
+affected_work_items, unarranged_requirements (direct-reference candidates only), change_sources,
+exceptions/stale_exceptions and original locators. Delivery and business validity remain
+not-evaluated. snapshot_proposal is current material for Agent review, not a saved or
+reviewed baseline. No baseline is automatically certified or written.
+
+Only after actual semantic review use the proposal fields plus actual checked_at,
+working_copy=read.working_copy.identity, sources, unread_sources and exceptions as the
+plan's planning_baseline. Preserve unreconciled definitions by omitting their snapshots;
+consumption remains unknown. Save adopted arrangements first, reread, then save the
+baseline with the read expected_sha256. Updating a baseline rechecks definitions/membership
+and Manifest before publication; files[].baseline_readback reports matched/pending-recheck.
+Exact prior snapshots in the same project, working copy and selector may be retained when
+only other definitions/context are advanced. New or advanced snapshots must match current
+versions; first initialization cannot import arbitrary stale values as retained history.
+files[].baseline_readback.retained_snapshots lists the retained mismatching IDs and fields.
+Its status=matched means the saved baseline/readback passed these write checks, not that
+all definitions are current. Consumption still returns their concrete changes; old deferrals
+become stale_exceptions on a new version, rather than carrying over as current decisions.
+The file can be saved even if later readback detects a concurrent difference; report partial
+without rolling back requirements. Keeping a stale baseline does not block ordinary writes.
+No cross-file transaction or universal external-editor CAS is promised.
+
+Exception fields: target, algorithm, sha256, disposition=no-adjustment|deferred, reason,
+nonempty sources, optional work_item_ids. Only exact reviewed versions can be bound.
+New versions retain old exception material as stale; never infer adoption or task completion.
+No read/check writes files, creates Tasks or triggers a model. Old plans without a baseline
+stay unknown; absent Roadmaps never require migration or creation before direct Task work.
+See contract.md section 11 and examples/roadmap/README.md for the complete semantics.
 
 ```json
 {"expected_manifest_sha256":"<read digest>","files":[{"path":"docs/product/REQUIREMENTS.md","expected_sha256":"<read file digest>","updates":[{"id":"REQ-IMPORT","metadata":{"scope":"planned"},"body":"## [REQ-IMPORT] 导入\n### 需求内容\n完整更新后的要求。\n### 范围边界\n保留排除项。\n### 验收要求\n实际要求。\n"}]}]}

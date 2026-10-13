@@ -73,7 +73,7 @@ export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog
       catalog.diagnostics.push(diagnostic('AMBIGUOUS_ID', item.path, `ID ${item.id} has multiple current definitions; no newest-file selection`, { severity: 'error', item_id: item.id }));
     }
     if (item.usable) {
-      if (item.type === 'requirement' || item.type === 'goal' && item.version === 3) {
+      if (item.type === 'requirement' || item.type === 'goal' && (item.version ?? 0) >= 3) {
         item.definition_sha256 = requirementDigest(item);
         item.definition_algorithm = definitionAlgorithm(item);
       }
@@ -81,7 +81,7 @@ export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog
     }
   }
   const projects = catalog.items.filter(i => i.usable && i.type === 'project');
-  for (const goal of catalog.items.filter(i => i.usable && i.type === 'goal' && i.version === 3)) {
+  for (const goal of catalog.items.filter(i => i.usable && i.type === 'goal' && (i.version ?? 0) >= 3)) {
     const seen = new Set<string>();
     for (const scope of goal.metadata.assessment_scopes ?? []) {
       const key = JSON.stringify([scope.target, scope.scope_id]), target = catalog.byId.get(scope.target);

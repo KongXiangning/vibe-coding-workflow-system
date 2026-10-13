@@ -46,9 +46,9 @@ export function productView(catalog: Catalog): ObjectValue {
   const legal = relations.filter(r => {
     const owner = catalog.byId.get(r.owner)!, target = catalog.byId.get(r.target);
     if (!target || r.owner === r.target) return false;
-    if (r.relation === 'supports') return ['requirement', 'module', ...(owner.version === 3 ? ['goal'] : [])].includes(owner.type) && target.type === 'goal';
+    if (r.relation === 'supports') return ['requirement', 'module', ...((owner.version ?? 0) >= 3 ? ['goal'] : [])].includes(owner.type) && target.type === 'goal';
     if (r.relation === 'depends_on') return ['requirement', 'design'].includes(owner.type) && ['requirement', 'design'].includes(target.type);
-    return owner.type === 'module' && target.type === 'module' || owner.type === 'requirement' && (target.type === 'module' || owner.version === 3 && target.type === 'requirement') || owner.version === 3 && owner.type === 'goal' && target.type === 'goal';
+    return owner.type === 'module' && target.type === 'module' || owner.type === 'requirement' && (target.type === 'module' || (owner.version ?? 0) >= 3 && target.type === 'requirement') || (owner.version ?? 0) >= 3 && owner.type === 'goal' && target.type === 'goal';
   });
   const reaches = (from: string, to: string, relation: string, visited = new Set<string>()): boolean => {
     if (from === to) return true;
@@ -58,7 +58,7 @@ export function productView(catalog: Catalog): ObjectValue {
   };
   const current = legal.filter(r => !reaches(r.target, r.owner, r.relation));
   for (const r of relations.filter(r => !current.includes(r))) diagnostics.push({ code: 'CURRENT_RELATION_INVALID', owner: r.owner, id: r.id });
-  for (const g of catalog.items.filter(i => i.usable && i.type === 'goal' && i.version === 3)) if (scopes(catalog, g).conflict) diagnostics.push({ code: 'ASSESSMENT_SCOPE_CONFLICT', goal_id: g.id });
+  for (const g of catalog.items.filter(i => i.usable && i.type === 'goal' && (i.version ?? 0) >= 3)) if (scopes(catalog, g).conflict) diagnostics.push({ code: 'ASSESSMENT_SCOPE_CONFLICT', goal_id: g.id });
   return { project_id: project?.id ?? null, root_goal: rootGoal(catalog, project), requirement_order: registered, unordered_requirements: unordered, current_relations: current, diagnostics };
 }
 
@@ -70,7 +70,7 @@ export function selectAssessment(catalog: Catalog, query: ObjectValue, budget: O
     assessment_id: reasons.length ? null : candidates[0]?.id ?? null, reasons: [...new Set(reasons)], reports: candidates.map(i => ({ id: i.id, conclusion: i.metadata.conclusion ?? null, usable: i.usable, locator: { kind: 'file', path: i.path, item_id: i.id } })), historical_reports: historical, pending_reports: pending, business_validity: 'not-evaluated' });
   const fail = (reason: string): ObjectValue => { reasons.push(reason); return result(); };
   const goal = catalog.byId.get(query.goal_id), target = catalog.byId.get(query.target);
-  if (!goal || goal.type !== 'goal' || goal.version !== 3) return fail('scope-unavailable');
+  if (!goal || goal.type !== 'goal' || (goal.version ?? 0) < 3) return fail('scope-unavailable');
   if (!target || !['requirement', 'goal'].includes(target.type) || target.type === 'goal' && target.id !== goal.id) return fail('conflict');
   const declared = scopes(catalog, goal);
   if (declared.conflict) return fail('conflict');
@@ -110,7 +110,7 @@ export function selectAssessment(catalog: Catalog, query: ObjectValue, budget: O
   }
   if (!candidates.length) return fail('no-applicable-report');
   if (candidates.some(i => invalid.has(i.id) || catalog.items.filter(x => x.id === i.id).length !== 1)) reasons.push('conflict');
-  if (candidates.some(i => !i.usable || i.version !== 3)) reasons.push('metadata-incomplete');
+  if (candidates.some(i => !i.usable || (i.version ?? 0) < 3)) reasons.push('metadata-incomplete');
   if (candidates.length > 1) reasons.push('multiple-reports');
   for (const report of candidates) {
     const m = report.metadata;

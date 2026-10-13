@@ -159,6 +159,12 @@ read-only request returns pending maintenance locators instead of writing.
 
 ## Result
 
+Implementation Roadmap is optional. For directly selected nearby work, consume only the
+already selected relevant Roadmap and its scoped differences/prerequisites via plan.md;
+do not require creation or whole-project reconciliation before preparing a Task. Keep
+order distinct from actual prerequisite, and do not infer full Requirement delivery from
+earlier Task closure. Missing/unknown Roadmap data is a reported limit, never admission.
+
 Return the actual requested result, affected scope, evidence/record references,
 remaining work and any unsaved/unreconciled data. Preserve existing user decisions
 and exclusions; an explicit read-only request remains read-only. A record's successful

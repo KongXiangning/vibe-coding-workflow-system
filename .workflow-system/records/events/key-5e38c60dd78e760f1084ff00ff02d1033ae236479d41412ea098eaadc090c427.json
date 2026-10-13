@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T16:40:56.948Z",
+  "payload_sha256": "ac45438d5b474020b759f6ae293415aec0aa0d88db71cc29694e695e0941052f",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:roadmap-v4-repair-S2-20261014",
+    "request": {
+      "decision_text": "修复",
+      "idempotency_key": "roadmap-v4-repair-S2-20261014",
+      "source_revision": "73ce058c7cad1dc20cca2575ab38e941a1207c77 + 未提交 v4 实现及 RM4-R1/R2 修复",
+      "step_id": "S2",
+      "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "action": "execution",
+      "decision_source": "当前用户请求",
+      "commands": [
+        "bun run build:vibe-governance-distribution",
+        "bun test test/product-maintenance-install.test.ts",
+        "bun run validate:vnext-source",
+        "bun run validate:freshness",
+        "git diff --check"
+      ],
+      "result": "契约、安装 API、plan 指引与安装测试同步两项修复。77 项产品维护回归及 3 项隔离安装测试通过，源码契约/新鲜度/git diff --check 通过。本地 0.24.8 候选分发 bundle-684c2e262294bcf9484cefb3，未发布/未业务安装/未提交推送。修复验证追加在 docs/ops/vnext-roadmap-validation.md，原审查 verdict 和 findings 历史未修改，尚待正式复审。"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "parents": [
+        ".workflow-system/records/events/key-26fad77b80f5ab924e09f05de4a96e6a4f8bc85b14fe91830b9f430b61bcaacf.json"
+      ],
+      "data": {
+        "decision_text": "修复",
+        "source_revision": "73ce058c7cad1dc20cca2575ab38e941a1207c77 + 未提交 v4 实现及 RM4-R1/R2 修复",
+        "step_id": "S2",
+        "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+        "decision_source": "当前用户请求",
+        "commands": [
+          "bun run build:vibe-governance-distribution",
+          "bun test test/product-maintenance-install.test.ts",
+          "bun run validate:vnext-source",
+          "bun run validate:freshness",
+          "git diff --check"
+        ],
+        "result": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "3f3572ce20b4238e3de9b252982977802ad83c92fb5457f3d387d888eb549dff",
+        "references": [
+          {
+            "data_pointer": "/result",
+            "request_pointer": "/result"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

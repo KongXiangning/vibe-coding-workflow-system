@@ -1,5 +1,17 @@
 # Observations, local impact and E6 repair
 
+Implementation Roadmap reconciliation is separate from delivery assessment. Use plan.md
+and read/check roadmap_query for the selected scope's baseline differences; current means
+reviewed versions match, never delivered/PASS. Task closure or binding never satisfies a
+whole Requirement or a real engineering prerequisite. Preserve cross-stage work such as
+REQ-20's W20-A and W20-B independently of actual Task creation. Report missing baseline,
+unread/unassigned scope and failed saves without suppressing historical delivery. First
+baseline initialization can reconcile existing achievements without redoing old Tasks.
+An explicit no-adjustment/deferred decision binds exact reviewed versions and sources;
+new versions retain old history but need reassessment. Do not move a baseline simply
+because a new definition was read. Read-only reconciliation writes nothing. Closure
+keeps local delivery scope and parent continuation priority, with no full-project scan.
+
 An actual external/user observation can exist without any task. Save obtained
 material via capture or registered source; label user report, external log and
 Agent reproduction separately. Discussion suggestion and actual observation may

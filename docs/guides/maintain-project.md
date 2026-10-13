@@ -1,5 +1,20 @@
 # 使用 maintain-project 维护目标、完整需求与实施安排
 
+项目级实施安排对外称 **Implementation Roadmap（项目实施路线图）**，内部仍是 `plan`。
+已有需求但没有路线图时可直接要求“按现有需求整理首版实施路线图”；保留已有需求与
+历史 Task，未来 Task 按需创建。新建建议 `docs/product/IMPLEMENTATION_ROADMAP.md`，旧
+`PLAN.md` 不需改名。它与 Agent Plan Mode、单个 Task Plan 分开。
+
+支持完整或局部规划。例如 24 项需求只安排近期 6 项，其余 18 项继续可见；跨阶段
+REQ-20 保留一个身份，W20-A 与 W20-B 各自安排，基础任务结束不等于完整需求满足。
+v4 路线图可保存实际已核对成员、定义及安排的基线。再次用于选择工作时，读取结果区分
+当前已核对、变化待核对、已核对但明确暂缓、无法确认；需求手工修改或新增即使没有
+Change 仍可发现。只有真实完成影响核对才能更新基线；只读不会制造记录。
+
+多份路线图分别选定适用范围，不按修改时间合并。需求保存成功而路线图失败时保留
+已保存内容，只补失败部分。缺少路线图、旧格式或差异均不阻断直接 Task 流程；任务
+续接优先，不在每次步骤、关闭或 Git 操作扫描全库。详情见[契约第 11 节](../product/project-maintenance/document-contract.md#11-v4implementation-roadmap-与规划核对基线)、[核对示例](../product/project-maintenance/examples/roadmap-reconciliation.md)和[本轮验证范围](../ops/vnext-roadmap-validation.md)。
+
 在目标项目调用 `$maintain-project`，直接说明要整理的资料、当前决定或待核对结果。它把目标、完整需求、设计、安排和交付依据保存在项目自己的文档中；Task 继续由原有 vNext 管理，TraceLens 负责只读展示。
 
 本指南依据已验收源码和本地构建产物 `0.24.6`。这不表示该内容已发布到 npm、已合并 main，或已安装到你的项目。最新功能交付及验证边界见[实施与验收交接](../ops/full-scope-planning-evidence/实施与验收交接.md)。

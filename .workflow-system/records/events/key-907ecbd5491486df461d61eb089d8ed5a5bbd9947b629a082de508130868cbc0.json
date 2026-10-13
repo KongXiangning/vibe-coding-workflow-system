@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T16:34:51.994Z",
+  "payload_sha256": "1575980c36ceb19b56675da2c1ecffe90ef5f8612a7cde0da0a6c56fe96e62bc",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:repair-roadmap-key-0c39bb1657edd991535f13404f197a6d948237773896d3121c151104707a1eb2",
+    "request": {
+      "decision_source": "当前用户回复",
+      "review_ref": ".workflow-system/records/events/key-0c39bb1657edd991535f13404f197a6d948237773896d3121c151104707a1eb2.json",
+      "action": "review-decision",
+      "choice": "repair",
+      "idempotency_key": "repair-roadmap-key-0c39bb1657edd991535f13404f197a6d948237773896d3121c151104707a1eb2",
+      "decision_text": "修复",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review-decision",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "parents": [
+        ".workflow-system/records/events/key-d7ea3e6dbdc2ab8292dab77c7c2430b91591113f8003de6db9ff95907ae2427a.json"
+      ],
+      "data": {
+        "decision_source": "当前用户回复",
+        "review_ref": ".workflow-system/records/events/key-0c39bb1657edd991535f13404f197a6d948237773896d3121c151104707a1eb2.json",
+        "choice": "repair",
+        "decision_text": "修复"
+      }
+    }
+  },
+  "issues": []
+}

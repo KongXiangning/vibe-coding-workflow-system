@@ -1,0 +1,7 @@
+schema: vnext-product-manifest/v2
+project_id: roadmap-example
+entry: docs/product/PROJECT.md
+managed_paths: [docs/product/*.md]
+source_paths: []
+exclude_paths: []
+maintenance: enabled

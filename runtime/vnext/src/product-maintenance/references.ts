@@ -35,7 +35,7 @@ export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectV
           if (matches.length !== 1) throw new Error('SOURCE_ITEM: source item is missing or ambiguous');
           const item = matches[0]!;
           if (item.usable && item.type === 'requirement') base.requirement_definition_sha256 = requirementDigest(item);
-          if (item.usable && (item.type === 'requirement' || item.type === 'goal' && item.version === 3)) {
+          if (item.usable && (item.type === 'requirement' || item.type === 'goal' && (item.version ?? 0) >= 3)) {
             base.definition_sha256 = requirementDigest(item);
             base.definition_algorithm = definitionAlgorithm(item);
           }
@@ -78,10 +78,10 @@ export function resolveSources(catalog: Catalog, ids?: string[]): ObjectValue[] 
   const refs = catalog.items.filter(i => i.usable && (!ids || ids.includes(i.id))).flatMap(i => collectSources(i.metadata));
   return [...new Map(refs.map(r => [JSON.stringify(r), r])).values()].map(r => {
     const result = readSource(catalog, r, { max_bytes: 1 });
-    const basisChecks = catalog.items.filter(i => i.usable && i.type === 'assessment').flatMap(i => ['target', ...(i.version === 3 ? ['goal'] : [])].filter(role => JSON.stringify(i.metadata[`${role}_basis`]) === JSON.stringify(r)).map(role => {
+    const basisChecks = catalog.items.filter(i => i.usable && i.type === 'assessment').flatMap(i => ['target', ...((i.version ?? 0) >= 3 ? ['goal'] : [])].filter(role => JSON.stringify(i.metadata[`${role}_basis`]) === JSON.stringify(r)).map(role => {
       const expected = i.metadata[`${role}_definition_sha256`];
       const actual = result.definition_sha256 ?? null;
-      const algorithm = i.version === 3 ? i.metadata[`${role}_definition_algorithm`] : 'vnext-requirement-definition/v1';
+      const algorithm = (i.version ?? 0) >= 3 ? i.metadata[`${role}_definition_algorithm`] : 'vnext-requirement-definition/v1';
       let alignment = 'unknown';
       if (expected && actual && algorithm === result.definition_algorithm) alignment = expected === actual ? 'same-definition' : 'different-definition';
       if (alignment === 'different-definition') result.diagnostics.push(diagnostic('BASIS_DEFINITION_MISMATCH', r.path, `Referenced material definition differs from ${i.id}'s reported definition`, { item_id: i.id }));

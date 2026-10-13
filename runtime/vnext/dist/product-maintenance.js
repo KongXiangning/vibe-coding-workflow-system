@@ -15668,6 +15668,33 @@ var provenanceRules = [
 ];
 var taskRef = object({ task_id: nullable(string3), source, label: string3, plan_ref: string3, step_id: string3 }, ["task_id", "source"]);
 var targetCoverage = object({ target: id, coverage: string3 });
+var planningScope = { oneOf: [
+  object({ kind: { const: "project-current" }, exclude_ids: array(id) }, ["kind"]),
+  object({ kind: { const: "target-subgraph" }, target_ids: array(id, 1), exclude_ids: array(id) }, ["kind", "target_ids"]),
+  object({ kind: { const: "explicit-requirements" }, requirement_ids: array(id, 1), exclude_ids: array(id) }, ["kind", "requirement_ids"])
+] };
+var definitionSnapshot = object({ id, algorithm: string3, sha256: digest });
+var planningBaseline = object({
+  project_id: string3,
+  selector: planningScope,
+  member_ids: array(id),
+  definitions: array(definitionSnapshot),
+  context: array(definitionSnapshot),
+  arrangement: object({ algorithm: string3, sha256: digest }),
+  checked_at: string3,
+  working_copy: string3,
+  sources: array(source, 1),
+  unread_sources: sources,
+  exceptions: array(object({
+    target: id,
+    algorithm: string3,
+    sha256: digest,
+    disposition: choice("no-adjustment", "deferred"),
+    reason: string3,
+    sources: array(source, 1),
+    work_item_ids: array(id)
+  }, ["target", "algorithm", "sha256", "disposition", "reason", "sources"]))
+});
 var definitions = {
   SourceRef: { oneOf: [
     object({ kind: { const: "file" }, path: string3, item_id: id, section: string3, lines: object({ start: { type: "integer", minimum: 1 }, end: { type: "integer", minimum: 1 } }), sha256: digest, note: string3 }, ["kind", "path"]),
@@ -15702,7 +15729,7 @@ var definitions = {
     sources
   }, ["id", "title", "outcome", "scope", "targets", "state", "origin"])
 };
-var subject = (version) => object({ kind: choice("working-copy", "commit", "release", "unknown"), value: nullable(string3), ...version === 3 ? { revision: string3, limitations: string3 } : {} }, ["kind", "value"]);
+var subject = (version) => object({ kind: choice("working-copy", "commit", "release", "unknown"), value: nullable(string3), ...version >= 3 ? { revision: string3, limitations: string3 } : {} }, ["kind", "value"]);
 function itemSchema(version) {
   const common = { id, links: array(ref("Link")), sources, extensions };
   const types2 = {
@@ -15729,7 +15756,9 @@ function itemSchema(version) {
   };
   if (version >= 2)
     types2.plan = { fields: { intent_state: intent, targets: array(targetCoverage, 1), work_items: array(ref("WorkItem")) }, required: ["intent_state", "targets", "work_items"] };
-  if (version === 3) {
+  if (version === 4)
+    types2.plan.fields.planning_baseline = planningBaseline;
+  if (version >= 3) {
     Object.assign(types2.project.fields, { root_goal_id: nullable(id), requirement_order: array(id) });
     Object.assign(types2.goal.fields, { goal_kind: choice("outcome", "stage"), assessment_scopes: array(object({ target: id, scope_id: id, coverage: string3 })) });
     Object.assign(types2.assessment.fields, {
@@ -15747,7 +15776,7 @@ function itemSchema(version) {
     const extra = [];
     if (type === "assessment")
       extra.push({ properties: { target_basis: { properties: { kind: { const: "file" } }, required: ["kind"] } } });
-    if (type === "assessment" && version === 3) {
+    if (type === "assessment" && version >= 3) {
       extra.push({ properties: { target_basis: { required: ["item_id"] }, goal_basis: { properties: { kind: { const: "file" } }, required: ["kind", "item_id"] } } });
       extra.push({ if: { properties: { conclusion: choice("satisfied", "partially-satisfied", "not-satisfied") }, required: ["conclusion"] }, then: { required: ["sources"], properties: { sources: array(source, 1) } } });
     }
@@ -15779,7 +15808,7 @@ var fileOperation = object({
   content: { type: "string" },
   updates: array(object({ id, metadata: { type: "object" }, body: { type: "string" }, remove_fields: array(string3) }, ["id"])),
   append: array(object({ metadata: { type: "object" }, body: string3 })),
-  migrate: choice("v2", "v3"),
+  migrate: choice("v2", "v3", "v4"),
   preimage_path: string3,
   remove_items: array(id),
   remove_relations: array(object({ item_id: id, field: choice("links", "task_bindings"), id }))
@@ -15802,6 +15831,7 @@ var requestSchema = {
     impact_ids: array(id),
     discussion_targets: array(id),
     assessment_query: object({ target: id, goal_id: id, scope_id: id, subject: subject(3) }, ["target", "goal_id", "subject"]),
+    roadmap_query: object({ plan_id: id, selector: planningScope }, ["plan_id"]),
     files: array(fileOperation, 1),
     path: string3,
     text: { type: "string" },
@@ -15968,7 +15998,8 @@ function parseProduct(text3, file) {
   result.body_start = result.frontmatter_end + closing[0].length;
   const yaml = strictYaml(text3.slice(result.frontmatter_start, result.frontmatter_end), file);
   result.schema = yaml.value?.schema ?? null;
-  result.version = result.schema === "vnext-product-doc/v3" ? 3 : result.schema === "vnext-product-doc/v2" ? 2 : result.schema === "vnext-product-doc/v1" ? 1 : null;
+  const version = /^vnext-product-doc\/v([1-4])$/.exec(result.schema ?? "");
+  result.version = version ? Number(version[1]) : null;
   if (!result.version) {
     result.diagnostics.push(diagnostic("UNSUPPORTED_VERSION", file, `Unsupported schema ${JSON.stringify(result.schema)}; raw content is retained`, { severity: "error" }), ...yaml.problems.map((p) => p.diagnostic));
     return result;
@@ -15996,7 +16027,7 @@ function parseProduct(text3, file) {
     const location = matches[0];
     const diagnostics = validate(metadata, itemSchema(result.version), rootSchema.$defs).map((e) => diagnostic("ITEM_METADATA", file, e.message, { severity: "error", item_id: metadata?.id, pointer: `/items/${index2}${e.pointer}` }));
     diagnostics.push(...yaml.problems.filter((p) => node2?.range && p.offset >= node2.range[0] && p.offset < node2.range[2]).map((p) => ({ ...p.diagnostic, item_id: metadata?.id })));
-    if (result.version === 3 && metadata?.type === "assessment") {
+    if ((result.version ?? 0) >= 3 && metadata?.type === "assessment") {
       const problem = (message) => diagnostics.push(diagnostic("ASSESSMENT_METADATA", file, message, { severity: "error", item_id: metadata.id }));
       if (metadata.target_basis?.item_id !== metadata.target || metadata.goal_basis?.item_id !== metadata.applicability?.goal_id)
         problem("Definition basis item_id must match target and applicability.goal_id");
@@ -16058,7 +16089,7 @@ function requirementDigest(item) {
   relations.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
   const body = item.body.replace(/\r\n|\r/g, `
 `).replace(/\n+$/, "");
-  if (item.version === 3) {
+  if ((item.version ?? 0) >= 3) {
     const assessment_scopes = item.type === "goal" ? (item.metadata.assessment_scopes ?? []).map((s) => ({ target: s.target, scope_id: s.scope_id, coverage: s.coverage.replace(/\r\n|\r/g, `
 `) })).sort((a, b) => a.target < b.target ? -1 : a.target > b.target ? 1 : a.scope_id < b.scope_id ? -1 : a.scope_id > b.scope_id ? 1 : 0) : null;
     return sha256(`vnext-product-definition/v1
@@ -16067,7 +16098,7 @@ ${JSON.stringify({ type: item.type, id: item.id, scope: item.metadata.scope, goa
   return sha256(`vnext-requirement-definition/v1
 ${JSON.stringify({ type: item.type, id: item.id, scope: item.metadata.scope, relations, body })}`);
 }
-var definitionAlgorithm = (item) => item.version === 3 ? "vnext-product-definition/v1" : "vnext-requirement-definition/v1";
+var definitionAlgorithm = (item) => (item.version ?? 0) >= 3 ? "vnext-product-definition/v1" : "vnext-requirement-definition/v1";
 
 // runtime/vnext/src/product-maintenance/paths.ts
 import * as fs from "node:fs";
@@ -16391,7 +16422,7 @@ function analyze(catalog) {
       } else if (source2.kind === "uri" && !/^(https?:|mailto:)/i.test(source2.uri))
         report("UNSAFE_URI", item, "URI is retained as text; unsafe/unknown protocol must not be navigated");
     }
-    if (item.type === "project" && item.version === 3) {
+    if (item.type === "project" && (item.version ?? 0) >= 3) {
       if (!m.root_goal_id)
         report("ROOT_GOAL_UNSPECIFIED", item, "No overall goal is selected; do not infer one from file or graph order");
       else {
@@ -16424,7 +16455,7 @@ function analyze(catalog) {
         derived_from: [["goal", "module", "requirement", "design", "plan"], [item.type]],
         references: [Object.keys({ project: 1, goal: 1, module: 1, requirement: 1, design: 1, change: 1, assessment: 1, discussion: 1, plan: 1 }), Object.keys({ project: 1, goal: 1, module: 1, requirement: 1, design: 1, change: 1, assessment: 1, discussion: 1, plan: 1 })]
       };
-      if (item.version === 3) {
+      if ((item.version ?? 0) >= 3) {
         rules.part_of = item.type === "goal" ? [["goal"], ["goal"]] : item.type === "requirement" ? [["requirement"], ["module", "requirement"]] : rules.part_of;
         rules.supports = [["goal", "requirement", "module"], ["goal"]];
       }
@@ -16440,7 +16471,7 @@ function analyze(catalog) {
         report("ASSESSMENT_TARGET", item, "Selected assessment belongs to another requirement");
     }
     if (item.type === "assessment") {
-      const target = expectTarget(item, m.target, item.version === 3 ? ["requirement", "goal"] : ["requirement"], "Assessment");
+      const target = expectTarget(item, m.target, (item.version ?? 0) >= 3 ? ["requirement", "goal"] : ["requirement"], "Assessment");
       if (target && m.target_definition_sha256 && m.target_definition_sha256 !== target.definition_sha256)
         report("DEFINITION_CHANGED", item, "Current requirement definition differs from the reported basis; semantic/current code applicability is not evaluated");
       if (!m.target_definition_sha256)
@@ -16449,7 +16480,7 @@ function analyze(catalog) {
         report("REPORT_SOURCE_MISSING", item, "Reported implementation/verification requires actual sources and a coverage explanation");
       if (m.pending_sources?.length)
         report("PENDING_SOURCES", item, "New material is pending reconciliation; existing PASS is not a current completeness claim");
-      if (item.version === 3) {
+      if ((item.version ?? 0) >= 3) {
         const goal = expectTarget(item, m.applicability.goal_id, ["goal"], "Assessment goal");
         if (target?.type === "goal" && target.id !== m.applicability.goal_id)
           report("ASSESSMENT_GOAL", item, "A goal assessment must select that goal itself");
@@ -16650,7 +16681,7 @@ function readCatalog(rootInput, input = {}) {
       catalog.diagnostics.push(diagnostic("AMBIGUOUS_ID", item.path, `ID ${item.id} has multiple current definitions; no newest-file selection`, { severity: "error", item_id: item.id }));
     }
     if (item.usable) {
-      if (item.type === "requirement" || item.type === "goal" && item.version === 3) {
+      if (item.type === "requirement" || item.type === "goal" && (item.version ?? 0) >= 3) {
         item.definition_sha256 = requirementDigest(item);
         item.definition_algorithm = definitionAlgorithm(item);
       }
@@ -16658,7 +16689,7 @@ function readCatalog(rootInput, input = {}) {
     }
   }
   const projects = catalog.items.filter((i) => i.usable && i.type === "project");
-  for (const goal of catalog.items.filter((i) => i.usable && i.type === "goal" && i.version === 3)) {
+  for (const goal of catalog.items.filter((i) => i.usable && i.type === "goal" && (i.version ?? 0) >= 3)) {
     const seen = new Set;
     for (const scope2 of goal.metadata.assessment_scopes ?? []) {
       const key = JSON.stringify([scope2.target, scope2.scope_id]), target = catalog.byId.get(scope2.target);
@@ -17178,7 +17209,7 @@ function readSource(catalog2, source2, input = {}) {
           const item = matches2[0];
           if (item.usable && item.type === "requirement")
             base.requirement_definition_sha256 = requirementDigest(item);
-          if (item.usable && (item.type === "requirement" || item.type === "goal" && item.version === 3)) {
+          if (item.usable && (item.type === "requirement" || item.type === "goal" && (item.version ?? 0) >= 3)) {
             base.definition_sha256 = requirementDigest(item);
             base.definition_algorithm = definitionAlgorithm(item);
           }
@@ -17232,10 +17263,10 @@ function resolveSources(catalog2, ids) {
   const refs = catalog2.items.filter((i) => i.usable && (!ids || ids.includes(i.id))).flatMap((i) => collectSources(i.metadata));
   return [...new Map(refs.map((r) => [JSON.stringify(r), r])).values()].map((r) => {
     const result = readSource(catalog2, r, { max_bytes: 1 });
-    const basisChecks = catalog2.items.filter((i) => i.usable && i.type === "assessment").flatMap((i) => ["target", ...i.version === 3 ? ["goal"] : []].filter((role) => JSON.stringify(i.metadata[`${role}_basis`]) === JSON.stringify(r)).map((role) => {
+    const basisChecks = catalog2.items.filter((i) => i.usable && i.type === "assessment").flatMap((i) => ["target", ...(i.version ?? 0) >= 3 ? ["goal"] : []].filter((role) => JSON.stringify(i.metadata[`${role}_basis`]) === JSON.stringify(r)).map((role) => {
       const expected = i.metadata[`${role}_definition_sha256`];
       const actual = result.definition_sha256 ?? null;
-      const algorithm = i.version === 3 ? i.metadata[`${role}_definition_algorithm`] : "vnext-requirement-definition/v1";
+      const algorithm = (i.version ?? 0) >= 3 ? i.metadata[`${role}_definition_algorithm`] : "vnext-requirement-definition/v1";
       let alignment = "unknown";
       if (expected && actual && algorithm === result.definition_algorithm)
         alignment = expected === actual ? "same-definition" : "different-definition";
@@ -17252,6 +17283,466 @@ function resolveSources(catalog2, ids) {
 import * as fs4 from "node:fs";
 import * as path4 from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
+
+// runtime/vnext/src/product-maintenance/scoped.ts
+var normalize = (text3) => text3.replace(/\r\n|\r/g, `
+`);
+var subjectKey = (s) => JSON.stringify([s?.kind, s?.value, s?.revision ?? null]);
+var located = (m) => typeof m.target === "string" && typeof m.applicability?.goal_id === "string" && typeof m.applicability?.scope_id === "string" && ["working-copy", "commit", "release"].includes(m.subject?.kind) && typeof m.subject.value === "string" && !!m.subject.value;
+var tuple = (m) => JSON.stringify([m.target, m.applicability?.goal_id, m.applicability?.scope_id, subjectKey(m.subject)]);
+function rootGoal(catalog2, project) {
+  if (!project)
+    return { status: "conflict", id: null };
+  const id2 = project.metadata.root_goal_id;
+  if (!id2)
+    return { status: "unspecified", id: null };
+  const goal = catalog2.byId.get(id2);
+  if (!goal)
+    return { status: "unresolved", id: id2 };
+  if (goal.type !== "goal" || goal.metadata.scope !== "current")
+    return { status: "invalid", id: id2 };
+  return { status: "resolved", id: id2 };
+}
+function scopes(catalog2, goal) {
+  const declarations = goal.metadata.assessment_scopes ?? [];
+  const seen = new Set;
+  let conflict = false;
+  for (const s of declarations) {
+    const target = catalog2.byId.get(s.target), key = JSON.stringify([s.target, s.scope_id]);
+    if (seen.has(key) || !target || target.type !== "requirement" && target.id !== goal.id)
+      conflict = true;
+    seen.add(key);
+  }
+  return { declarations, conflict };
+}
+function productView(catalog2) {
+  const projects = catalog2.items.filter((i) => i.type === "project");
+  const project = projects.length === 1 && projects[0].usable && projects[0].path === catalog2.manifest?.entry ? projects[0] : undefined;
+  const registered = [], seen = new Set, diagnostics = [];
+  for (const id2 of project?.metadata.requirement_order ?? []) {
+    if (seen.has(id2))
+      diagnostics.push({ code: "REQUIREMENT_ORDER_DUPLICATE", id: id2 });
+    seen.add(id2);
+    const requirement = catalog2.byId.get(id2);
+    if (requirement?.type !== "requirement")
+      diagnostics.push({ code: "REQUIREMENT_ORDER_UNRESOLVED", id: id2 });
+    else if (!registered.includes(id2))
+      registered.push(id2);
+  }
+  const unordered = catalog2.items.filter((i) => i.usable && i.type === "requirement" && !registered.includes(i.id)).map((i) => i.id).sort();
+  const relations = catalog2.items.filter((i) => i.usable).flatMap((owner) => (owner.metadata.links ?? []).filter((l) => l.origin === "declared" && l.state === "active" && ["part_of", "supports", "depends_on"].includes(l.relation)).map((l) => ({ owner: owner.id, ...l })));
+  const legal = relations.filter((r) => {
+    const owner = catalog2.byId.get(r.owner), target = catalog2.byId.get(r.target);
+    if (!target || r.owner === r.target)
+      return false;
+    if (r.relation === "supports")
+      return ["requirement", "module", ...(owner.version ?? 0) >= 3 ? ["goal"] : []].includes(owner.type) && target.type === "goal";
+    if (r.relation === "depends_on")
+      return ["requirement", "design"].includes(owner.type) && ["requirement", "design"].includes(target.type);
+    return owner.type === "module" && target.type === "module" || owner.type === "requirement" && (target.type === "module" || (owner.version ?? 0) >= 3 && target.type === "requirement") || (owner.version ?? 0) >= 3 && owner.type === "goal" && target.type === "goal";
+  });
+  const reaches = (from, to, relation, visited = new Set) => {
+    if (from === to)
+      return true;
+    if (visited.has(from))
+      return false;
+    visited.add(from);
+    return legal.some((r) => r.relation === relation && r.owner === from && reaches(r.target, to, relation, visited));
+  };
+  const current = legal.filter((r) => !reaches(r.target, r.owner, r.relation));
+  for (const r of relations.filter((r2) => !current.includes(r2)))
+    diagnostics.push({ code: "CURRENT_RELATION_INVALID", owner: r.owner, id: r.id });
+  for (const g of catalog2.items.filter((i) => i.usable && i.type === "goal" && (i.version ?? 0) >= 3))
+    if (scopes(catalog2, g).conflict)
+      diagnostics.push({ code: "ASSESSMENT_SCOPE_CONFLICT", goal_id: g.id });
+  return { project_id: project?.id ?? null, root_goal: rootGoal(catalog2, project), requirement_order: registered, unordered_requirements: unordered, current_relations: current, diagnostics };
+}
+function selectAssessment(catalog2, query, budget = {}) {
+  const reasons = [], candidates = [], historical = [];
+  const pending = catalog2.items.filter((i) => i.type === "assessment" && !located(i.metadata)).map((i) => i.id);
+  const result = () => ({
+    selection: query,
+    conclusion: reasons.length ? "undetermined" : candidates[0]?.metadata.conclusion ?? "undetermined",
+    assessment_id: reasons.length ? null : candidates[0]?.id ?? null,
+    reasons: [...new Set(reasons)],
+    reports: candidates.map((i) => ({ id: i.id, conclusion: i.metadata.conclusion ?? null, usable: i.usable, locator: { kind: "file", path: i.path, item_id: i.id } })),
+    historical_reports: historical,
+    pending_reports: pending,
+    business_validity: "not-evaluated"
+  });
+  const fail = (reason) => {
+    reasons.push(reason);
+    return result();
+  };
+  const goal = catalog2.byId.get(query.goal_id), target = catalog2.byId.get(query.target);
+  if (!goal || goal.type !== "goal" || (goal.version ?? 0) < 3)
+    return fail("scope-unavailable");
+  if (!target || !["requirement", "goal"].includes(target.type) || target.type === "goal" && target.id !== goal.id)
+    return fail("conflict");
+  const declared = scopes(catalog2, goal);
+  if (declared.conflict)
+    return fail("conflict");
+  const available = declared.declarations.filter((s) => s.target === query.target);
+  if (!available.length)
+    return fail("scope-unavailable");
+  if (!query.scope_id && available.length > 1)
+    return { ...fail("scope-selection-required"), available_scopes: available };
+  const scope2 = available.find((s) => s.scope_id === (query.scope_id ?? available[0].scope_id));
+  if (!scope2)
+    return fail("scope-not-current");
+  query = { ...query, scope_id: scope2.scope_id };
+  if (!["working-copy", "commit", "release"].includes(query.subject.kind) || !query.subject.value)
+    return fail("no-applicable-report");
+  const key = tuple({ ...query, applicability: { goal_id: query.goal_id, scope_id: query.scope_id } });
+  const all2 = catalog2.items.filter((i) => i.type === "assessment" && located(i.metadata) && tuple(i.metadata) === key);
+  const edges = new Map, invalid = new Set;
+  for (const report of all2) {
+    const valid = [];
+    for (const id2 of Array.isArray(report.metadata.supersedes) ? report.metadata.supersedes : []) {
+      const matches2 = catalog2.items.filter((i) => i.id === id2);
+      if (matches2.length !== 1 || matches2[0].type !== "assessment" || !all2.includes(matches2[0]))
+        invalid.add(report.id);
+      else
+        valid.push(id2);
+    }
+    edges.set(report.id, valid);
+  }
+  const reaches = (from, to, seen = new Set) => {
+    if (from === to)
+      return true;
+    if (seen.has(from))
+      return false;
+    seen.add(from);
+    return (edges.get(from) ?? []).some((id2) => reaches(id2, to, seen));
+  };
+  const removed = new Set;
+  for (const report of all2)
+    for (const id2 of edges.get(report.id) ?? []) {
+      if (reaches(id2, report.id))
+        invalid.add(report.id);
+      else
+        removed.add(id2);
+    }
+  for (const report of all2) {
+    if (removed.has(report.id))
+      historical.push(report.id);
+    else
+      candidates.push(report);
+  }
+  if (!candidates.length)
+    return fail("no-applicable-report");
+  if (candidates.some((i) => invalid.has(i.id) || catalog2.items.filter((x) => x.id === i.id).length !== 1))
+    reasons.push("conflict");
+  if (candidates.some((i) => !i.usable || (i.version ?? 0) < 3))
+    reasons.push("metadata-incomplete");
+  if (candidates.length > 1)
+    reasons.push("multiple-reports");
+  for (const report of candidates) {
+    const m = report.metadata;
+    if (typeof m.applicability.coverage !== "string" || normalize(m.applicability.coverage) !== normalize(scope2.coverage))
+      reasons.push("scope-definition-changed");
+    for (const [prefix, definition2] of [["target", target], ["goal", goal]]) {
+      const label = prefix === "target" ? "definition" : "goal-definition";
+      const algorithm = m[`${prefix}_definition_algorithm`], digest3 = m[`${prefix}_definition_sha256`];
+      if (["vnext-product-definition/v1", "vnext-requirement-definition/v1"].includes(algorithm) && algorithm !== definition2.definition_algorithm)
+        reasons.push("definition-algorithm-changed");
+      if (algorithm === definition2.definition_algorithm && digest3 && digest3 !== definition2.definition_sha256)
+        reasons.push(`${label}-changed`);
+      const basis = m[`${prefix}_basis`];
+      if (!digest3 || !basis || algorithm !== definition2.definition_algorithm) {
+        reasons.push(`${label}-unverified`);
+        continue;
+      }
+      const source2 = readSource(catalog2, basis, { max_file_bytes: budget.max_file_bytes, max_bytes: 1 });
+      if (source2.status !== "available" || source2.definition_algorithm !== algorithm || source2.definition_sha256 !== digest3 || source2.byte_status === "changed")
+        reasons.push(`${label}-unverified`);
+    }
+    if (m.pending_sources?.length)
+      reasons.push("pending-evidence");
+  }
+  return result();
+}
+
+// runtime/vnext/src/product-maintenance/roadmaps.ts
+var ARRANGEMENT = "vnext-roadmap-arrangement/v1";
+var GRAPH = "vnext-planning-context/v1";
+function canonicalPlanning(value) {
+  function ordered(v) {
+    if (Array.isArray(v))
+      return v.map(ordered);
+    if (v && typeof v === "object")
+      return Object.fromEntries(Object.keys(v).sort().map((k) => [k, ordered(v[k])]));
+    if (typeof v === "string")
+      return v.replace(/\r\n|\r/g, `
+`);
+    return v;
+  }
+  return JSON.stringify(ordered(value));
+}
+function arrangementSnapshot(plan) {
+  const { id: id2, intent_state, targets, work_items } = plan.metadata;
+  const work = work_items.map(({ sources: sources2, ...arrangement }) => arrangement);
+  return { algorithm: ARRANGEMENT, sha256: sha256(`${ARRANGEMENT}
+${canonicalPlanning({
+    id: id2,
+    intent_state,
+    targets,
+    work_items: work,
+    body: plan.body.replace(/\r\n|\r/g, `
+`).replace(/\n+$/, "")
+  })}`) };
+}
+var snapshot = (item) => ({ id: item.id, algorithm: definitionAlgorithm(item), sha256: requirementDigest(item) });
+var unique = (ids) => [...new Set(ids)].sort();
+var same = (a, b) => canonicalPlanning(a) === canonicalPlanning(b);
+function contextSnapshot(item, relations) {
+  if (item.type === "goal")
+    return snapshot(item);
+  return { id: item.id, algorithm: GRAPH, sha256: sha256(`${GRAPH}
+${canonicalPlanning({
+    id: item.id,
+    scope: item.metadata.scope,
+    relations: relations.filter((r) => r.owner === item.id).map((r) => [r.relation, r.target]).sort()
+  })}`) };
+}
+function planningScope2(catalog2, selector, plan) {
+  const reasons = [], exclude = new Set(selector.exclude_ids ?? []);
+  const all2 = catalog2.items.filter((i) => i.usable && i.type === "requirement" && i.metadata.scope === "current");
+  const view = productView(catalog2);
+  const relations = view.current_relations.filter((r) => ["part_of", "supports"].includes(r.relation) && catalog2.byId.get(r.owner)?.metadata.scope === "current" && catalog2.byId.get(r.target)?.metadata.scope === "current");
+  let selected = [], context = [], reachable = new Set;
+  if (!catalog2.coverage.complete || !same(unique(catalog2.coverage.paths ?? []), unique(catalog2.manifest?.managed_paths ?? [])))
+    reasons.push("enumeration-incomplete");
+  if (catalog2.diagnostics.some((d) => d.severity === "error" && !d.item_id))
+    reasons.push("identity-coverage-incomplete");
+  if (selector.kind === "explicit-requirements") {
+    selected = selector.requirement_ids.filter((id2) => !exclude.has(id2));
+    for (const id2 of selected) {
+      const item = catalog2.byId.get(id2);
+      if (!item || item.type !== "requirement")
+        reasons.push(`requirement-unavailable:${id2}`);
+    }
+    selected = selected.filter((id2) => catalog2.byId.get(id2)?.type === "requirement" && catalog2.byId.get(id2)?.metadata.scope === "current");
+  } else {
+    if (catalog2.diagnostics.some((d) => d.severity === "error"))
+      reasons.push("structure-incomplete");
+    if (selector.kind === "project-current")
+      selected = all2.map((i) => i.id);
+    else if (selector.kind === "target-subgraph") {
+      reachable = new Set(selector.target_ids.filter((id2) => !exclude.has(id2)));
+      for (const id2 of reachable) {
+        const item = catalog2.byId.get(id2);
+        if (!item || !["goal", "requirement"].includes(item.type) || item.metadata.scope !== "current")
+          reasons.push(`target-unavailable:${id2}`);
+      }
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const r of relations)
+          if (reachable.has(r.target) && !reachable.has(r.owner) && !exclude.has(r.owner)) {
+            reachable.add(r.owner);
+            changed = true;
+          }
+      }
+      if (view.diagnostics.some((d) => reachable.has(d.owner ?? d.goal_id)))
+        reasons.push("scope-relations-invalid");
+      selected = all2.filter((i) => reachable.has(i.id)).map((i) => i.id);
+      context = catalog2.items.filter((i) => i.usable && reachable.has(i.id) && ["goal", "module"].includes(i.type)).map((i) => contextSnapshot(i, relations));
+    } else
+      reasons.push("selector-unsupported");
+    selected = selected.filter((id2) => !exclude.has(id2));
+  }
+  if (catalog2.status !== "available")
+    reasons.push("catalog-unavailable");
+  selected = unique(selected);
+  if (selector.kind !== "target-subgraph") {
+    const ancestry = new Set([...selected, ...(plan?.metadata.targets ?? []).map((t) => t.target)]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const r of relations)
+        if (ancestry.has(r.owner) && !ancestry.has(r.target)) {
+          ancestry.add(r.target);
+          changed = true;
+        }
+    }
+    context = catalog2.items.filter((i) => i.usable && ancestry.has(i.id) && i.metadata.scope === "current" && ["goal", "module"].includes(i.type)).map((i) => contextSnapshot(i, relations));
+    if (view.diagnostics.some((d) => ancestry.has(d.owner ?? d.goal_id)))
+      reasons.push("scope-relations-invalid");
+  }
+  for (const d of context)
+    if (d.algorithm === "vnext-requirement-definition/v1")
+      reasons.push(`goal-format-uncomparable:${d.id}`);
+  if (selector.requirement_ids && unique(selector.requirement_ids).length !== selector.requirement_ids.length || selector.target_ids && unique(selector.target_ids).length !== selector.target_ids.length)
+    reasons.push("selector-duplicate");
+  return {
+    selector,
+    member_ids: selected,
+    definitions: selected.map((id2) => snapshot(catalog2.byId.get(id2))),
+    context: context.sort((a, b) => a.id.localeCompare(b.id)),
+    definition_locators: selected.map((id2) => ({ id: id2, locator: { kind: "file", path: catalog2.byId.get(id2).path, item_id: id2 } })),
+    outside_scope: all2.filter((i) => !selected.includes(i.id)).map((i) => i.id).sort(),
+    unassigned: selector.kind === "target-subgraph" ? all2.filter((i) => !reachable.has(i.id) && !relations.some((r) => r.owner === i.id)).map((i) => i.id).sort() : [],
+    reasons: unique(reasons),
+    complete: !reasons.length
+  };
+}
+function reconcileRoadmap(catalog2, query) {
+  const plan = catalog2.byId.get(query.plan_id), baseline = plan?.metadata.planning_baseline;
+  const reasons = [], changes = [];
+  const selector = query.selector ?? baseline?.selector;
+  const result = {
+    plan_id: query.plan_id,
+    status: "unknown",
+    reasons,
+    changes,
+    development_gate: false,
+    business_validity: "not-evaluated",
+    delivery: "not-evaluated",
+    task_operations: "not-performed"
+  };
+  if (!plan || plan.type !== "plan") {
+    reasons.push("roadmap-unavailable");
+    return result;
+  }
+  result.locator = { kind: "file", path: plan.path, item_id: plan.id };
+  result.intent_state = plan.metadata.intent_state;
+  result.work_items = plan.metadata.work_items;
+  result.diagnostics = catalog2.diagnostics.filter((d) => d.item_id === plan.id);
+  if (result.diagnostics.some((d) => ["DUPLICATE_WORK_ITEM", "UNRESOLVED_TARGET", "TARGET_TYPE", "WORK_DEPENDENCY_MISSING", "WORK_DEPENDENCY_CYCLE"].includes(d.code)))
+    reasons.push("roadmap-references-unresolved");
+  if (!selector) {
+    reasons.push("baseline-missing", "selector-required");
+    return result;
+  }
+  const current = planningScope2(catalog2, selector, plan), arrangement = arrangementSnapshot(plan);
+  result.scope = current;
+  result.arrangement = arrangement;
+  reasons.push(...current.reasons);
+  result.unarranged_requirements = current.member_ids.filter((id2) => !plan.metadata.work_items.some((w) => w.state !== "withdrawn" && w.targets.some((t) => t.target === id2)));
+  result.snapshot_proposal = { project_id: catalog2.manifest?.project_id, selector, member_ids: current.member_ids, definitions: current.definitions, context: current.context, arrangement };
+  result.proposal_assurance = "not-reviewed; supply actual checked_at, working_copy, sources, unread_sources and exceptions only after semantic review";
+  if (plan.version !== 4)
+    reasons.push("format-without-baseline");
+  if (!baseline)
+    reasons.push("baseline-missing");
+  else {
+    if (!same(selector, baseline.selector))
+      reasons.push("selector-differs");
+    if (baseline.project_id !== catalog2.manifest?.project_id)
+      reasons.push("project-identity-differs");
+    if (baseline.working_copy !== catalog2.root)
+      reasons.push("working-copy-differs");
+    if (!validTime(baseline.checked_at))
+      reasons.push("baseline-time-invalid");
+    if (baseline.unread_sources.length)
+      reasons.push("unread-sources");
+    if (unique(baseline.member_ids).length !== baseline.member_ids.length)
+      reasons.push("baseline-members-duplicate");
+    for (const id2 of current.member_ids.filter((id3) => !baseline.member_ids.includes(id3)))
+      changes.push({ kind: "member-added", id: id2 });
+    for (const id2 of baseline.member_ids.filter((id3) => !current.member_ids.includes(id3)))
+      changes.push({ kind: "member-exited", id: id2 });
+    for (const field of ["definitions", "context"]) {
+      if (unique(baseline[field].map((d) => d.id)).length !== baseline[field].length)
+        reasons.push(`${field}-duplicate`);
+      for (const d of current[field]) {
+        const old = baseline[field].find((o) => o.id === d.id);
+        if (!old) {
+          if (field === "definitions" && !baseline.member_ids.includes(d.id))
+            continue;
+          reasons.push(`definition-unreviewed:${d.id}`);
+          continue;
+        }
+        if (old.algorithm !== d.algorithm)
+          reasons.push(`algorithm-incomparable:${d.id}`);
+        else if (old.sha256 !== d.sha256)
+          changes.push({ kind: "definition-changed", id: d.id, before: old, after: d });
+      }
+      for (const old of baseline[field])
+        if (!current[field].some((d) => d.id === old.id)) {
+          if (field === "context")
+            changes.push({ kind: "context-exited", id: old.id });
+          else if (!baseline.member_ids.includes(old.id))
+            reasons.push(`snapshot-outside-members:${old.id}`);
+        }
+    }
+    if (baseline.arrangement.algorithm !== arrangement.algorithm)
+      reasons.push("arrangement-algorithm-incomparable");
+    else if (baseline.arrangement.sha256 !== arrangement.sha256)
+      changes.push({ kind: "arrangement-changed", before: baseline.arrangement, after: arrangement });
+    result.exceptions = baseline.exceptions.filter((e) => current.definitions.some((d) => d.id === e.target && d.algorithm === e.algorithm && d.sha256 === e.sha256) && (e.work_item_ids ?? []).every((id2) => plan.metadata.work_items.some((w) => w.id === id2)));
+    result.stale_exceptions = baseline.exceptions.filter((e) => !result.exceptions.includes(e));
+    if (!baselineSourcesAvailable(catalog2, baseline))
+      reasons.push("baseline-source-unavailable");
+  }
+  const affected = unique(changes.filter((c) => c.id).map((c) => c.id));
+  result.affected_work_items = plan.metadata.work_items.filter((w) => w.targets.some((t) => affected.includes(t.target))).map((w) => w.id);
+  result.change_sources = catalog2.items.filter((i) => i.usable && i.type === "change" && i.metadata.deltas.some((d) => affected.includes(d.target) || d.target === plan.id)).map((i) => ({ id: i.id, locator: { kind: "file", path: i.path, item_id: i.id }, basis: i.metadata.basis }));
+  if (reasons.length)
+    result.status = "unknown";
+  else if (changes.length)
+    result.status = "changes-pending";
+  else if (result.exceptions?.some((e) => e.disposition === "deferred"))
+    result.status = "reviewed-deferred";
+  else
+    result.status = "current";
+  return result;
+}
+var validTime = (time) => /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(time) && Number.isFinite(Date.parse(time));
+function baselineSources(baseline) {
+  return [...baseline.sources, ...baseline.exceptions.flatMap((e) => e.sources)];
+}
+function baselineSourcesAvailable(catalog2, baseline) {
+  return baselineSources(baseline).filter((s) => s.kind === "file").every((source2) => {
+    const read = readSource(catalog2, source2, { max_bytes: 1 });
+    return read.status === "available" && (!source2.sha256 || read.byte_status === "same-bytes");
+  });
+}
+function assertBaseline(catalog2, plan, previousBaseline) {
+  const b = plan.metadata.planning_baseline;
+  if (!b)
+    return [];
+  const current = planningScope2(catalog2, b.selector, plan);
+  const retained = [];
+  const sameBasis = previousBaseline && previousBaseline.project_id === b.project_id && previousBaseline.working_copy === b.working_copy && same(previousBaseline.selector, b.selector);
+  const fail = (reason) => {
+    throw new Error(`PLANNING_BASELINE_CONFLICT: ${plan.id}: ${reason}`);
+  };
+  if (!current.complete)
+    fail(current.reasons.join(", "));
+  if (b.project_id !== catalog2.manifest?.project_id)
+    fail("project identity changed");
+  if (!validTime(b.checked_at) || b.working_copy !== catalog2.root)
+    fail("time or working-copy identity invalid");
+  if (!same(unique(b.member_ids), current.member_ids) || unique(b.member_ids).length !== b.member_ids.length)
+    fail("current membership differs from reviewed scope");
+  for (const field of ["definitions", "context"]) {
+    if (unique(b[field].map((d) => d.id)).length !== b[field].length)
+      fail(`${field} duplicate`);
+    const previousSnapshots = sameBasis ? previousBaseline?.[field] ?? [] : [];
+    for (const d of b[field]) {
+      if (current[field].some((now) => same(now, d)))
+        continue;
+      if (!previousSnapshots.some((old) => same(old, d)))
+        fail(`unread or changed definition ${d.id}`);
+      retained.push({ field, id: d.id });
+    }
+  }
+  if (!same(b.arrangement, arrangementSnapshot(plan)))
+    fail("arrangement differs from reviewed version");
+  if (!baselineSourcesAvailable(catalog2, b))
+    fail("review source unavailable");
+  for (const e of b.exceptions) {
+    if (!b.definitions.some((d) => d.id === e.target && d.algorithm === e.algorithm && d.sha256 === e.sha256))
+      fail(`exception has no reviewed version: ${e.target}`);
+    if ((e.work_item_ids ?? []).some((id2) => !plan.metadata.work_items.some((w) => w.id === id2)))
+      fail("exception work item unresolved");
+  }
+  return retained;
+}
+
+// runtime/vnext/src/product-maintenance/writer.ts
 function frozen(root, relative3, original) {
   if (original) {
     const header = original.subarray(0, 8192).toString("utf8");
@@ -17296,7 +17787,7 @@ function assertProductWriteTarget(relative3) {
   if (normalized === ".workflow-system/records" || normalized.startsWith(".workflow-system/records/"))
     throw new Error("RECORD_STORE_READ_ONLY: product maintenance cannot write Runtime record storage; use assistance record, snapshot or archive restore for the intended operation");
 }
-function publish(root, relative3, content3, expected, preimagePath, catalog2) {
+function publish(root, relative3, content3, expected, preimagePath, catalog2, beforePublish) {
   const file = safePath(root, relative3);
   assertProductWriteTarget(relative3);
   fs4.mkdirSync(path4.dirname(file), { recursive: true });
@@ -17338,6 +17829,7 @@ function publish(root, relative3, content3, expected, preimagePath, catalog2) {
     checkVersion(readExisting(root, relative3), expected);
     safePath(root, relative3);
     frozen(root, relative3, original ?? undefined);
+    beforePublish?.();
     if (expected === null) {
       fs4.linkSync(temp, file);
       fs4.unlinkSync(temp);
@@ -17421,7 +17913,7 @@ function candidate2(original, operation, parsed2) {
       patches.push({ start: item.start, end: item.end, text: update.body + separator });
     }
   }
-  if (operation.migrate === "v2" && parsed2.version === 1 || operation.migrate === "v3" && parsed2.version !== 3) {
+  if (operation.migrate && Number(operation.migrate.slice(1)) > (parsed2.version ?? 0)) {
     const yaml = strictYaml(text3.slice(parsed2.frontmatter_start, parsed2.frontmatter_end), operation.path);
     const schema = yaml.doc.get("schema", true);
     patches.push({ start: parsed2.frontmatter_start + schema.range[0], end: parsed2.frontmatter_start + schema.range[1], text: `vnext-product-doc/${operation.migrate}` });
@@ -17622,7 +18114,7 @@ function validateProductCandidate(previous2, next, operation, selectedIds, catal
       throw new Error(`BODY_BOUNDARY: body must remain entirely inside ## [${fragment.id}], with no extra root heading or swallowed neighbor`);
   }
   const newRootErrors = next.diagnostics.filter((d) => d.severity === "error" && !d.item_id && !previous2?.diagnostics.some((old) => old.code === d.code && old.message === d.message && old.pointer === d.pointer));
-  const selected = next.items.filter((item) => affected.includes(item.id) || item.type === "assessment" && previous2?.version === 3 && previous2.items.some((old) => old.id === item.id && old.usable));
+  const selected = next.items.filter((item) => affected.includes(item.id) || item.type === "assessment" && (previous2?.version ?? 0) >= 3 && previous2.items.some((old) => old.id === item.id && old.usable));
   const errors2 = [...newRootErrors, ...selected.flatMap((item) => item.diagnostics.filter((d) => d.severity === "error"))];
   if (errors2.length)
     throw new Error(`STRUCTURE_INVALID: ${errors2.map((e) => `${e.item_id ?? ""} ${e.pointer ?? ""} ${e.message}`).join("; ")}`);
@@ -17641,7 +18133,7 @@ function validateManifestCandidate(text3, file) {
 }
 function suppliesOrder(operation, document4) {
   return document4.items.some((item) => {
-    if (item.type !== "project" || item.version !== 3)
+    if (item.type !== "project" || (item.version ?? 0) < 3)
       return false;
     if ("content" in operation && Object.hasOwn(item.metadata, "requirement_order"))
       return true;
@@ -17680,31 +18172,65 @@ function apply(root, input) {
         }
         if (!version)
           throw new Error("UNSUPPORTED_VERSION: edit raw source with ordinary authorized tools; no guessed migration");
-        if (version === 1 && operation.migrate !== "v2" && (isManifest || operation.migrate !== "v3"))
-          throw new Error("V1_READ_ONLY: explicitly migrate this file to v2 or v3 before writing");
+        if (version === 1 && operation.migrate !== "v2" && (isManifest || !["v3", "v4"].includes(operation.migrate)))
+          throw new Error("V1_READ_ONLY: explicitly migrate this file before writing");
       }
       const next = candidate2(original, operation, previous2);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024))
         throw new Error("WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced");
       let diagnostics = [];
       let newRequirements = [];
+      let baselinePlans = [];
       if (isManifest)
         validateManifestCandidate(next.text, operation.path);
       else {
         const parsed2 = parseProduct(next.text, operation.path);
-        if (parsed2.version !== 2 && parsed2.version !== 3)
-          throw new Error("V2_REQUIRED: new writes must use the v2 or v3 document protocol");
-        if (previous2?.version === 3 && parsed2.version !== 3)
-          throw new Error("VERSION_DOWNGRADE: preserve v3 fields and history");
-        if (previous2?.version !== 3 && previous2 && parsed2.version === 3 && operation.migrate !== "v3")
-          throw new Error("MIGRATION_REQUIRED: explicitly select migrate=v3 for this document");
+        if (![2, 3, 4].includes(parsed2.version ?? 0))
+          throw new Error("V2_REQUIRED: new writes must use the v2, v3 or v4 document protocol");
+        if (previous2 && (parsed2.version ?? 0) < (previous2.version ?? 0))
+          throw new Error("VERSION_DOWNGRADE: preserve fields and history");
+        if (previous2 && parsed2.version !== previous2.version && operation.migrate !== `v${parsed2.version}`)
+          throw new Error(`MIGRATION_REQUIRED: explicitly select migrate=v${parsed2.version} for this document`);
         next.affected = validateProductCandidate(previous2, parsed2, operation, next.affected, catalog2);
         diagnostics = parsed2.diagnostics;
         newRequirements = parsed2.items.filter((i) => i.type === "requirement" && i.usable && !previous2?.items.some((old) => old.id === i.id));
         explicitOrder ||= suppliesOrder(operation, parsed2);
+        baselinePlans = parsed2.items.filter((i) => i.usable && i.type === "plan" && i.metadata.planning_baseline && canonical(i.metadata.planning_baseline) !== canonical(previous2?.items.find((old) => old.id === i.id)?.metadata.planning_baseline));
       }
-      const saved = publish(catalog2.root, operation.path, Buffer.from(next.text, "utf8"), operation.expected_sha256, operation.preimage_path, catalog2);
-      results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics });
+      const previousBaseline = (plan) => previous2?.items.find((old) => old.id === plan.id && old.usable)?.metadata.planning_baseline;
+      const validateBaselines = () => {
+        const fresh = readCatalog(root, { manifest: input.manifest });
+        if (fresh.manifest_sha256 !== catalog2.manifest_sha256)
+          throw new Error("MANIFEST_CONFLICT: planning scope changed");
+        for (const plan of baselinePlans)
+          assertBaseline(fresh, plan, previousBaseline(plan));
+      };
+      if (baselinePlans.length)
+        validateBaselines();
+      const saved = publish(catalog2.root, operation.path, Buffer.from(next.text, "utf8"), operation.expected_sha256, operation.preimage_path, catalog2, baselinePlans.length ? validateBaselines : undefined);
+      let readback = catalog2;
+      let readbackError = null;
+      if (baselinePlans.length) {
+        try {
+          readback = readCatalog(root, { manifest: input.manifest });
+        } catch (error2) {
+          readbackError = error2.message;
+        }
+      }
+      const baselineReadback = baselinePlans.map((plan) => {
+        try {
+          if (readbackError)
+            throw new Error(readbackError);
+          const actual = readback.byId.get(plan.id);
+          if (!actual || canonical(actual.metadata.planning_baseline) !== canonical(plan.metadata.planning_baseline))
+            throw new Error("saved roadmap changed or unavailable");
+          const retained = assertBaseline(readback, actual, previousBaseline(plan));
+          return { plan_id: plan.id, status: "matched", ...retained.length ? { retained_snapshots: retained } : {} };
+        } catch (error2) {
+          return { plan_id: plan.id, status: "pending-recheck", reason: error2.message };
+        }
+      });
+      results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics, baseline_readback: baselineReadback });
       addedRequirements.push(...newRequirements);
     } catch (error2) {
       results.push({ path: operation.path, status: "failed", saved: false, error: error2.message });
@@ -17715,8 +18241,8 @@ function apply(root, input) {
     const catalog2 = readCatalog(root, { manifest: input.manifest });
     const projects = catalog2.items.filter((i) => i.type === "project");
     const project = projects.length === 1 && projects[0].usable ? projects[0] : undefined;
-    if (!project || project.version !== 3) {
-      const v3Ids = addedRequirements.filter((i) => i.version === 3).map((i) => i.id);
+    if (!project || (project.version ?? 0) < 3) {
+      const v3Ids = addedRequirements.filter((i) => (i.version ?? 0) >= 3).map((i) => i.id);
       if (v3Ids.length)
         order2 = { status: "pending", saved: false, requirement_ids: v3Ids, reason: "Project order needs an explicitly maintained v3 project; no automatic migration" };
     } else {
@@ -17731,7 +18257,12 @@ function apply(root, input) {
     }
   }
   const failures = results.filter((r) => !r.saved).length;
-  return { status: failures ? failures === results.length ? "failed" : "partial" : !order2.saved ? "partial" : "saved", files: results, requirement_order_update: order2, task_operations: "not-performed", association: "not-evaluated", reconciliation: "not-evaluated", transaction: "per-file; no cross-file atomicity" };
+  let status = "saved";
+  if (failures === results.length && failures)
+    status = "failed";
+  else if (failures || !order2.saved || results.some((r) => r.baseline_readback?.some((b) => b.status !== "matched")))
+    status = "partial";
+  return { status, files: results, requirement_order_update: order2, task_operations: "not-performed", association: "not-evaluated", reconciliation: "not-evaluated", transaction: "per-file; no cross-file atomicity" };
 }
 function captureBytes(catalog2, relative3, bytes) {
   try {
@@ -17783,185 +18314,6 @@ function capture(root, input) {
   }
 }
 
-// runtime/vnext/src/product-maintenance/scoped.ts
-var normalize = (text3) => text3.replace(/\r\n|\r/g, `
-`);
-var subjectKey = (s) => JSON.stringify([s?.kind, s?.value, s?.revision ?? null]);
-var located = (m) => typeof m.target === "string" && typeof m.applicability?.goal_id === "string" && typeof m.applicability?.scope_id === "string" && ["working-copy", "commit", "release"].includes(m.subject?.kind) && typeof m.subject.value === "string" && !!m.subject.value;
-var tuple = (m) => JSON.stringify([m.target, m.applicability?.goal_id, m.applicability?.scope_id, subjectKey(m.subject)]);
-function rootGoal(catalog2, project) {
-  if (!project)
-    return { status: "conflict", id: null };
-  const id2 = project.metadata.root_goal_id;
-  if (!id2)
-    return { status: "unspecified", id: null };
-  const goal = catalog2.byId.get(id2);
-  if (!goal)
-    return { status: "unresolved", id: id2 };
-  if (goal.type !== "goal" || goal.metadata.scope !== "current")
-    return { status: "invalid", id: id2 };
-  return { status: "resolved", id: id2 };
-}
-function scopes(catalog2, goal) {
-  const declarations = goal.metadata.assessment_scopes ?? [];
-  const seen = new Set;
-  let conflict = false;
-  for (const s of declarations) {
-    const target = catalog2.byId.get(s.target), key = JSON.stringify([s.target, s.scope_id]);
-    if (seen.has(key) || !target || target.type !== "requirement" && target.id !== goal.id)
-      conflict = true;
-    seen.add(key);
-  }
-  return { declarations, conflict };
-}
-function productView(catalog2) {
-  const projects = catalog2.items.filter((i) => i.type === "project");
-  const project = projects.length === 1 && projects[0].usable && projects[0].path === catalog2.manifest?.entry ? projects[0] : undefined;
-  const registered = [], seen = new Set, diagnostics = [];
-  for (const id2 of project?.metadata.requirement_order ?? []) {
-    if (seen.has(id2))
-      diagnostics.push({ code: "REQUIREMENT_ORDER_DUPLICATE", id: id2 });
-    seen.add(id2);
-    const requirement = catalog2.byId.get(id2);
-    if (requirement?.type !== "requirement")
-      diagnostics.push({ code: "REQUIREMENT_ORDER_UNRESOLVED", id: id2 });
-    else if (!registered.includes(id2))
-      registered.push(id2);
-  }
-  const unordered = catalog2.items.filter((i) => i.usable && i.type === "requirement" && !registered.includes(i.id)).map((i) => i.id).sort();
-  const relations = catalog2.items.filter((i) => i.usable).flatMap((owner) => (owner.metadata.links ?? []).filter((l) => l.origin === "declared" && l.state === "active" && ["part_of", "supports", "depends_on"].includes(l.relation)).map((l) => ({ owner: owner.id, ...l })));
-  const legal = relations.filter((r) => {
-    const owner = catalog2.byId.get(r.owner), target = catalog2.byId.get(r.target);
-    if (!target || r.owner === r.target)
-      return false;
-    if (r.relation === "supports")
-      return ["requirement", "module", ...owner.version === 3 ? ["goal"] : []].includes(owner.type) && target.type === "goal";
-    if (r.relation === "depends_on")
-      return ["requirement", "design"].includes(owner.type) && ["requirement", "design"].includes(target.type);
-    return owner.type === "module" && target.type === "module" || owner.type === "requirement" && (target.type === "module" || owner.version === 3 && target.type === "requirement") || owner.version === 3 && owner.type === "goal" && target.type === "goal";
-  });
-  const reaches = (from, to, relation, visited = new Set) => {
-    if (from === to)
-      return true;
-    if (visited.has(from))
-      return false;
-    visited.add(from);
-    return legal.some((r) => r.relation === relation && r.owner === from && reaches(r.target, to, relation, visited));
-  };
-  const current = legal.filter((r) => !reaches(r.target, r.owner, r.relation));
-  for (const r of relations.filter((r2) => !current.includes(r2)))
-    diagnostics.push({ code: "CURRENT_RELATION_INVALID", owner: r.owner, id: r.id });
-  for (const g of catalog2.items.filter((i) => i.usable && i.type === "goal" && i.version === 3))
-    if (scopes(catalog2, g).conflict)
-      diagnostics.push({ code: "ASSESSMENT_SCOPE_CONFLICT", goal_id: g.id });
-  return { project_id: project?.id ?? null, root_goal: rootGoal(catalog2, project), requirement_order: registered, unordered_requirements: unordered, current_relations: current, diagnostics };
-}
-function selectAssessment(catalog2, query, budget = {}) {
-  const reasons = [], candidates = [], historical = [];
-  const pending = catalog2.items.filter((i) => i.type === "assessment" && !located(i.metadata)).map((i) => i.id);
-  const result = () => ({
-    selection: query,
-    conclusion: reasons.length ? "undetermined" : candidates[0]?.metadata.conclusion ?? "undetermined",
-    assessment_id: reasons.length ? null : candidates[0]?.id ?? null,
-    reasons: [...new Set(reasons)],
-    reports: candidates.map((i) => ({ id: i.id, conclusion: i.metadata.conclusion ?? null, usable: i.usable, locator: { kind: "file", path: i.path, item_id: i.id } })),
-    historical_reports: historical,
-    pending_reports: pending,
-    business_validity: "not-evaluated"
-  });
-  const fail = (reason) => {
-    reasons.push(reason);
-    return result();
-  };
-  const goal = catalog2.byId.get(query.goal_id), target = catalog2.byId.get(query.target);
-  if (!goal || goal.type !== "goal" || goal.version !== 3)
-    return fail("scope-unavailable");
-  if (!target || !["requirement", "goal"].includes(target.type) || target.type === "goal" && target.id !== goal.id)
-    return fail("conflict");
-  const declared = scopes(catalog2, goal);
-  if (declared.conflict)
-    return fail("conflict");
-  const available = declared.declarations.filter((s) => s.target === query.target);
-  if (!available.length)
-    return fail("scope-unavailable");
-  if (!query.scope_id && available.length > 1)
-    return { ...fail("scope-selection-required"), available_scopes: available };
-  const scope2 = available.find((s) => s.scope_id === (query.scope_id ?? available[0].scope_id));
-  if (!scope2)
-    return fail("scope-not-current");
-  query = { ...query, scope_id: scope2.scope_id };
-  if (!["working-copy", "commit", "release"].includes(query.subject.kind) || !query.subject.value)
-    return fail("no-applicable-report");
-  const key = tuple({ ...query, applicability: { goal_id: query.goal_id, scope_id: query.scope_id } });
-  const all2 = catalog2.items.filter((i) => i.type === "assessment" && located(i.metadata) && tuple(i.metadata) === key);
-  const edges = new Map, invalid = new Set;
-  for (const report of all2) {
-    const valid = [];
-    for (const id2 of Array.isArray(report.metadata.supersedes) ? report.metadata.supersedes : []) {
-      const matches2 = catalog2.items.filter((i) => i.id === id2);
-      if (matches2.length !== 1 || matches2[0].type !== "assessment" || !all2.includes(matches2[0]))
-        invalid.add(report.id);
-      else
-        valid.push(id2);
-    }
-    edges.set(report.id, valid);
-  }
-  const reaches = (from, to, seen = new Set) => {
-    if (from === to)
-      return true;
-    if (seen.has(from))
-      return false;
-    seen.add(from);
-    return (edges.get(from) ?? []).some((id2) => reaches(id2, to, seen));
-  };
-  const removed = new Set;
-  for (const report of all2)
-    for (const id2 of edges.get(report.id) ?? []) {
-      if (reaches(id2, report.id))
-        invalid.add(report.id);
-      else
-        removed.add(id2);
-    }
-  for (const report of all2) {
-    if (removed.has(report.id))
-      historical.push(report.id);
-    else
-      candidates.push(report);
-  }
-  if (!candidates.length)
-    return fail("no-applicable-report");
-  if (candidates.some((i) => invalid.has(i.id) || catalog2.items.filter((x) => x.id === i.id).length !== 1))
-    reasons.push("conflict");
-  if (candidates.some((i) => !i.usable || i.version !== 3))
-    reasons.push("metadata-incomplete");
-  if (candidates.length > 1)
-    reasons.push("multiple-reports");
-  for (const report of candidates) {
-    const m = report.metadata;
-    if (typeof m.applicability.coverage !== "string" || normalize(m.applicability.coverage) !== normalize(scope2.coverage))
-      reasons.push("scope-definition-changed");
-    for (const [prefix, definition2] of [["target", target], ["goal", goal]]) {
-      const label = prefix === "target" ? "definition" : "goal-definition";
-      const algorithm = m[`${prefix}_definition_algorithm`], digest3 = m[`${prefix}_definition_sha256`];
-      if (["vnext-product-definition/v1", "vnext-requirement-definition/v1"].includes(algorithm) && algorithm !== definition2.definition_algorithm)
-        reasons.push("definition-algorithm-changed");
-      if (algorithm === definition2.definition_algorithm && digest3 && digest3 !== definition2.definition_sha256)
-        reasons.push(`${label}-changed`);
-      const basis = m[`${prefix}_basis`];
-      if (!digest3 || !basis || algorithm !== definition2.definition_algorithm) {
-        reasons.push(`${label}-unverified`);
-        continue;
-      }
-      const source2 = readSource(catalog2, basis, { max_file_bytes: budget.max_file_bytes, max_bytes: 1 });
-      if (source2.status !== "available" || source2.definition_algorithm !== algorithm || source2.definition_sha256 !== digest3 || source2.byte_status === "changed")
-        reasons.push(`${label}-unverified`);
-    }
-    if (m.pending_sources?.length)
-      reasons.push("pending-evidence");
-  }
-  return result();
-}
-
 // runtime/vnext/src/product-maintenance/cli.ts
 function run(action, root, input = {}) {
   const envelope = { kind: "product-maintenance-result/v1", action, development_gate: false, qualification: "not-evaluated", task_operations: "not-performed" };
@@ -18005,6 +18357,7 @@ function run(action, root, input = {}) {
         unusable_items: selected.filter((i) => !i.usable).map((i) => ({ id: i.id ?? null, type: i.type ?? null, path: i.path, line: i.line, diagnostics: i.diagnostics, raw_locator: { kind: "file", path: i.path }, ...input.detail === "items" ? { body: i.body } : {} })),
         product_view: productView(catalog2),
         assessment_selection: input.assessment_query ? selectAssessment(catalog2, input.assessment_query, input) : null,
+        roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog2, input.roadmap_query) : null,
         reverse_relations: reverseRelations(catalog2),
         plan_tasks: planTasks(catalog2),
         discussions: input.discussion_targets ? recallDiscussions(catalog2, input.discussion_targets) : [],
@@ -18028,7 +18381,7 @@ function run(action, root, input = {}) {
         const doc = parseProduct(input.content, input.path);
         return { ...envelope, status: doc.diagnostics.some((d) => d.severity === "error") ? "invalid" : "valid", schema: doc.schema, usable_items: doc.items.filter((i) => i.usable).map((i) => i.id), diagnostics: doc.diagnostics, business_validity: "not-evaluated" };
       }
-      return { ...envelope, status: catalog2.status !== "available" ? catalog2.status : !catalog2.coverage.complete || catalog2.diagnostics.some((d) => d.severity === "error") ? "partial" : "checked", diagnostics: catalog2.diagnostics, coverage: catalog2.coverage, sources: input.resolve_sources ? resolveSources(catalog2, input.item_ids) : [], business_validity: "not-evaluated" };
+      return { ...envelope, status: catalog2.status !== "available" ? catalog2.status : !catalog2.coverage.complete || catalog2.diagnostics.some((d) => d.severity === "error") ? "partial" : "checked", diagnostics: catalog2.diagnostics, coverage: catalog2.coverage, sources: input.resolve_sources ? resolveSources(catalog2, input.item_ids) : [], roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog2, input.roadmap_query) : null, business_validity: "not-evaluated" };
     }
     throw new Error("UNKNOWN_ACTION: use read, check, apply or capture");
   } catch (error2) {

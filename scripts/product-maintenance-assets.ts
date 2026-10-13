@@ -28,6 +28,13 @@ export function buildProductAssets(root: string): void {
     const filename = type === 'project' ? 'PROJECT' : type === 'requirement' ? 'REQUIREMENTS' : type.toUpperCase();
     write(`templates/${filename}.md`, newDocument([{ metadata: { type, ...metadata }, body: `## [${metadata.id}] 待填写的${type}\n${sectionsByType[type]!.map(name => `### ${name}\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。`).join('\n')}\n` }], '格式模板（不是事实）'));
   }
+  write('templates/IMPLEMENTATION_ROADMAP.md', newDocument([{ metadata: { type: 'plan', ...fields.plan },
+    body: `## [PLAN-ID] 项目实施路线图\n${sectionsByType.plan!.map(name => `### ${name}\n模板不是已采用安排；核对实际需求与交付后填写。`).join('\n')}\n` }], '项目实施路线图模板（不是事实）', 4));
+  const roadmapExample = fs.readFileSync(path.join(root, 'docs/product/project-maintenance/examples/roadmap-reconciliation.md'), 'utf8');
+  write('examples/roadmap/README.md', roadmapExample);
+  for (const block of roadmapExample.matchAll(/`([^`\r\n]+)`：\r?\n\r?\n```(?:yaml|markdown)\r?\n([\s\S]*?)\r?\n```/g)) {
+    if (['.workflow-system/PRODUCT.yaml', 'docs/product/PROJECT.md', 'docs/product/IMPLEMENTATION_ROADMAP.md'].includes(block[1]!)) write(`examples/roadmap/${block[1]}`, `${block[2]}\n`);
+  }
   // Extract the authoritative E6 fenced file example, never import it as real task history.
   const example = fs.readFileSync(path.join(root, 'docs/product/project-maintenance/examples/e6-repair.md'), 'utf8');
   const pairs = [

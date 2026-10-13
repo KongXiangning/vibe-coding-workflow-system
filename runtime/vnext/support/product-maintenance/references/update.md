@@ -159,6 +159,15 @@ Actual deletions use the API's precise removal declarations, not implicit renami
 
 ## Current decisions and arrangements
 
+After adopted Requirement/Goal/Design changes, use plan.md to identify affected selected
+Implementation Roadmaps by stable IDs and effective relationships. Save authoritative
+definitions and necessary Change first, then reread and maintain affected arrangements
+within authority. Compare definitions/membership even without Change; do not fabricate a
+Change to find manual drift. Unknown ownership is a candidate, not an addition to every
+Roadmap. Explicit deferral takes precedence. Advance planning_baseline only after actual
+impact review; successful definitions remain intact when Roadmap writes partially fail,
+with pending differences rediscoverable on next consumption. Retry only the failed part.
+
 A clear adopted decision within existing maintenance authority updates the affected
 current goal/requirement body, necessary change basis and related arrangement in
 one scoped maintenance pass. Read affected relationships; preserve unrelated bodies

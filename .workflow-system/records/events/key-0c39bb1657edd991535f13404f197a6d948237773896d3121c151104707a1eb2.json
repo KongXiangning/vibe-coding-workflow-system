@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T16:31:27.984Z",
+  "payload_sha256": "00b0fd49e094be800da3a4d165df71c1b3e93607f1f9006c1bae02991fa9cc67",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:roadmap-v4-review-S1-20261014",
+    "request": {
+      "idempotency_key": "roadmap-v4-review-S1-20261014",
+      "stage": "change",
+      "verdict": "needs-fix",
+      "execution_ref": ".workflow-system/records/events/key-56d42b13c2ea450551427f1ad7ff69178eadbe47d614b5ca8283cc0210f73837.json",
+      "step_id": "S1",
+      "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+      "findings": [
+        {
+          "line": 41,
+          "id": "RM4-R1",
+          "title": "受限 explicit-requirements 读取错误认证当前一致",
+          "priority": "P1",
+          "body": "同一个已注册项目在另一个未读取文件存在 R1 重复定义时，全范围读取为 unknown，而 paths 仅包含 PROJECT.md 和 IMPLEMENTATION_ROADMAP.md 的 explicit-requirements 读取返回 current 且 reasons=[]。该分支未核对完整读取及全局身份可确认性，违反身份冲突/读取不完整不得宣称已核对的方案边界。需将身份未确认或相关读取不完整降级为 unknown，或提供可靠的已核对身份索引。源码与 Node bundle 均复现。",
+          "file": "runtime/vnext/src/product-maintenance/roadmaps.ts"
+        },
+        {
+          "line": 180,
+          "id": "RM4-R2",
+          "title": "局部基线更新无法保留未核对需求的旧版本",
+          "priority": "P2",
+          "body": "R1/R2 同时变化，仅核对 R1 时，保留 R2 原定义快照并前移 R1 会被 assertBaseline 拒绝。只能再次核对 R2 或删除其快照；删除后读取只有 definition-unreviewed:R2 且 changes=[]，丢失既有明确版本差异。需区分前移快照与原样保留的陈旧快照，允许局部更新而维持其他待核对变化。方案 9.4 明确要求可更新已核对局部且不能刷新未核对版本。源码与 Node bundle 均复现。",
+          "file": "runtime/vnext/src/product-maintenance/roadmaps.ts"
+        }
+      ],
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "action": "review",
+      "coverage": {
+        "validation": "31 项 roadmap/v3 定向回归通过；两个隔离场景分别在源码和 Node bundle 复现问题；未改实现代码",
+        "focus": [
+          "方案符合性",
+          "v1/v2/v3 兼容及 v4 定义算法",
+          "基线真实性、局部更新和身份完整性",
+          "非阻塞边界"
+        ],
+        "target": "73ce058c7cad1dc20cca2575ab38e941a1207c77 + 当前未提交 v4 实现（含新增文件和 Node bundle）",
+        "limits": [
+          "同一实施 Agent 自审，不是独立审查",
+          "未运行全量测试",
+          "未做真实宿主语义或 TraceLens 页面验收"
+        ]
+      },
+      "provenance": "self-review: 本次实施 Agent 应用户 review-change 请求重新审查，使用隔离反例实测；没有独立 Agent"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "review",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "parents": [
+        ".workflow-system/records/events/key-efcc04bd516cc51d24170c4a91237fb6cbf287209e28a69d5084f6c2efe3f72c.json"
+      ],
+      "data": {
+        "stage": "change",
+        "verdict": "needs-fix",
+        "execution_ref": ".workflow-system/records/events/key-56d42b13c2ea450551427f1ad7ff69178eadbe47d614b5ca8283cc0210f73837.json",
+        "step_id": "S1",
+        "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+        "findings": null,
+        "coverage": null,
+        "provenance": "self-review: 本次实施 Agent 应用户 review-change 请求重新审查，使用隔离反例实测；没有独立 Agent"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "a23d2cb562385598cbde6725cfd66d2bbed08cfc40ce62524a9dc66fcb4d99ef",
+        "references": [
+          {
+            "data_pointer": "/coverage",
+            "request_pointer": "/coverage"
+          },
+          {
+            "data_pointer": "/findings",
+            "request_pointer": "/findings"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

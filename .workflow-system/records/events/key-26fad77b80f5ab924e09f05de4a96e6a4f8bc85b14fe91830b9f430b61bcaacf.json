@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T16:40:56.469Z",
+  "payload_sha256": "f7e2700ba3574d83fe39217c2173f53bf574c7bdb7becb772b91592e93da21da",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:roadmap-v4-repair-S1-20261014",
+    "request": {
+      "decision_text": "修复",
+      "idempotency_key": "roadmap-v4-repair-S1-20261014",
+      "source_revision": "73ce058c7cad1dc20cca2575ab38e941a1207c77 + 未提交 v4 实现及 RM4-R1/R2 修复",
+      "step_id": "S1",
+      "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "action": "execution",
+      "decision_source": "当前用户请求",
+      "commands": [
+        "bun run build:product-maintenance",
+        "bun test test/product-maintenance-roadmap.test.ts test/product-maintenance-v3.test.ts test/product-maintenance.test.ts"
+      ],
+      "result": "RM4-R1/R2 已修复并实现自查：显式范围的受限/遗漏/无法解析身份读取为 unknown；允许同项目/副本/selector 的旧快照原样保留，前移或新建快照匹配当前版本；发布前和回读均使用写入前基线，retained_snapshots 明示旧依据，保留明确变化和旧延期历史。17 项路线图测试通过，含原审查反例源码/Node bundle 路径。原审查记录保留，本轮未登记新的正式 review，也未结束步骤。"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "parents": [
+        ".workflow-system/records/events/key-71f36f6c141d36388ecc9f657a4dbfce63613e4bb612b1648835c9d74088152e.json"
+      ],
+      "data": {
+        "decision_text": "修复",
+        "source_revision": "73ce058c7cad1dc20cca2575ab38e941a1207c77 + 未提交 v4 实现及 RM4-R1/R2 修复",
+        "step_id": "S1",
+        "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+        "decision_source": "当前用户请求",
+        "commands": [
+          "bun run build:product-maintenance",
+          "bun test test/product-maintenance-roadmap.test.ts test/product-maintenance-v3.test.ts test/product-maintenance.test.ts"
+        ],
+        "result": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "4b38a0284cd589b625d51b82f77279da9d1f10757c2536c94d6f31f9a76f3a15",
+        "references": [
+          {
+            "data_pointer": "/result",
+            "request_pointer": "/result"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

@@ -1,4 +1,6 @@
-# 托管文档契约：目标、需求、实施计划及资料关联
+# 托管文档契约：目标、需求、项目实施路线图及资料关联
+
+2026-10-14 增量：第 11 节定义 `vnext-product-doc/v4` 的项目实施路线图核对基线；内部仍为 `plan`。当前改动与验证边界见[路线图实施记录](../../ops/vnext-roadmap-validation.md)。Manifest 继续 v2；v1/v2/v3 按原版本读取与写入规则兼容，不要求全项目迁移。
 
 契约设计 0.3（2026-10-11，VN-01 确定）。当前已验收源码及本地 `0.24.6` 产物支持 `vnext-product-doc/v3` 的解析、校验与保存，Manifest 保持 `vnext-product-manifest/v2`；分发安装、宿主 Skill 指导及 TraceLens 只读接入的实际证据见[最新实施与验收交接](../../ops/full-scope-planning-evidence/实施与验收交接.md)，不表示 npm 发布或已合并 main。日常使用见[maintain-project 指南](../../guides/maintain-project.md)。
 
@@ -398,3 +400,59 @@ v1／v2 继续采用第 7 节的 `vnext-requirement-definition/v1`，不改写�
 | v1／v2 report，或 v3 report 缺必需依据 | 保留历史与具体缺项，当前 metadata-incomplete；不把旧 PASS 转为 satisfied。 |
 
 缺总目标、顺序、报告、新元数据、可用来源、当前定义核对或 PRODUCT 本身，都只影响相应展示和维护。文件字节读取完整、结构合法、定义对齐、业务盘点和交付结论仍是五种不同声明；正常 Task prepare／confirm／execution／close 与这些缺口保持独立。写入器真实并发保护和文件权限保持原规则。
+
+
+## 11. v4：Implementation Roadmap 与规划核对基线
+
+对外名称为 Implementation Roadmap（项目实施路线图）；内部继续 `type: plan`、`plan_id`、`work_items`、`TaskBinding.plan_items` 和 `plan_tasks`。新建默认建议 `docs/product/IMPLEMENTATION_ROADMAP.md`，注册到 PRODUCT.yaml；旧路径不用改名。一份 Markdown 可含多个独立条目，多份路线图不默认合并。它不是 Agent Plan Mode 或 prepare-task 的 Task Plan。
+
+v4 继承 v3 字段和定义摘要算法，仅在 plan 增加可选闭合字段 `planning_baseline`。未建立基线是合法初始状态，读取结果为未知。v1/v2/v3 仍兼容；写入新字段时显式 `migrate=v4`，只迁移相关文件并保留旧内容，禁止降级。Manifest 保持 v2。v4 Requirement／Goal 继续使用 `vnext-product-definition/v1`，格式迁移本身不制造定义变化。
+
+| 基线字段 | 必填／语义 |
+|---|---|
+| project_id | 是；核对时的 Manifest 稳定项目身份，身份变化不能沿用旧结论 |
+| selector | 是；以下三种范围之一，可带 exclude_ids |
+| member_ids | 是；当前范围的 Requirement 稳定 ID 集合快照；数组顺序不表示实施顺序 |
+| definitions | 是；实际已核对需求的 `{id, algorithm, sha256}` 数组；部分核对可只保存已核对成员，未核对成员仍派生为未知 |
+| context | 是；已核对相关 Goal／Module 的 `{id, algorithm, sha256}`；子图记录后代中的上下文，其他选择器记录计划目标及成员的组成／支撑祖先 |
+| arrangement | 是；`{algorithm: vnext-roadmap-arrangement/v1, sha256}`，表示核对过的实际安排 |
+| checked_at | 是；实际核对时间，ISO 时间且带时区；读到新版本不等于核对新版本 |
+| working_copy | 是；read.working_copy.identity 的实际根身份；不同工作副本不自动合并 |
+| sources | 是，至少一项 SourceRef；记录真实核对材料、读取边界与采用依据，不复制需求正文 |
+| unread_sources | 是，可空；仍未读取／未核对的实际材料；非空时不能派生当前已核对 |
+| exceptions | 是，可空；绑定精确版本的无需调整或明确暂缓决定，见下文 |
+
+selector 的确定性语义：
+
+- `{"kind":"project-current","exclude_ids":[]}`：Manifest 注册托管范围内所有可用 `scope=current` 的 Requirement。完整枚举当前托管文件才能确认成员集合；不认证 Manifest 外未知材料。
+- `{"kind":"explicit-requirements","requirement_ids":["REQ-01"],"exclude_ids":[]}`：仅列举 ID 的当前 Requirement；退出 current 会显示成员退出。其他项目新增需求在 scope.outside_scope，不能变成本局部路线图漏项。所选身份缺失／冲突时保持未知。
+- `{"kind":"target-subgraph","target_ids":["GOAL-01"],"exclude_ids":[]}`：指定 current Goal／Requirement，逆向沿有效、已声明、active、类型正确且无循环的 part_of/supports 关系求后代 Requirement。排除节点不再扩展其后代。不沿 inferred、depends_on 或历史 replaces 推断归属。无可靠归属的新需求在 scope.unassigned；不加入所有局部路线图。新成员发现需要完整枚举；关系冲突保持未知。
+
+所有选择器（包括 explicit-requirements）在宣称 current 前都要完整读取已注册托管身份范围；受限 paths、文件遗漏或无法解析的文件可能隐藏选定 ID 的重复定义，必须为 unknown。身份覆盖检查不扩大业务核对范围，局部路线图仍只核对选定需求。
+
+范围核对只对实际已读成员和版本负责。项目 inventory 的未核对材料仍由 Agent 保留；枚举完整或没有警告不是全项目业务盘点完成。
+
+安排摘要的规范化：对象键排序，文本 CRLF／CR 归一 LF；保留全部数组顺序。散列 plan.id、intent_state、targets、work_items（去掉各项 sources）及完整 plan 正文（去除末尾换行）。正文包含策略、阶段和未决事项，工作项包含阶段、范围、included/deferred/withdrawn、真实 prerequisite 与 order。排除 planning_baseline、其他来源 bookkeeping、TaskBinding 和派生诊断，避免自引用。摘要变化仅表示安排材料差异，不判定新顺序业务无效。
+
+定义与上下文：Requirement／Goal 沿用实际文件对应算法；不从 v4 格式猜历史算法。相关 Module 使用 `vnext-planning-context/v1`，规范化 id、scope 及有效出边的 relation/target 排序集合；只用于归属核对，不认证模块正文或实现。Goal 继续覆盖其定义正文、范围声明和已声明关系。不可比较算法保持未知。
+
+exceptions 每项必填 `target`、`algorithm`、`sha256`、`disposition: no-adjustment|deferred`、`reason`、非空 `sources`，可选 `work_item_ids`。绑定的是已核对的需求精确版本及本基线 selector／arrangement；不能指向未核对版本或不存在的工作项。deferred 呈现已核对但明确暂缓，并保留风险，不表示已实施；同版本复用现有决定，新相关版本变化使旧处置进入 stale_exceptions，重新提示差异。历史采用依据可由现有 Change／SourceRef 保存，不增加第二套变更日志。
+
+`read/check.roadmap_reconciliation` 只读派生：
+
+| status | 用户语义 |
+|---|---|
+| current | 指定已读取范围的成员、定义及安排与已核对基线一致；不表示已交付 |
+| changes-pending | 可比较的成员、定义、上下文或安排发生待核对差异；由 Agent 判断影响 |
+| reviewed-deferred | 当前精确版本已核对，但有明确暂缓决定；不重复要求相同授权 |
+| unknown | 无基线、旧格式、身份冲突、不可比较算法、读取／来源缺失或未核对成员；差异仍保留在 changes |
+
+输出 scope、changes、affected_work_items、unarranged_requirements、change_sources、exceptions/stale_exceptions、诊断及原始 locator。不因 Change 缺失推断无变化；不根据 Task 关闭、Binding 或工作项数量判定交付。unarranged_requirements 仅是没有直接工作项目标的候选，完整覆盖仍需 Agent 读取自然语言范围判断。只读不写历史、状态文件、Task 或 Assessment。
+
+首次无基线时可用明确 selector 读取 `snapshot_proposal`（当前成员／摘要材料）；它不是已核对认证。Agent 必须完成语义核对、保存安排、回读后，补上真实 checked_at、working_copy、sources、unread_sources 和 exceptions 才能写入 planning_baseline。局部更新保留未核对信息，不为消除提示而前移版本。
+
+受控写入仅对新建／更新的基线检查当前成员、已核对版本、安排摘要及处置引用。局部核对可原样保留同一项目身份、工作副本和 selector 下的既有快照，其他快照仅在实际核对后前移；不得为了保存而删掉尚未核对成员的旧版本。首次建立或改变作用域不能凭空采用陈旧快照。保存前、发布前、回读均使用写入前的旧基线作为保留依据；不可把新写入的基线当作它自己的历史证据。baseline_readback 的 matched 表示写入与回读核验成功，retained_snapshots 列出仍旧的字段／ID，不表示所有版本已一致；消费时仍显示这些版本的具体差异，旧延期决定保持为 stale_exceptions。保留陈旧基线的普通文档修改仍可保存，下一次消费重新发现差异。保存前重新读取当前定义和 Manifest，发布前再次检查，保存后回读；成功文件与待复核分别报告。跨文件无严格事务，外部编辑器的最后瞬间竞争无法彻底消除；不回滚已保存需求，不回放业务步骤。定义先保存并回读，再保存基线，不用一份候选未发布定义签发当前核对结论。
+
+自然消费入口是维护需求变化、首次规划、使用已选定适用路线图选择下一业务工作；不强制每次 execute-step、close-task 或 Git 扫描全库。真实活跃 Task 和父 Task 续接优先。缺少路线图或任何核对失败都不成为 Runtime Gate；直接准备 Task 的原路径继续有效。
+
+[可运行合成示例](examples/roadmap-reconciliation.md)说明首次初始化、跨阶段需求和只读消费；实际验证范围见[实施记录](../../ops/vnext-roadmap-validation.md)。

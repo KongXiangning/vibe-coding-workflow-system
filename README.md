@@ -87,6 +87,10 @@ The local `0.24.0` candidate includes `maintain-project` for goals, requirements
 designs, implementation plans, task bindings, discussions, and delivery reconciliation.
 See [the usage guide](docs/guides/maintain-project.md) and
 [the implementation and delivery evidence](docs/ops/vnext-project-maintenance-delivery.md).
+Implementation Roadmap keeps the internal `plan` interface and adds a v4 reviewed
+scope/version baseline for first and ongoing planning. See the
+[Roadmap contract and example](docs/product/project-maintenance/examples/roadmap-reconciliation.md)
+and [validation scope](docs/ops/vnext-roadmap-validation.md).
 The candidate has not been published; installation alone does not enable product
 maintenance or create business documents.
 

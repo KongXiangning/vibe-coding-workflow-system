@@ -1,5 +1,7 @@
 # vNext 项目目标、需求与实施规划维护
 
+2026-10-14 新增 **Implementation Roadmap（项目实施路线图）** v4 核对基线：已有需求首次规划、局部规划、手工定义变化与新增成员发现、精确版本暂缓及安全保存。内部 `plan` 和旧文件名兼容，Task 路径继续非阻塞。见[契约第 11 节](document-contract.md#11-v4implementation-roadmap-与规划核对基线)、[合成示例](examples/roadmap-reconciliation.md)和[本轮验证记录](../../ops/vnext-roadmap-validation.md)；以下旧交付记录不证明新 v4 已发布、业务安装或 TraceLens 页面已接入。
+
 当前使用入口是[maintain-project 指南](../../guides/maintain-project.md)。当前能力依据已验收源码和本地构建 `0.24.6`：vNext 已实现 v3 文档生产／读取、宿主维护指导及分发安装；TraceLens 已实现相应只读消费、范围报告及本轮组成 DAG／Task 汇集展示。不能把这些本地交付推断为 npm 已发布、已合并 main，或用户项目已升级。
 
 最新交付与验证边界见[完整当前需求规划实施与验收交接](../../ops/full-scope-planning-evidence/实施与验收交接.md)。VN-04 指导和 VN-05 分发／安装已完成相应有限验收，不能继续按未推进处理；最新功能源码基线为 vNext 工作分支 `a0c1a3735101f0fbeeff26694c9e1b1889a0d752`、TraceLens 工作分支 `dfad23e8ffa65d0c9223846cada8fd3f402e960c`。交接中的原始未提交状态是验收时快照，后续已授权提交不会改写原记录。单模型有限合成、实际安装字节和 Linux Chromium 证据不等于真实业务／Windows／全平台验证。

@@ -23,6 +23,19 @@ const provenanceRules = [
 ];
 const taskRef = object({ task_id: nullable(string), source, label: string, plan_ref: string, step_id: string }, ['task_id', 'source']);
 const targetCoverage = object({ target: id, coverage: string });
+const planningScope = { oneOf: [
+  object({ kind: { const: 'project-current' }, exclude_ids: array(id) }, ['kind']),
+  object({ kind: { const: 'target-subgraph' }, target_ids: array(id, 1), exclude_ids: array(id) }, ['kind', 'target_ids']),
+  object({ kind: { const: 'explicit-requirements' }, requirement_ids: array(id, 1), exclude_ids: array(id) }, ['kind', 'requirement_ids']),
+] };
+const definitionSnapshot = object({ id, algorithm: string, sha256: digest });
+const planningBaseline = object({
+  project_id: string, selector: planningScope, member_ids: array(id), definitions: array(definitionSnapshot), context: array(definitionSnapshot),
+  arrangement: object({ algorithm: string, sha256: digest }), checked_at: string, working_copy: string,
+  sources: array(source, 1), unread_sources: sources,
+  exceptions: array(object({ target: id, algorithm: string, sha256: digest, disposition: choice('no-adjustment', 'deferred'),
+    reason: string, sources: array(source, 1), work_item_ids: array(id) }, ['target', 'algorithm', 'sha256', 'disposition', 'reason', 'sources'])),
+});
 const definitions: ObjectValue = {
   SourceRef: { oneOf: [
     object({ kind: { const: 'file' }, path: string, item_id: id, section: string, lines: object({ start: { type: 'integer', minimum: 1 }, end: { type: 'integer', minimum: 1 } }), sha256: digest, note: string }, ['kind', 'path']),
@@ -37,8 +50,8 @@ const definitions: ObjectValue = {
     depends_on: array(object({ item_id: id, kind: choice('order', 'prerequisite'), reason: string })), replaces: array(id), sources }, ['id', 'title', 'outcome', 'scope', 'targets', 'state', 'origin']),
 };
 
-const subject = (version: 1 | 2 | 3): Schema => object({ kind: choice('working-copy', 'commit', 'release', 'unknown'), value: nullable(string), ...(version === 3 ? { revision: string, limitations: string } : {}) }, ['kind', 'value']);
-export function itemSchema(version: 1 | 2 | 3): Schema {
+const subject = (version: 1 | 2 | 3 | 4): Schema => object({ kind: choice('working-copy', 'commit', 'release', 'unknown'), value: nullable(string), ...(version >= 3 ? { revision: string, limitations: string } : {}) }, ['kind', 'value']);
+export function itemSchema(version: 1 | 2 | 3 | 4): Schema {
   const common = { id, links: array(ref('Link')), sources, extensions };
   const types: Record<string, { fields: ObjectValue; required: string[] }> = {
     project: { fields: { inventory: object({ state: choice('partial', 'reconciled'), checked_sources: sources, unreviewed_sources: sources, note: string }, ['state', 'checked_sources', 'unreviewed_sources']) }, required: ['inventory'] },
@@ -53,7 +66,8 @@ export function itemSchema(version: 1 | 2 | 3): Schema {
     discussion: { fields: { raw_ref: source, submitted_at: string, origin: object({ channel: choice('chat', 'codex', 'other', 'unknown'), locator: string, occurred_at: nullable(string) }, ['channel']), record_state: choice('active', 'archived') }, required: ['raw_ref', 'submitted_at', 'origin', 'record_state'] },
   };
   if (version >= 2) types.plan = { fields: { intent_state: intent, targets: array(targetCoverage, 1), work_items: array(ref('WorkItem')) }, required: ['intent_state', 'targets', 'work_items'] };
-  if (version === 3) {
+  if (version === 4) types.plan!.fields.planning_baseline = planningBaseline;
+  if (version >= 3) {
     Object.assign(types.project!.fields, { root_goal_id: nullable(id), requirement_order: array(id) });
     Object.assign(types.goal!.fields, { goal_kind: choice('outcome', 'stage'), assessment_scopes: array(object({ target: id, scope_id: id, coverage: string })) });
     Object.assign(types.assessment!.fields, { applicability: object({ goal_id: id, scope_id: id, coverage: string }), target_definition_algorithm: string,
@@ -63,7 +77,7 @@ export function itemSchema(version: 1 | 2 | 3): Schema {
   return { oneOf: Object.entries(types).map(([type, spec]) => {
     const extra: ObjectValue[] = [];
     if (type === 'assessment') extra.push({ properties: { target_basis: { properties: { kind: { const: 'file' } }, required: ['kind'] } } });
-    if (type === 'assessment' && version === 3) {
+    if (type === 'assessment' && version >= 3) {
       extra.push({ properties: { target_basis: { required: ['item_id'] }, goal_basis: { properties: { kind: { const: 'file' } }, required: ['kind', 'item_id'] } } });
       extra.push({ if: { properties: { conclusion: choice('satisfied', 'partially-satisfied', 'not-satisfied') }, required: ['conclusion'] }, then: { required: ['sources'], properties: { sources: array(source, 1) } } });
     }
@@ -72,7 +86,7 @@ export function itemSchema(version: 1 | 2 | 3): Schema {
     return { ...object({ ...common, type: { const: type }, ...spec.fields }, ['id', 'type', ...spec.required]), ...(extra.length ? { allOf: extra } : {}) };
   }) };
 }
-export function documentSchema(version: 1 | 2 | 3): Schema {
+export function documentSchema(version: 1 | 2 | 3 | 4): Schema {
   return { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: `https://vnext.local/schemas/product-doc-v${version}.json`, $defs: definitions,
     ...object({ schema: { const: `vnext-product-doc/v${version}` }, items: array(itemSchema(version)) }) };
 }
@@ -80,11 +94,12 @@ export function manifestSchema(version: 1 | 2): Schema {
   return { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: `https://vnext.local/schemas/product-manifest-v${version}.json`,
     ...object({ schema: { const: `vnext-product-manifest/v${version}` }, project_id: string, entry: string, managed_paths: array(string, 1), source_paths: array(string), ...(version === 2 ? { capture_paths: array(string) } : {}), exclude_paths: array(string), maintenance: choice('enabled', 'paused'), extensions }, ['schema', 'project_id', 'entry', 'managed_paths', 'source_paths', 'exclude_paths', 'maintenance']) };
 }
-const fileOperation = object({ path: string, expected_sha256: nullable(digest), content: { type: 'string' }, updates: array(object({ id, metadata: { type: 'object' }, body: { type: 'string' }, remove_fields: array(string) }, ['id'])), append: array(object({ metadata: { type: 'object' }, body: string })), migrate: choice('v2', 'v3'), preimage_path: string,
+const fileOperation = object({ path: string, expected_sha256: nullable(digest), content: { type: 'string' }, updates: array(object({ id, metadata: { type: 'object' }, body: { type: 'string' }, remove_fields: array(string) }, ['id'])), append: array(object({ metadata: { type: 'object' }, body: string })), migrate: choice('v2', 'v3', 'v4'), preimage_path: string,
   remove_items: array(id), remove_relations: array(object({ item_id: id, field: choice('links', 'task_bindings'), id })) }, ['path', 'expected_sha256']);
 export const requestSchema: Schema = { $schema: 'https://json-schema.org/draft/2020-12/schema', $defs: definitions,
   ...object({ manifest: string, detail: choice('summary', 'items'), item_ids: array(id), paths: array(string), max_files: { type: 'integer', minimum: 1, maximum: 10000 }, max_file_bytes: { type: 'integer', minimum: 1, maximum: 67108864 }, max_total_bytes: { type: 'integer', minimum: 1, maximum: 268435456 }, resolve_sources: { type: 'boolean' }, source: source, offset: { type: 'integer', minimum: 0 }, max_bytes: { type: 'integer', minimum: 1, maximum: 1048576 }, impact_ids: array(id), discussion_targets: array(id),
     assessment_query: object({ target: id, goal_id: id, scope_id: id, subject: subject(3) }, ['target', 'goal_id', 'subject']),
+    roadmap_query: object({ plan_id: id, selector: planningScope }, ['plan_id']),
     files: array(fileOperation, 1), path: string, text: { type: 'string' }, base64: { type: 'string' }, source_path: string, expected_manifest_sha256: nullable(digest), expected_sha256: nullable(digest), content: { type: 'string' } }, []) };
 
 export const resultSchema: Schema = {

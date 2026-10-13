@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T16:31:28.409Z",
+  "payload_sha256": "003db00a4694f645aa616484bc132dbe1a0ed83b247e8c465ebcddc8510f671c",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:roadmap-v4-review-S2-20261014",
+    "request": {
+      "idempotency_key": "roadmap-v4-review-S2-20261014",
+      "stage": "change",
+      "verdict": "needs-fix",
+      "execution_ref": ".workflow-system/records/events/key-efcc04bd516cc51d24170c4a91237fb6cbf287209e28a69d5084f6c2efe3f72c.json",
+      "step_id": "S2",
+      "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+      "findings": [
+        {
+          "line": 41,
+          "id": "RM4-R1",
+          "title": "受限 explicit-requirements 读取错误认证当前一致",
+          "priority": "P1",
+          "body": "同一个已注册项目在另一个未读取文件存在 R1 重复定义时，全范围读取为 unknown，而 paths 仅包含 PROJECT.md 和 IMPLEMENTATION_ROADMAP.md 的 explicit-requirements 读取返回 current 且 reasons=[]。该分支未核对完整读取及全局身份可确认性，违反身份冲突/读取不完整不得宣称已核对的方案边界。需将身份未确认或相关读取不完整降级为 unknown，或提供可靠的已核对身份索引。源码与 Node bundle 均复现。",
+          "file": "runtime/vnext/src/product-maintenance/roadmaps.ts"
+        },
+        {
+          "line": 180,
+          "id": "RM4-R2",
+          "title": "局部基线更新无法保留未核对需求的旧版本",
+          "priority": "P2",
+          "body": "R1/R2 同时变化，仅核对 R1 时，保留 R2 原定义快照并前移 R1 会被 assertBaseline 拒绝。只能再次核对 R2 或删除其快照；删除后读取只有 definition-unreviewed:R2 且 changes=[]，丢失既有明确版本差异。需区分前移快照与原样保留的陈旧快照，允许局部更新而维持其他待核对变化。方案 9.4 明确要求可更新已核对局部且不能刷新未核对版本。源码与 Node bundle 均复现。",
+          "file": "runtime/vnext/src/product-maintenance/roadmaps.ts"
+        }
+      ],
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "action": "review",
+      "coverage": "维护指引、契约、模板、测试及实际分发辅助文件均覆盖；RM4-R1/R2 在本地 Node bundle 同样存在，分发交付仍需要修复。静态指引未增加 Task Gate；真实宿主与 TraceLens 验证缺口已如实记录。",
+      "provenance": "self-review: 同一实施 Agent，自审非独立审查"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "review",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "parents": [
+        ".workflow-system/records/events/key-0c39bb1657edd991535f13404f197a6d948237773896d3121c151104707a1eb2.json"
+      ],
+      "data": {
+        "stage": "change",
+        "verdict": "needs-fix",
+        "execution_ref": ".workflow-system/records/events/key-efcc04bd516cc51d24170c4a91237fb6cbf287209e28a69d5084f6c2efe3f72c.json",
+        "step_id": "S2",
+        "plan_ref": ".workflow-system/records/events/key-6e3d294b724d34d5fd96955faf9f005e7263b153370f566c5c27e62f91a9c181.json",
+        "findings": null,
+        "coverage": "维护指引、契约、模板、测试及实际分发辅助文件均覆盖；RM4-R1/R2 在本地 Node bundle 同样存在，分发交付仍需要修复。静态指引未增加 Task Gate；真实宿主与 TraceLens 验证缺口已如实记录。",
+        "provenance": "self-review: 同一实施 Agent，自审非独立审查"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "7d722b8b227396f4d81bdfc7a211aadb3264cc918ca82c6533a91be3fe625714",
+        "references": [
+          {
+            "data_pointer": "/findings",
+            "request_pointer": "/findings"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

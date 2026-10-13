@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T16:07:01.051Z",
+  "payload_sha256": "5dbb8044ff6db4df08c97edb1aa59a1ae3ae231b56e58a446d2adc28b1b0773a",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:implementation-roadmap-v4-20261014",
+    "request": {
+      "plan": {
+        "scope": [
+          "本仓库 vNext product-maintenance、Skill 和文档"
+        ],
+        "exclusions": [
+          "TraceLens 仓库实现",
+          "业务项目升级",
+          "发布、提交及推送"
+        ],
+        "title": "实施项目路线图 v4 核对基线",
+        "steps": [
+          {
+            "title": "实现 v4 契约和基线比较、安全写入",
+            "id": "S1"
+          },
+          {
+            "title": "维护指引、示例与安装产物验证",
+            "id": "S2"
+          }
+        ],
+        "goal": "按用户提供的 v2 方案实现 vNext 契约、确定性核对、维护及分发"
+      },
+      "action": "prepare",
+      "idempotency_key": "implementation-roadmap-v4-20261014"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-b46e102672e35393f0fccf12ce140791",
+      "parents": [
+        ".workflow-system/records/events/key-1d950cd7519a2eec65f1a7fc248f764eaa0ca30069f4e9425a0d0169389df20e.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-020"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "556ae72c7df63827e903100dd0942a1f27bb005e0507cedd56d149fc9b0c8b04",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

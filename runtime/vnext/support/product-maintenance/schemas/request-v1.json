@@ -678,6 +678,101 @@
       ],
       "additionalProperties": false
     },
+    "roadmap_query": {
+      "type": "object",
+      "properties": {
+        "plan_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "selector": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "project-current"
+                },
+                "exclude_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+                  },
+                  "minItems": 0
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "target-subgraph"
+                },
+                "target_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+                  },
+                  "minItems": 1
+                },
+                "exclude_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+                  },
+                  "minItems": 0
+                }
+              },
+              "required": [
+                "kind",
+                "target_ids"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "explicit-requirements"
+                },
+                "requirement_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+                  },
+                  "minItems": 1
+                },
+                "exclude_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+                  },
+                  "minItems": 0
+                }
+              },
+              "required": [
+                "kind",
+                "requirement_ids"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "plan_id"
+      ],
+      "additionalProperties": false
+    },
     "files": {
       "type": "array",
       "items": {
@@ -760,7 +855,8 @@
             "type": "string",
             "enum": [
               "v2",
-              "v3"
+              "v3",
+              "v4"
             ]
           },
           "preimage_path": {

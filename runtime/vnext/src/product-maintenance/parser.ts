@@ -59,7 +59,8 @@ export function parseProduct(text: string, file: string): ProductDocument {
   result.body_start = result.frontmatter_end + closing[0].length;
   const yaml = strictYaml(text.slice(result.frontmatter_start, result.frontmatter_end), file);
   result.schema = yaml.value?.schema ?? null;
-  result.version = result.schema === 'vnext-product-doc/v3' ? 3 : result.schema === 'vnext-product-doc/v2' ? 2 : result.schema === 'vnext-product-doc/v1' ? 1 : null;
+  const version = /^vnext-product-doc\/v([1-4])$/.exec(result.schema ?? '');
+  result.version = version ? Number(version[1]) as 1 | 2 | 3 | 4 : null;
   if (!result.version) {
     result.diagnostics.push(diagnostic('UNSUPPORTED_VERSION', file, `Unsupported schema ${JSON.stringify(result.schema)}; raw content is retained`, { severity: 'error' }), ...yaml.problems.map(p => p.diagnostic));
     return result;
@@ -86,7 +87,7 @@ export function parseProduct(text: string, file: string): ProductDocument {
     const location = matches[0];
     const diagnostics = validate(metadata, itemSchema(result.version), rootSchema.$defs).map(e => diagnostic('ITEM_METADATA', file, e.message, { severity: 'error', item_id: metadata?.id, pointer: `/items/${index}${e.pointer}` }));
     diagnostics.push(...yaml.problems.filter(p => node?.range && p.offset >= node.range[0] && p.offset < node.range[2]).map(p => ({ ...p.diagnostic, item_id: metadata?.id })));
-    if (result.version === 3 && metadata?.type === 'assessment') {
+    if ((result.version ?? 0) >= 3 && metadata?.type === 'assessment') {
       const problem = (message: string) => diagnostics.push(diagnostic('ASSESSMENT_METADATA', file, message, { severity: 'error', item_id: metadata.id }));
       if (metadata.target_basis?.item_id !== metadata.target || metadata.goal_basis?.item_id !== metadata.applicability?.goal_id) problem('Definition basis item_id must match target and applicability.goal_id');
       if (!/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(metadata.checked_at ?? '') || !Number.isFinite(Date.parse(metadata.checked_at))) problem('checked_at must be an actual ISO time with timezone');
@@ -121,10 +122,10 @@ export function requirementDigest(item: Item): string {
   const relations = [...new Map((item.metadata.links ?? []).filter((l: any) => l.origin === 'declared' && l.state === 'active' && ['part_of', 'supports', 'depends_on', 'replaces', 'derived_from'].includes(l.relation)).map((l: any) => [[l.relation, l.target].join('\u0000'), [l.relation, l.target]])).values()] as string[][];
   relations.sort((a,b) => a[0]! < b[0]! ? -1 : a[0]! > b[0]! ? 1 : a[1]! < b[1]! ? -1 : a[1]! > b[1]! ? 1 : 0);
   const body = item.body.replace(/\r\n|\r/g, '\n').replace(/\n+$/, '');
-  if (item.version === 3) {
+  if ((item.version ?? 0) >= 3) {
     const assessment_scopes = item.type === 'goal' ? (item.metadata.assessment_scopes ?? []).map((s: any) => ({ target: s.target, scope_id: s.scope_id, coverage: s.coverage.replace(/\r\n|\r/g, '\n') })).sort((a: any,b: any) => a.target < b.target ? -1 : a.target > b.target ? 1 : a.scope_id < b.scope_id ? -1 : a.scope_id > b.scope_id ? 1 : 0) : null;
     return sha256(`vnext-product-definition/v1\n${JSON.stringify({ type: item.type, id: item.id, scope: item.metadata.scope, goal_kind: item.type === 'goal' ? item.metadata.goal_kind ?? 'outcome' : null, relations, assessment_scopes, body })}`);
   }
   return sha256(`vnext-requirement-definition/v1\n${JSON.stringify({ type: item.type, id: item.id, scope: item.metadata.scope, relations, body })}`);
 }
-export const definitionAlgorithm = (item: Item): string => item.version === 3 ? 'vnext-product-definition/v1' : 'vnext-requirement-definition/v1';
+export const definitionAlgorithm = (item: Item): string => (item.version ?? 0) >= 3 ? 'vnext-product-definition/v1' : 'vnext-requirement-definition/v1';

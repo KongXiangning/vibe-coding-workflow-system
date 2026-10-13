@@ -1,4 +1,60 @@
-# Project planning, next-work selection and actual task bindings
+# Implementation Roadmap, next-work selection and actual task bindings
+
+Implementation Roadmap (项目实施路线图) is the public name of the existing plan object;
+it is independent of Agent Plan Mode and prepare-task's Task Plan. For a new file suggest
+docs/product/IMPLEMENTATION_ROADMAP.md registered in PRODUCT.yaml. Keep legacy PLAN.md,
+stable plan/work item IDs and TaskBinding.plan_items. Multiple entries/files retain their
+independent scope; select explicitly, never by filename or timestamp.
+
+## First Roadmap and version reconciliation
+
+Existing adopted requirements, designs, historical Tasks and assessments without a Roadmap
+are a normal initialization entry. Reuse identities and complete selected bodies; reconcile
+actual scoped delivery before arranging remaining work. Do not recreate requirements or old
+Tasks. Full 24-requirement and recent six-requirement Roadmaps are both valid; the other 18
+remain current and visible. Choose project-current, target-subgraph or explicit-requirements
+from actual authorized coverage, retaining unread and unassigned material. A direct Task
+request without a Roadmap continues normally.
+
+Save proposed or already authorized adopted work_items, stages and reasoned prerequisites,
+leaving future Tasks uncreated. Read back the actual arrangement and current definitions.
+v4 read/check with roadmap_query={plan_id,selector} returns snapshot_proposal. This is material
+for review, not certification that review occurred. Read Requirement/Goal/Design/Change bodies,
+historical scoped delivery and current user decisions; only after actual impact review save
+planning_baseline with actual checked_at, working_copy from read, sources, unread_sources and
+exceptions. Use API.md and contract.md section 11 for fields and selected-file migrate=v4.
+An old Plan with no baseline needs its first current-scope check, not recreation or retroactive
+claims that it always matched. Partial reviewed definitions stay partial and unknown.
+
+Consume a selected Roadmap with roadmap_query={plan_id}, using its saved selector. Report
+current, changes-pending, reviewed-deferred or unknown independently from delivery. Membership
+and definition comparison discovers new unreferenced requirements and manual changes without
+Change. Local explicit selection excludes unrelated additions; subgraphs use only effective
+declared composition/support and expose unassigned candidates. Missing reads, source failures,
+unknown algorithms or unchecked members stay unknown. Read actual changed bodies before
+deciding impact: a hash never decides business order or current completion.
+
+Save localized arrangements and reread before advancing reviewed versions. For wording with
+no planning impact, retain work_items and record precise-version no-adjustment reason/source.
+For explicit deferral record deferred, risk and the actual decision. Reuse the same-version
+choice; new relevant versions need reassessment. Never advance unread/unreviewed snapshots to
+dismiss warnings. Requirement, Roadmap and baseline saves and post-save reads are separate
+results. Keep successful requirements when Roadmap saves fail, and retry only failed parts.
+For partial review, retain the exact old snapshots of unchecked members/context in the same
+scope; update only actually reviewed versions. Do not delete old snapshots merely to make
+the write pass: they preserve the concrete outstanding differences. retained_snapshots in
+write readback identifies these older bases; matched does not claim current alignment.
+Even explicit-requirements needs registered identity coverage for a current claim; restricted
+reads may hide duplicate selected IDs. Missing identity coverage stays unknown without
+expanding the business review beyond the selected requirements or gating direct Task work.
+
+At actual next-business selection, honor current Task and parent continuation first. Consume
+the already selected applicable Roadmap, scoped delivery and relevant prerequisites; revisit
+future W20-B after 06 even without a Task. W20-A delivery never satisfies full REQ-20. Before
+09 distinguish relevant declared prerequisite from mere order, preserve unknowns and risk,
+reuse explicit skip/defer choices and prepare only actually authorized work. No missing or
+stale Roadmap becomes a Runtime Gate. Do not scan all requirements on every execute-step,
+close-task or Git operation.
 
 Read the relevant goals, complete requirement bodies, design constraints, current
 arrangements and delivery sources before choosing work. Reuse applicable decisions

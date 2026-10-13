@@ -8,6 +8,7 @@ import { type Catalog, type Item, type ObjectValue, type ProductDocument } from 
 import { decode, parseProduct, sha256, strictYaml } from './parser';
 import { allowed, matches, relativePath, safePath } from './paths';
 import { manifestSchema, validate } from './schemas';
+import { assertBaseline } from './roadmaps';
 
 export function frozen(root: string, relative: string, original?: Buffer): void {
   if (original) {
@@ -46,7 +47,7 @@ function assertProductWriteTarget(relative: string): void {
 
 // The lock only coordinates this helper's short I/O on one path. External editors
 // do not participate: digest recheck + rename is not a universal filesystem CAS.
-function publish(root: string, relative: string, content: Buffer, expected: string | null, preimagePath?: string, catalog?: Catalog): ObjectValue {
+function publish(root: string, relative: string, content: Buffer, expected: string | null, preimagePath?: string, catalog?: Catalog, beforePublish?: () => void): ObjectValue {
   const file = safePath(root, relative);
   assertProductWriteTarget(relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -75,6 +76,7 @@ function publish(root: string, relative: string, content: Buffer, expected: stri
     try { fs.writeFileSync(fd, content); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     checkVersion(readExisting(root, relative), expected);
     safePath(root, relative); frozen(root, relative, original ?? undefined);
+    beforePublish?.();
     if (expected === null) {
       // link publishes a fully written file without overwriting a racing creator.
       fs.linkSync(temp, file); fs.unlinkSync(temp);
@@ -136,7 +138,7 @@ function candidate(original: Buffer | null, operation: ObjectValue, parsed?: Pro
       patches.push({ start: item.start, end: item.end, text: update.body + separator });
     }
   }
-  if ((operation.migrate === 'v2' && parsed.version === 1) || (operation.migrate === 'v3' && parsed.version !== 3)) {
+  if (operation.migrate && Number(operation.migrate.slice(1)) > (parsed.version ?? 0)) {
     const yaml = strictYaml(text.slice(parsed.frontmatter_start, parsed.frontmatter_end), operation.path);
     const schema: any = yaml.doc.get('schema', true);
     patches.push({ start: parsed.frontmatter_start + schema.range[0], end: parsed.frontmatter_start + schema.range[1], text: `vnext-product-doc/${operation.migrate}` });
@@ -325,7 +327,7 @@ function validateProductCandidate(previous: ProductDocument | undefined, next: P
   // isolation rules. Preserve valid v3 reports, while allowing existing malformed
   // neighbors and explicit migrations of incomplete v1/v2 reports as before.
   const selected = next.items.filter(item => affected.includes(item.id)
-    || (item.type === 'assessment' && previous?.version === 3 && previous.items.some(old => old.id === item.id && old.usable)));
+    || (item.type === 'assessment' && (previous?.version ?? 0) >= 3 && previous.items.some(old => old.id === item.id && old.usable)));
   const errors = [...newRootErrors, ...selected.flatMap(item => item.diagnostics.filter(d => d.severity === 'error'))];
   if (errors.length) throw new Error(`STRUCTURE_INVALID: ${errors.map(e => `${e.item_id ?? ''} ${e.pointer ?? ''} ${e.message}`).join('; ')}`);
   return [...new Set(affected)];
@@ -340,7 +342,7 @@ function validateManifestCandidate(text: string, file: string): void {
 }
 function suppliesOrder(operation: ObjectValue, document: ProductDocument): boolean {
   return document.items.some(item => {
-    if (item.type !== 'project' || item.version !== 3) return false;
+    if (item.type !== 'project' || (item.version ?? 0) < 3) return false;
     if ('content' in operation && Object.hasOwn(item.metadata, 'requirement_order')) return true;
     if (operation.append?.some((addition: ObjectValue) => addition.metadata.id === item.id && Object.hasOwn(addition.metadata, 'requirement_order'))) return true;
     return operation.updates?.some((update: ObjectValue) => update.id === item.id &&
@@ -372,25 +374,50 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
           if (previous.diagnostics.some(d => d.severity === 'error' && (!d.item_id || ['DUPLICATE_ID', 'ITEM_HEADING'].includes(d.code)))) throw new Error('ORIGINAL_UNRESOLVED: original identities/AST locations are ambiguous; preserve raw bytes and use an authorized raw repair');
         }
         if (!version) throw new Error('UNSUPPORTED_VERSION: edit raw source with ordinary authorized tools; no guessed migration');
-        if (version === 1 && operation.migrate !== 'v2' && (isManifest || operation.migrate !== 'v3')) throw new Error('V1_READ_ONLY: explicitly migrate this file to v2 or v3 before writing');
+        if (version === 1 && operation.migrate !== 'v2' && (isManifest || !['v3', 'v4'].includes(operation.migrate))) throw new Error('V1_READ_ONLY: explicitly migrate this file before writing');
       }
       const next = candidate(original, operation, previous);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024)) throw new Error('WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced');
       let diagnostics: any[] = [];
       let newRequirements: Item[] = [];
+      let baselinePlans: Item[] = [];
       if (isManifest) validateManifestCandidate(next.text, operation.path);
       else {
         const parsed = parseProduct(next.text, operation.path);
-        if (parsed.version !== 2 && parsed.version !== 3) throw new Error('V2_REQUIRED: new writes must use the v2 or v3 document protocol');
-        if (previous?.version === 3 && parsed.version !== 3) throw new Error('VERSION_DOWNGRADE: preserve v3 fields and history');
-        if (previous?.version !== 3 && previous && parsed.version === 3 && operation.migrate !== 'v3') throw new Error('MIGRATION_REQUIRED: explicitly select migrate=v3 for this document');
+        if (![2, 3, 4].includes(parsed.version ?? 0)) throw new Error('V2_REQUIRED: new writes must use the v2, v3 or v4 document protocol');
+        if (previous && (parsed.version ?? 0) < (previous.version ?? 0)) throw new Error('VERSION_DOWNGRADE: preserve fields and history');
+        if (previous && parsed.version !== previous.version && operation.migrate !== `v${parsed.version}`) throw new Error(`MIGRATION_REQUIRED: explicitly select migrate=v${parsed.version} for this document`);
         next.affected = validateProductCandidate(previous, parsed, operation, next.affected, catalog);
         diagnostics = parsed.diagnostics;
         newRequirements = parsed.items.filter(i => i.type === 'requirement' && i.usable && !previous?.items.some(old => old.id === i.id));
         explicitOrder ||= suppliesOrder(operation, parsed);
+        baselinePlans = parsed.items.filter(i => i.usable && i.type === 'plan' && i.metadata.planning_baseline
+          && canonical(i.metadata.planning_baseline) !== canonical(previous?.items.find(old => old.id === i.id)?.metadata.planning_baseline));
       }
-      const saved = publish(catalog.root, operation.path, Buffer.from(next.text, 'utf8'), operation.expected_sha256, operation.preimage_path, catalog);
-      results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics });
+      const previousBaseline = (plan: Item) => previous?.items.find(old => old.id === plan.id && old.usable)?.metadata.planning_baseline;
+      const validateBaselines = () => {
+        const fresh = readCatalog(root, { manifest: input.manifest });
+        if (fresh.manifest_sha256 !== catalog.manifest_sha256) throw new Error('MANIFEST_CONFLICT: planning scope changed');
+        for (const plan of baselinePlans) assertBaseline(fresh, plan, previousBaseline(plan));
+      };
+      if (baselinePlans.length) validateBaselines();
+      const saved = publish(catalog.root, operation.path, Buffer.from(next.text, 'utf8'), operation.expected_sha256, operation.preimage_path, catalog, baselinePlans.length ? validateBaselines : undefined);
+      let readback = catalog;
+      let readbackError: string | null = null;
+      if (baselinePlans.length) {
+        try { readback = readCatalog(root, { manifest: input.manifest }); }
+        catch (error: any) { readbackError = error.message; }
+      }
+      const baselineReadback = baselinePlans.map(plan => {
+        try {
+          if (readbackError) throw new Error(readbackError);
+          const actual = readback.byId.get(plan.id);
+          if (!actual || canonical(actual.metadata.planning_baseline) !== canonical(plan.metadata.planning_baseline)) throw new Error('saved roadmap changed or unavailable');
+          const retained = assertBaseline(readback, actual, previousBaseline(plan));
+          return { plan_id: plan.id, status: 'matched', ...(retained.length ? { retained_snapshots: retained } : {}) };
+        } catch (error: any) { return { plan_id: plan.id, status: 'pending-recheck', reason: error.message }; }
+      });
+      results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics, baseline_readback: baselineReadback });
       addedRequirements.push(...newRequirements);
     } catch (error: any) { results.push({ path: operation.path, status: 'failed', saved: false, error: error.message }); }
   }
@@ -399,8 +426,8 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
     const catalog = readCatalog(root, { manifest: input.manifest });
     const projects = catalog.items.filter(i => i.type === 'project');
     const project = projects.length === 1 && projects[0]!.usable ? projects[0] : undefined;
-    if (!project || project.version !== 3) {
-      const v3Ids = addedRequirements.filter(i => i.version === 3).map(i => i.id);
+    if (!project || (project.version ?? 0) < 3) {
+      const v3Ids = addedRequirements.filter(i => (i.version ?? 0) >= 3).map(i => i.id);
       if (v3Ids.length) order = { status: 'pending', saved: false, requirement_ids: v3Ids, reason: 'Project order needs an explicitly maintained v3 project; no automatic migration' };
     } else {
       const addedIds = addedRequirements.map(i => i.id);
@@ -414,7 +441,10 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
     }
   }
   const failures = results.filter(r => !r.saved).length;
-  return { status: failures ? failures === results.length ? 'failed' : 'partial' : !order.saved ? 'partial' : 'saved', files: results, requirement_order_update: order, task_operations: 'not-performed', association: 'not-evaluated', reconciliation: 'not-evaluated', transaction: 'per-file; no cross-file atomicity' };
+  let status = 'saved';
+  if (failures === results.length && failures) status = 'failed';
+  else if (failures || !order.saved || results.some(r => r.baseline_readback?.some((b: any) => b.status !== 'matched'))) status = 'partial';
+  return { status, files: results, requirement_order_update: order, task_operations: 'not-performed', association: 'not-evaluated', reconciliation: 'not-evaluated', transaction: 'per-file; no cross-file atomicity' };
 }
 function captureBytes(catalog: Catalog, relative: string, bytes: Buffer): ObjectValue {
   try {
@@ -452,6 +482,6 @@ export function capture(root: string, input: ObjectValue): ObjectValue {
   } catch (error: any) { return { status: 'failed', saved: false, error: error.message, raw_capture: false }; }
 }
 
-export function newDocument(items: { metadata: ObjectValue; body: string }[], title = '项目业务资料', version: 2 | 3 = 2): string {
+export function newDocument(items: { metadata: ObjectValue; body: string }[], title = '项目业务资料', version: 2 | 3 | 4 = 2): string {
   return `---\n${stringify({ schema: `vnext-product-doc/v${version}`, items: items.map(i => i.metadata) }, { lineWidth: 0, aliasDuplicateObjects: false })}---\n# ${title}\n\n${items.map(i => i.body).join('\n\n')}\n`;
 }
