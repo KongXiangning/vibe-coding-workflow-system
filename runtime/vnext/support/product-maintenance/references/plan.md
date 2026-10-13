@@ -18,11 +18,13 @@ request without a Roadmap continues normally.
 
 Save proposed or already authorized adopted work_items, stages and reasoned prerequisites,
 leaving future Tasks uncreated. Read back the actual arrangement and current definitions.
-v4 read/check with roadmap_query={plan_id,selector} returns snapshot_proposal. This is material
+v4/v5 read/check with roadmap_query={plan_id,selector} returns snapshot_proposal. This is material
 for review, not certification that review occurred. Read Requirement/Goal/Design/Change bodies,
 historical scoped delivery and current user decisions; only after actual impact review save
 planning_baseline with actual checked_at, working_copy from read, sources, unread_sources and
-exceptions. Use API.md and contract.md section 11 for fields and selected-file migrate=v4.
+exceptions. Use API.md and contract.md section 11 for fields and selected-file migrate=v4
+when adding a baseline to an older file; an existing v5 plan retains the same baseline
+contract and is never downgraded. Contribution does not require migrating a v4 Roadmap.
 An old Plan with no baseline needs its first current-scope check, not recreation or retroactive
 claims that it always matched. Partial reviewed definitions stay partial and unknown.
 
@@ -160,22 +162,31 @@ real task_id/display_id/event ref; only actual prepare allocates identity. Read 
 detail=task for existing task/plan/step selection; preserve actual historical refs.
 Source-only history uses task_id=null with identity-unconfirmed text, never fake IDs.
 
-During prepare recommend the actual related coverage and retain its locators,
-without adopting optional suggestions. In confirm, after successful adoption and
-within authorized maintenance, write TaskBinding for the actually adopted coverage
+For every proposed or corrected relationship, use binding-contribution.md's shared
+read-then-judge method. During prepare read the actual owner obligation and proposed
+Task scope, recommend direct/supporting only with concrete coverage, reason and sources,
+and retain locators without adopting optional suggestions. Insufficient evidence means
+no new formal binding, not a new unclassified/inferred active relationship. In confirm,
+after successful adoption and within authorized maintenance, reread the actually adopted
+scope and write the justified v5 TaskBinding for that coverage
 in each identifiable related goal/requirement. Reuse explicit user choices to
 associate or leave association empty; do not ask again or invent a requirement.
 Retain existing draft bindings as historical material without migration; their
 presence does not prove adoption. A binding has:
 stable binding ID, actual TaskRef, implementation/repair/verification/exploration/
-reference role and precise coverage, declared/inferred basis, optional plan_items
+reference role, direct/supporting contribution, precise coverage, reason and actual
+sources, declared/inferred basis, optional plan_items
 and repairs referencing original historical work. No plan_items is valid without a
 plan. One task can serve multiple requirements; one work item may have multiple tasks.
 A historical step uses original task_id + step_id, not an invented independent task.
 Repair association does not identify the defect's author or restore a retired goal.
 
 Before retry read existing bindings; deduplicate by actual identity, role and
-equivalent coverage with Agent judgment. Retain dismissed relations/reasons.
+equivalent coverage with Agent judgment. contribution is not an identity distinction.
+Correct classification under the existing binding ID and preserve necessary old basis;
+retain dismissed relations/reasons and unreviewed old rows. Use explicit migrate=v5 only
+for affected binding documents. Old missing classification remains pending; new or
+reclassified reference+direct needs clarification, as specified in the shared reference.
 If task adoption succeeded but binding conflicted/failed, preserve its returned
 identity and only supplement binding; do not prepare again. Binding never focus,
 adopt, close, resume or supersede any task. Revise an existing task only when its

@@ -52,6 +52,23 @@ Only an explicitly adopted reorder changes existing positions; record its basis
 and old/new order. Dependency, task, work-item and report changes never reorder it.
 Keep all readable unordered requirements visible rather than inventing order.
 
+## Local contribution checks after changed obligations
+
+Use binding-contribution.md after an actual requirement, acceptance, adopted Task
+scope or coverage change affects a related binding. Read both the old obligation
+and the changed one; preserve valid historical attribution instead of assigning
+new obligations retroactively. Reclassify only supported affected relationships,
+under their existing IDs with coverage/reason/sources and necessary prior material.
+Unreviewed relations and unknown old classifications remain readable, not globally
+invalidated. A classification-only correction does not rewrite requirement bodies,
+create a new business requirement, change order or prepare a successor Task.
+
+Maintain delivery separately through reconcile.md; a changed binding is not evidence
+of satisfaction. A failed source check or whole-file byte change is not automatically
+a changed business definition. Only a real authorized obligation/arrangement change
+uses the existing Roadmap maintenance below. Do not require roadmap current before
+saving contribution, and do not replan all work for a metadata correction.
+
 ## Adopted structure in the same maintenance pass
 
 Read the actual request, affected definitions and adoption/source basis before

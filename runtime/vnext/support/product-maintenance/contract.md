@@ -1,10 +1,12 @@
 # 托管文档契约：目标、需求、项目实施路线图及资料关联
 
+2026-10-14 贡献关联增量：第 12 节固定 `vnext-product-doc/v5` 的 `TaskBinding.contribution` 及共同消费规则；完整继承第 11 节 v4 Roadmap，不改变 v1–v4 Schema 或 v3/v4/v5 的业务定义摘要算法。宿主判定统一见安装包 `references/binding-contribution.md`；本节契约不代表真实项目重判、发布或部署已经完成。
+
 2026-10-14 增量：第 11 节定义 `vnext-product-doc/v4` 的项目实施路线图核对基线；内部仍为 `plan`。当前改动与验证边界见[路线图实施记录](../../ops/vnext-roadmap-validation.md)。Manifest 继续 v2；v1/v2/v3 按原版本读取与写入规则兼容，不要求全项目迁移。
 
 契约设计 0.3（2026-10-11，VN-01 确定）。当前已验收源码及本地 `0.24.6` 产物支持 `vnext-product-doc/v3` 的解析、校验与保存，Manifest 保持 `vnext-product-manifest/v2`；分发安装、宿主 Skill 指导及 TraceLens 只读接入的实际证据见[最新实施与验收交接](../../ops/full-scope-planning-evidence/实施与验收交接.md)，不表示 npm 发布或已合并 main。日常使用见[maintain-project 指南](../../guides/maintain-project.md)。
 
-本文件是生产侧和离线消费者共用的字段语义。第 1–9 节描述既有格式，第 10 节是 v3 最小增量；发生冲突时按所读文件的格式版本解释。v1 保留读取与显式迁移，v2 写入兼容保留；无需全项目迁移。正文中的设计演算及历史阶段说明保留原背景，当前交付以以上入口为准。Schema 通过不认证业务事实。
+本文件是生产侧和离线消费者共用的字段语义。第 1–9 节描述既有格式，第 10 节是 v3 最小增量，第 11 节定义 v4，第 12 节定义 v5；发生冲突时按所读文件的格式版本解释。v1 保留读取与显式迁移，v2 写入兼容保留；无需全项目迁移。正文中的设计演算及历史阶段说明保留原背景，当前交付以以上入口为准。Schema 通过不认证业务事实。
 
 ## 1. 入口、范围及版本
 
@@ -456,3 +458,78 @@ exceptions 每项必填 `target`、`algorithm`、`sha256`、`disposition: no-adj
 自然消费入口是维护需求变化、首次规划、使用已选定适用路线图选择下一业务工作；不强制每次 execute-step、close-task 或 Git 扫描全库。真实活跃 Task 和父 Task 续接优先。缺少路线图或任何核对失败都不成为 Runtime Gate；直接准备 Task 的原路径继续有效。
 
 [可运行合成示例](examples/roadmap-reconciliation.md)说明首次初始化、跨阶段需求和只读消费；实际验证范围见[实施记录](../../ops/vnext-roadmap-validation.md)。
+
+## 12. v5：需求实施关联与贡献性质（C0 共同契约）
+
+### 12.1 格式及兼容边界
+
+`vnext-product-doc/v5` 完整继承 v4，仅对 Goal／Requirement 的 TaskBinding 增加可选闭合字段 `contribution: direct | supporting`。v1–v4 的原 Schema 保持不变，不接受该字段；不通过共享 definitions 或 extensions 改写旧版本。缺字段用于保留未重判旧关系，读取为“未分类／待核对”，不是第三种正式贡献性质。null、undetermined、空字符串及其他值是格式错误，不自动转成合法类别；Assessment 原有 undetermined 不受影响。
+
+v5 plan 继承 v4 的 planning_baseline、selector、摘要、保存保护及 roadmap_query 语义。支持的版本为明确的 v4、v5，不以无限 `>=4` 接受未知格式。Manifest 继续 v2，允许 v1–v5 混用；未知未来版本保留原文入口与不支持诊断，不伪装成零需求。
+
+仅在授权范围内对需要贡献字段的文件显式 `migrate=v5`；禁止降级。v3 Goal＋v5 部分 Requirement＋v4 Roadmap＋旧适用报告合法，不强制迁移已有 Roadmap。一个物理文件整体迁格式不代表重判全部条目；无关旧绑定保持缺分类，保留稳定 owner、binding、Task、plan 和 WorkItem 身份及历史路径。
+
+v3、v4、v5 Requirement／Goal 均使用第 10.5 节的 `vnext-product-definition/v1`，规范化及字段排除完全相同；v1/v2 Requirement 仍使用原算法。格式迁移、增加或纠正 contribution 不改变业务定义摘要，也不自动使 Assessment 或规划定义基线失效。v5 不新增需求完成状态、Task 全局类型、进度百分比或中央绑定库。
+
+### 12.2 贡献与角色
+
+| contribution | 正式语义 | 显示与限制 |
+|---|---|---|
+| direct | Task 的约定工作或已查明活动直接针对 owner 的某项具体义务 | 直接贡献；coverage 可只覆盖部分义务，不等于整体实施、已开始或已交付 |
+| supporting | 有明确支撑机制，但工作本身不直接履行 owner 的具体义务 | 间接支撑；说明支撑什么、仍未覆盖什么 |
+
+role 回答该关联中的活动，contribution 回答其与具体义务的关系。同一 Task 对 A 可以 implementation＋direct，对 B 可以 implementation＋supporting，不能把其中一种分类复制到整个 Task 或全部 owner。
+
+- implementation／repair／verification／exploration 均可与 direct 或 supporting 组合；显示应保留实施、修复、验证、探索的区别
+- 直接验证不等于编码实施；直接探索排除方案不等于产品能力交付。若需求本就要求该验证／研究成果，仍由针对该义务的 Assessment 判断满足
+- reference＋supporting 仅用于确有独立保存价值的支持参考；reference＋direct 语义不清，新建时澄清实际活动或使用普通来源，存量原值保留并诊断，不静默纠正
+- state=active 是关系有效状态，不是 Task 活跃；origin=declared 表示有来源的明确记录，不认证业务正确。模型整理不必一律 inferred，补贡献也不自动采纳已有 inferred
+
+### 12.3 判定、新建及旧关系处置
+
+宿主统一按“具体义务 → Task 采用范围／实际结果 → 直接或支撑理由 → 排除与未知”给出简短可审阅说明。先读完整需求与验收、Task 当时采用范围和必要结果；标题相似、目录、时间、可能受益或 Task 已关闭只可作为材料线索。程序只处理确定性结构、身份、引用、版本和持久化，不认证业务判断。
+
+新建或重新分类的关系须有具体 coverage、reason 与非空 sources；v5 受管写入也对 active 关系 role、coverage 或 Task 身份的实质变化检查这些字段。读取缺 reason／sources 的旧分类仍保留原值并诊断，格式迁移或无关字段更新不追溯要求全部清洗；不以复制标题充当覆盖，也不虚构来源。可引用准确标注的用户声明，但须与已核验的事实区分。新关系没有足够依据时不建立正式绑定；必要未知复用现有 project／Roadmap 未决位置，不新增空分类 active 记录、undetermined 类别或候选关系库。
+
+| 存量情形 | 在实际授权内的处置 |
+|---|---|
+| 缺分类且依据足够 | 原 ID 补 direct 或 supporting，明确具体覆盖、理由和来源 |
+| direct 实际为 supporting，或反向纠正 | 原 ID 更正，保留旧依据／必要历史；不双挂同范围 active 关系 |
+| 充分反证说明关系不成立 | state=dismissed，保留来源和否定理由，不删 Task |
+| 资料不足或冲突 | 原记录及原值保留待核对，不自动否定、不强制归类 |
+| 发现确有依据的遗漏关系 | 补真实 TaskRef；身份未知可 task_id=null，不按显示编号造 ID |
+| 当时正当、当前义务已变 | 保留历史归属，单独说明当前适用性，不把新义务倒写为旧任务目标 |
+| 曾经 dismissed 再次被发现 | 无新依据或明确当前反转不复活；沿用第 8 节恢复保护 |
+
+去重身份不包含 contribution。同 owner、真实 Task 身份／明确来源、role 和等价 coverage 的冲突分类须诊断，不能任取 direct、最新记录或另造 ID。真正不同的活动／覆盖可分别保存。必要历史复用既有 preimage、capture、Change 与来源，按文件／批次复用，不建立每绑定版本数据库。
+
+已有 direct 基础工作＋下游 depends_on 可以展示前置路径，但不自动物化下游 supporting，不证明前置整体满足；只有依赖不能充分表达的独立支撑关系才单独保存。缺 direct、不存在绑定、无法确定 Task 身份都不能推出没有实施。
+
+### 12.4 当前适用性、来源与保存
+
+贡献对应特定义务及 Task 采用范围。优先引用已有可恢复定义材料中的 owner ID、真实 plan_ref／step_id 和结果来源；多个冲突依据、不可恢复旧定义或不兼容算法保持待核对，不以当前可变路径或最新文件冒充历史版本。相同定义和可定位来源仍不保证语义正确。
+
+禁止将含自身 task_bindings 的可变整文件摘要嵌回同文件作为永久分类认证。仅绑定纠正不改变业务定义摘要／路线图安排摘要；但若既有基线 sources 精确引用了含绑定的整文件，实际字节变化仍须诚实报告 changed／unavailable。文件字节、需求义务、关系适用性和规划安排分别核对，不能将一层未知传播成全项目交付失效。定义未变的新反证独立进入 pending_sources 或新范围化评估。
+
+沿用逐文件写入、已读摘要、历史和回读保护。仅保存授权内的实际改动，数组更新保留未判定和 dismissed 行。成功的 Task、绑定、Assessment 或其他文件不因局部失败回滚；读取最新字节后只补失败管理写入，不重复 prepare、执行、验证或 Git。相同结论没有新依据时保持 unchanged；读取、刷新和无变化核对不新增快照、时间戳或同义报告。
+
+关联重判不默认改需求、缩减验收、重排登记顺序或调整 Roadmap；交付评估和安排变化各按实际授权。没有新版写入器时报告未保存，不把新字段塞进 v4。任何缺分类、读取局限、基线差异或维护失败都不构成开发、提交、关闭或停止门槛。
+
+### 12.5 反查、统计与进度解释
+
+反向结果（包括 plan_tasks）保留 binding ID、实际 owner 与路径、TaskRef、role、contribution 的原值或缺失、coverage、origin/state、reason、sources 和来源 locator。中间映射不能丢分类，也不能新增中央当前关系文件。旧值及非法条目的原文与具体诊断独立可见。
+
+消费者统计“有效关系条数＋唯一已确认 Task 身份数”：direct、supporting、未分类分别计数；dismissed 不计入有效关系。不同贡献组可能共享 Task，不可把各组 Task 数相加当唯一总数；task_id=null 或身份冲突不凑成已确认 Task。同范围冲突保留诊断，不按某一类优先消解。父需求汇集子项时保留原 owner／路径，共享后代按真实身份去重；子项 direct 不升级成父项自身 direct 或父项满足。派生依赖路径不算保存的绑定。
+
+活动、交付、安排分开：
+
+- 只有直接关系和已准备／采用 Task：可说已安排直接工作，不能说需求已开始
+- 有对应范围的实际执行／Step 事实：按该覆盖显示实施、修复、验证或探索；宽 Task 无法分配当前活动时仅说“有关联的活动 Task”
+- supporting Task 执行或关闭：只说明支撑活动，不能推定下游实施或满足
+- Task closed／skipped／archived／paused 及失败分别保留，不合并为交付完成
+- 当前成果须来自所选 goal／scope／subject 下适用的 Assessment；原 satisfied 报告适用性待核对时仍可历史浏览，不能无提示作为当前已确认成果
+- 无历史 Task 的真实代码与验收可独立评估；不补造 Task，不要求先补 direct
+- checked_at 是核对时间，不冒充功能完成时间；部分成果＋未知剩余保持 undetermined，保留已知成果
+- Roadmap current 只表示核对材料一致；requirement_order 不是实施规划，工作项无 Task 不等于未开始，关闭不证明前置就绪或自动决定下一项
+
+共同说明样例见[贡献关联与重判样例](examples/binding-contribution.md)。样例、格式测试、真实宿主判断、安装行为和只读消费者验证分别取证；有限样例不承诺所有模型、所有历史项目已正确分类。

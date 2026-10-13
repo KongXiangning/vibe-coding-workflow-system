@@ -171,6 +171,13 @@ are not verification. Report document/task-operation results separately. Deferre
 or failed maintenance does not prevent authorized implementation, Git, step
 disposition, closure or stopping. Read-only requests only return pending locators.
 
+When new execution facts materially change a related binding's actual coverage,
+use the shared maintain-project references/binding-contribution.md method in that
+authorized local maintenance phase. Preserve adopted scope, real Task/Step evidence
+and old failures; direct classification alone is not evidence that every bound
+requirement started or finished. Do not add a whole-project binding or Roadmap
+review to ordinary execution. Read-only work returns pending locators only.
+
 Return the actual requested result, affected scope, evidence/record references,
 remaining work and any unsaved/unreconciled data. Preserve existing user decisions
 and exclusions; an explicit read-only request remains read-only. A record's successful

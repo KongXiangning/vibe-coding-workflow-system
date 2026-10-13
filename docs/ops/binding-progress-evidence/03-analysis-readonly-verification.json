@@ -1,0 +1,11 @@
+{
+  "phase": "raw-material-read-only-before-install-ready",
+  "files_before": 44,
+  "files_after": 44,
+  "added": [],
+  "removed": [],
+  "changed": [],
+  "runtime_event_count": 4,
+  "business_tests_run": false,
+  "task_mutations": false
+}

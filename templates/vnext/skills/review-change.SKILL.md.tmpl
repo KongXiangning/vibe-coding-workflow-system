@@ -121,7 +121,11 @@ When related product maintenance is enabled, report precise pending document
 locators for new discrepancy/evidence. This review stays read-only: no hidden
 requirement, plan or assessment update. An authorized later maintain-project
 write phase can reconcile the report without changing the review verdict or
-using task closure/unchanged hashes as current PASS.
+using task closure/unchanged hashes as current PASS. For related contribution/coverage
+findings use the shared references/binding-contribution.md method, retaining concrete
+owner/binding/file and source locators. Do not silently reclassify, migrate, dismiss or
+reactivate bindings during review. Old unclassified relations remain pending; no-evidence
+new proposals stay unbound, and supporting activity never becomes direct delivery.
 
 Return the actual requested result, affected scope, evidence/record references,
 remaining work and any unsaved/unreconciled data. Preserve existing user decisions

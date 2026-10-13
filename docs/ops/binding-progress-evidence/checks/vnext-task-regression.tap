@@ -1,0 +1,67 @@
+✔ close 004, prepare/adopt 005, execute/review/dispose/commit/close share one state without qualification gates (275.777806ms)
+✔ a clean change review recommends finishing the step before task closure (42.823736ms)
+✔ fact/view failure split, read-through freshness, display preservation and rebuild do not replay work (35.903338ms)
+✔ existing unnumbered plan/review/adoption can be linked without rerunning or rewriting original facts (51.074397ms)
+✔ causal conflicting adoptions need a choice; supplementation/correction preserve wrong originals and decision history (78.463615ms)
+✔ installed native CLI allocates stable noncolliding tasks and exact concurrent retries do not duplicate adoption (301.600045ms)
+✔ correcting a resolved adoption uses the new choice and retains the original decision (48.925888ms)
+✔ abandoned empty view lock is reclaimed while a fresh lock remains busy (20.342946ms)
+✔ publication detects an edit made after validation and preserves it (10.588875ms)
+✔ exclusive display installation protects late path saves and retains delayed writes through open handles (41.066038ms)
+✔ cyclic correction and decisions on ineffective reviews report unresolved association (44.927704ms)
+✔ causal heads and cycle diagnostics match explicit reachability on seeded DAGs and cyclic graphs (154.011797ms)
+✔ a cyclic amendment cannot supersede itself; distinct cyclic alternatives remain mutually superseded (3.614062ms)
+✔ conflicting interpretations preserve the baseline lazy-observation boundary without ancestor sets (2.629893ms)
+✔ a later parent correction restores a failed execution without rewriting original facts (41.4754ms)
+✔ a long journal is rebuilt under a bounded heap without truncating historical decisions (854.378886ms)
+✔ derived task preserves its parent and returns to the exact unfinished work without finishing or recertifying it (205.581354ms)
+✔ closure with gaps keeps the dependency unresolved; a later explicit outcome can return without replaying work (101.365327ms)
+✔ an outcome before closure waits; manual policy and incomplete or cancelled outcomes never imply successful return (108.242562ms)
+✔ adopting with focus captures entry and a previously recorded satisfied outcome returns on close (75.000289ms)
+✔ manual return retains unresolved dependency and changed-work context without forging a ready continuation (92.59354ms)
+✔ linking an existing task origin preserves its identity and original bytes without inventing a past entry (99.764937ms)
+▶ automatic return respects new focus, parent lifecycle, revised plans, finished steps and new parent work
+  ✔ other focus (87.603328ms)
+  ✔ paused parent (67.586423ms)
+  ✔ closed parent (68.451152ms)
+  ✔ revised plan (95.331158ms)
+  ✔ finished parent step (76.613176ms)
+  ✔ new parent execution (70.977129ms)
+✔ automatic return respects new focus, parent lifecycle, revised plans, finished steps and new parent work (467.774558ms)
+✔ entry captures the actual parent work after preparation; entering from another task does not invent a return (136.036425ms)
+✔ unsupported nested or multiple derivations retain proposals and report the missing association (92.16779ms)
+✔ saved closure and return survive publication failure and idempotent recovery without a second operation (79.983455ms)
+✔ multiple linked prerequisites are visible and require manual return rather than implicit scheduling (115.653259ms)
+✔ installed native CLI closes and returns across processes without kernel dependencies or duplicate facts (379.585985ms)
+✔ a return to a recognized legacy step survives later plan adoption without rewriting its historical origin (32.198956ms)
+▶ concurrent focus or parent changes keep alternatives visible and prevent an unambiguous automatic return
+  ✔ concurrent focus (92.402371ms)
+  ✔ concurrent parent execution (83.367452ms)
+  ✔ concurrent historical observation (82.524315ms)
+✔ concurrent focus or parent changes keep alternatives visible and prevent an unambiguous automatic return (258.852577ms)
+▶ concurrent child lifecycle or prerequisite outcomes suppress return until an explicit choice resolves them
+  ✔ resume (149.120214ms)
+  ✔ pause (97.140332ms)
+  ✔ dependency (88.232144ms)
+✔ concurrent child lifecycle or prerequisite outcomes suppress return until an explicit choice resolves them (335.193463ms)
+✔ ordered child changes after a completed return preserve its focus and immutable return fact (98.666557ms)
+✔ selecting a closed fulfilled child alternative restores its return without new execution or focus facts (91.543546ms)
+✔ concurrent agreeing child closures retain their common fulfilled return rather than inventing a conflict (88.674719ms)
+✔ concurrent agreeing outcomes after close expose the actual return without a second result conflict (97.252091ms)
+▶ resolving a prerequisite alternative derives its return without a second result selection
+  ✔ satisfied (103.402584ms)
+  ✔ unresolved (105.889578ms)
+✔ resolving a prerequisite alternative derives its return without a second result selection (209.774117ms)
+▶ old-plan dependencies do not block derivation or return at a revised plan with the same step ID
+  ✔ prepare (128.63588ms)
+  ✔ link (134.549037ms)
+✔ old-plan dependencies do not block derivation or return at a revised plan with the same step ID (263.697278ms)
+✔ nullable retained steps support derivation and task-link recovery without making the live view unavailable (56.693145ms)
+ℹ tests 54
+ℹ suites 0
+ℹ pass 54
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5616.861697

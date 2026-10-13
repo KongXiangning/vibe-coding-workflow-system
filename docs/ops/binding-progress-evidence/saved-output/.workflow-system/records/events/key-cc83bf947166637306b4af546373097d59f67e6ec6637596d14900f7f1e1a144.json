@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T19:11:03.387Z",
+  "payload_sha256": "3c7a1f319ce9473645efc117b7c9a23469bae55cc8bea54d30dd229d147401b0",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-agent-adopt-parser-boundaries-20261013",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+      "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+      "focus": false,
+      "decision_source": "docs/evidence/request-new-verification.md；本轮隔离宿主行为验收 assignment",
+      "decision_text": "按隔离请求准备并实际采用只核验现有纯解析函数空id、空value、多余列错误行号的任务；本轮不执行测试，不改变旧Task的生命周期或焦点。该决定来自合成验收授权，不是真实用户业务采用。",
+      "idempotency_key": "host-agent-adopt-parser-boundaries-20261013"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+      "parents": [
+        ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+        "focus": false,
+        "decision_source": "docs/evidence/request-new-verification.md；本轮隔离宿主行为验收 assignment",
+        "decision_text": "按隔离请求准备并实际采用只核验现有纯解析函数空id、空value、多余列错误行号的任务；本轮不执行测试，不改变旧Task的生命周期或焦点。该决定来自合成验收授权，不是真实用户业务采用。",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

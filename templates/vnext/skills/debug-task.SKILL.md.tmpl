@@ -111,7 +111,11 @@ use maintain-project references/reconcile.md for new observations and local impa
 Preserve external report versus Agent reproduction, original requirement/history,
 actual repair scope and any pending sources. Use the existing task API for actual
 task operations. Investigate-only/read-only requests return maintenance locators
-without writing. Documentation or association failure never blocks debugging.
+without writing. If new facts affect an existing relationship or justify a new repair
+binding, use references/binding-contribution.md's shared owner-specific method; preserve
+same-ID corrections, rejection history and actual repair coverage. Classification does
+not identify the defect's author or turn failed validation into delivery. Documentation
+or association failure never blocks debugging.
 
 Return the actual requested result, affected scope, evidence/record references,
 remaining work and any unsaved/unreconciled data. Preserve existing user decisions

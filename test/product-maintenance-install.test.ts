@@ -349,7 +349,7 @@ test('installed maintenance assets execute with Node and upgrade preserves all t
     expect(consumer.items.filter((item: any) => item.type === 'requirement').map((item: any) => item.metadata.scope)).toEqual(['current', 'current', 'planned', 'candidate', 'retired']);
     expect(consumer.items.find((item: any) => item.id === 'PROJECT-SELECT').metadata.inventory.state).toBe('partial');
     expect(consumer.items.find((item: any) => item.id === 'AS-BASE').metadata.pending_sources).toHaveLength(1);
-    expect(consumer.diagnostics.map((d: any) => d.code).sort()).toEqual(['DEFINITION_UNKNOWN', 'PENDING_SOURCES']);
+    expect(consumer.diagnostics.map((d: any) => d.code).sort()).toEqual(['BINDING_CONTRIBUTION_UNCLASSIFIED', 'DEFINITION_UNKNOWN', 'PENDING_SOURCES']);
     expect(consumer.task_states).toContain('not-computed'); expect(installedRead.result.task_status).toContain('not-computed');
     if (variant === 'no-plan') {
       expect(consumer.plan_tasks).toEqual([]); expect(consumer.items.some((item: any) => item.type === 'plan')).toBe(false);
@@ -409,4 +409,41 @@ test('installed maintenance assets execute with Node and upgrade preserves all t
   const directoryRead = spawnSync('node', [path.join(offline, 'offline-reader.mjs'), offline], { encoding: 'utf8' });
   const directoryResult = JSON.parse(directoryRead.stdout); expect(directoryRead.status).toBe(1); expect(directoryResult.coverage.omitted).toContain('docs/product/PROJECT.md');
   expect(directoryResult.diagnostics.some((d: any) => d.code === 'PATH_UNAVAILABLE' && d.path === 'docs/product/PROJECT.md' && d.message.includes('directory'))).toBe(true);
+});
+
+test('installed v5 contribution helper, templates, shared guidance and offline reader survive a mixed-version round trip', { timeout: 45000 }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'contribution-installed-')); roots.push(root);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"binding-install-fixture","private":true,"type":"module"}\n');
+  expect(installDistribution({ targetRoot: root, packageRoot }).status).toBe('installed');
+  const support = path.join(root, '.workflow-system/runtime/support/product-maintenance');
+  const helper = path.join(root, '.workflow-system/runtime/support/product-maintenance.js');
+  for (const asset of ['schemas/product-doc-v4.json', 'schemas/product-doc-v5.json', 'references/binding-contribution.md']) {
+    expect(fs.readFileSync(path.join(support, asset))).toEqual(fs.readFileSync(path.resolve(import.meta.dir, '../runtime/vnext/support/product-maintenance', asset)));
+  }
+  expect(parseProduct(fs.readFileSync(path.join(support, 'templates/REQUIREMENTS.md'), 'utf8'), 'template.md').version).toBe(5);
+  expect(parseProduct(fs.readFileSync(path.join(support, 'templates/GOAL.md'), 'utf8'), 'template.md').version).toBe(5);
+  for (const entry of ['prepare-task', 'maintain-project', 'close-task', 'review-change']) {
+    expect(fs.readFileSync(path.join(root, `.agents/skills/${entry}/SKILL.md`), 'utf8')).toContain('binding-contribution.md');
+  }
+  const example = path.join(support, 'examples/planning/reordered');
+  fs.cpSync(path.join(example, 'docs'), path.join(root, 'docs'), { recursive: true });
+  fs.copyFileSync(path.join(example, '.workflow-system/PRODUCT.yaml'), path.join(root, '.workflow-system/PRODUCT.yaml'));
+  const invoke = (action: string, input: any = {}) => JSON.parse(execFileSync('node', [helper, action, '--root', root], { input: JSON.stringify(input), encoding: 'utf8' }));
+  const file = 'docs/product/REQUIREMENTS.md', before = fs.readFileSync(path.join(root, file), 'utf8');
+  const req = parseProduct(before, file).items.find(i => i.id === 'REQ-IMPORT')!;
+  const rows = req.metadata.task_bindings.map((row: any, index: number) => index ? row : { ...row, contribution: 'direct', reason: '示例真实采用范围直接覆盖单设备有效输入子义务；其余不在本次范围', sources: [{ kind: 'text', label: '合成安装复核', text: '仅在虚构安装夹具中核对原Task范围及当前需求，不是实际项目验收。' }] });
+  const saved = invoke('apply', { files: [{ path: file, expected_sha256: sha256(before), migrate: 'v5', updates: [{ id: req.id, metadata: { task_bindings: rows } }] }] });
+  expect(saved.status).toBe('saved'); expect(saved.files[0].preimage.data_base64).toBe(Buffer.from(before).toString('base64'));
+  const read = invoke('read', { detail: 'items' });
+  expect(read.usable_items.find((i: any) => i.id === req.id).metadata.task_bindings[0].contribution).toBe('direct');
+  expect(read.usable_items.find((i: any) => i.id === req.id).metadata.task_bindings[1].contribution).toBeUndefined();
+  const binding = read.plan_tasks.find((p: any) => p.plan_id === 'PLAN-LOCAL').work_items.flatMap((w: any) => w.bindings).find((b: any) => b.binding_id === rows[0].id);
+  // Historical records without plan_items remain independent; missing an explicit
+  // WorkItem reference must not cause the installer/helper to invent one.
+  if (rows[0].plan_items?.length) expect(binding.contribution).toBe('direct'); else expect(binding).toBeUndefined();
+  const bytes = fs.readFileSync(path.join(root, file));
+  expect(invoke('apply', { files: [{ path: file, expected_sha256: sha256(bytes), updates: [{ id: req.id, metadata: { task_bindings: rows } }] }] }).files[0].status).toBe('unchanged');
+  const offline = JSON.parse(execFileSync('node', [path.join(support, 'offline-reader.js'), root], { encoding: 'utf8' }));
+  expect(offline.contract).toBe('vnext-product-doc/v5'); expect(offline.items.find((i: any) => i.id === req.id).metadata.task_bindings).toEqual(rows);
+  expect(fs.readFileSync(path.join(root, file))).toEqual(bytes); expect(fs.existsSync(path.join(root, '.workflow-system/records'))).toBe(false);
 });

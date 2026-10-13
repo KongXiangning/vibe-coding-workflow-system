@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isAlias, isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
-import { diagnostic, sectionsByType, type Diagnostic, type Item, type ProductDocument } from './model';
+import { diagnostic, PRODUCT_DOCUMENT_VERSIONS, sectionsByType, type Diagnostic, type Item, type ProductDocument } from './model';
 import { documentSchema, itemSchema, validate } from './schemas';
 
 export const sha256 = (value: string | Uint8Array): string => createHash('sha256').update(value).digest('hex');
@@ -59,8 +59,7 @@ export function parseProduct(text: string, file: string): ProductDocument {
   result.body_start = result.frontmatter_end + closing[0].length;
   const yaml = strictYaml(text.slice(result.frontmatter_start, result.frontmatter_end), file);
   result.schema = yaml.value?.schema ?? null;
-  const version = /^vnext-product-doc\/v([1-4])$/.exec(result.schema ?? '');
-  result.version = version ? Number(version[1]) as 1 | 2 | 3 | 4 : null;
+  result.version = PRODUCT_DOCUMENT_VERSIONS.find(version => result.schema === `vnext-product-doc/v${version}`) ?? null;
   if (!result.version) {
     result.diagnostics.push(diagnostic('UNSUPPORTED_VERSION', file, `Unsupported schema ${JSON.stringify(result.schema)}; raw content is retained`, { severity: 'error' }), ...yaml.problems.map(p => p.diagnostic));
     return result;

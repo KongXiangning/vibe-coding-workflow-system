@@ -10,6 +10,15 @@ export function collectSources(value: any): ObjectValue[] {
 export function taskIdentity(task: ObjectValue): string {
   return JSON.stringify([task.task_id ?? task.source, task.plan_ref ?? null, task.step_id ?? null]);
 }
+// Source identity excludes labels, notes and current byte hashes. Unknown Task
+// identity remains unknown; these keys only locate possible duplicate relations.
+export function bindingTaskIdentity(task: ObjectValue): unknown {
+  if (task.task_id !== null) return task.task_id;
+  const source = task.source;
+  if (source.kind === 'file') return { kind: source.kind, path: source.path, ...(source.item_id ? { item_id: source.item_id } : {}), ...(source.section ? { section: source.section } : {}), ...(source.lines ? { lines: { start: source.lines.start, end: source.lines.end } } : {}) };
+  if (source.kind === 'text') return { kind: source.kind, text: source.text.replace(/\r\n|\r/g, '\n').trim() };
+  return { kind: source.kind, uri: source.uri };
+}
 export function analyze(catalog: Catalog): void {
   const { byId, items, manifest, diagnostics } = catalog;
   if (!manifest) return;
@@ -114,15 +123,24 @@ export function analyze(catalog: Catalog): void {
       };
       for (const id of ids) visit(id);
     }
-    const bindingIds = new Set<string>(), fingerprints = new Set<string>();
+    const bindingIds = new Set<string>(), fingerprints = new Map<string, ObjectValue[]>();
     for (const binding of m.task_bindings ?? []) {
       if (bindingIds.has(binding.id)) report('DUPLICATE_BINDING_ID', item, `Binding ID ${binding.id} is duplicated`);
       bindingIds.add(binding.id);
       if (binding.state !== 'active') continue;
       if (binding.task.task_id === null) report('TASK_ID_UNCONFIRMED', item, `${binding.id}: historical task identity is unconfirmed; use its exact source`);
-      const fingerprint = JSON.stringify([taskIdentity(binding.task), binding.role, binding.coverage]);
-      if (fingerprints.has(fingerprint)) report('DUPLICATE_BINDING_CANDIDATE', item, `${binding.id}: possibly equivalent binding; only the Agent can judge coverage equivalence`);
-      fingerprints.add(fingerprint);
+      if (!binding.contribution) report('BINDING_CONTRIBUTION_UNCLASSIFIED', item, `${binding.id}: legacy contribution is unclassified; do not infer direct work from role or task state`);
+      if (binding.contribution && (!binding.reason?.trim() || !binding.sources?.length)) report('BINDING_BASIS_MISSING', item, `${binding.id}: recorded classification lacks a reason or sources; current applicability is not established`);
+      if (binding.role === 'reference' && binding.contribution === 'direct') report('BINDING_ROLE_CONTRIBUTION', item, `${binding.id}: reference+direct requires clarification; historical value is retained`);
+      // Contribution, plan revision and display ID are never ways to manufacture
+      // a second equivalent owner/Task/activity/scope fact. Text equivalence beyond
+      // whitespace still requires the Agent's explicit judgment.
+      const fingerprint = JSON.stringify([bindingTaskIdentity(binding.task), binding.role, binding.coverage.replace(/\s+/g, ' ').trim()]);
+      const prior = fingerprints.get(fingerprint) ?? [];
+      if (prior.length) report('DUPLICATE_BINDING_CANDIDATE', item, `${binding.id}: possibly equivalent binding; only the Agent can judge coverage equivalence`);
+      if (binding.contribution && prior.some(other => other.contribution && other.contribution !== binding.contribution))
+        report('BINDING_CONTRIBUTION_CONFLICT', item, `${[...prior.map(other => other.id), binding.id].join(', ')}: equivalent owner/Task/role/coverage has conflicting classifications; no direct or newest winner is selected`);
+      fingerprints.set(fingerprint, [...prior, binding]);
       for (const ref of binding.plan_items ?? []) {
         const plan = expectTarget(item, ref.plan_id, ['plan'], 'TaskBinding plan');
         if (plan?.type === 'plan' && !plan.metadata.work_items.some((w: any) => w.id === ref.work_item_id)) report('BINDING_WORK_ITEM', item, `${binding.id}: unresolved work item ${ref.plan_id}/${ref.work_item_id}`);
@@ -138,7 +156,7 @@ export function reverseRelations(catalog: Catalog): ObjectValue[] {
   ]);
 }
 export function planTasks(catalog: Catalog): ObjectValue[] {
-  return catalog.items.filter(i => i.usable && i.type === 'plan').map(plan => ({ plan_id: plan.id, work_items: plan.metadata.work_items.map((work: any) => ({ work_item_id: work.id, bindings: catalog.items.filter(i => i.usable).flatMap(owner => (owner.metadata.task_bindings ?? []).filter((b: any) => b.state === 'active' && b.plan_items?.some((p: any) => p.plan_id === plan.id && p.work_item_id === work.id)).map((b: any) => ({ owner: owner.id, binding_id: b.id, task: b.task, role: b.role, coverage: b.coverage }))) })) }));
+  return catalog.items.filter(i => i.usable && i.type === 'plan').map(plan => ({ plan_id: plan.id, work_items: plan.metadata.work_items.map((work: any) => ({ work_item_id: work.id, bindings: catalog.items.filter(i => i.usable).flatMap(owner => (owner.metadata.task_bindings ?? []).filter((b: any) => b.state === 'active' && b.plan_items?.some((p: any) => p.plan_id === plan.id && p.work_item_id === work.id)).map((b: any) => ({ owner: owner.id, binding_id: b.id, task: b.task, role: b.role, coverage: b.coverage, ...(b.contribution ? { contribution: b.contribution } : {}), origin: b.origin, state: b.state, ...(b.reason ? { reason: b.reason } : {}), sources: b.sources ?? [], locator: { kind: 'file', path: owner.path, item_id: owner.id }, line: owner.line }))) })) }));
 }
 export function impactCandidates(catalog: Catalog, ids: string[]): ObjectValue {
   const relations = reverseRelations(catalog);

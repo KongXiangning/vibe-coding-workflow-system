@@ -1,0 +1,40 @@
+{
+  "baseline_commit": "dcf7b0af7a65c53bde7218eac3a3639921d59d31",
+  "baseline_package": "/workspace/shared/binding-progress-20261014/vnext-baseline-0249/packages/vibe-governance",
+  "candidate_package": "/workspace/shared/binding-progress-20261014/vnext/packages/vibe-governance",
+  "target": "/tmp/vnext-real-upgrade-Inlxp3",
+  "versions": [
+    "0.24.9",
+    "0.24.10"
+  ],
+  "installed": "installed",
+  "dry_run": "ready",
+  "upgraded": "upgraded",
+  "read_back_verified": true,
+  "repeated_upgrade": "no-op",
+  "old_helper_sha256": "723e2c8da2d08212c213849a5746f54881e773efd097d06332588ebcc717a8b8",
+  "new_helper_sha256": "27c3c2d4759c06e3d911469ca9ad812a50891ab59178f08f3f52b33e67cba893",
+  "preserved_business_and_record_files": {
+    ".workflow-system/PRODUCT.yaml": "6fc16da5af896641aff8d2e3d5e6ccd6922a356b8425ac56aa0ea31ee6334066",
+    ".workflow-system/records/events/retained.json": "cf0f75fcb32a42fd9619c5cc41f6ab21b12327a91467f86b1406ec733637902f",
+    "docs/product/ASSESSMENTS.md": "3b82295669c61ffd2e1af350d780054bbe33ce18cd8f216f0e9c79cf5d9cccc4",
+    "docs/product/CHANGES.md": "941421861a69019565df5eef733bac0051ca3eeab7298aa691899f12ba153e76",
+    "docs/product/PLAN.md": "be942791c86250b9b4704327e5e0d25020250a2a97e62cee5b98e8c0da00daf1",
+    "docs/product/PROJECT.md": "e0e04eaf268e6e9a97e5d76b0a2175fe24c174e617586634924402487ece7371",
+    "docs/product/REQUIREMENTS.md": "cc9233e452982503eb55b9dd611db7e6505f4ec89486f4204a7a17e179f0f953"
+  },
+  "read_usable_items": [
+    "AS-BASE",
+    "CHG-ORDER",
+    "PLAN-LOCAL",
+    "PROJECT-SELECT",
+    "GOAL-RELIABLE",
+    "REQ-IMPORT",
+    "REQ-AUDIT",
+    "REQ-EXPORT",
+    "REQ-STREAM",
+    "REQ-LEGACY"
+  ],
+  "task_operations": "not-performed",
+  "passed": true
+}

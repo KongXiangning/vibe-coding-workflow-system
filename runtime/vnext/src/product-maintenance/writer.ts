@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { isSeq, stringify } from 'yaml';
 import { storeReadFile, storeStat } from '../../support/record-storage.mjs';
 import { readCatalog } from './catalog';
-import { type Catalog, type Item, type ObjectValue, type ProductDocument } from './model';
+import { type Catalog, type Item, type ObjectValue, type ProductDocument, type ProductDocumentVersion } from './model';
 import { decode, parseProduct, sha256, strictYaml } from './parser';
 import { allowed, matches, relativePath, safePath } from './paths';
 import { manifestSchema, validate } from './schemas';
@@ -263,6 +263,26 @@ function changedItem(previous: ProductDocument | undefined, document: ProductDoc
     || previous.text.slice(old.metadata_start, old.metadata_end) !== document.text.slice(next.metadata_start, next.metadata_end)
     || itemDiagnostics(old) !== itemDiagnostics(next);
 }
+// Legacy formats remain readable/writable under their original contract. In v5,
+// optional contribution retains unknown history; it is not an authoring shortcut.
+function validateBindingChanges(previous: ProductDocument | undefined, next: ProductDocument): void {
+  if (next.version !== 5) return;
+  for (const item of next.items) {
+    const oldBindings = relationList(previous?.items.find(old => old.id === item.id)?.metadata.task_bindings);
+    for (const binding of relationList(item.metadata.task_bindings)) {
+      if (binding.state !== 'active') continue;
+      const sameId = oldBindings.filter(old => old.id === binding.id);
+      const old = sameId.length === 1 ? sameId[0] : sameId.find(old => canonical(old) === canonical(binding));
+      const changed = !old || old.state !== 'active' || old.contribution !== binding.contribution
+        || relationIdentity(old, 'task_bindings') !== relationIdentity(binding, 'task_bindings');
+      if (!changed) continue;
+      if (!['direct', 'supporting'].includes(binding.contribution)) throw new Error(`BINDING_CONTRIBUTION_REQUIRED: ${item.id}/${binding.id}: new or reclassified v5 relationships require direct/supporting; retain unknown history without adding a speculative binding`);
+      if (![binding.coverage, binding.reason].every(value => typeof value === 'string' && !!value.trim()) || !Array.isArray(binding.sources) || !binding.sources.length)
+        throw new Error(`BINDING_BASIS_REQUIRED: ${item.id}/${binding.id}: supply specific coverage, reason and actual sources; structural validation does not certify semantic correctness`);
+      if (binding.role === 'reference' && binding.contribution === 'direct') throw new Error(`BINDING_ROLE_CONTRIBUTION: ${item.id}/${binding.id}: clarify the direct activity instead of creating reference+direct; unchanged historical values remain readable`);
+    }
+  }
+}
 function validateProductCandidate(previous: ProductDocument | undefined, next: ProductDocument, operation: ObjectValue, selectedIds: string[] | null, catalog: Catalog): string[] {
   const oldItems = previous?.items ?? [];
   const affected = selectedIds ?? next.items.filter(item => changedItem(previous, next, item)).map(item => item.id);
@@ -322,6 +342,7 @@ function validateProductCandidate(previous: ProductDocument | undefined, next: P
     const item = next.items.find(item => item.id === fragment.id);
     if (!item || normalizedBody(item.body) !== normalizedBody(fragment.body)) throw new Error(`BODY_BOUNDARY: body must remain entirely inside ## [${fragment.id}], with no extra root heading or swallowed neighbor`);
   }
+  validateBindingChanges(previous, next);
   const newRootErrors = next.diagnostics.filter(d => d.severity === 'error' && !d.item_id && !previous?.diagnostics.some(old => old.code === d.code && old.message === d.message && old.pointer === d.pointer));
   // Appended definitions can invalidate untouched reports through document-wide
   // isolation rules. Preserve valid v3 reports, while allowing existing malformed
@@ -374,7 +395,7 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
           if (previous.diagnostics.some(d => d.severity === 'error' && (!d.item_id || ['DUPLICATE_ID', 'ITEM_HEADING'].includes(d.code)))) throw new Error('ORIGINAL_UNRESOLVED: original identities/AST locations are ambiguous; preserve raw bytes and use an authorized raw repair');
         }
         if (!version) throw new Error('UNSUPPORTED_VERSION: edit raw source with ordinary authorized tools; no guessed migration');
-        if (version === 1 && operation.migrate !== 'v2' && (isManifest || !['v3', 'v4'].includes(operation.migrate))) throw new Error('V1_READ_ONLY: explicitly migrate this file before writing');
+        if (version === 1 && operation.migrate !== 'v2' && (isManifest || !['v3', 'v4', 'v5'].includes(operation.migrate))) throw new Error('V1_READ_ONLY: explicitly migrate this file before writing');
       }
       const next = candidate(original, operation, previous);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024)) throw new Error('WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced');
@@ -384,7 +405,7 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
       if (isManifest) validateManifestCandidate(next.text, operation.path);
       else {
         const parsed = parseProduct(next.text, operation.path);
-        if (![2, 3, 4].includes(parsed.version ?? 0)) throw new Error('V2_REQUIRED: new writes must use the v2, v3 or v4 document protocol');
+        if (![2, 3, 4, 5].includes(parsed.version ?? 0)) throw new Error('V2_REQUIRED: new writes must use the v2, v3, v4 or v5 document protocol');
         if (previous && (parsed.version ?? 0) < (previous.version ?? 0)) throw new Error('VERSION_DOWNGRADE: preserve fields and history');
         if (previous && parsed.version !== previous.version && operation.migrate !== `v${parsed.version}`) throw new Error(`MIGRATION_REQUIRED: explicitly select migrate=v${parsed.version} for this document`);
         next.affected = validateProductCandidate(previous, parsed, operation, next.affected, catalog);
@@ -482,6 +503,6 @@ export function capture(root: string, input: ObjectValue): ObjectValue {
   } catch (error: any) { return { status: 'failed', saved: false, error: error.message, raw_capture: false }; }
 }
 
-export function newDocument(items: { metadata: ObjectValue; body: string }[], title = '项目业务资料', version: 2 | 3 | 4 = 2): string {
+export function newDocument(items: { metadata: ObjectValue; body: string }[], title = '项目业务资料', version: Exclude<ProductDocumentVersion, 1> = 2): string {
   return `---\n${stringify({ schema: `vnext-product-doc/v${version}`, items: items.map(i => i.metadata) }, { lineWidth: 0, aliasDuplicateObjects: false })}---\n# ${title}\n\n${items.map(i => i.body).join('\n\n')}\n`;
 }

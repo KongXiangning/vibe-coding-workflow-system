@@ -6,7 +6,7 @@ JSON stdin; JSON stdout. Exit 1 means a real failed/partial service result or in
 requested read coverage, never a development veto. Read status=available describes
 service availability, not complete coverage or usable structure.
 `kind=product-maintenance-result/v1`, `development_gate=false`, `qualification=not-evaluated`.
-Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents in v1/v2/v3/v4 Schema and manifests in v1/v2 Schema plus `contract.md`. v4 adds optional plan.planning_baseline; migrate only the selected document with migrate=v4. Old paths and internal plan IDs remain compatible. Source, distribution, installed helper, host behavior and TraceLens delivery are separate evidence scopes.
+Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents in v1/v2/v3/v4/v5 Schema and manifests in v1/v2 Schema plus `contract.md`. v4 adds optional plan.planning_baseline; migrate only the selected document with migrate=v4. v5 inherits that baseline and adds optional TaskBinding.contribution only in Goal/Requirement bindings; see contract.md section 12 and references/binding-contribution.md. Manifest remains v2, and old v1–v4 schemas remain unchanged. Old paths and internal plan IDs remain compatible. Source, distribution, installed helper, host behavior and TraceLens delivery are separate evidence scopes.
 
 ## Read and check
 
@@ -106,7 +106,48 @@ Cross-object diagnostics are from existing catalog; read back after saving chang
 
 ## Apply
 
-### Implementation Roadmap reconciliation (v4)
+### Contribution bindings (v5)
+
+Read preserves optional contribution=direct|supporting on Goal/Requirement bindings,
+alongside role, coverage, origin/state, reason, sources and actual locators. Missing
+contribution in old or migrated bindings stays missing and means unclassified/pending
+review; it is never defaulted to direct. Null, undetermined and unknown values are
+invalid. The assessment conclusion undetermined remains valid. plan_tasks retains
+these fields and the original owner; it is a reverse view, not a new relation store.
+
+For new formal bindings use v5 with explicit migrate="v5" on the affected old file.
+A normal item update supplies the entire retained task_bindings array. Preserve old
+unreviewed and dismissed rows. An active new v5 relation, reclassification or material role, coverage or Task
+identity change requires legal contribution and nonempty coverage,
+reason and sources. New or changed reference+direct is rejected for clarification;
+an unchanged historical combination remains readable with a diagnostic. Unrelated
+field edits and format migration do not require rejudging retained old bindings.
+Read also retains historical classified bindings lacking reason/sources with basis
+diagnostics; the new-write requirement is not a retroactive read rejection.
+Legacy v1–v4 writes retain their original contract: they cannot accept contribution,
+and their compatibility does not authorize a host to create new unclassified
+relations. No helper check certifies that the cited source is sufficient business
+proof. Use the shared reference for semantic judgment and no-evidence abstention.
+
+Correct classification under the original binding ID, retaining recoverable history
+and basis. contribution does not change the association identity or let an equivalent
+owner/Task/role/coverage bypass duplicate or dismissed-reassociation protection.
+A new classification cannot revive a dismissed relation without its own current
+basis. Source order/labels and rewritten reasons do not supply new evidence.
+Equivalent conflicting classifications remain diagnosed, not resolved by preferring
+direct. Nonempty sources are a structure check, not semantic adoption.
+
+v5 inherits all v4 Roadmap fields/checks and the unchanged v3/v4/v5 business definition
+algorithm. Binding-only changes leave that definition digest intact; an exact
+whole-file source hash can still change and must be reported honestly. Existing v4
+Roadmaps need no migration for another file's binding correction. Do not embed the
+same binding-bearing file's full hash in itself as permanent classification evidence.
+No new contribution query, Task lifecycle action or requirement status is created.
+Readback and per-file persistence results remain separate from classification,
+actual Task execution and current scoped delivery. Failed binding writes do not undo
+a successful adoption; reread and retry only that management change.
+
+### Implementation Roadmap reconciliation (v4 and v5)
 
 Use read or check with an explicitly selected plan. Existing baseline supplies its selector;
 initialization needs an explicit selector:
@@ -239,24 +280,27 @@ Every file requires expected_sha256; null means must not exist. The optional
 expected_manifest_sha256 detects changed write scope. A manifest is itself applied
 at its explicit manifest path with content; absent entry is not automatically
 created by read/install. Initialize manifest first, then authorized documents.
-New writes use v2 or v3. Old v1 files are read-only until this operation explicitly
-says `migrate:"v2"` or (for product documents) `migrate:"v3"`. Existing v2 documents
-require explicit `migrate:"v3"` to change format; manifests stay v2. Unrelated
-files/history are not migrated; untouched incomplete old reports remain readable
-with diagnostics rather than receiving fabricated fields. Do not repurpose IDs/types
-or downgrade v3 to v2. The source `newDocument(items,title,3)` creates a v3 candidate;
-the default remains v2 for existing callers.
+New product writes support v2/v3/v4/v5. Old v1 files are read-only until this
+operation explicitly supplies a supported migration target. Use `migrate:"v2"`
+for an old manifest, and `migrate:"v2"`, `"v3"`, `"v4"` or `"v5"` as appropriate
+for a product document; any format upgrade of an existing file is explicit and
+all downgrades are rejected. Manifests stay v2. Only contribution writes need v5;
+v4 remains sufficient for existing Roadmap baselines. Unrelated files/history are
+not migrated; untouched incomplete reports and unclassified bindings keep their
+meaning and diagnostics rather than receiving fabricated fields. Do not repurpose
+IDs/types. The source `newDocument(items,title,5)` creates a v5 candidate; the
+default remains v2 for existing callers.
 
-When a unique usable v3 project exists, the helper appends successfully saved new
-v2 and v3 requirement IDs in batch/file-item order to its requirement_order,
+When a unique usable v3/v4/v5 project exists, the helper appends successfully saved new
+v2/v3/v4/v5 requirement IDs in batch/file-item order to its requirement_order,
 preserving old entries and each requirement file's format.
 If this request explicitly supplies/removes project order, that choice takes precedence,
 including intentional unregistered requirements. Dependencies, bindings and report
 updates do not reorder existing IDs. `requirement_order_update` separately reports
 the follow-up project's saved bytes or pending/failed result. Pure v2 additions
-without a usable v3 project retain the legacy save behavior without automatic
-migration; new v3 additions still report pending order maintenance in that case.
-Missing v3 project, freeze or conflict leaves successfully saved requirements intact and visible in the
+without a usable v3/v4/v5 project retain the legacy save behavior without automatic
+migration; new v3/v4/v5 additions still report pending order maintenance in that case.
+Missing v3/v4/v5 project, freeze or conflict leaves successfully saved requirements intact and visible in the
 unordered entry; retry only the failed order update. The follow-up is a separate
 per-file save, so consumers reread files after the whole result, rather than assuming
 the initial file result is still the last version. Reports must be stored separately

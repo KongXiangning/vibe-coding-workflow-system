@@ -1,0 +1,9 @@
+{
+  "parse_saved_and_retained": true,
+  "batch_retained_original_hash": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+  "batch_history_created_before_retry": false,
+  "runtime_events": 6,
+  "retry_files": [
+    "docs/product/BATCH.md"
+  ]
+}

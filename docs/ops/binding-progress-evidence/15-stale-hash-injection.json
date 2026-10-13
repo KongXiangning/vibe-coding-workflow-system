@@ -1,0 +1,7 @@
+{
+  "path": "docs/product/BATCH.md",
+  "read_sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+  "intentionally_noncurrent_expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "purpose": "使用明确不匹配的过期版本模拟值触发真实安装writer的并发hash保护；该值不是声称存在过的历史BATCH版本",
+  "both_updates_semantically_needed": true
+}

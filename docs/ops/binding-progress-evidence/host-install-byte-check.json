@@ -1,0 +1,25 @@
+{
+  "existing_files_changed": [],
+  "installed_assets": [
+    {
+      "asset": "product-maintenance.js",
+      "same_bytes": true,
+      "sha256": "27c3c2d4759c06e3d911469ca9ad812a50891ab59178f08f3f52b33e67cba893"
+    },
+    {
+      "asset": "product-maintenance/schemas/product-doc-v5.json",
+      "same_bytes": true,
+      "sha256": "a3797f92ba11e1b678c78b77d82a37e8501bb26cf8794b038cdaecbe0a9f3561"
+    },
+    {
+      "asset": "product-maintenance/references/binding-contribution.md",
+      "same_bytes": true,
+      "sha256": "155cbaf1eb0d99f5a7876df0d65bff98e4bf25412fe8fd6e71b1bac1f4804383"
+    },
+    {
+      "asset": "product-maintenance/contract.md",
+      "same_bytes": true,
+      "sha256": "c8079f5e17154ed9c430bcb2feeaefc5814f5bc02c66c5a8f5462699c5f3c4bc"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T18:57:56.181Z",
+  "payload_sha256": "288673a441a27b8152d9bfd8615416e2d85351487b8c386dcdb4a14e1ac9c080",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-parser-execution",
+    "request": {
+      "action": "execution",
+      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+      "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+      "step_id": "S-PARSE",
+      "source_revision": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+      "result": "已写纯函数及两项Node测试；实际执行两项均通过。未实现UI或批次列表。",
+      "commands": [
+        "node --test src/parse.test.mjs"
+      ],
+      "idempotency_key": "host-parser-execution"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+      "parents": [
+        ".workflow-system/records/events/key-27639231d68ee44c6044cd46e07d74a1a2de5bc320a4cae90cff5c3cf871c9c5.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+        "step_id": "S-PARSE",
+        "source_revision": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+        "result": "已写纯函数及两项Node测试；实际执行两项均通过。未实现UI或批次列表。",
+        "commands": [
+          "node --test src/parse.test.mjs"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

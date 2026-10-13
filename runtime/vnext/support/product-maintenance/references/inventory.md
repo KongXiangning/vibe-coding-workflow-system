@@ -76,6 +76,21 @@ out of coverage claims, and do not turn unrelated nonmatching files into missing
 For a moved file use stable identity only within already authorized known paths,
 or update the explicitly known manifest path; unknown location remains unknown.
 
+## Existing-project obligations and contribution inventory
+
+For an ongoing project, separate current obligations from historical Task promises,
+actual source-backed achievements and missing material. Use binding-contribution.md
+for new relationships and rejudgment; inventory is not enum backfill. A closed Task,
+a similar title or "we are around 08" is a discovery clue, not proof that earlier
+requirements are fulfilled or later ones unimplemented. Preserve genuine partial
+direct coverage even when its implementation predates the current requirement.
+
+Start locally unless all existing requirements were requested. For a complete request,
+maintain recoverable batch coverage of read/judged/unread/unsaved requirements, including
+requirements without Tasks and old unclassified bindings. Use reconcile.md for the
+full rejudgment sequence and independently authorized delivery evaluation. Do not
+create historical Tasks, shrink acceptance to code or adopt every inferred candidate.
+
 ## Shared material sufficiency and prerequisite analysis
 
 Use this analysis for inventory, reconcile and planning. First locate and read existing
@@ -124,8 +139,9 @@ selected original bodies, then combine update, plan and reconcile as applicable:
 - If an old plan is still adopted/applicable, retain its scope and stable work IDs
   in plan/work_items; a historical or undecided plan is not newly adopted. Current
   explicit arrangements may be saved without reconstructing the entire old order.
-- Associate reliable historical task identities through TaskBinding with precise
-  coverage. Unknown identity uses task_id=null and a locatable original source;
+- Associate only source-backed historical work through TaskBinding using the shared
+  contribution method, concrete coverage, reason and sources. Unknown identity uses
+  task_id=null and a locatable original source;
   a display number is not a guessed identity. Never prepare/reopen old work.
 - For relevant material CR/decision changes, use change with original before/after
   and source; unknown old meaning stays null with explanation. recorded_at is the

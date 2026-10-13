@@ -101,6 +101,13 @@ carry out only the authorized stage; retain the findings and the real review ver
 
 ## Result
 
+For proposed product associations, use maintain-project
+references/binding-contribution.md's shared method against the actual draft and owner
+obligations. Report precise coverage, direct/supporting reasons, sources and unresolved
+material as review findings. No evidence means no proposed formal binding; review alone
+does not adopt the Task or write, migrate or classify product bindings. Return pending
+owner/file locators for any separately authorized maintenance phase.
+
 Return the actual requested result, affected scope, evidence/record references,
 remaining work and any unsaved/unreconciled data. Preserve existing user decisions
 and exclusions; an explicit read-only request remains read-only. A record's successful

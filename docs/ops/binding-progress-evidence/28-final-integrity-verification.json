@@ -1,0 +1,360 @@
+{
+  "business_input_origin": "synthetic; code/test output/runtime records produced in this exercise",
+  "original_file_hash_comparison": {
+    ".workflow-system/PRODUCT.yaml": {
+      "before": "bc99eda5152f7493373004076b2f7c55fce344d2d63a12ba978237493ff9a48d",
+      "after": "6fc14b7adad7c585a169f6fb96c785bc95cfba4d583ac6e38de0e3d3ac87205c",
+      "unchanged": false
+    },
+    ".workflow-system/records/events/key-27639231d68ee44c6044cd46e07d74a1a2de5bc320a4cae90cff5c3cf871c9c5.json": {
+      "before": "86343249b001931ccc5f8e691c72b187a8535eec1d3b92c6525478946210311c",
+      "after": "86343249b001931ccc5f8e691c72b187a8535eec1d3b92c6525478946210311c",
+      "unchanged": true
+    },
+    ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json": {
+      "before": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835",
+      "after": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835",
+      "unchanged": true
+    },
+    ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json": {
+      "before": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684",
+      "after": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684",
+      "unchanged": true
+    },
+    ".workflow-system/records/events/key-bae65d30634220016e6c809cfe572f548ae70083940ff60585cddc1b4fd06038.json": {
+      "before": "38a51af8802f00be0f56bcd8523297a1c5f6de2778117749b697badf0db9946d",
+      "after": "38a51af8802f00be0f56bcd8523297a1c5f6de2778117749b697badf0db9946d",
+      "unchanged": true
+    },
+    ".workflow-system/records/legacy/display-1ca5cbb600f344a636d03957108922a7947aace36b443da6da940f396fa62cc6.md": {
+      "before": "1ca5cbb600f344a636d03957108922a7947aace36b443da6da940f396fa62cc6",
+      "after": "1ca5cbb600f344a636d03957108922a7947aace36b443da6da940f396fa62cc6",
+      "unchanged": true
+    },
+    ".workflow-system/records/legacy/display-9b31765d819131fdd28c1ba2dfa27d63c5c4509d289d2a8b066c5dc4f9353dff.md": {
+      "before": "9b31765d819131fdd28c1ba2dfa27d63c5c4509d289d2a8b066c5dc4f9353dff",
+      "after": "9b31765d819131fdd28c1ba2dfa27d63c5c4509d289d2a8b066c5dc4f9353dff",
+      "unchanged": true
+    },
+    ".workflow-system/records/legacy/display-capture-000cd242-fea3-4b6e-9500-05991f828d95.md": {
+      "before": "d2c920a7b914b2fe84420fdcd861b71290bb30626427bc1fce07845f718169b6",
+      "after": "d2c920a7b914b2fe84420fdcd861b71290bb30626427bc1fce07845f718169b6",
+      "unchanged": true
+    },
+    ".workflow-system/records/legacy/display-capture-157add80-08f9-472a-a071-8d39e02eb80f.md": {
+      "before": "1ca5cbb600f344a636d03957108922a7947aace36b443da6da940f396fa62cc6",
+      "after": "1ca5cbb600f344a636d03957108922a7947aace36b443da6da940f396fa62cc6",
+      "unchanged": true
+    },
+    ".workflow-system/records/legacy/display-capture-cf85ad41-4d79-48c4-8a50-49cffb79eb4f.md": {
+      "before": "9b31765d819131fdd28c1ba2dfa27d63c5c4509d289d2a8b066c5dc4f9353dff",
+      "after": "9b31765d819131fdd28c1ba2dfa27d63c5c4509d289d2a8b066c5dc4f9353dff",
+      "unchanged": true
+    },
+    ".workflow-system/records/legacy/display-d2c920a7b914b2fe84420fdcd861b71290bb30626427bc1fce07845f718169b6.md": {
+      "before": "d2c920a7b914b2fe84420fdcd861b71290bb30626427bc1fce07845f718169b6",
+      "after": "d2c920a7b914b2fe84420fdcd861b71290bb30626427bc1fce07845f718169b6",
+      "unchanged": true
+    },
+    ".workflow-system/records/task-labels/TASK-001.json": {
+      "before": "2077c07f86245b6bc1e03768d47c734445ec6a145b5ff05058a5995f469a773f",
+      "after": "2077c07f86245b6bc1e03768d47c734445ec6a145b5ff05058a5995f469a773f",
+      "unchanged": true
+    },
+    ".workflow-system/records/task-view.json": {
+      "before": "2e2025eed7ca73ba4596022a50fd4964552f1277ff554dec74ff2798a4e27f95",
+      "after": "a1d3aa75cb6003f189b53afafe452b48fbcc8be760b9fa301786dabfbe836934",
+      "unchanged": false
+    },
+    ".workflow-system/records/task-views/140ae387f8fa1e7dba39393dc8bc0a5b134457a09d49f8d68fbfabf8089377d4.md": {
+      "before": "ae787119749823c2198fd98317fb00541ea6839c8ed2fdeab945fa02eca921d0",
+      "after": "ae787119749823c2198fd98317fb00541ea6839c8ed2fdeab945fa02eca921d0",
+      "unchanged": true
+    },
+    ".workflow-system/records/task-views/3583645e2155e68e55f7c121ae156c3d97b6702d9f0eb260e757481eda4efb21.md": {
+      "before": "1ca5cbb600f344a636d03957108922a7947aace36b443da6da940f396fa62cc6",
+      "after": "1ca5cbb600f344a636d03957108922a7947aace36b443da6da940f396fa62cc6",
+      "unchanged": true
+    },
+    ".workflow-system/records/task-views/7ce4216026abdf71a593d8d98da414b795d6b35776524723e30bc113415c3684.md": {
+      "before": "d2c920a7b914b2fe84420fdcd861b71290bb30626427bc1fce07845f718169b6",
+      "after": "d2c920a7b914b2fe84420fdcd861b71290bb30626427bc1fce07845f718169b6",
+      "unchanged": true
+    },
+    ".workflow-system/records/task-views/fa4150cf78c59f3d40c9c390caef27f8b3167f9a71a6b7d29d759cc8b0dd691a.md": {
+      "before": "9b31765d819131fdd28c1ba2dfa27d63c5c4509d289d2a8b066c5dc4f9353dff",
+      "after": "9b31765d819131fdd28c1ba2dfa27d63c5c4509d289d2a8b066c5dc4f9353dff",
+      "unchanged": true
+    },
+    "README.md": {
+      "before": "a3dd256db87350977d24955ebfc22f8cb8fe72f9203e79fa726f9ba9eecc486d",
+      "after": "a3dd256db87350977d24955ebfc22f8cb8fe72f9203e79fa726f9ba9eecc486d",
+      "unchanged": true
+    },
+    "docs/evidence/01-prepare-parser.request.json": {
+      "before": "c49d95b22711e849f76adf43834dc46c060a5008be13778b04a003a2bfc1d82d",
+      "after": "c49d95b22711e849f76adf43834dc46c060a5008be13778b04a003a2bfc1d82d",
+      "unchanged": true
+    },
+    "docs/evidence/01-prepare-parser.response.json": {
+      "before": "36e1be21211a78e599dda4f0f6a740f1029f6a1aa0d4f5b254d07f3186722e0f",
+      "after": "36e1be21211a78e599dda4f0f6a740f1029f6a1aa0d4f5b254d07f3186722e0f",
+      "unchanged": true
+    },
+    "docs/evidence/02-adopt-parser.request.json": {
+      "before": "1273b7976e17751d22d522fe03da4c2da6d8974ca4fd474b1d34ef006ccc0b3c",
+      "after": "1273b7976e17751d22d522fe03da4c2da6d8974ca4fd474b1d34ef006ccc0b3c",
+      "unchanged": true
+    },
+    "docs/evidence/02-adopt-parser.response.json": {
+      "before": "ca5d7fb733ec32cd81b3489b8d8166b718b0a149536ceac908bf8312623168fb",
+      "after": "ca5d7fb733ec32cd81b3489b8d8166b718b0a149536ceac908bf8312623168fb",
+      "unchanged": true
+    },
+    "docs/evidence/03-execute-parser.request.json": {
+      "before": "fa7851d82625a1505199471ee5d8bc1281a05d8e38b199a141c3e4dcff50f7d5",
+      "after": "fa7851d82625a1505199471ee5d8bc1281a05d8e38b199a141c3e4dcff50f7d5",
+      "unchanged": true
+    },
+    "docs/evidence/03-execute-parser.response.json": {
+      "before": "d499f9983a9649b371f53db318167b3fe2834c8303053fe7c5a41c8ceb4bd298",
+      "after": "d499f9983a9649b371f53db318167b3fe2834c8303053fe7c5a41c8ceb4bd298",
+      "unchanged": true
+    },
+    "docs/evidence/04-close-parser.request.json": {
+      "before": "385723e3400a6a8c0aa9a144714c444b0a0f6ecf8e414e0907040061a605c41f",
+      "after": "385723e3400a6a8c0aa9a144714c444b0a0f6ecf8e414e0907040061a605c41f",
+      "unchanged": true
+    },
+    "docs/evidence/04-close-parser.response.json": {
+      "before": "e6bd070355aaaa443c63911b104a9a71339bc3d17794c3283e589948b5a6ea7f",
+      "after": "e6bd070355aaaa443c63911b104a9a71339bc3d17794c3283e589948b5a6ea7f",
+      "unchanged": true
+    },
+    "docs/evidence/05-initial-runtime.request.json": {
+      "before": "68be9d7b5ba1492a6b9d10dd7d032c92ac2066f96df2bbc4eed5bef032bf5c59",
+      "after": "68be9d7b5ba1492a6b9d10dd7d032c92ac2066f96df2bbc4eed5bef032bf5c59",
+      "unchanged": true
+    },
+    "docs/evidence/05-initial-runtime.response.json": {
+      "before": "5089e2a68db37be7264434cca60a3f5b22525cf103cfb27ed0c458f49bb4c2b2",
+      "after": "5089e2a68db37be7264434cca60a3f5b22525cf103cfb27ed0c458f49bb4c2b2",
+      "unchanged": true
+    },
+    "docs/evidence/archive-note.md": {
+      "before": "ff87bbacf29986221a9bbc2c12e8a2db304a7a06009de0e44ffcaf65db2218f8",
+      "after": "ff87bbacf29986221a9bbc2c12e8a2db304a7a06009de0e44ffcaf65db2218f8",
+      "unchanged": true
+    },
+    "docs/evidence/font-decision.md": {
+      "before": "98a432f2515c735a736b1bb4b383a4cc095799b4ce42c4def37f61a4d5d9e507",
+      "after": "98a432f2515c735a736b1bb4b383a4cc095799b4ce42c4def37f61a4d5d9e507",
+      "unchanged": true
+    },
+    "docs/evidence/material-origin.md": {
+      "before": "8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032",
+      "after": "8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032",
+      "unchanged": true
+    },
+    "docs/evidence/parser-test.txt": {
+      "before": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6",
+      "after": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6",
+      "unchanged": true
+    },
+    "docs/evidence/request-new-verification.md": {
+      "before": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1",
+      "after": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1",
+      "unchanged": true
+    },
+    "docs/product/ARCHIVE.md": {
+      "before": "cc9b9975dbe534dce0c53113b8dfe940cade3dedbe3b9ef392d251defc1891ba",
+      "after": "cc9b9975dbe534dce0c53113b8dfe940cade3dedbe3b9ef392d251defc1891ba",
+      "unchanged": true
+    },
+    "docs/product/BATCH.md": {
+      "before": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+      "after": "055234516fd69e28635825d7da800608d0e0c236eb645574eafec4d6891a229e",
+      "unchanged": false
+    },
+    "docs/product/GOAL.md": {
+      "before": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+      "after": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+      "unchanged": true
+    },
+    "docs/product/PARSE.md": {
+      "before": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+      "after": "493506a2efe003666738ee2ddb48312b945ff3f4e9b80b540fefd2ac2975ca81",
+      "unchanged": false
+    },
+    "docs/product/PROJECT.md": {
+      "before": "9e90a53fefbe6a22608c181f1f45f8d1299ef52aa4cad0870b8023bc05794205",
+      "after": "9e90a53fefbe6a22608c181f1f45f8d1299ef52aa4cad0870b8023bc05794205",
+      "unchanged": true
+    },
+    "docs/product/TYPEFACE.md": {
+      "before": "5c965e99dcfe2eda3e26b97fe963c328a3a21a243108b0d59393a5d854e606bf",
+      "after": "5c965e99dcfe2eda3e26b97fe963c328a3a21a243108b0d59393a5d854e606bf",
+      "unchanged": true
+    },
+    "docs/workflow/CURRENT_TASK.md": {
+      "before": "ae787119749823c2198fd98317fb00541ea6839c8ed2fdeab945fa02eca921d0",
+      "after": "99936ceba84ae19d36ee1c36a48398a0128a6fa0fb60d7f25e9dfa0850a4126a",
+      "unchanged": false
+    },
+    "initial-bytes.json": {
+      "before": "52b5b75f58cb4074a39933dd729850547110de5f6a85d6b5af41ebcdb1b0f439",
+      "after": "52b5b75f58cb4074a39933dd729850547110de5f6a85d6b5af41ebcdb1b0f439",
+      "unchanged": true
+    },
+    "package.json": {
+      "before": "e33f5dbcc01f85b06bf08f194468163813fdafaaefcbdc2b7b1f5ee8d174c33f",
+      "after": "e33f5dbcc01f85b06bf08f194468163813fdafaaefcbdc2b7b1f5ee8d174c33f",
+      "unchanged": true
+    },
+    "src/parse.mjs": {
+      "before": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+      "after": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+      "unchanged": true
+    },
+    "src/parse.test.mjs": {
+      "before": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64",
+      "after": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64",
+      "unchanged": true
+    }
+  },
+  "requirement_body_and_definition_checks": {
+    "REQ-ARCHIVE": {
+      "body_unchanged": true,
+      "definition_algorithm_unchanged": true,
+      "definition_sha256_unchanged": true,
+      "definition_sha256": "35eecadf4247fdfdb36c7edd2c10bf34594e2de455f44ec5a43be134929e8a24"
+    },
+    "REQ-BATCH": {
+      "body_unchanged": true,
+      "definition_algorithm_unchanged": true,
+      "definition_sha256_unchanged": true,
+      "definition_sha256": "02b5ff0fb3dc44c15fd0190fc3fc156af42a4b0d8fcacb00b9e5cddc37358452"
+    },
+    "REQ-PARSE": {
+      "body_unchanged": true,
+      "definition_algorithm_unchanged": true,
+      "definition_sha256_unchanged": true,
+      "definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756"
+    },
+    "REQ-TYPEFACE": {
+      "body_unchanged": true,
+      "definition_algorithm_unchanged": true,
+      "definition_sha256_unchanged": true,
+      "definition_sha256": "3e6e908860766c4549be4ed1d0130035a2f7eb9de57539d79d96cfa0a7804e9a"
+    }
+  },
+  "old_task_object_identical": true,
+  "old_task_lifecycle": "closed",
+  "old_focus_unchanged": true,
+  "original_runtime_event_hashes_unchanged": true,
+  "original_runtime_event_count": 4,
+  "new_runtime_events": [
+    {
+      "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+      "action": "prepare"
+    },
+    {
+      "path": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+      "action": "adopt"
+    }
+  ],
+  "new_task": {
+    "id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+    "display_id": "TASK-002",
+    "lifecycle": "active",
+    "plan_status": "adopted",
+    "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+    "step_states": [
+      "not-started"
+    ],
+    "executions": [],
+    "tests": [],
+    "reviews": []
+  },
+  "untouched_legacy_unknown": true,
+  "untouched_dismissed": true,
+  "preimage_checks": {
+    ".workflow-system/PRODUCT.yaml": {
+      "path": "docs/product/history/PRODUCT.before-capture-paths.yaml",
+      "sha256": "bc99eda5152f7493373004076b2f7c55fce344d2d63a12ba978237493ff9a48d",
+      "matches_original": true
+    },
+    "docs/product/PARSE.md": {
+      "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+      "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+      "matches_original": true
+    },
+    "docs/product/BATCH.md": {
+      "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+      "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+      "matches_original": true
+    }
+  },
+  "product_versions": {
+    "docs/product/ARCHIVE.md": "vnext-product-doc/v3",
+    "docs/product/ASSESSMENT-PARSE-BASE.md": "vnext-product-doc/v3",
+    "docs/product/BATCH.md": "vnext-product-doc/v5",
+    "docs/product/GOAL.md": "vnext-product-doc/v3",
+    "docs/product/PARSE.md": "vnext-product-doc/v5",
+    "docs/product/PROJECT.md": "vnext-product-doc/v3",
+    "docs/product/TYPEFACE.md": "vnext-product-doc/v3"
+  },
+  "selected_assessment": {
+    "selection": {
+      "target": "REQ-PARSE",
+      "goal_id": "GOAL-RECORDS",
+      "scope_id": "PARSE-BASE",
+      "subject": {
+        "kind": "working-copy",
+        "value": "/workspace/shared/binding-progress-20261014/host-scenario",
+        "revision": "parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+        "limitations": "版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。"
+      }
+    },
+    "conclusion": "satisfied",
+    "assessment_id": "AS-PARSE-BASE-HOST-20261013",
+    "reasons": [],
+    "reports": [
+      {
+        "id": "AS-PARSE-BASE-HOST-20261013",
+        "conclusion": "satisfied",
+        "usable": true,
+        "locator": {
+          "kind": "file",
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "item_id": "AS-PARSE-BASE-HOST-20261013"
+        }
+      }
+    ],
+    "historical_reports": [],
+    "pending_reports": [],
+    "business_validity": "not-evaluated"
+  },
+  "remaining_diagnostics": [
+    {
+      "code": "TASK_ID_UNCONFIRMED",
+      "path": "docs/product/ARCHIVE.md",
+      "message": "B-UNRESOLVED: historical task identity is unconfirmed; use its exact source",
+      "severity": "warning",
+      "item_id": "REQ-ARCHIVE",
+      "line": 30
+    },
+    {
+      "code": "BINDING_CONTRIBUTION_UNCLASSIFIED",
+      "path": "docs/product/ARCHIVE.md",
+      "message": "B-UNRESOLVED: legacy contribution is unclassified; do not infer direct work from role or task state",
+      "severity": "warning",
+      "item_id": "REQ-ARCHIVE",
+      "line": 30
+    }
+  ],
+  "unsaved_authorized_changes": [],
+  "business_tests_executed_by_this_agent": false,
+  "next_route": null,
+  "next_route_reason": "本轮授权的准备采用、关联重判、有限评估与保存恢复均已完成；新验证执行未授权，保留not-started。"
+}

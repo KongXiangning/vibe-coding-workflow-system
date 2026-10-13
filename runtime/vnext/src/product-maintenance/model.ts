@@ -1,3 +1,6 @@
+export const PRODUCT_DOCUMENT_VERSIONS = [1, 2, 3, 4, 5] as const;
+export type ProductDocumentVersion = typeof PRODUCT_DOCUMENT_VERSIONS[number];
+export const ROADMAP_DOCUMENT_VERSIONS: readonly ProductDocumentVersion[] = [4, 5];
 export type ObjectValue = Record<string, any>;
 export interface Diagnostic {
   code: string;
@@ -25,14 +28,14 @@ export interface Item {
   diagnostics: Diagnostic[];
   definition_sha256?: string;
   definition_algorithm?: string;
-  version?: 1 | 2 | 3 | 4;
+  version?: ProductDocumentVersion;
 }
 export interface ProductDocument {
   path: string;
   text: string;
   sha256: string;
   schema: string | null;
-  version: 1 | 2 | 3 | 4 | null;
+  version: ProductDocumentVersion | null;
   items: Item[];
   diagnostics: Diagnostic[];
   frontmatter_start: number;

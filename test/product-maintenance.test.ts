@@ -622,7 +622,7 @@ test('E6 keeps one requirement and stable work items; task binding retry has no 
 });
 test('planning samples preserve no-plan prose, independent plan order, cross-stage coverage and open scope', () => {
   const assets = fs.mkdtempSync(path.join(os.tmpdir(), 'product-consumer-assets-')); roots.push(assets);
-  for (const file of ['document-contract.md', 'examples/e6-repair.md', 'examples/planning-consumption.md', 'examples/scoped-contract.md', 'examples/adopted-structure.md', 'examples/roadmap-reconciliation.md']) {
+  for (const file of ['document-contract.md', 'examples/e6-repair.md', 'examples/planning-consumption.md', 'examples/scoped-contract.md', 'examples/adopted-structure.md', 'examples/roadmap-reconciliation.md', 'examples/binding-contribution.md']) {
     put(assets, `docs/product/project-maintenance/${file}`, fs.readFileSync(path.resolve(import.meta.dir, '../docs/product/project-maintenance', file)));
   }
   fs.mkdirSync(path.join(assets, 'runtime/vnext/support/product-maintenance'), { recursive: true });
@@ -638,7 +638,7 @@ test('planning samples preserve no-plan prose, independent plan order, cross-sta
     expect(find(read, 'AS-BASE').metadata.implementation).toBe('partial-reported');
     expect(find(read, 'AS-BASE').metadata.verification).toBe('pass-reported');
     expect(find(read, 'AS-BASE').metadata.pending_sources).toHaveLength(1);
-    expect(read.diagnostics.filter((d: any) => !['DEFINITION_UNKNOWN', 'PENDING_SOURCES'].includes(d.code))).toEqual([]);
+    expect(read.diagnostics.filter((d: any) => !['DEFINITION_UNKNOWN', 'PENDING_SOURCES', 'BINDING_CONTRIBUTION_UNCLASSIFIED'].includes(d.code))).toEqual([]);
     expect(read.task_status).toContain('not-computed'); expect(read.task_operations).toBe('not-performed');
     expect(find(read, 'REQ-IMPORT').metadata.task_bindings[0].plan_items).toBeUndefined();
     expect(find(read, 'REQ-AUDIT').metadata.task_bindings).toBeUndefined();

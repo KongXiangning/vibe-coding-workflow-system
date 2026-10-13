@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T19:10:46.588Z",
+  "payload_sha256": "c04ae3768d859ab4c12b477cb3de635970e4a9c4bb0017fa2e1accaa1f22130e",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-agent-verify-parser-boundaries-20261013",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "host-agent-verify-parser-boundaries-20261013",
+      "plan": {
+        "title": "核验解析器三类输入行号",
+        "goal": "只验证现有 parseRecords 对空 id、空 value、多余列输入拒绝并给出正确物理行号；本轮仅准备采用，不执行业务验证。",
+        "scope": [
+          "src/parse.mjs 的现有纯解析函数",
+          "三类无效记录及物理行号验证方案"
+        ],
+        "exclusions": [
+          "修改现有解析实现",
+          "浏览器上传或交互预览",
+          "批次确认或持久化/历史查询",
+          "归档检索",
+          "字号切换",
+          "本轮执行测试或声称通过"
+        ],
+        "acceptance": [
+          "空 id 输入（id,value\\na,1\\n,2）应抛出 row 3",
+          "空 value 输入（id,value\\na,1\\nb,）应抛出 row 3",
+          "多余列输入（id,value\\na,1\\nb,2,extra）应抛出 row 3",
+          "准确区分计划、采用与实际未执行状态，保留现有两项测试的历史范围"
+        ],
+        "steps": [
+          {
+            "id": "S-VERIFY-INPUTS",
+            "title": "针对三类无效行分别断言行号",
+            "environment": [
+              "host-scenario 隔离 Node 环境；后续执行需另有授权"
+            ],
+            "validation": [
+              "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+              "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+      "parents": [
+        ".workflow-system/records/events/key-bae65d30634220016e6c809cfe572f548ae70083940ff60585cddc1b4fd06038.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-002"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "3fb97d30500f616d71e199c6691cc105c4ed49135f8f2e7647b4a76bf2ff4fab",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

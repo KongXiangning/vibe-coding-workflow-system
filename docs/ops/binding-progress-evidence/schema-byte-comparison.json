@@ -1,0 +1,37 @@
+[
+  {
+    "version": 1,
+    "path": "runtime/vnext/support/product-maintenance/schemas/product-doc-v1.json",
+    "current_sha256": "1d341ee1782e9b4c7c24eaf1b2af344a73445e5ac1356d488ff0915307d5cf4b",
+    "baseline_sha256": "1d341ee1782e9b4c7c24eaf1b2af344a73445e5ac1356d488ff0915307d5cf4b",
+    "same_bytes_as_baseline": true
+  },
+  {
+    "version": 2,
+    "path": "runtime/vnext/support/product-maintenance/schemas/product-doc-v2.json",
+    "current_sha256": "a628cc443f5bdc1495e8d8ae3e9c5c40e7e31eab2278e6bd1442fa31d58e40ce",
+    "baseline_sha256": "a628cc443f5bdc1495e8d8ae3e9c5c40e7e31eab2278e6bd1442fa31d58e40ce",
+    "same_bytes_as_baseline": true
+  },
+  {
+    "version": 3,
+    "path": "runtime/vnext/support/product-maintenance/schemas/product-doc-v3.json",
+    "current_sha256": "c08c9ffa781c2ffce8bf8889567aa8eff155b433376fd149454f8df5b15d405b",
+    "baseline_sha256": "c08c9ffa781c2ffce8bf8889567aa8eff155b433376fd149454f8df5b15d405b",
+    "same_bytes_as_baseline": true
+  },
+  {
+    "version": 4,
+    "path": "runtime/vnext/support/product-maintenance/schemas/product-doc-v4.json",
+    "current_sha256": "eca5e89455715bf25601c25d7599b75b743830ba1530d7e5a3027e283f582472",
+    "baseline_sha256": "eca5e89455715bf25601c25d7599b75b743830ba1530d7e5a3027e283f582472",
+    "same_bytes_as_baseline": true
+  },
+  {
+    "version": 5,
+    "path": "runtime/vnext/support/product-maintenance/schemas/product-doc-v5.json",
+    "current_sha256": "a3797f92ba11e1b678c78b77d82a37e8501bb26cf8794b038cdaecbe0a9f3561",
+    "baseline_sha256": null,
+    "same_bytes_as_baseline": false
+  }
+]

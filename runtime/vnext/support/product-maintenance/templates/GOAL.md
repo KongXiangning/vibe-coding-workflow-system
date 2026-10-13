@@ -1,5 +1,5 @@
 ---
-schema: vnext-product-doc/v2
+schema: vnext-product-doc/v5
 items:
   - type: goal
     id: GOAL-ID

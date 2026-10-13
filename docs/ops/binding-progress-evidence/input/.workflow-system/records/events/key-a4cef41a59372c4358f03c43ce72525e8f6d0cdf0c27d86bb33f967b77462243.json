@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T18:56:52.446Z",
+  "payload_sha256": "c75d2f03d900f06f1ee9036fb5e4f3a7df145c625bc9ddbc15a4224fcab5212e",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-parser-plan",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "host-parser-plan",
+      "plan": {
+        "title": "记录导入基础",
+        "goal": "提供纯函数解析器，接受固定 id,value 头和无引号逗号分隔行，保留每行 id/value；不完整行抛出行号。",
+        "scope": [
+          "src/parse.mjs",
+          "src/parse.test.mjs"
+        ],
+        "exclusions": [
+          "浏览器界面",
+          "上传文件",
+          "批次列表",
+          "权限控制",
+          "真实业务项目"
+        ],
+        "acceptance": [
+          "有效两行保留字段",
+          "缺失value报告行号"
+        ],
+        "steps": [
+          {
+            "id": "S-PARSE",
+            "title": "实现并测试纯函数",
+            "environment": [
+              "isolated Node"
+            ],
+            "validation": [
+              "node --test src/parse.test.mjs"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+      "parents": [],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-001"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "9fcb76bd356a002e5dcc888ac4eb9df5700f8c8511b0536f8e6d67b030de54b7",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

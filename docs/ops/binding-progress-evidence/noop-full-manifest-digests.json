@@ -1,0 +1,15 @@
+{
+  "note": "The full installed-software file manifests were independently checked in the execution workspace; only digests and the zero-change result are published to avoid a large irrelevant installed-file inventory.",
+  "manifests": {
+    "21-noop-before.files.json": {
+      "sha256": "3db720784a8f75bcf7db289efebb808d43c9af8d3b666ab1f6475be675f7a3cf",
+      "bytes": 91835,
+      "file_count": 422
+    },
+    "26-noop-after.files.json": {
+      "sha256": "3db720784a8f75bcf7db289efebb808d43c9af8d3b666ab1f6475be675f7a3cf",
+      "bytes": 91835,
+      "file_count": 422
+    }
+  }
+}

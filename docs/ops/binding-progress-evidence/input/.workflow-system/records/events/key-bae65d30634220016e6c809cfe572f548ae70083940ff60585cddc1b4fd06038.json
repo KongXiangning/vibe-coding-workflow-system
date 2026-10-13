@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-13T18:57:56.272Z",
+  "payload_sha256": "08856b72f7e90d65580b1ab27e1ae9c1b89a4f86fbba7f7d0a675ddfd7e64c02",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:host-parser-close",
+    "request": {
+      "action": "close",
+      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+      "remaining_work": [],
+      "gaps": [
+        "仅是隔离解析器验证，没有UI或真实业务验收，没有独立代码审查。"
+      ],
+      "decision_source": "本次隔离验收设计（协调Agent）",
+      "decision_text": "关闭已执行的隔离解析器任务，保留其范围和验证局限。",
+      "idempotency_key": "host-parser-close"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+      "parents": [
+        ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json"
+      ],
+      "data": {
+        "remaining_work": [],
+        "gaps": [
+          "仅是隔离解析器验证，没有UI或真实业务验收，没有独立代码审查。"
+        ],
+        "decision_source": "本次隔离验收设计（协调Agent）",
+        "decision_text": "关闭已执行的隔离解析器任务，保留其范围和验证局限。"
+      }
+    }
+  },
+  "issues": []
+}

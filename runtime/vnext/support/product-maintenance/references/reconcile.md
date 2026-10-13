@@ -92,6 +92,51 @@ only affected assessments/pending sources and arrangements when actual results a
 no full product retest is required merely to write a progress summary. At task end,
 use plan.md for the business next item separately from workflow routing/continuation.
 
+## Rejudge existing requirements and historical bindings
+
+Use this entry for natural-language requests to reassess an ongoing project's
+requirements, old Tasks, relations and achievements; no new Skill, required mode
+or configuration is needed. Read binding-contribution.md for the sole contribution
+method and disposition matrix. This is broader than filling missing enums, but
+its writes stay within the actual request:
+
+1. Locate the working copy, stable requirements and current Task/parent continuation.
+   Protect existing edits/frozen targets and state the requested local or full scope.
+2. Read current definitions and acceptance, important historical changes, Task adopted
+   scopes/steps, existing binding reasons and actual results/reports. Use stable
+   references to find candidates; titles only help discovery.
+3. Compare concrete obligations, Tasks/code/source material, existing relations and
+   reports in one scoped account. Keep current versus historical intent and unread
+   material explicit. Full-range requests proceed in recoverable batches, not one
+   sample declared complete.
+4. Apply the shared method to confirm direct/supporting, correct the original ID,
+   dismiss a disproven relation, add a proven omission or preserve old unknowns.
+   Keep history and rejection protection; no speculative new formal bindings.
+5. Independently evaluate delivery only when that phase is requested/already authorized,
+   using current goal scope, subject and applicable evidence. Existing implementation
+   without a historical Task can be assessed without creating one or a binding.
+6. Save authorized local changes with read digests and reread each result. Binding,
+   Assessment and definition writes are separate; retain successes, retry only failures.
+   Do not call Task prepare/adopt/close/resume/focus/supersede for rejudgment alone.
+7. Use plan.md only when the discovered actual remaining scope changes an authorized
+   arrangement. Binding-only correction does not require Roadmap review or advancement.
+8. Return requested/read scope, relation dispositions, independently confirmed delivery,
+   gaps, unknowns and unsaved/deferred parts. Keep the real Task focus/continuation.
+
+Analysis-only writes nothing. Binding correction does not authorize changing acceptance
+or Assessment; a request to update delivery does not erase old failed results. Do not
+reshape a requirement to match current code, copy old PASS to expanded scope, reconstruct
+Task identities from display numbers or use today's review time as old completion time.
+Do not force new full tests merely to retain applicable existing achievements.
+
+After actual closure or new debug/validation material, use the same method only for
+relations whose coverage/classification is materially affected, preserving original
+results. A new failure with unchanged requirement definition still needs scoped
+pending_sources/Assessment handling; a supporting Task's closure never promotes its
+owner to started/delivered. Read-only review returns exact pending owner/binding/source
+locators. Neither local rejudgment nor deferred maintenance can replace parent return,
+reopen old work or gate authorized development, Git, closure or stopping.
+
 ## Local assessment after task closure
 
 When a child requirement changes or produces evidence, read its actual current

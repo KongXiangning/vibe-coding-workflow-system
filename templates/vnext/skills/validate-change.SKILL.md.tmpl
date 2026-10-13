@@ -104,7 +104,11 @@ with actual input scope and checked subject. A read-only validation/review never
 secretly writes business documents. If the user's combined request includes a
 maintenance write phase, use maintain-project references/reconcile.md afterwards;
 preserve original PASS/failure and distinguish historical truth from current
-applicability. Missing/failed maintenance does not deny validation or stopping.
+applicability. For affected Task relationships use references/binding-contribution.md:
+direct verification is a verification activity, not new implementation or automatic
+satisfaction. Include proposed owner/binding/coverage/source locators in a read-only
+result; only an authorized maintenance phase saves classification. Missing/failed
+maintenance does not deny validation or stopping.
 
 Return the actual requested result, affected scope, evidence/record references,
 remaining work and any unsaved/unreconciled data. Preserve existing user decisions

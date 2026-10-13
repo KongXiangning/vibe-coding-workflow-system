@@ -9,6 +9,12 @@ export function buildProductAssets(root: string): void {
   const support = path.join(root, 'runtime/vnext/support/product-maintenance');
   const write = (relative: string, content: string) => { const file = path.join(support, relative); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content); };
   fs.copyFileSync(path.join(root, 'docs/product/project-maintenance/document-contract.md'), path.join(support, 'contract.md'));
+  // C0 producer/consumer fixture, explicitly synthetic rather than host evidence.
+  const contribution = fs.readFileSync(path.join(root, 'docs/product/project-maintenance/examples/binding-contribution.md'), 'utf8');
+  write('examples/binding-contribution/README.md', contribution);
+  for (const block of contribution.matchAll(/`([^`\r\n]+)`：\r?\n\r?\n```(?:yaml|markdown)\r?\n([\s\S]*?)\r?\n```/g)) {
+    if (['.workflow-system/PRODUCT.yaml', 'docs/product/PROJECT.md', 'docs/product/REQUIREMENTS.md'].includes(block[1]!)) write(`examples/binding-contribution/${block[1]}`, `${block[2]}\n`);
+  }
   // VN-03 schema handoff fixture; no TraceLens or distribution installation.
   const scoped = fs.readFileSync(path.join(root, 'docs/product/project-maintenance/examples/scoped-contract.md'), 'utf8');
   const scopedBlocks = [...scoped.matchAll(/`([^`\r\n]+)`：\r?\n\r?\n```(?:yaml|markdown)\r?\n([\s\S]*?)\r?\n```/g)];
@@ -26,7 +32,7 @@ export function buildProductAssets(root: string): void {
   };
   for (const [type, metadata] of Object.entries(fields)) {
     const filename = type === 'project' ? 'PROJECT' : type === 'requirement' ? 'REQUIREMENTS' : type.toUpperCase();
-    write(`templates/${filename}.md`, newDocument([{ metadata: { type, ...metadata }, body: `## [${metadata.id}] 待填写的${type}\n${sectionsByType[type]!.map(name => `### ${name}\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。`).join('\n')}\n` }], '格式模板（不是事实）'));
+    write(`templates/${filename}.md`, newDocument([{ metadata: { type, ...metadata }, body: `## [${metadata.id}] 待填写的${type}\n${sectionsByType[type]!.map(name => `### ${name}\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。`).join('\n')}\n` }], '格式模板（不是事实）', ['goal', 'requirement'].includes(type) ? 5 : 2));
   }
   write('templates/IMPLEMENTATION_ROADMAP.md', newDocument([{ metadata: { type: 'plan', ...fields.plan },
     body: `## [PLAN-ID] 项目实施路线图\n${sectionsByType.plan!.map(name => `### ${name}\n模板不是已采用安排；核对实际需求与交付后填写。`).join('\n')}\n` }], '项目实施路线图模板（不是事实）', 4));

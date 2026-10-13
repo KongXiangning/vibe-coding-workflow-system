@@ -1,4 +1,4 @@
-import { type Catalog, type Item, type ObjectValue } from './model';
+import { ROADMAP_DOCUMENT_VERSIONS, type Catalog, type Item, type ObjectValue } from './model';
 import { definitionAlgorithm, requirementDigest, sha256 } from './parser';
 import { productView } from './scoped';
 import { readSource } from './references';
@@ -112,7 +112,7 @@ export function reconcileRoadmap(catalog: Catalog, query: ObjectValue): ObjectVa
   result.unarranged_requirements = current.member_ids.filter((id: string) => !plan.metadata.work_items.some((w: any) => w.state !== 'withdrawn' && w.targets.some((t: any) => t.target === id)));
   result.snapshot_proposal = { project_id: catalog.manifest?.project_id, selector, member_ids: current.member_ids, definitions: current.definitions, context: current.context, arrangement };
   result.proposal_assurance = 'not-reviewed; supply actual checked_at, working_copy, sources, unread_sources and exceptions only after semantic review';
-  if (plan.version !== 4) reasons.push('format-without-baseline');
+  if (!plan.version || !ROADMAP_DOCUMENT_VERSIONS.includes(plan.version)) reasons.push('format-without-baseline');
   if (!baseline) reasons.push('baseline-missing');
   else {
     if (!same(selector, baseline.selector)) reasons.push('selector-differs');

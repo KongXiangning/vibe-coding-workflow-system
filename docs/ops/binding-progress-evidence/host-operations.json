@@ -1,0 +1,3987 @@
+[
+  {
+    "name": "07-installed-product-read",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/product-maintenance.js",
+        "read",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/07-installed-product-read.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.28082942962646484
+    },
+    "request": {
+      "detail": "items",
+      "resolve_sources": true
+    },
+    "response": {
+      "kind": "product-maintenance-result/v1",
+      "action": "read",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "task_operations": "not-performed",
+      "status": "available",
+      "project_id": "binding-progress-isolated-host",
+      "working_copy": {
+        "root": "/workspace/shared/binding-progress-20261014/host-scenario",
+        "identity": "/workspace/shared/binding-progress-20261014/host-scenario"
+      },
+      "read_at": "2026-10-13T19:10:04.398Z",
+      "manifest": {
+        "schema": "vnext-product-manifest/v2",
+        "project_id": "binding-progress-isolated-host",
+        "entry": "docs/product/PROJECT.md",
+        "managed_paths": [
+          "docs/product/*.md"
+        ],
+        "source_paths": [
+          "docs/evidence/**",
+          "src/**",
+          ".workflow-system/records/**",
+          "docs/product/history/**"
+        ],
+        "capture_paths": [],
+        "exclude_paths": [],
+        "maintenance": "enabled"
+      },
+      "manifest_path": ".workflow-system/PRODUCT.yaml",
+      "manifest_sha256": "bc99eda5152f7493373004076b2f7c55fce344d2d63a12ba978237493ff9a48d",
+      "documents": [
+        {
+          "path": "docs/product/ARCHIVE.md",
+          "sha256": "cc9b9975dbe534dce0c53113b8dfe940cade3dedbe3b9ef392d251defc1891ba",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/ARCHIVE.md"
+          }
+        },
+        {
+          "path": "docs/product/BATCH.md",
+          "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+          "schema": "vnext-product-doc/v5",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/BATCH.md"
+          }
+        },
+        {
+          "path": "docs/product/GOAL.md",
+          "sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/GOAL.md"
+          }
+        },
+        {
+          "path": "docs/product/PARSE.md",
+          "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/PARSE.md"
+          }
+        },
+        {
+          "path": "docs/product/PROJECT.md",
+          "sha256": "9e90a53fefbe6a22608c181f1f45f8d1299ef52aa4cad0870b8023bc05794205",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/PROJECT.md"
+          }
+        },
+        {
+          "path": "docs/product/TYPEFACE.md",
+          "sha256": "5c965e99dcfe2eda3e26b97fe963c328a3a21a243108b0d59393a5d854e606bf",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/TYPEFACE.md"
+          }
+        }
+      ],
+      "usable_items": [
+        {
+          "id": "REQ-ARCHIVE",
+          "type": "requirement",
+          "title": "历史归档检索",
+          "path": "docs/product/ARCHIVE.md",
+          "line": 30,
+          "metadata": {
+            "id": "REQ-ARCHIVE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-UNRESOLVED",
+                "task": {
+                  "task_id": null,
+                  "source": {
+                    "kind": "file",
+                    "path": "docs/evidence/archive-note.md"
+                  }
+                },
+                "role": "implementation",
+                "coverage": "归档相关",
+                "origin": "declared",
+                "state": "active"
+              }
+            ]
+          },
+          "definition_sha256": "35eecadf4247fdfdb36c7edd2c10bf34594e2de455f44ec5a43be134929e8a24",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-ARCHIVE] 历史归档检索\n### 需求内容\n用户按批次日期检索归档，保持原始批次记录。\n### 范围边界\n历史材料只有一句“做过归档”，没有可恢复任务身份或验收。\n### 验收要求\n日期过滤返回匹配批次且记录原文不变。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/ARCHIVE.md",
+            "item_id": "REQ-ARCHIVE"
+          }
+        },
+        {
+          "id": "REQ-BATCH",
+          "type": "requirement",
+          "title": "交互式批量导入",
+          "path": "docs/product/BATCH.md",
+          "line": 44,
+          "metadata": {
+            "id": "REQ-BATCH",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-OLD-BATCH",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "记录工具的数据输入基础",
+                "origin": "declared",
+                "state": "active",
+                "reason": "早期盘点把解析器与记录输入功能关联。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/parser-test.txt"
+                  }
+                ],
+                "contribution": "direct"
+              }
+            ]
+          },
+          "definition_sha256": "02b5ff0fb3dc44c15fd0190fc3fc156af42a4b0d8fcacb00b9e5cddc37358452",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-BATCH] 交互式批量导入\n### 需求内容\n用户在浏览器选择文本文件、预览各行错误并确认导入；确认后可在批次历史查看成功/失败数量。\n### 范围边界\n解析函数可作为组件，但单独解析不提供上传、预览、确认或历史查询体验。\n### 验收要求\n在浏览器完成上传、纠错预览、确认及历史回看；未确认不得写入批次。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/BATCH.md",
+            "item_id": "REQ-BATCH"
+          }
+        },
+        {
+          "id": "GOAL-RECORDS",
+          "type": "goal",
+          "title": "可检查的记录输入",
+          "path": "docs/product/GOAL.md",
+          "line": 21,
+          "metadata": {
+            "id": "GOAL-RECORDS",
+            "type": "goal",
+            "scope": "current",
+            "goal_kind": "outcome",
+            "assessment_scopes": [
+              {
+                "target": "REQ-PARSE",
+                "scope_id": "PARSE-BASE",
+                "coverage": "固定无引号两列文本解析与错误行号"
+              }
+            ]
+          },
+          "definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [GOAL-RECORDS] 可检查的记录输入\n### 目标说明\n保留可复查的输入并让用户了解错误。\n### 范围边界\n解析能力与交互交付分别核验。\n\n### 成功标准\n解析行为符合选定验收范围，交互能力单独评估。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/GOAL.md",
+            "item_id": "GOAL-RECORDS"
+          }
+        },
+        {
+          "id": "REQ-PARSE",
+          "type": "requirement",
+          "title": "固定格式文本解析",
+          "path": "docs/product/PARSE.md",
+          "line": 43,
+          "metadata": {
+            "id": "REQ-PARSE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-OLD-PARSER",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "记录工具的数据输入基础",
+                "origin": "declared",
+                "state": "active",
+                "reason": "早期盘点把解析器与记录输入功能关联。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/parser-test.txt"
+                  }
+                ]
+              }
+            ]
+          },
+          "definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-PARSE] 固定格式文本解析\n### 需求内容\n接受头为id,value的无引号文本；输出逐行id/value数组；缺失字段指出行号。\n### 范围边界\n不要求浏览器上传、网络传输或批次历史。\n### 验收要求\n两个合法记录保留值；缺失value的第二行明确报row 2。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/PARSE.md",
+            "item_id": "REQ-PARSE"
+          }
+        },
+        {
+          "id": "PROJECT-RECORDS",
+          "type": "project",
+          "title": "隔离记录工具",
+          "path": "docs/product/PROJECT.md",
+          "line": 37,
+          "metadata": {
+            "id": "PROJECT-RECORDS",
+            "type": "project",
+            "root_goal_id": "GOAL-RECORDS",
+            "requirement_order": [
+              "REQ-PARSE",
+              "REQ-BATCH",
+              "REQ-TYPEFACE",
+              "REQ-ARCHIVE"
+            ],
+            "inventory": {
+              "state": "partial",
+              "checked_sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/parser-test.txt"
+                }
+              ],
+              "unreviewed_sources": [
+                {
+                  "kind": "text",
+                  "label": "局限",
+                  "text": "合成验收项目，不对应任何真实用户项目。"
+                }
+              ]
+            }
+          },
+          "definition_sha256": null,
+          "definition_algorithm": null,
+          "body": "## [PROJECT-RECORDS] 隔离记录工具\n### 项目定位\n验证解析基础与交互批次功能的区分。\n### 盘点范围与未核对项\n只含本目录材料，尚无浏览器交互实现。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/PROJECT.md",
+            "item_id": "PROJECT-RECORDS"
+          }
+        },
+        {
+          "id": "REQ-TYPEFACE",
+          "type": "requirement",
+          "title": "导入页字号",
+          "path": "docs/product/TYPEFACE.md",
+          "line": 39,
+          "metadata": {
+            "id": "REQ-TYPEFACE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-DISMISSED-FONT",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "导入页字号切换",
+                "origin": "declared",
+                "state": "dismissed",
+                "reason": "解析函数没有任何浏览器字号或偏好存储代码，旧标题相似不足以成立关系。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/font-decision.md"
+                  }
+                ]
+              }
+            ]
+          },
+          "definition_sha256": "3e6e908860766c4549be4ed1d0130035a2f7eb9de57539d79d96cfa0a7804e9a",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-TYPEFACE] 导入页字号\n### 需求内容\n提供导入页字号切换，支持14px和18px，并在重载后保持选择。\n### 范围边界\n只涉及可见文字样式；不改变文本解析格式。\n### 验收要求\n切换两种字号后截图核对；重载保留选择。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/TYPEFACE.md",
+            "item_id": "REQ-TYPEFACE"
+          }
+        }
+      ],
+      "unusable_items": [],
+      "product_view": {
+        "project_id": "PROJECT-RECORDS",
+        "root_goal": {
+          "status": "resolved",
+          "id": "GOAL-RECORDS"
+        },
+        "requirement_order": [
+          "REQ-PARSE",
+          "REQ-BATCH",
+          "REQ-TYPEFACE",
+          "REQ-ARCHIVE"
+        ],
+        "unordered_requirements": [],
+        "current_relations": [],
+        "diagnostics": []
+      },
+      "assessment_selection": null,
+      "roadmap_reconciliation": null,
+      "reverse_relations": [],
+      "plan_tasks": [],
+      "discussions": [],
+      "impact": null,
+      "sources": [
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/archive-note.md"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "ff87bbacf29986221a9bbc2c12e8a2db304a7a06009de0e44ffcaf65db2218f8",
+          "size": 91,
+          "file_size": 91,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684",
+          "size": 1893,
+          "file_size": 1893,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/parser-test.txt"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6",
+          "size": 217,
+          "file_size": 217,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "text",
+            "label": "局限",
+            "text": "合成验收项目，不对应任何真实用户项目。"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "label": "局限",
+          "note": "Text basis is not authenticated as verbatim user speech"
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/font-decision.md"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "98a432f2515c735a736b1bb4b383a4cc095799b4ce42c4def37f61a4d5d9e507",
+          "size": 280,
+          "file_size": 280,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "TASK_ID_UNCONFIRMED",
+          "path": "docs/product/ARCHIVE.md",
+          "message": "B-UNRESOLVED: historical task identity is unconfirmed; use its exact source",
+          "severity": "warning",
+          "item_id": "REQ-ARCHIVE",
+          "line": 30
+        },
+        {
+          "code": "BINDING_CONTRIBUTION_UNCLASSIFIED",
+          "path": "docs/product/ARCHIVE.md",
+          "message": "B-UNRESOLVED: legacy contribution is unclassified; do not infer direct work from role or task state",
+          "severity": "warning",
+          "item_id": "REQ-ARCHIVE",
+          "line": 30
+        },
+        {
+          "code": "BINDING_CONTRIBUTION_UNCLASSIFIED",
+          "path": "docs/product/PARSE.md",
+          "message": "B-OLD-PARSER: legacy contribution is unclassified; do not infer direct work from role or task state",
+          "severity": "warning",
+          "item_id": "REQ-PARSE",
+          "line": 43
+        }
+      ],
+      "coverage": {
+        "complete": true,
+        "files_read": 6,
+        "bytes_read": 7260,
+        "enumeration": "managed_paths only; sources are read only by explicit reference",
+        "omitted": [],
+        "paths": [
+          "docs/product/*.md"
+        ],
+        "excluded_paths": [],
+        "max_files": 1000,
+        "max_file_bytes": 4194304,
+        "max_total_bytes": 33554432,
+        "usable_count": 6,
+        "invalid_count": 0,
+        "selection": "all-enumerated-items",
+        "source_bodies": "byte status only; fetch selected source explicitly"
+      },
+      "task_status": "not-computed; use existing assistance only when actual task state is needed"
+    }
+  },
+  {
+    "name": "10-prepare-verification",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/assistance.mjs",
+        "task",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/10-prepare-verification.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.11144399642944336
+    },
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "host-agent-verify-parser-boundaries-20261013",
+      "plan": {
+        "title": "核验解析器三类输入行号",
+        "goal": "只验证现有 parseRecords 对空 id、空 value、多余列输入拒绝并给出正确物理行号；本轮仅准备采用，不执行业务验证。",
+        "scope": [
+          "src/parse.mjs 的现有纯解析函数",
+          "三类无效记录及物理行号验证方案"
+        ],
+        "exclusions": [
+          "修改现有解析实现",
+          "浏览器上传或交互预览",
+          "批次确认或持久化/历史查询",
+          "归档检索",
+          "字号切换",
+          "本轮执行测试或声称通过"
+        ],
+        "acceptance": [
+          "空 id 输入（id,value\\na,1\\n,2）应抛出 row 3",
+          "空 value 输入（id,value\\na,1\\nb,）应抛出 row 3",
+          "多余列输入（id,value\\na,1\\nb,2,extra）应抛出 row 3",
+          "准确区分计划、采用与实际未执行状态，保留现有两项测试的历史范围"
+        ],
+        "steps": [
+          {
+            "id": "S-VERIFY-INPUTS",
+            "title": "针对三类无效行分别断言行号",
+            "environment": [
+              "host-scenario 隔离 Node 环境；后续执行需另有授权"
+            ],
+            "validation": [
+              "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+              "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+            ]
+          }
+        ]
+      }
+    },
+    "response": {
+      "runtime_role": "assistance",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "status": "applied",
+      "recorded": true,
+      "ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+      "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+      "task": {
+        "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+        "display_id": "TASK-002",
+        "title": "核验解析器三类输入行号",
+        "lifecycle": "draft",
+        "lifecycle_ref": null,
+        "adopted_plan_ref": null,
+        "plan_status": "candidate",
+        "plan": null,
+        "plans": [
+          {
+            "title": "核验解析器三类输入行号",
+            "goal": "只验证现有 parseRecords 对空 id、空 value、多余列输入拒绝并给出正确物理行号；本轮仅准备采用，不执行业务验证。",
+            "scope": [
+              "src/parse.mjs 的现有纯解析函数",
+              "三类无效记录及物理行号验证方案"
+            ],
+            "exclusions": [
+              "修改现有解析实现",
+              "浏览器上传或交互预览",
+              "批次确认或持久化/历史查询",
+              "归档检索",
+              "字号切换",
+              "本轮执行测试或声称通过"
+            ],
+            "acceptance": [
+              "空 id 输入（id,value\\na,1\\n,2）应抛出 row 3",
+              "空 value 输入（id,value\\na,1\\nb,）应抛出 row 3",
+              "多余列输入（id,value\\na,1\\nb,2,extra）应抛出 row 3",
+              "准确区分计划、采用与实际未执行状态，保留现有两项测试的历史范围"
+            ],
+            "steps": [
+              {
+                "id": "S-VERIFY-INPUTS",
+                "title": "针对三类无效行分别断言行号",
+                "environment": [
+                  "host-scenario 隔离 Node 环境；后续执行需另有授权"
+                ],
+                "validation": [
+                  "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+                  "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+                ]
+              }
+            ],
+            "ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+            "parent_plan_ref": null
+          }
+        ],
+        "adopted_by": null,
+        "adoption": null,
+        "candidate_plan_refs": [
+          ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json"
+        ],
+        "current_step_id": null,
+        "steps": [],
+        "reviews": [],
+        "executions": [],
+        "tests": [],
+        "review_decisions": [],
+        "commits": [],
+        "dispositions": [],
+        "next_route": "review-draft",
+        "next_mode": null,
+        "next_action": null,
+        "recommendation_only": true,
+        "origin": null,
+        "dependency": {
+          "state": "not-applicable",
+          "ref": null
+        },
+        "return_entry": null,
+        "return_result": null,
+        "dependencies": [],
+        "waiting_on_task_ids": [],
+        "continuation": null,
+        "legacy_source": null,
+        "legacy_plan_ref": null,
+        "legacy_plan": null,
+        "heads": [
+          ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json"
+        ]
+      },
+      "association": "applied",
+      "projection": {
+        "status": "updated",
+        "cache_ref": ".workflow-system/records/task-view.json",
+        "display": "updated",
+        "display_ref": "docs/workflow/CURRENT_TASK.md"
+      },
+      "current_task_id": null,
+      "next_task_id": null,
+      "next_step_id": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "return_result": null,
+      "issues": [],
+      "recovery_options": [
+        "rebuild",
+        "link",
+        "correct",
+        "resolve",
+        "defer",
+        "pause",
+        "close"
+      ]
+    }
+  },
+  {
+    "name": "12-adopt-verification",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/assistance.mjs",
+        "task",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/12-adopt-verification.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.10229349136352539
+    },
+    "request": {
+      "action": "adopt",
+      "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+      "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+      "focus": false,
+      "decision_source": "docs/evidence/request-new-verification.md；本轮隔离宿主行为验收 assignment",
+      "decision_text": "按隔离请求准备并实际采用只核验现有纯解析函数空id、空value、多余列错误行号的任务；本轮不执行测试，不改变旧Task的生命周期或焦点。该决定来自合成验收授权，不是真实用户业务采用。",
+      "idempotency_key": "host-agent-adopt-parser-boundaries-20261013"
+    },
+    "response": {
+      "runtime_role": "assistance",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "status": "applied",
+      "recorded": true,
+      "ref": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+      "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+      "task": {
+        "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+        "display_id": "TASK-002",
+        "title": "核验解析器三类输入行号",
+        "lifecycle": "active",
+        "lifecycle_ref": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+        "adopted_plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+        "plan_status": "adopted",
+        "plan": {
+          "title": "核验解析器三类输入行号",
+          "goal": "只验证现有 parseRecords 对空 id、空 value、多余列输入拒绝并给出正确物理行号；本轮仅准备采用，不执行业务验证。",
+          "scope": [
+            "src/parse.mjs 的现有纯解析函数",
+            "三类无效记录及物理行号验证方案"
+          ],
+          "exclusions": [
+            "修改现有解析实现",
+            "浏览器上传或交互预览",
+            "批次确认或持久化/历史查询",
+            "归档检索",
+            "字号切换",
+            "本轮执行测试或声称通过"
+          ],
+          "acceptance": [
+            "空 id 输入（id,value\\na,1\\n,2）应抛出 row 3",
+            "空 value 输入（id,value\\na,1\\nb,）应抛出 row 3",
+            "多余列输入（id,value\\na,1\\nb,2,extra）应抛出 row 3",
+            "准确区分计划、采用与实际未执行状态，保留现有两项测试的历史范围"
+          ],
+          "steps": [
+            {
+              "id": "S-VERIFY-INPUTS",
+              "title": "针对三类无效行分别断言行号",
+              "environment": [
+                "host-scenario 隔离 Node 环境；后续执行需另有授权"
+              ],
+              "validation": [
+                "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+                "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+              ]
+            }
+          ],
+          "ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+          "parent_plan_ref": null
+        },
+        "plans": [
+          {
+            "title": "核验解析器三类输入行号",
+            "goal": "只验证现有 parseRecords 对空 id、空 value、多余列输入拒绝并给出正确物理行号；本轮仅准备采用，不执行业务验证。",
+            "scope": [
+              "src/parse.mjs 的现有纯解析函数",
+              "三类无效记录及物理行号验证方案"
+            ],
+            "exclusions": [
+              "修改现有解析实现",
+              "浏览器上传或交互预览",
+              "批次确认或持久化/历史查询",
+              "归档检索",
+              "字号切换",
+              "本轮执行测试或声称通过"
+            ],
+            "acceptance": [
+              "空 id 输入（id,value\\na,1\\n,2）应抛出 row 3",
+              "空 value 输入（id,value\\na,1\\nb,）应抛出 row 3",
+              "多余列输入（id,value\\na,1\\nb,2,extra）应抛出 row 3",
+              "准确区分计划、采用与实际未执行状态，保留现有两项测试的历史范围"
+            ],
+            "steps": [
+              {
+                "id": "S-VERIFY-INPUTS",
+                "title": "针对三类无效行分别断言行号",
+                "environment": [
+                  "host-scenario 隔离 Node 环境；后续执行需另有授权"
+                ],
+                "validation": [
+                  "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+                  "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+                ]
+              }
+            ],
+            "ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+            "parent_plan_ref": null
+          }
+        ],
+        "adopted_by": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+        "adoption": {
+          "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+          "focus": false,
+          "decision_source": "docs/evidence/request-new-verification.md；本轮隔离宿主行为验收 assignment",
+          "decision_text": "按隔离请求准备并实际采用只核验现有纯解析函数空id、空value、多余列错误行号的任务；本轮不执行测试，不改变旧Task的生命周期或焦点。该决定来自合成验收授权，不是真实用户业务采用。",
+          "activate": true,
+          "ref": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json"
+        },
+        "candidate_plan_refs": [],
+        "current_step_id": "S-VERIFY-INPUTS",
+        "steps": [
+          {
+            "id": "S-VERIFY-INPUTS",
+            "title": "针对三类无效行分别断言行号",
+            "environment": [
+              "host-scenario 隔离 Node 环境；后续执行需另有授权"
+            ],
+            "validation": [
+              "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+              "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+            ],
+            "state": "not-started",
+            "legacy_step_status": null,
+            "execution_ref": null,
+            "execution": null,
+            "review_ref": null,
+            "review_status": "not-reviewed",
+            "findings": [],
+            "review_choice": null,
+            "review_decision_ref": null,
+            "review_decisions": [],
+            "tests": [],
+            "disposition_ref": null,
+            "historical_execution_refs": []
+          }
+        ],
+        "reviews": [],
+        "executions": [],
+        "tests": [],
+        "review_decisions": [],
+        "commits": [],
+        "dispositions": [],
+        "next_route": "execute-step",
+        "next_mode": null,
+        "next_action": "implement-step",
+        "recommendation_only": true,
+        "origin": null,
+        "dependency": {
+          "state": "not-applicable",
+          "ref": null
+        },
+        "return_entry": null,
+        "return_result": null,
+        "dependencies": [],
+        "waiting_on_task_ids": [],
+        "continuation": null,
+        "legacy_source": null,
+        "legacy_plan_ref": null,
+        "legacy_plan": null,
+        "heads": [
+          ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json"
+        ]
+      },
+      "association": "applied",
+      "projection": {
+        "status": "updated",
+        "cache_ref": ".workflow-system/records/task-view.json",
+        "display": "updated",
+        "display_ref": "docs/workflow/CURRENT_TASK.md"
+      },
+      "current_task_id": null,
+      "next_task_id": null,
+      "next_step_id": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "return_result": null,
+      "issues": [],
+      "recovery_options": [
+        "rebuild",
+        "link",
+        "correct",
+        "resolve",
+        "defer",
+        "pause",
+        "close"
+      ]
+    }
+  },
+  {
+    "name": "15-partial-save",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/product-maintenance.js",
+        "apply",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/15-partial-save.request.json",
+      "exit_code": 1,
+      "duration_seconds": 0.14467263221740723
+    },
+    "request": {
+      "expected_manifest_sha256": "6fc14b7adad7c585a169f6fb96c785bc95cfba4d583ac6e38de0e3d3ac87205c",
+      "files": [
+        {
+          "path": "docs/product/PARSE.md",
+          "expected_sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+          "migrate": "v5",
+          "preimage_path": "docs/product/history/REQ-PARSE.before-contribution.md",
+          "updates": [
+            {
+              "id": "REQ-PARSE",
+              "metadata": {
+                "task_bindings": [
+                  {
+                    "id": "B-OLD-PARSER",
+                    "task": {
+                      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                      "source": {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                      },
+                      "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                      "step_id": "S-PARSE"
+                    },
+                    "role": "implementation",
+                    "coverage": "固定 id,value 头的无引号两列纯函数解析，逐行输出 id/value；已有两条合法记录保值及第二行缺 value 报 row 2 的验收证据。",
+                    "origin": "declared",
+                    "state": "active",
+                    "reason": "需求明确要求纯文本解析与缺失字段行号，旧Task采用的src/parse.mjs及S-PARSE实际实现直接履行这些义务；不含浏览器上传、网络传输、批次历史，也不将新三类验证视为已执行。",
+                    "sources": [
+                      {
+                        "kind": "file",
+                        "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+                        "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+                        "item_id": "REQ-PARSE"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                        "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.mjs",
+                        "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.test.mjs",
+                        "sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "docs/evidence/parser-test.txt",
+                        "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+                        "sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835"
+                      }
+                    ],
+                    "contribution": "direct"
+                  },
+                  {
+                    "id": "B-VERIFY-PARSER-INPUTS",
+                    "task": {
+                      "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+                      "source": {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                        "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+                      },
+                      "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                      "step_id": "S-VERIFY-INPUTS"
+                    },
+                    "role": "verification",
+                    "contribution": "direct",
+                    "coverage": "已采用核验空 id、空 value、多余列输入错误行号的纯解析验证范围；单步尚未开始，没有此次三类输入执行/通过证据。",
+                    "origin": "declared",
+                    "state": "active",
+                    "reason": "REQ-PARSE要求固定两列解析及缺失字段行号；实际采用计划直接针对这些格式和行号行为进行验证，属于直接验证而非编码交付。只保存该需求关联，不把潜在下游受益扩展成字号、归档或完整批次交付。",
+                    "sources": [
+                      {
+                        "kind": "file",
+                        "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+                        "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+                        "item_id": "REQ-PARSE"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "docs/evidence/request-new-verification.md",
+                        "sha256": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                        "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+                        "sha256": "f0fda2d71dd3fee4d0336fe166f779e26a6412889a5b1d9ac79986ecb41d110b"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.mjs",
+                        "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "path": "docs/product/BATCH.md",
+          "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "preimage_path": "docs/product/history/REQ-BATCH.before-contribution.md",
+          "updates": [
+            {
+              "id": "REQ-BATCH",
+              "metadata": {
+                "task_bindings": [
+                  {
+                    "id": "B-OLD-BATCH",
+                    "task": {
+                      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                      "source": {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                      },
+                      "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                      "step_id": "S-PARSE"
+                    },
+                    "role": "implementation",
+                    "coverage": "提供无引号两列文本解析和错误行号，供批量导入的后续行检查/错误呈现使用；不履行浏览器选文件、预览、确认、未确认不写入和批次历史查询义务。",
+                    "origin": "declared",
+                    "state": "active",
+                    "reason": "REQ-BATCH原文只把解析函数列为可用组件，旧Task采用范围明确排除浏览器、上传和批次列表。已有解析实现是明确支撑机制，不是交互导入义务的直接完成；因此纠正原direct为supporting，保留原ID、旧理由与来源快照。没有现成depends_on能替代此独立支撑说明。",
+                    "sources": [
+                      {
+                        "kind": "file",
+                        "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+                        "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+                        "item_id": "REQ-BATCH"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                        "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.mjs",
+                        "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "docs/evidence/parser-test.txt",
+                        "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                      }
+                    ],
+                    "contribution": "supporting"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "kind": "product-maintenance-result/v1",
+      "action": "apply",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "task_operations": "not-performed",
+      "status": "partial",
+      "files": [
+        {
+          "path": "docs/product/PARSE.md",
+          "status": "saved",
+          "saved": true,
+          "changed": true,
+          "sha256": "493506a2efe003666738ee2ddb48312b945ff3f4e9b80b540fefd2ac2975ca81",
+          "preimage": {
+            "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+            "source": {
+              "kind": "file",
+              "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+              "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4"
+            }
+          },
+          "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+          "affected_items": [
+            "REQ-PARSE"
+          ],
+          "diagnostics": [],
+          "baseline_readback": []
+        },
+        {
+          "path": "docs/product/BATCH.md",
+          "status": "failed",
+          "saved": false,
+          "error": "WRITE_CONFLICT: current bytes differ from the read version; no overwrite"
+        }
+      ],
+      "requirement_order_update": {
+        "status": "unchanged",
+        "saved": true
+      },
+      "association": "not-evaluated",
+      "reconciliation": "not-evaluated",
+      "transaction": "per-file; no cross-file atomicity"
+    }
+  },
+  {
+    "name": "17-retry-only-batch",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/product-maintenance.js",
+        "apply",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/17-retry-only-batch.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.2250351905822754
+    },
+    "request": {
+      "expected_manifest_sha256": "6fc14b7adad7c585a169f6fb96c785bc95cfba4d583ac6e38de0e3d3ac87205c",
+      "files": [
+        {
+          "path": "docs/product/BATCH.md",
+          "expected_sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+          "preimage_path": "docs/product/history/REQ-BATCH.before-contribution.md",
+          "updates": [
+            {
+              "id": "REQ-BATCH",
+              "metadata": {
+                "task_bindings": [
+                  {
+                    "id": "B-OLD-BATCH",
+                    "task": {
+                      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                      "source": {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                      },
+                      "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                      "step_id": "S-PARSE"
+                    },
+                    "role": "implementation",
+                    "coverage": "提供无引号两列文本解析和错误行号，供批量导入的后续行检查/错误呈现使用；不履行浏览器选文件、预览、确认、未确认不写入和批次历史查询义务。",
+                    "origin": "declared",
+                    "state": "active",
+                    "reason": "REQ-BATCH原文只把解析函数列为可用组件，旧Task采用范围明确排除浏览器、上传和批次列表。已有解析实现是明确支撑机制，不是交互导入义务的直接完成；因此纠正原direct为supporting，保留原ID、旧理由与来源快照。没有现成depends_on能替代此独立支撑说明。",
+                    "sources": [
+                      {
+                        "kind": "file",
+                        "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+                        "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+                        "item_id": "REQ-BATCH"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                        "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.mjs",
+                        "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "docs/evidence/parser-test.txt",
+                        "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                      }
+                    ],
+                    "contribution": "supporting"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "response": {
+      "kind": "product-maintenance-result/v1",
+      "action": "apply",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "task_operations": "not-performed",
+      "status": "saved",
+      "files": [
+        {
+          "path": "docs/product/BATCH.md",
+          "status": "saved",
+          "saved": true,
+          "changed": true,
+          "sha256": "055234516fd69e28635825d7da800608d0e0c236eb645574eafec4d6891a229e",
+          "preimage": {
+            "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+            "source": {
+              "kind": "file",
+              "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+              "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c"
+            }
+          },
+          "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+          "affected_items": [
+            "REQ-BATCH"
+          ],
+          "diagnostics": [],
+          "baseline_readback": []
+        }
+      ],
+      "requirement_order_update": {
+        "status": "unchanged",
+        "saved": true
+      },
+      "association": "not-evaluated",
+      "reconciliation": "not-evaluated",
+      "transaction": "per-file; no cross-file atomicity"
+    }
+  },
+  {
+    "name": "19-save-scoped-assessment",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/product-maintenance.js",
+        "apply",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/19-save-scoped-assessment.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.16280817985534668
+    },
+    "request": {
+      "expected_manifest_sha256": "6fc14b7adad7c585a169f6fb96c785bc95cfba4d583ac6e38de0e3d3ac87205c",
+      "files": [
+        {
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "expected_sha256": null,
+          "content": "---\n{\n  \"schema\": \"vnext-product-doc/v3\",\n  \"items\": [\n    {\n      \"id\": \"AS-PARSE-BASE-HOST-20261013\",\n      \"type\": \"assessment\",\n      \"target\": \"REQ-PARSE\",\n      \"target_basis\": {\n        \"kind\": \"file\",\n        \"path\": \"docs/product/history/REQ-PARSE.before-contribution.md\",\n        \"sha256\": \"066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4\",\n        \"item_id\": \"REQ-PARSE\"\n      },\n      \"target_definition_algorithm\": \"vnext-product-definition/v1\",\n      \"target_definition_sha256\": \"c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756\",\n      \"goal_basis\": {\n        \"kind\": \"file\",\n        \"path\": \"docs/product/GOAL.md\",\n        \"sha256\": \"7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058\",\n        \"item_id\": \"GOAL-RECORDS\"\n      },\n      \"goal_definition_algorithm\": \"vnext-product-definition/v1\",\n      \"goal_definition_sha256\": \"c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7\",\n      \"checked_at\": \"2026-10-13T19:13:47.409199+00:00\",\n      \"subject\": {\n        \"kind\": \"working-copy\",\n        \"value\": \"/workspace/shared/binding-progress-20261014/host-scenario\",\n        \"revision\": \"parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87\",\n        \"limitations\": \"版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。\"\n      },\n      \"applicability\": {\n        \"goal_id\": \"GOAL-RECORDS\",\n        \"scope_id\": \"PARSE-BASE\",\n        \"coverage\": \"固定无引号两列文本解析与错误行号\"\n      },\n      \"conclusion\": \"satisfied\",\n      \"implementation\": \"delivered-reported\",\n      \"verification\": \"pass-reported\",\n      \"sources\": [\n        {\n          \"kind\": \"file\",\n          \"path\": \"src/parse.mjs\",\n          \"sha256\": \"22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87\"\n        },\n        {\n          \"kind\": \"file\",\n          \"path\": \"src/parse.test.mjs\",\n          \"sha256\": \"e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64\"\n        },\n        {\n          \"kind\": \"file\",\n          \"path\": \"docs/evidence/parser-test.txt\",\n          \"sha256\": \"470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6\"\n        },\n        {\n          \"kind\": \"file\",\n          \"path\": \".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json\",\n          \"sha256\": \"1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835\"\n        },\n        {\n          \"kind\": \"file\",\n          \"path\": \"docs/evidence/material-origin.md\",\n          \"sha256\": \"8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032\"\n        }\n      ],\n      \"pending_sources\": []\n    }\n  ]\n}\n---\n## [AS-PARSE-BASE-HOST-20261013] 固定格式解析的有限范围评估\n### 覆盖范围\n只针对 GOAL-RECORDS 当前声明 PARSE-BASE 的“固定无引号两列文本解析与错误行号”，按 REQ-PARSE 原文明示验收：两条合法记录保留 id/value，第二行缺失 value 报 row 2。以当前 parse.mjs 的实际 SHA-256 作为该实现版本依据。不改变需求正文或验收，不评估 REQ-BATCH、字号或归档。\n### 交付与验证依据\n源码读取显示固定 id,value 头检查、按行返回 id/value、缺失字段抛物理行号。既存 src/parse.test.mjs 的两项对应测试与 parser-test.txt 实际输出一致：2 项通过，0 项失败。旧 execution 事件的 source_revision 与当前 parse.mjs SHA-256 完全一致，且明确未实现 UI/批次列表。因此在该声明及原文具体两条验收范围内记录 satisfied、delivered-reported 和 pass-reported。结论来自需求、代码、测试与版本适用性，不来自 Task 关闭或绑定分类。此案例全部业务材料为隔离合成输入，测试输出与 Runtime 调用为本次实际产生。\n### 剩余与待核对\n本次维护没有重跑测试，没有独立代码审查。空 id、空 value、多余列在第三物理行报错的新任务仅准备并采用，未执行，无新通过事实；已有 row 2 缺 value 测试不得冒充这三类的新验证。有限验收不证明所有可能输入已穷尽验证，不证明浏览器交互、持久化、批次历史、字号或归档交付。不据本报告改变旧 Task 生命周期/焦点或任何 Roadmap。\n"
+        }
+      ]
+    },
+    "response": {
+      "kind": "product-maintenance-result/v1",
+      "action": "apply",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "task_operations": "not-performed",
+      "status": "saved",
+      "files": [
+        {
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "status": "saved",
+          "saved": true,
+          "changed": true,
+          "sha256": "185b46a5ab4782432e14448af7b71dc5963e938f301c7047374627eff2d79956",
+          "preimage": null,
+          "io_guarantee": "single-file atomic publication; helper-coordinated writers; external-editor race is not eliminated",
+          "affected_items": [
+            "AS-PARSE-BASE-HOST-20261013"
+          ],
+          "diagnostics": [],
+          "baseline_readback": []
+        }
+      ],
+      "requirement_order_update": {
+        "status": "unchanged",
+        "saved": true
+      },
+      "association": "not-evaluated",
+      "reconciliation": "not-evaluated",
+      "transaction": "per-file; no cross-file atomicity"
+    }
+  },
+  {
+    "name": "20-read-assessment",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/product-maintenance.js",
+        "read",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/20-read-assessment.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.15065264701843262
+    },
+    "request": {
+      "detail": "items",
+      "resolve_sources": true,
+      "assessment_query": {
+        "target": "REQ-PARSE",
+        "goal_id": "GOAL-RECORDS",
+        "scope_id": "PARSE-BASE",
+        "subject": {
+          "kind": "working-copy",
+          "value": "/workspace/shared/binding-progress-20261014/host-scenario",
+          "revision": "parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+          "limitations": "版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。"
+        }
+      }
+    },
+    "response": {
+      "kind": "product-maintenance-result/v1",
+      "action": "read",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "task_operations": "not-performed",
+      "status": "available",
+      "project_id": "binding-progress-isolated-host",
+      "working_copy": {
+        "root": "/workspace/shared/binding-progress-20261014/host-scenario",
+        "identity": "/workspace/shared/binding-progress-20261014/host-scenario"
+      },
+      "read_at": "2026-10-13T19:13:47.767Z",
+      "manifest": {
+        "schema": "vnext-product-manifest/v2",
+        "project_id": "binding-progress-isolated-host",
+        "entry": "docs/product/PROJECT.md",
+        "managed_paths": [
+          "docs/product/*.md"
+        ],
+        "source_paths": [
+          "docs/evidence/**",
+          "src/**",
+          ".workflow-system/records/**",
+          "docs/product/history/**"
+        ],
+        "capture_paths": [
+          "docs/product/history/**"
+        ],
+        "exclude_paths": [],
+        "maintenance": "enabled"
+      },
+      "manifest_path": ".workflow-system/PRODUCT.yaml",
+      "manifest_sha256": "6fc14b7adad7c585a169f6fb96c785bc95cfba4d583ac6e38de0e3d3ac87205c",
+      "documents": [
+        {
+          "path": "docs/product/ARCHIVE.md",
+          "sha256": "cc9b9975dbe534dce0c53113b8dfe940cade3dedbe3b9ef392d251defc1891ba",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/ARCHIVE.md"
+          }
+        },
+        {
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "sha256": "185b46a5ab4782432e14448af7b71dc5963e938f301c7047374627eff2d79956",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/ASSESSMENT-PARSE-BASE.md"
+          }
+        },
+        {
+          "path": "docs/product/BATCH.md",
+          "sha256": "055234516fd69e28635825d7da800608d0e0c236eb645574eafec4d6891a229e",
+          "schema": "vnext-product-doc/v5",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/BATCH.md"
+          }
+        },
+        {
+          "path": "docs/product/GOAL.md",
+          "sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/GOAL.md"
+          }
+        },
+        {
+          "path": "docs/product/PARSE.md",
+          "sha256": "493506a2efe003666738ee2ddb48312b945ff3f4e9b80b540fefd2ac2975ca81",
+          "schema": "vnext-product-doc/v5",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/PARSE.md"
+          }
+        },
+        {
+          "path": "docs/product/PROJECT.md",
+          "sha256": "9e90a53fefbe6a22608c181f1f45f8d1299ef52aa4cad0870b8023bc05794205",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/PROJECT.md"
+          }
+        },
+        {
+          "path": "docs/product/TYPEFACE.md",
+          "sha256": "5c965e99dcfe2eda3e26b97fe963c328a3a21a243108b0d59393a5d854e606bf",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/TYPEFACE.md"
+          }
+        }
+      ],
+      "usable_items": [
+        {
+          "id": "REQ-ARCHIVE",
+          "type": "requirement",
+          "title": "历史归档检索",
+          "path": "docs/product/ARCHIVE.md",
+          "line": 30,
+          "metadata": {
+            "id": "REQ-ARCHIVE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-UNRESOLVED",
+                "task": {
+                  "task_id": null,
+                  "source": {
+                    "kind": "file",
+                    "path": "docs/evidence/archive-note.md"
+                  }
+                },
+                "role": "implementation",
+                "coverage": "归档相关",
+                "origin": "declared",
+                "state": "active"
+              }
+            ]
+          },
+          "definition_sha256": "35eecadf4247fdfdb36c7edd2c10bf34594e2de455f44ec5a43be134929e8a24",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-ARCHIVE] 历史归档检索\n### 需求内容\n用户按批次日期检索归档，保持原始批次记录。\n### 范围边界\n历史材料只有一句“做过归档”，没有可恢复任务身份或验收。\n### 验收要求\n日期过滤返回匹配批次且记录原文不变。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/ARCHIVE.md",
+            "item_id": "REQ-ARCHIVE"
+          }
+        },
+        {
+          "id": "AS-PARSE-BASE-HOST-20261013",
+          "type": "assessment",
+          "title": "固定格式解析的有限范围评估",
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "line": 72,
+          "metadata": {
+            "id": "AS-PARSE-BASE-HOST-20261013",
+            "type": "assessment",
+            "target": "REQ-PARSE",
+            "target_basis": {
+              "kind": "file",
+              "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+              "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+              "item_id": "REQ-PARSE"
+            },
+            "target_definition_algorithm": "vnext-product-definition/v1",
+            "target_definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+            "goal_basis": {
+              "kind": "file",
+              "path": "docs/product/GOAL.md",
+              "sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+              "item_id": "GOAL-RECORDS"
+            },
+            "goal_definition_algorithm": "vnext-product-definition/v1",
+            "goal_definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+            "checked_at": "2026-10-13T19:13:47.409199+00:00",
+            "subject": {
+              "kind": "working-copy",
+              "value": "/workspace/shared/binding-progress-20261014/host-scenario",
+              "revision": "parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+              "limitations": "版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。"
+            },
+            "applicability": {
+              "goal_id": "GOAL-RECORDS",
+              "scope_id": "PARSE-BASE",
+              "coverage": "固定无引号两列文本解析与错误行号"
+            },
+            "conclusion": "satisfied",
+            "implementation": "delivered-reported",
+            "verification": "pass-reported",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "src/parse.mjs",
+                "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+              },
+              {
+                "kind": "file",
+                "path": "src/parse.test.mjs",
+                "sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64"
+              },
+              {
+                "kind": "file",
+                "path": "docs/evidence/parser-test.txt",
+                "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+              },
+              {
+                "kind": "file",
+                "path": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+                "sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835"
+              },
+              {
+                "kind": "file",
+                "path": "docs/evidence/material-origin.md",
+                "sha256": "8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032"
+              }
+            ],
+            "pending_sources": []
+          },
+          "definition_sha256": null,
+          "definition_algorithm": null,
+          "body": "## [AS-PARSE-BASE-HOST-20261013] 固定格式解析的有限范围评估\n### 覆盖范围\n只针对 GOAL-RECORDS 当前声明 PARSE-BASE 的“固定无引号两列文本解析与错误行号”，按 REQ-PARSE 原文明示验收：两条合法记录保留 id/value，第二行缺失 value 报 row 2。以当前 parse.mjs 的实际 SHA-256 作为该实现版本依据。不改变需求正文或验收，不评估 REQ-BATCH、字号或归档。\n### 交付与验证依据\n源码读取显示固定 id,value 头检查、按行返回 id/value、缺失字段抛物理行号。既存 src/parse.test.mjs 的两项对应测试与 parser-test.txt 实际输出一致：2 项通过，0 项失败。旧 execution 事件的 source_revision 与当前 parse.mjs SHA-256 完全一致，且明确未实现 UI/批次列表。因此在该声明及原文具体两条验收范围内记录 satisfied、delivered-reported 和 pass-reported。结论来自需求、代码、测试与版本适用性，不来自 Task 关闭或绑定分类。此案例全部业务材料为隔离合成输入，测试输出与 Runtime 调用为本次实际产生。\n### 剩余与待核对\n本次维护没有重跑测试，没有独立代码审查。空 id、空 value、多余列在第三物理行报错的新任务仅准备并采用，未执行，无新通过事实；已有 row 2 缺 value 测试不得冒充这三类的新验证。有限验收不证明所有可能输入已穷尽验证，不证明浏览器交互、持久化、批次历史、字号或归档交付。不据本报告改变旧 Task 生命周期/焦点或任何 Roadmap。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+            "item_id": "AS-PARSE-BASE-HOST-20261013"
+          }
+        },
+        {
+          "id": "REQ-BATCH",
+          "type": "requirement",
+          "title": "交互式批量导入",
+          "path": "docs/product/BATCH.md",
+          "line": 9,
+          "metadata": {
+            "id": "REQ-BATCH",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-OLD-BATCH",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "提供无引号两列文本解析和错误行号，供批量导入的后续行检查/错误呈现使用；不履行浏览器选文件、预览、确认、未确认不写入和批次历史查询义务。",
+                "origin": "declared",
+                "state": "active",
+                "reason": "REQ-BATCH原文只把解析函数列为可用组件，旧Task采用范围明确排除浏览器、上传和批次列表。已有解析实现是明确支撑机制，不是交互导入义务的直接完成；因此纠正原direct为supporting，保留原ID、旧理由与来源快照。没有现成depends_on能替代此独立支撑说明。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+                    "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+                    "item_id": "REQ-BATCH"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                    "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "src/parse.mjs",
+                    "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/parser-test.txt",
+                    "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                  }
+                ],
+                "contribution": "supporting"
+              }
+            ]
+          },
+          "definition_sha256": "02b5ff0fb3dc44c15fd0190fc3fc156af42a4b0d8fcacb00b9e5cddc37358452",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-BATCH] 交互式批量导入\n### 需求内容\n用户在浏览器选择文本文件、预览各行错误并确认导入；确认后可在批次历史查看成功/失败数量。\n### 范围边界\n解析函数可作为组件，但单独解析不提供上传、预览、确认或历史查询体验。\n### 验收要求\n在浏览器完成上传、纠错预览、确认及历史回看；未确认不得写入批次。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/BATCH.md",
+            "item_id": "REQ-BATCH"
+          }
+        },
+        {
+          "id": "GOAL-RECORDS",
+          "type": "goal",
+          "title": "可检查的记录输入",
+          "path": "docs/product/GOAL.md",
+          "line": 21,
+          "metadata": {
+            "id": "GOAL-RECORDS",
+            "type": "goal",
+            "scope": "current",
+            "goal_kind": "outcome",
+            "assessment_scopes": [
+              {
+                "target": "REQ-PARSE",
+                "scope_id": "PARSE-BASE",
+                "coverage": "固定无引号两列文本解析与错误行号"
+              }
+            ]
+          },
+          "definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [GOAL-RECORDS] 可检查的记录输入\n### 目标说明\n保留可复查的输入并让用户了解错误。\n### 范围边界\n解析能力与交互交付分别核验。\n\n### 成功标准\n解析行为符合选定验收范围，交互能力单独评估。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/GOAL.md",
+            "item_id": "GOAL-RECORDS"
+          }
+        },
+        {
+          "id": "REQ-PARSE",
+          "type": "requirement",
+          "title": "固定格式文本解析",
+          "path": "docs/product/PARSE.md",
+          "line": 9,
+          "metadata": {
+            "id": "REQ-PARSE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-OLD-PARSER",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "固定 id,value 头的无引号两列纯函数解析，逐行输出 id/value；已有两条合法记录保值及第二行缺 value 报 row 2 的验收证据。",
+                "origin": "declared",
+                "state": "active",
+                "reason": "需求明确要求纯文本解析与缺失字段行号，旧Task采用的src/parse.mjs及S-PARSE实际实现直接履行这些义务；不含浏览器上传、网络传输、批次历史，也不将新三类验证视为已执行。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+                    "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+                    "item_id": "REQ-PARSE"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                    "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "src/parse.mjs",
+                    "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "src/parse.test.mjs",
+                    "sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/parser-test.txt",
+                    "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+                    "sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835"
+                  }
+                ],
+                "contribution": "direct"
+              },
+              {
+                "id": "B-VERIFY-PARSER-INPUTS",
+                "task": {
+                  "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                    "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                  "step_id": "S-VERIFY-INPUTS"
+                },
+                "role": "verification",
+                "contribution": "direct",
+                "coverage": "已采用核验空 id、空 value、多余列输入错误行号的纯解析验证范围；单步尚未开始，没有此次三类输入执行/通过证据。",
+                "origin": "declared",
+                "state": "active",
+                "reason": "REQ-PARSE要求固定两列解析及缺失字段行号；实际采用计划直接针对这些格式和行号行为进行验证，属于直接验证而非编码交付。只保存该需求关联，不把潜在下游受益扩展成字号、归档或完整批次交付。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+                    "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+                    "item_id": "REQ-PARSE"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/request-new-verification.md",
+                    "sha256": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                    "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+                    "sha256": "f0fda2d71dd3fee4d0336fe166f779e26a6412889a5b1d9ac79986ecb41d110b"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "src/parse.mjs",
+                    "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                  }
+                ]
+              }
+            ]
+          },
+          "definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-PARSE] 固定格式文本解析\n### 需求内容\n接受头为id,value的无引号文本；输出逐行id/value数组；缺失字段指出行号。\n### 范围边界\n不要求浏览器上传、网络传输或批次历史。\n### 验收要求\n两个合法记录保留值；缺失value的第二行明确报row 2。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/PARSE.md",
+            "item_id": "REQ-PARSE"
+          }
+        },
+        {
+          "id": "PROJECT-RECORDS",
+          "type": "project",
+          "title": "隔离记录工具",
+          "path": "docs/product/PROJECT.md",
+          "line": 37,
+          "metadata": {
+            "id": "PROJECT-RECORDS",
+            "type": "project",
+            "root_goal_id": "GOAL-RECORDS",
+            "requirement_order": [
+              "REQ-PARSE",
+              "REQ-BATCH",
+              "REQ-TYPEFACE",
+              "REQ-ARCHIVE"
+            ],
+            "inventory": {
+              "state": "partial",
+              "checked_sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/parser-test.txt"
+                }
+              ],
+              "unreviewed_sources": [
+                {
+                  "kind": "text",
+                  "label": "局限",
+                  "text": "合成验收项目，不对应任何真实用户项目。"
+                }
+              ]
+            }
+          },
+          "definition_sha256": null,
+          "definition_algorithm": null,
+          "body": "## [PROJECT-RECORDS] 隔离记录工具\n### 项目定位\n验证解析基础与交互批次功能的区分。\n### 盘点范围与未核对项\n只含本目录材料，尚无浏览器交互实现。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/PROJECT.md",
+            "item_id": "PROJECT-RECORDS"
+          }
+        },
+        {
+          "id": "REQ-TYPEFACE",
+          "type": "requirement",
+          "title": "导入页字号",
+          "path": "docs/product/TYPEFACE.md",
+          "line": 39,
+          "metadata": {
+            "id": "REQ-TYPEFACE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-DISMISSED-FONT",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "导入页字号切换",
+                "origin": "declared",
+                "state": "dismissed",
+                "reason": "解析函数没有任何浏览器字号或偏好存储代码，旧标题相似不足以成立关系。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/font-decision.md"
+                  }
+                ]
+              }
+            ]
+          },
+          "definition_sha256": "3e6e908860766c4549be4ed1d0130035a2f7eb9de57539d79d96cfa0a7804e9a",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-TYPEFACE] 导入页字号\n### 需求内容\n提供导入页字号切换，支持14px和18px，并在重载后保持选择。\n### 范围边界\n只涉及可见文字样式；不改变文本解析格式。\n### 验收要求\n切换两种字号后截图核对；重载保留选择。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/TYPEFACE.md",
+            "item_id": "REQ-TYPEFACE"
+          }
+        }
+      ],
+      "unusable_items": [],
+      "product_view": {
+        "project_id": "PROJECT-RECORDS",
+        "root_goal": {
+          "status": "resolved",
+          "id": "GOAL-RECORDS"
+        },
+        "requirement_order": [
+          "REQ-PARSE",
+          "REQ-BATCH",
+          "REQ-TYPEFACE",
+          "REQ-ARCHIVE"
+        ],
+        "unordered_requirements": [],
+        "current_relations": [],
+        "diagnostics": []
+      },
+      "assessment_selection": {
+        "selection": {
+          "target": "REQ-PARSE",
+          "goal_id": "GOAL-RECORDS",
+          "scope_id": "PARSE-BASE",
+          "subject": {
+            "kind": "working-copy",
+            "value": "/workspace/shared/binding-progress-20261014/host-scenario",
+            "revision": "parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+            "limitations": "版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。"
+          }
+        },
+        "conclusion": "satisfied",
+        "assessment_id": "AS-PARSE-BASE-HOST-20261013",
+        "reasons": [],
+        "reports": [
+          {
+            "id": "AS-PARSE-BASE-HOST-20261013",
+            "conclusion": "satisfied",
+            "usable": true,
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+              "item_id": "AS-PARSE-BASE-HOST-20261013"
+            }
+          }
+        ],
+        "historical_reports": [],
+        "pending_reports": [],
+        "business_validity": "not-evaluated"
+      },
+      "roadmap_reconciliation": null,
+      "reverse_relations": [
+        {
+          "owner": "AS-PARSE-BASE-HOST-20261013",
+          "relation": "assessment-target",
+          "target": "REQ-PARSE"
+        }
+      ],
+      "plan_tasks": [],
+      "discussions": [],
+      "impact": null,
+      "sources": [
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/archive-note.md"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "ff87bbacf29986221a9bbc2c12e8a2db304a7a06009de0e44ffcaf65db2218f8",
+          "size": 91,
+          "file_size": 91,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+            "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+            "item_id": "REQ-PARSE"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+          "requirement_definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+          "definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "size": 318,
+          "file_size": 1621,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 1303,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true,
+          "basis_checks": [
+            {
+              "assessment_id": "AS-PARSE-BASE-HOST-20261013",
+              "role": "target",
+              "expected_definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+              "actual_definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+              "expected_definition_algorithm": "vnext-product-definition/v1",
+              "actual_definition_algorithm": "vnext-product-definition/v1",
+              "definition_alignment": "same-definition",
+              "referenced_byte_availability": "same-bytes",
+              "current_code_applicability": "not-evaluated"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/product/GOAL.md",
+            "sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+            "item_id": "GOAL-RECORDS"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+          "definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "size": 257,
+          "file_size": 639,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 382,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true,
+          "basis_checks": [
+            {
+              "assessment_id": "AS-PARSE-BASE-HOST-20261013",
+              "role": "goal",
+              "expected_definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+              "actual_definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+              "expected_definition_algorithm": "vnext-product-definition/v1",
+              "actual_definition_algorithm": "vnext-product-definition/v1",
+              "definition_alignment": "same-definition",
+              "referenced_byte_availability": "same-bytes",
+              "current_code_applicability": "not-evaluated"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "src/parse.mjs",
+            "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+          "size": 343,
+          "file_size": 343,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "src/parse.test.mjs",
+            "sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64",
+          "size": 369,
+          "file_size": 369,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/parser-test.txt",
+            "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6",
+          "size": 217,
+          "file_size": 217,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+            "sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835",
+          "size": 1684,
+          "file_size": 1684,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/material-origin.md",
+            "sha256": "8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032",
+          "size": 468,
+          "file_size": 468,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684",
+          "size": 1893,
+          "file_size": 1893,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+            "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+            "item_id": "REQ-BATCH"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+          "requirement_definition_sha256": "02b5ff0fb3dc44c15fd0190fc3fc156af42a4b0d8fcacb00b9e5cddc37358452",
+          "definition_sha256": "02b5ff0fb3dc44c15fd0190fc3fc156af42a4b0d8fcacb00b9e5cddc37358452",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "size": 419,
+          "file_size": 1757,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 1338,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+            "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684",
+          "size": 1893,
+          "file_size": 1893,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+            "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18",
+          "size": 2762,
+          "file_size": 2762,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/request-new-verification.md",
+            "sha256": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1",
+          "size": 356,
+          "file_size": 356,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+            "sha256": "f0fda2d71dd3fee4d0336fe166f779e26a6412889a5b1d9ac79986ecb41d110b"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "f0fda2d71dd3fee4d0336fe166f779e26a6412889a5b1d9ac79986ecb41d110b",
+          "size": 1960,
+          "file_size": 1960,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/parser-test.txt"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6",
+          "size": 217,
+          "file_size": 217,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "text",
+            "label": "局限",
+            "text": "合成验收项目，不对应任何真实用户项目。"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "label": "局限",
+          "note": "Text basis is not authenticated as verbatim user speech"
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/font-decision.md"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "98a432f2515c735a736b1bb4b383a4cc095799b4ce42c4def37f61a4d5d9e507",
+          "size": 280,
+          "file_size": 280,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "TASK_ID_UNCONFIRMED",
+          "path": "docs/product/ARCHIVE.md",
+          "message": "B-UNRESOLVED: historical task identity is unconfirmed; use its exact source",
+          "severity": "warning",
+          "item_id": "REQ-ARCHIVE",
+          "line": 30
+        },
+        {
+          "code": "BINDING_CONTRIBUTION_UNCLASSIFIED",
+          "path": "docs/product/ARCHIVE.md",
+          "message": "B-UNRESOLVED: legacy contribution is unclassified; do not infer direct work from role or task state",
+          "severity": "warning",
+          "item_id": "REQ-ARCHIVE",
+          "line": 30
+        }
+      ],
+      "coverage": {
+        "complete": true,
+        "files_read": 7,
+        "bytes_read": 14729,
+        "enumeration": "managed_paths only; sources are read only by explicit reference",
+        "omitted": [],
+        "paths": [
+          "docs/product/*.md"
+        ],
+        "excluded_paths": [],
+        "max_files": 1000,
+        "max_file_bytes": 4194304,
+        "max_total_bytes": 33554432,
+        "usable_count": 7,
+        "invalid_count": 0,
+        "selection": "all-enumerated-items",
+        "source_bodies": "byte status only; fetch selected source explicitly"
+      },
+      "task_status": "not-computed; use existing assistance only when actual task state is needed"
+    }
+  },
+  {
+    "name": "22-repeat-same-conclusions",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/product-maintenance.js",
+        "apply",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/22-repeat-same-conclusions.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.18728208541870117
+    },
+    "request": {
+      "expected_manifest_sha256": "6fc14b7adad7c585a169f6fb96c785bc95cfba4d583ac6e38de0e3d3ac87205c",
+      "files": [
+        {
+          "path": "docs/product/PARSE.md",
+          "expected_sha256": "493506a2efe003666738ee2ddb48312b945ff3f4e9b80b540fefd2ac2975ca81",
+          "preimage_path": "docs/product/history/REQ-PARSE.before-contribution.md",
+          "updates": [
+            {
+              "id": "REQ-PARSE",
+              "metadata": {
+                "task_bindings": [
+                  {
+                    "id": "B-OLD-PARSER",
+                    "task": {
+                      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                      "source": {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                      },
+                      "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                      "step_id": "S-PARSE"
+                    },
+                    "role": "implementation",
+                    "coverage": "固定 id,value 头的无引号两列纯函数解析，逐行输出 id/value；已有两条合法记录保值及第二行缺 value 报 row 2 的验收证据。",
+                    "origin": "declared",
+                    "state": "active",
+                    "reason": "需求明确要求纯文本解析与缺失字段行号，旧Task采用的src/parse.mjs及S-PARSE实际实现直接履行这些义务；不含浏览器上传、网络传输、批次历史，也不将新三类验证视为已执行。",
+                    "sources": [
+                      {
+                        "kind": "file",
+                        "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+                        "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+                        "item_id": "REQ-PARSE"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                        "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.mjs",
+                        "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.test.mjs",
+                        "sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "docs/evidence/parser-test.txt",
+                        "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+                        "sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835"
+                      }
+                    ],
+                    "contribution": "direct"
+                  },
+                  {
+                    "id": "B-VERIFY-PARSER-INPUTS",
+                    "task": {
+                      "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+                      "source": {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                        "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+                      },
+                      "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                      "step_id": "S-VERIFY-INPUTS"
+                    },
+                    "role": "verification",
+                    "contribution": "direct",
+                    "coverage": "已采用核验空 id、空 value、多余列输入错误行号的纯解析验证范围；单步尚未开始，没有此次三类输入执行/通过证据。",
+                    "origin": "declared",
+                    "state": "active",
+                    "reason": "REQ-PARSE要求固定两列解析及缺失字段行号；实际采用计划直接针对这些格式和行号行为进行验证，属于直接验证而非编码交付。只保存该需求关联，不把潜在下游受益扩展成字号、归档或完整批次交付。",
+                    "sources": [
+                      {
+                        "kind": "file",
+                        "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+                        "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+                        "item_id": "REQ-PARSE"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "docs/evidence/request-new-verification.md",
+                        "sha256": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                        "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+                        "sha256": "f0fda2d71dd3fee4d0336fe166f779e26a6412889a5b1d9ac79986ecb41d110b"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.mjs",
+                        "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "path": "docs/product/BATCH.md",
+          "expected_sha256": "055234516fd69e28635825d7da800608d0e0c236eb645574eafec4d6891a229e",
+          "preimage_path": "docs/product/history/REQ-BATCH.before-contribution.md",
+          "updates": [
+            {
+              "id": "REQ-BATCH",
+              "metadata": {
+                "task_bindings": [
+                  {
+                    "id": "B-OLD-BATCH",
+                    "task": {
+                      "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                      "source": {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                      },
+                      "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                      "step_id": "S-PARSE"
+                    },
+                    "role": "implementation",
+                    "coverage": "提供无引号两列文本解析和错误行号，供批量导入的后续行检查/错误呈现使用；不履行浏览器选文件、预览、确认、未确认不写入和批次历史查询义务。",
+                    "origin": "declared",
+                    "state": "active",
+                    "reason": "REQ-BATCH原文只把解析函数列为可用组件，旧Task采用范围明确排除浏览器、上传和批次列表。已有解析实现是明确支撑机制，不是交互导入义务的直接完成；因此纠正原direct为supporting，保留原ID、旧理由与来源快照。没有现成depends_on能替代此独立支撑说明。",
+                    "sources": [
+                      {
+                        "kind": "file",
+                        "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+                        "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+                        "item_id": "REQ-BATCH"
+                      },
+                      {
+                        "kind": "file",
+                        "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                        "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "src/parse.mjs",
+                        "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                      },
+                      {
+                        "kind": "file",
+                        "path": "docs/evidence/parser-test.txt",
+                        "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                      }
+                    ],
+                    "contribution": "supporting"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "expected_sha256": "185b46a5ab4782432e14448af7b71dc5963e938f301c7047374627eff2d79956",
+          "content": "---\n{\n  \"schema\": \"vnext-product-doc/v3\",\n  \"items\": [\n    {\n      \"id\": \"AS-PARSE-BASE-HOST-20261013\",\n      \"type\": \"assessment\",\n      \"target\": \"REQ-PARSE\",\n      \"target_basis\": {\n        \"kind\": \"file\",\n        \"path\": \"docs/product/history/REQ-PARSE.before-contribution.md\",\n        \"sha256\": \"066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4\",\n        \"item_id\": \"REQ-PARSE\"\n      },\n      \"target_definition_algorithm\": \"vnext-product-definition/v1\",\n      \"target_definition_sha256\": \"c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756\",\n      \"goal_basis\": {\n        \"kind\": \"file\",\n        \"path\": \"docs/product/GOAL.md\",\n        \"sha256\": \"7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058\",\n        \"item_id\": \"GOAL-RECORDS\"\n      },\n      \"goal_definition_algorithm\": \"vnext-product-definition/v1\",\n      \"goal_definition_sha256\": \"c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7\",\n      \"checked_at\": \"2026-10-13T19:13:47.409199+00:00\",\n      \"subject\": {\n        \"kind\": \"working-copy\",\n        \"value\": \"/workspace/shared/binding-progress-20261014/host-scenario\",\n        \"revision\": \"parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87\",\n        \"limitations\": \"版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。\"\n      },\n      \"applicability\": {\n        \"goal_id\": \"GOAL-RECORDS\",\n        \"scope_id\": \"PARSE-BASE\",\n        \"coverage\": \"固定无引号两列文本解析与错误行号\"\n      },\n      \"conclusion\": \"satisfied\",\n      \"implementation\": \"delivered-reported\",\n      \"verification\": \"pass-reported\",\n      \"sources\": [\n        {\n          \"kind\": \"file\",\n          \"path\": \"src/parse.mjs\",\n          \"sha256\": \"22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87\"\n        },\n        {\n          \"kind\": \"file\",\n          \"path\": \"src/parse.test.mjs\",\n          \"sha256\": \"e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64\"\n        },\n        {\n          \"kind\": \"file\",\n          \"path\": \"docs/evidence/parser-test.txt\",\n          \"sha256\": \"470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6\"\n        },\n        {\n          \"kind\": \"file\",\n          \"path\": \".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json\",\n          \"sha256\": \"1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835\"\n        },\n        {\n          \"kind\": \"file\",\n          \"path\": \"docs/evidence/material-origin.md\",\n          \"sha256\": \"8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032\"\n        }\n      ],\n      \"pending_sources\": []\n    }\n  ]\n}\n---\n## [AS-PARSE-BASE-HOST-20261013] 固定格式解析的有限范围评估\n### 覆盖范围\n只针对 GOAL-RECORDS 当前声明 PARSE-BASE 的“固定无引号两列文本解析与错误行号”，按 REQ-PARSE 原文明示验收：两条合法记录保留 id/value，第二行缺失 value 报 row 2。以当前 parse.mjs 的实际 SHA-256 作为该实现版本依据。不改变需求正文或验收，不评估 REQ-BATCH、字号或归档。\n### 交付与验证依据\n源码读取显示固定 id,value 头检查、按行返回 id/value、缺失字段抛物理行号。既存 src/parse.test.mjs 的两项对应测试与 parser-test.txt 实际输出一致：2 项通过，0 项失败。旧 execution 事件的 source_revision 与当前 parse.mjs SHA-256 完全一致，且明确未实现 UI/批次列表。因此在该声明及原文具体两条验收范围内记录 satisfied、delivered-reported 和 pass-reported。结论来自需求、代码、测试与版本适用性，不来自 Task 关闭或绑定分类。此案例全部业务材料为隔离合成输入，测试输出与 Runtime 调用为本次实际产生。\n### 剩余与待核对\n本次维护没有重跑测试，没有独立代码审查。空 id、空 value、多余列在第三物理行报错的新任务仅准备并采用，未执行，无新通过事实；已有 row 2 缺 value 测试不得冒充这三类的新验证。有限验收不证明所有可能输入已穷尽验证，不证明浏览器交互、持久化、批次历史、字号或归档交付。不据本报告改变旧 Task 生命周期/焦点或任何 Roadmap。\n"
+        }
+      ]
+    },
+    "response": {
+      "kind": "product-maintenance-result/v1",
+      "action": "apply",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "task_operations": "not-performed",
+      "status": "saved",
+      "files": [
+        {
+          "path": "docs/product/PARSE.md",
+          "status": "unchanged",
+          "saved": true,
+          "changed": false,
+          "sha256": "493506a2efe003666738ee2ddb48312b945ff3f4e9b80b540fefd2ac2975ca81",
+          "affected_items": [
+            "REQ-PARSE"
+          ],
+          "diagnostics": [],
+          "baseline_readback": []
+        },
+        {
+          "path": "docs/product/BATCH.md",
+          "status": "unchanged",
+          "saved": true,
+          "changed": false,
+          "sha256": "055234516fd69e28635825d7da800608d0e0c236eb645574eafec4d6891a229e",
+          "affected_items": [
+            "REQ-BATCH"
+          ],
+          "diagnostics": [],
+          "baseline_readback": []
+        },
+        {
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "status": "unchanged",
+          "saved": true,
+          "changed": false,
+          "sha256": "185b46a5ab4782432e14448af7b71dc5963e938f301c7047374627eff2d79956",
+          "affected_items": [],
+          "diagnostics": [],
+          "baseline_readback": []
+        }
+      ],
+      "requirement_order_update": {
+        "status": "unchanged",
+        "saved": true
+      },
+      "association": "not-evaluated",
+      "reconciliation": "not-evaluated",
+      "transaction": "per-file; no cross-file atomicity"
+    }
+  },
+  {
+    "name": "24-read-final-product",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/product-maintenance.js",
+        "read",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/24-read-final-product.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.2178652286529541
+    },
+    "request": {
+      "detail": "items",
+      "resolve_sources": true,
+      "assessment_query": {
+        "target": "REQ-PARSE",
+        "goal_id": "GOAL-RECORDS",
+        "scope_id": "PARSE-BASE",
+        "subject": {
+          "kind": "working-copy",
+          "value": "/workspace/shared/binding-progress-20261014/host-scenario",
+          "revision": "parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+          "limitations": "版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。"
+        }
+      }
+    },
+    "response": {
+      "kind": "product-maintenance-result/v1",
+      "action": "read",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "task_operations": "not-performed",
+      "status": "available",
+      "project_id": "binding-progress-isolated-host",
+      "working_copy": {
+        "root": "/workspace/shared/binding-progress-20261014/host-scenario",
+        "identity": "/workspace/shared/binding-progress-20261014/host-scenario"
+      },
+      "read_at": "2026-10-13T19:14:25.628Z",
+      "manifest": {
+        "schema": "vnext-product-manifest/v2",
+        "project_id": "binding-progress-isolated-host",
+        "entry": "docs/product/PROJECT.md",
+        "managed_paths": [
+          "docs/product/*.md"
+        ],
+        "source_paths": [
+          "docs/evidence/**",
+          "src/**",
+          ".workflow-system/records/**",
+          "docs/product/history/**"
+        ],
+        "capture_paths": [
+          "docs/product/history/**"
+        ],
+        "exclude_paths": [],
+        "maintenance": "enabled"
+      },
+      "manifest_path": ".workflow-system/PRODUCT.yaml",
+      "manifest_sha256": "6fc14b7adad7c585a169f6fb96c785bc95cfba4d583ac6e38de0e3d3ac87205c",
+      "documents": [
+        {
+          "path": "docs/product/ARCHIVE.md",
+          "sha256": "cc9b9975dbe534dce0c53113b8dfe940cade3dedbe3b9ef392d251defc1891ba",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/ARCHIVE.md"
+          }
+        },
+        {
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "sha256": "185b46a5ab4782432e14448af7b71dc5963e938f301c7047374627eff2d79956",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/ASSESSMENT-PARSE-BASE.md"
+          }
+        },
+        {
+          "path": "docs/product/BATCH.md",
+          "sha256": "055234516fd69e28635825d7da800608d0e0c236eb645574eafec4d6891a229e",
+          "schema": "vnext-product-doc/v5",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/BATCH.md"
+          }
+        },
+        {
+          "path": "docs/product/GOAL.md",
+          "sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/GOAL.md"
+          }
+        },
+        {
+          "path": "docs/product/PARSE.md",
+          "sha256": "493506a2efe003666738ee2ddb48312b945ff3f4e9b80b540fefd2ac2975ca81",
+          "schema": "vnext-product-doc/v5",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/PARSE.md"
+          }
+        },
+        {
+          "path": "docs/product/PROJECT.md",
+          "sha256": "9e90a53fefbe6a22608c181f1f45f8d1299ef52aa4cad0870b8023bc05794205",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/PROJECT.md"
+          }
+        },
+        {
+          "path": "docs/product/TYPEFACE.md",
+          "sha256": "5c965e99dcfe2eda3e26b97fe963c328a3a21a243108b0d59393a5d854e606bf",
+          "schema": "vnext-product-doc/v3",
+          "usable_count": 1,
+          "raw_locator": {
+            "kind": "file",
+            "path": "docs/product/TYPEFACE.md"
+          }
+        }
+      ],
+      "usable_items": [
+        {
+          "id": "REQ-ARCHIVE",
+          "type": "requirement",
+          "title": "历史归档检索",
+          "path": "docs/product/ARCHIVE.md",
+          "line": 30,
+          "metadata": {
+            "id": "REQ-ARCHIVE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-UNRESOLVED",
+                "task": {
+                  "task_id": null,
+                  "source": {
+                    "kind": "file",
+                    "path": "docs/evidence/archive-note.md"
+                  }
+                },
+                "role": "implementation",
+                "coverage": "归档相关",
+                "origin": "declared",
+                "state": "active"
+              }
+            ]
+          },
+          "definition_sha256": "35eecadf4247fdfdb36c7edd2c10bf34594e2de455f44ec5a43be134929e8a24",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-ARCHIVE] 历史归档检索\n### 需求内容\n用户按批次日期检索归档，保持原始批次记录。\n### 范围边界\n历史材料只有一句“做过归档”，没有可恢复任务身份或验收。\n### 验收要求\n日期过滤返回匹配批次且记录原文不变。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/ARCHIVE.md",
+            "item_id": "REQ-ARCHIVE"
+          }
+        },
+        {
+          "id": "AS-PARSE-BASE-HOST-20261013",
+          "type": "assessment",
+          "title": "固定格式解析的有限范围评估",
+          "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+          "line": 72,
+          "metadata": {
+            "id": "AS-PARSE-BASE-HOST-20261013",
+            "type": "assessment",
+            "target": "REQ-PARSE",
+            "target_basis": {
+              "kind": "file",
+              "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+              "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+              "item_id": "REQ-PARSE"
+            },
+            "target_definition_algorithm": "vnext-product-definition/v1",
+            "target_definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+            "goal_basis": {
+              "kind": "file",
+              "path": "docs/product/GOAL.md",
+              "sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+              "item_id": "GOAL-RECORDS"
+            },
+            "goal_definition_algorithm": "vnext-product-definition/v1",
+            "goal_definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+            "checked_at": "2026-10-13T19:13:47.409199+00:00",
+            "subject": {
+              "kind": "working-copy",
+              "value": "/workspace/shared/binding-progress-20261014/host-scenario",
+              "revision": "parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+              "limitations": "版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。"
+            },
+            "applicability": {
+              "goal_id": "GOAL-RECORDS",
+              "scope_id": "PARSE-BASE",
+              "coverage": "固定无引号两列文本解析与错误行号"
+            },
+            "conclusion": "satisfied",
+            "implementation": "delivered-reported",
+            "verification": "pass-reported",
+            "sources": [
+              {
+                "kind": "file",
+                "path": "src/parse.mjs",
+                "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+              },
+              {
+                "kind": "file",
+                "path": "src/parse.test.mjs",
+                "sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64"
+              },
+              {
+                "kind": "file",
+                "path": "docs/evidence/parser-test.txt",
+                "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+              },
+              {
+                "kind": "file",
+                "path": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+                "sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835"
+              },
+              {
+                "kind": "file",
+                "path": "docs/evidence/material-origin.md",
+                "sha256": "8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032"
+              }
+            ],
+            "pending_sources": []
+          },
+          "definition_sha256": null,
+          "definition_algorithm": null,
+          "body": "## [AS-PARSE-BASE-HOST-20261013] 固定格式解析的有限范围评估\n### 覆盖范围\n只针对 GOAL-RECORDS 当前声明 PARSE-BASE 的“固定无引号两列文本解析与错误行号”，按 REQ-PARSE 原文明示验收：两条合法记录保留 id/value，第二行缺失 value 报 row 2。以当前 parse.mjs 的实际 SHA-256 作为该实现版本依据。不改变需求正文或验收，不评估 REQ-BATCH、字号或归档。\n### 交付与验证依据\n源码读取显示固定 id,value 头检查、按行返回 id/value、缺失字段抛物理行号。既存 src/parse.test.mjs 的两项对应测试与 parser-test.txt 实际输出一致：2 项通过，0 项失败。旧 execution 事件的 source_revision 与当前 parse.mjs SHA-256 完全一致，且明确未实现 UI/批次列表。因此在该声明及原文具体两条验收范围内记录 satisfied、delivered-reported 和 pass-reported。结论来自需求、代码、测试与版本适用性，不来自 Task 关闭或绑定分类。此案例全部业务材料为隔离合成输入，测试输出与 Runtime 调用为本次实际产生。\n### 剩余与待核对\n本次维护没有重跑测试，没有独立代码审查。空 id、空 value、多余列在第三物理行报错的新任务仅准备并采用，未执行，无新通过事实；已有 row 2 缺 value 测试不得冒充这三类的新验证。有限验收不证明所有可能输入已穷尽验证，不证明浏览器交互、持久化、批次历史、字号或归档交付。不据本报告改变旧 Task 生命周期/焦点或任何 Roadmap。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+            "item_id": "AS-PARSE-BASE-HOST-20261013"
+          }
+        },
+        {
+          "id": "REQ-BATCH",
+          "type": "requirement",
+          "title": "交互式批量导入",
+          "path": "docs/product/BATCH.md",
+          "line": 9,
+          "metadata": {
+            "id": "REQ-BATCH",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-OLD-BATCH",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "提供无引号两列文本解析和错误行号，供批量导入的后续行检查/错误呈现使用；不履行浏览器选文件、预览、确认、未确认不写入和批次历史查询义务。",
+                "origin": "declared",
+                "state": "active",
+                "reason": "REQ-BATCH原文只把解析函数列为可用组件，旧Task采用范围明确排除浏览器、上传和批次列表。已有解析实现是明确支撑机制，不是交互导入义务的直接完成；因此纠正原direct为supporting，保留原ID、旧理由与来源快照。没有现成depends_on能替代此独立支撑说明。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+                    "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+                    "item_id": "REQ-BATCH"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                    "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "src/parse.mjs",
+                    "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/parser-test.txt",
+                    "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                  }
+                ],
+                "contribution": "supporting"
+              }
+            ]
+          },
+          "definition_sha256": "02b5ff0fb3dc44c15fd0190fc3fc156af42a4b0d8fcacb00b9e5cddc37358452",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-BATCH] 交互式批量导入\n### 需求内容\n用户在浏览器选择文本文件、预览各行错误并确认导入；确认后可在批次历史查看成功/失败数量。\n### 范围边界\n解析函数可作为组件，但单独解析不提供上传、预览、确认或历史查询体验。\n### 验收要求\n在浏览器完成上传、纠错预览、确认及历史回看；未确认不得写入批次。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/BATCH.md",
+            "item_id": "REQ-BATCH"
+          }
+        },
+        {
+          "id": "GOAL-RECORDS",
+          "type": "goal",
+          "title": "可检查的记录输入",
+          "path": "docs/product/GOAL.md",
+          "line": 21,
+          "metadata": {
+            "id": "GOAL-RECORDS",
+            "type": "goal",
+            "scope": "current",
+            "goal_kind": "outcome",
+            "assessment_scopes": [
+              {
+                "target": "REQ-PARSE",
+                "scope_id": "PARSE-BASE",
+                "coverage": "固定无引号两列文本解析与错误行号"
+              }
+            ]
+          },
+          "definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [GOAL-RECORDS] 可检查的记录输入\n### 目标说明\n保留可复查的输入并让用户了解错误。\n### 范围边界\n解析能力与交互交付分别核验。\n\n### 成功标准\n解析行为符合选定验收范围，交互能力单独评估。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/GOAL.md",
+            "item_id": "GOAL-RECORDS"
+          }
+        },
+        {
+          "id": "REQ-PARSE",
+          "type": "requirement",
+          "title": "固定格式文本解析",
+          "path": "docs/product/PARSE.md",
+          "line": 9,
+          "metadata": {
+            "id": "REQ-PARSE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-OLD-PARSER",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "固定 id,value 头的无引号两列纯函数解析，逐行输出 id/value；已有两条合法记录保值及第二行缺 value 报 row 2 的验收证据。",
+                "origin": "declared",
+                "state": "active",
+                "reason": "需求明确要求纯文本解析与缺失字段行号，旧Task采用的src/parse.mjs及S-PARSE实际实现直接履行这些义务；不含浏览器上传、网络传输、批次历史，也不将新三类验证视为已执行。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+                    "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+                    "item_id": "REQ-PARSE"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                    "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "src/parse.mjs",
+                    "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "src/parse.test.mjs",
+                    "sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/parser-test.txt",
+                    "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+                    "sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835"
+                  }
+                ],
+                "contribution": "direct"
+              },
+              {
+                "id": "B-VERIFY-PARSER-INPUTS",
+                "task": {
+                  "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                    "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                  "step_id": "S-VERIFY-INPUTS"
+                },
+                "role": "verification",
+                "contribution": "direct",
+                "coverage": "已采用核验空 id、空 value、多余列输入错误行号的纯解析验证范围；单步尚未开始，没有此次三类输入执行/通过证据。",
+                "origin": "declared",
+                "state": "active",
+                "reason": "REQ-PARSE要求固定两列解析及缺失字段行号；实际采用计划直接针对这些格式和行号行为进行验证，属于直接验证而非编码交付。只保存该需求关联，不把潜在下游受益扩展成字号、归档或完整批次交付。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+                    "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+                    "item_id": "REQ-PARSE"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/request-new-verification.md",
+                    "sha256": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+                    "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+                  },
+                  {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+                    "sha256": "f0fda2d71dd3fee4d0336fe166f779e26a6412889a5b1d9ac79986ecb41d110b"
+                  },
+                  {
+                    "kind": "file",
+                    "path": "src/parse.mjs",
+                    "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+                  }
+                ]
+              }
+            ]
+          },
+          "definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-PARSE] 固定格式文本解析\n### 需求内容\n接受头为id,value的无引号文本；输出逐行id/value数组；缺失字段指出行号。\n### 范围边界\n不要求浏览器上传、网络传输或批次历史。\n### 验收要求\n两个合法记录保留值；缺失value的第二行明确报row 2。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/PARSE.md",
+            "item_id": "REQ-PARSE"
+          }
+        },
+        {
+          "id": "PROJECT-RECORDS",
+          "type": "project",
+          "title": "隔离记录工具",
+          "path": "docs/product/PROJECT.md",
+          "line": 37,
+          "metadata": {
+            "id": "PROJECT-RECORDS",
+            "type": "project",
+            "root_goal_id": "GOAL-RECORDS",
+            "requirement_order": [
+              "REQ-PARSE",
+              "REQ-BATCH",
+              "REQ-TYPEFACE",
+              "REQ-ARCHIVE"
+            ],
+            "inventory": {
+              "state": "partial",
+              "checked_sources": [
+                {
+                  "kind": "file",
+                  "path": "docs/evidence/parser-test.txt"
+                }
+              ],
+              "unreviewed_sources": [
+                {
+                  "kind": "text",
+                  "label": "局限",
+                  "text": "合成验收项目，不对应任何真实用户项目。"
+                }
+              ]
+            }
+          },
+          "definition_sha256": null,
+          "definition_algorithm": null,
+          "body": "## [PROJECT-RECORDS] 隔离记录工具\n### 项目定位\n验证解析基础与交互批次功能的区分。\n### 盘点范围与未核对项\n只含本目录材料，尚无浏览器交互实现。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/PROJECT.md",
+            "item_id": "PROJECT-RECORDS"
+          }
+        },
+        {
+          "id": "REQ-TYPEFACE",
+          "type": "requirement",
+          "title": "导入页字号",
+          "path": "docs/product/TYPEFACE.md",
+          "line": 39,
+          "metadata": {
+            "id": "REQ-TYPEFACE",
+            "type": "requirement",
+            "scope": "current",
+            "assessment_id": null,
+            "task_bindings": [
+              {
+                "id": "B-DISMISSED-FONT",
+                "task": {
+                  "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+                  "source": {
+                    "kind": "file",
+                    "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+                  },
+                  "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                  "step_id": "S-PARSE"
+                },
+                "role": "implementation",
+                "coverage": "导入页字号切换",
+                "origin": "declared",
+                "state": "dismissed",
+                "reason": "解析函数没有任何浏览器字号或偏好存储代码，旧标题相似不足以成立关系。",
+                "sources": [
+                  {
+                    "kind": "file",
+                    "path": "docs/evidence/font-decision.md"
+                  }
+                ]
+              }
+            ]
+          },
+          "definition_sha256": "3e6e908860766c4549be4ed1d0130035a2f7eb9de57539d79d96cfa0a7804e9a",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "body": "## [REQ-TYPEFACE] 导入页字号\n### 需求内容\n提供导入页字号切换，支持14px和18px，并在重载后保持选择。\n### 范围边界\n只涉及可见文字样式；不改变文本解析格式。\n### 验收要求\n切换两种字号后截图核对；重载保留选择。\n",
+          "locator": {
+            "kind": "file",
+            "path": "docs/product/TYPEFACE.md",
+            "item_id": "REQ-TYPEFACE"
+          }
+        }
+      ],
+      "unusable_items": [],
+      "product_view": {
+        "project_id": "PROJECT-RECORDS",
+        "root_goal": {
+          "status": "resolved",
+          "id": "GOAL-RECORDS"
+        },
+        "requirement_order": [
+          "REQ-PARSE",
+          "REQ-BATCH",
+          "REQ-TYPEFACE",
+          "REQ-ARCHIVE"
+        ],
+        "unordered_requirements": [],
+        "current_relations": [],
+        "diagnostics": []
+      },
+      "assessment_selection": {
+        "selection": {
+          "target": "REQ-PARSE",
+          "goal_id": "GOAL-RECORDS",
+          "scope_id": "PARSE-BASE",
+          "subject": {
+            "kind": "working-copy",
+            "value": "/workspace/shared/binding-progress-20261014/host-scenario",
+            "revision": "parse.mjs-sha256:22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+            "limitations": "版本身份固定本范围的纯解析函数；不是全项目代码快照。复用本轮初始化时两项实际Node输出与相同源码字节；本次维护未重跑测试，无独立代码审查，未执行新三类验证。"
+          }
+        },
+        "conclusion": "satisfied",
+        "assessment_id": "AS-PARSE-BASE-HOST-20261013",
+        "reasons": [],
+        "reports": [
+          {
+            "id": "AS-PARSE-BASE-HOST-20261013",
+            "conclusion": "satisfied",
+            "usable": true,
+            "locator": {
+              "kind": "file",
+              "path": "docs/product/ASSESSMENT-PARSE-BASE.md",
+              "item_id": "AS-PARSE-BASE-HOST-20261013"
+            }
+          }
+        ],
+        "historical_reports": [],
+        "pending_reports": [],
+        "business_validity": "not-evaluated"
+      },
+      "roadmap_reconciliation": null,
+      "reverse_relations": [
+        {
+          "owner": "AS-PARSE-BASE-HOST-20261013",
+          "relation": "assessment-target",
+          "target": "REQ-PARSE"
+        }
+      ],
+      "plan_tasks": [],
+      "discussions": [],
+      "impact": null,
+      "sources": [
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/archive-note.md"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "ff87bbacf29986221a9bbc2c12e8a2db304a7a06009de0e44ffcaf65db2218f8",
+          "size": 91,
+          "file_size": 91,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/product/history/REQ-PARSE.before-contribution.md",
+            "sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+            "item_id": "REQ-PARSE"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "066be0bbd046709aa9a86685edb5b7a0b123d19db274a4cbcfe6ec76d93d52d4",
+          "requirement_definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+          "definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "size": 318,
+          "file_size": 1621,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 1303,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true,
+          "basis_checks": [
+            {
+              "assessment_id": "AS-PARSE-BASE-HOST-20261013",
+              "role": "target",
+              "expected_definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+              "actual_definition_sha256": "c54f9e16034cf93e3c17afb4f6abe0ee8e1748b927d0bd8212f8e91bd1371756",
+              "expected_definition_algorithm": "vnext-product-definition/v1",
+              "actual_definition_algorithm": "vnext-product-definition/v1",
+              "definition_alignment": "same-definition",
+              "referenced_byte_availability": "same-bytes",
+              "current_code_applicability": "not-evaluated"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/product/GOAL.md",
+            "sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+            "item_id": "GOAL-RECORDS"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "7fd4d6cd55c977f02060de6395d25622795a8f1eb6850d1c46983fc419f5f058",
+          "definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "size": 257,
+          "file_size": 639,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 382,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true,
+          "basis_checks": [
+            {
+              "assessment_id": "AS-PARSE-BASE-HOST-20261013",
+              "role": "goal",
+              "expected_definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+              "actual_definition_sha256": "c4aedb9652f764fb4eeaaa4bd3239c29a1f4f74fac091bc103ce4cd4d2bcc4e7",
+              "expected_definition_algorithm": "vnext-product-definition/v1",
+              "actual_definition_algorithm": "vnext-product-definition/v1",
+              "definition_alignment": "same-definition",
+              "referenced_byte_availability": "same-bytes",
+              "current_code_applicability": "not-evaluated"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "src/parse.mjs",
+            "sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+          "size": 343,
+          "file_size": 343,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "src/parse.test.mjs",
+            "sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "e45e0e3aef02b4c72e1723b6f3c34242fb407eafb19e2e61cf29bd0d9ed57a64",
+          "size": 369,
+          "file_size": 369,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/parser-test.txt",
+            "sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6",
+          "size": 217,
+          "file_size": 217,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+            "sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "1f376e06da4d5a4bd83fe59015606ebe23b23e2c6260070fa9cf89a15fd53835",
+          "size": 1684,
+          "file_size": 1684,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/material-origin.md",
+            "sha256": "8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "8df3238443489e825d0ba53edf4d48a12755e9489548ee2439806ad7602e3032",
+          "size": 468,
+          "file_size": 468,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684",
+          "size": 1893,
+          "file_size": 1893,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/product/history/REQ-BATCH.before-contribution.md",
+            "sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+            "item_id": "REQ-BATCH"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "d906dace0e51ba662c574596d1e3f98c950e2d9ae839f290b7e1104872c89b4c",
+          "requirement_definition_sha256": "02b5ff0fb3dc44c15fd0190fc3fc156af42a4b0d8fcacb00b9e5cddc37358452",
+          "definition_sha256": "02b5ff0fb3dc44c15fd0190fc3fc156af42a4b0d8fcacb00b9e5cddc37358452",
+          "definition_algorithm": "vnext-product-definition/v1",
+          "size": 419,
+          "file_size": 1757,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 1338,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+            "sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "2f13152c4766cceec1bcaf02d16ec255016f00004147438bd1851bcfbbd95684",
+          "size": 1893,
+          "file_size": 1893,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+            "sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "ab67e7c88ce5635ece6f0bbc803881f73c04be3aa3cfe5cf13c7a0e23d8a9f18",
+          "size": 2762,
+          "file_size": 2762,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/request-new-verification.md",
+            "sha256": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "431411a73100c726909d356c5ba23234b276fe5b075e48e5baaee9fcb8526de1",
+          "size": 356,
+          "file_size": 356,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+            "sha256": "f0fda2d71dd3fee4d0336fe166f779e26a6412889a5b1d9ac79986ecb41d110b"
+          },
+          "byte_status": "same-bytes",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "f0fda2d71dd3fee4d0336fe166f779e26a6412889a5b1d9ac79986ecb41d110b",
+          "size": 1960,
+          "file_size": 1960,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": true
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/parser-test.txt"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "470a61153acb6323f91d6bb637769d8dcf0b3751c54acb67e3ef05ac2d39daf6",
+          "size": 217,
+          "file_size": 217,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        },
+        {
+          "source": {
+            "kind": "text",
+            "label": "局限",
+            "text": "合成验收项目，不对应任何真实用户项目。"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "label": "局限",
+          "note": "Text basis is not authenticated as verbatim user speech"
+        },
+        {
+          "source": {
+            "kind": "file",
+            "path": "docs/evidence/font-decision.md"
+          },
+          "byte_status": "unknown",
+          "status": "available",
+          "diagnostics": [],
+          "fetched_remote": false,
+          "actual_sha256": "98a432f2515c735a736b1bb4b383a4cc095799b4ce42c4def37f61a4d5d9e507",
+          "size": 280,
+          "file_size": 280,
+          "storage": "loose",
+          "verification": "whole-file",
+          "locator_start_byte": 0,
+          "offset": 0,
+          "next_offset": 1,
+          "content_is_referenced_bytes": false
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "TASK_ID_UNCONFIRMED",
+          "path": "docs/product/ARCHIVE.md",
+          "message": "B-UNRESOLVED: historical task identity is unconfirmed; use its exact source",
+          "severity": "warning",
+          "item_id": "REQ-ARCHIVE",
+          "line": 30
+        },
+        {
+          "code": "BINDING_CONTRIBUTION_UNCLASSIFIED",
+          "path": "docs/product/ARCHIVE.md",
+          "message": "B-UNRESOLVED: legacy contribution is unclassified; do not infer direct work from role or task state",
+          "severity": "warning",
+          "item_id": "REQ-ARCHIVE",
+          "line": 30
+        }
+      ],
+      "coverage": {
+        "complete": true,
+        "files_read": 7,
+        "bytes_read": 14729,
+        "enumeration": "managed_paths only; sources are read only by explicit reference",
+        "omitted": [],
+        "paths": [
+          "docs/product/*.md"
+        ],
+        "excluded_paths": [],
+        "max_files": 1000,
+        "max_file_bytes": 4194304,
+        "max_total_bytes": 33554432,
+        "usable_count": 7,
+        "invalid_count": 0,
+        "selection": "all-enumerated-items",
+        "source_bodies": "byte status only; fetch selected source explicitly"
+      },
+      "task_status": "not-computed; use existing assistance only when actual task state is needed"
+    }
+  },
+  {
+    "name": "25-read-final-tasks",
+    "command": {
+      "argv": [
+        "node",
+        ".workflow-system/runtime/support/assistance.mjs",
+        "task-status",
+        "--root",
+        "/workspace/shared/binding-progress-20261014/host-scenario"
+      ],
+      "cwd": "/workspace/shared/binding-progress-20261014/host-scenario",
+      "stdin_file": "/workspace/shared/binding-progress-20261014/host-evidence/25-read-final-tasks.request.json",
+      "exit_code": 0,
+      "duration_seconds": 0.08860039710998535
+    },
+    "request": {
+      "detail": "full"
+    },
+    "response": {
+      "runtime_role": "assistance",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "kind": "task-view/v1",
+      "source_revision": "bfbc9930ca591b67fac3b2ae4b3d5052e63caeb58302a5f4b4d5f18a088be7ac",
+      "workflow_home": "docs/workflow",
+      "current_task_id": null,
+      "current_task": null,
+      "tasks": [
+        {
+          "task_id": "task-cf8aff235470d6f515e07e9b5bcbcf01",
+          "display_id": "TASK-002",
+          "title": "核验解析器三类输入行号",
+          "lifecycle": "active",
+          "lifecycle_ref": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+          "adopted_plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+          "plan_status": "adopted",
+          "plan": {
+            "title": "核验解析器三类输入行号",
+            "goal": "只验证现有 parseRecords 对空 id、空 value、多余列输入拒绝并给出正确物理行号；本轮仅准备采用，不执行业务验证。",
+            "scope": [
+              "src/parse.mjs 的现有纯解析函数",
+              "三类无效记录及物理行号验证方案"
+            ],
+            "exclusions": [
+              "修改现有解析实现",
+              "浏览器上传或交互预览",
+              "批次确认或持久化/历史查询",
+              "归档检索",
+              "字号切换",
+              "本轮执行测试或声称通过"
+            ],
+            "acceptance": [
+              "空 id 输入（id,value\\na,1\\n,2）应抛出 row 3",
+              "空 value 输入（id,value\\na,1\\nb,）应抛出 row 3",
+              "多余列输入（id,value\\na,1\\nb,2,extra）应抛出 row 3",
+              "准确区分计划、采用与实际未执行状态，保留现有两项测试的历史范围"
+            ],
+            "steps": [
+              {
+                "id": "S-VERIFY-INPUTS",
+                "title": "针对三类无效行分别断言行号",
+                "environment": [
+                  "host-scenario 隔离 Node 环境；后续执行需另有授权"
+                ],
+                "validation": [
+                  "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+                  "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+                ]
+              }
+            ],
+            "ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+            "parent_plan_ref": null
+          },
+          "plans": [
+            {
+              "title": "核验解析器三类输入行号",
+              "goal": "只验证现有 parseRecords 对空 id、空 value、多余列输入拒绝并给出正确物理行号；本轮仅准备采用，不执行业务验证。",
+              "scope": [
+                "src/parse.mjs 的现有纯解析函数",
+                "三类无效记录及物理行号验证方案"
+              ],
+              "exclusions": [
+                "修改现有解析实现",
+                "浏览器上传或交互预览",
+                "批次确认或持久化/历史查询",
+                "归档检索",
+                "字号切换",
+                "本轮执行测试或声称通过"
+              ],
+              "acceptance": [
+                "空 id 输入（id,value\\na,1\\n,2）应抛出 row 3",
+                "空 value 输入（id,value\\na,1\\nb,）应抛出 row 3",
+                "多余列输入（id,value\\na,1\\nb,2,extra）应抛出 row 3",
+                "准确区分计划、采用与实际未执行状态，保留现有两项测试的历史范围"
+              ],
+              "steps": [
+                {
+                  "id": "S-VERIFY-INPUTS",
+                  "title": "针对三类无效行分别断言行号",
+                  "environment": [
+                    "host-scenario 隔离 Node 环境；后续执行需另有授权"
+                  ],
+                  "validation": [
+                    "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+                    "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+                  ]
+                }
+              ],
+              "ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+              "parent_plan_ref": null
+            }
+          ],
+          "adopted_by": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json",
+          "adoption": {
+            "plan_ref": ".workflow-system/records/events/key-2d5c77ae1e0c508fbad26d4d1e7a97b43aaab4dfcacfced0a215bd1944da81c1.json",
+            "focus": false,
+            "decision_source": "docs/evidence/request-new-verification.md；本轮隔离宿主行为验收 assignment",
+            "decision_text": "按隔离请求准备并实际采用只核验现有纯解析函数空id、空value、多余列错误行号的任务；本轮不执行测试，不改变旧Task的生命周期或焦点。该决定来自合成验收授权，不是真实用户业务采用。",
+            "activate": true,
+            "ref": ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json"
+          },
+          "candidate_plan_refs": [],
+          "current_step_id": "S-VERIFY-INPUTS",
+          "steps": [
+            {
+              "id": "S-VERIFY-INPUTS",
+              "title": "针对三类无效行分别断言行号",
+              "environment": [
+                "host-scenario 隔离 Node 环境；后续执行需另有授权"
+              ],
+              "validation": [
+                "后续获授权后，用 node:assert/strict 逐例调用现有 parseRecords，断言准确 row 3；本轮不运行",
+                "既有缺 value 的 row 2 用例作为已读历史证据，不复制为三类新验证通过"
+              ],
+              "state": "not-started",
+              "legacy_step_status": null,
+              "execution_ref": null,
+              "execution": null,
+              "review_ref": null,
+              "review_status": "not-reviewed",
+              "findings": [],
+              "review_choice": null,
+              "review_decision_ref": null,
+              "review_decisions": [],
+              "tests": [],
+              "disposition_ref": null,
+              "historical_execution_refs": []
+            }
+          ],
+          "reviews": [],
+          "executions": [],
+          "tests": [],
+          "review_decisions": [],
+          "commits": [],
+          "dispositions": [],
+          "next_route": "execute-step",
+          "next_mode": null,
+          "next_action": "implement-step",
+          "recommendation_only": true,
+          "origin": null,
+          "dependency": {
+            "state": "not-applicable",
+            "ref": null
+          },
+          "return_entry": null,
+          "return_result": null,
+          "dependencies": [],
+          "waiting_on_task_ids": [],
+          "continuation": null,
+          "legacy_source": null,
+          "legacy_plan_ref": null,
+          "legacy_plan": null,
+          "heads": [
+            ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json"
+          ]
+        },
+        {
+          "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+          "display_id": "TASK-001",
+          "title": "记录导入基础",
+          "lifecycle": "closed",
+          "lifecycle_ref": ".workflow-system/records/events/key-bae65d30634220016e6c809cfe572f548ae70083940ff60585cddc1b4fd06038.json",
+          "adopted_plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+          "plan_status": "adopted",
+          "plan": {
+            "title": "记录导入基础",
+            "goal": "提供纯函数解析器，接受固定 id,value 头和无引号逗号分隔行，保留每行 id/value；不完整行抛出行号。",
+            "scope": [
+              "src/parse.mjs",
+              "src/parse.test.mjs"
+            ],
+            "exclusions": [
+              "浏览器界面",
+              "上传文件",
+              "批次列表",
+              "权限控制",
+              "真实业务项目"
+            ],
+            "acceptance": [
+              "有效两行保留字段",
+              "缺失value报告行号"
+            ],
+            "steps": [
+              {
+                "id": "S-PARSE",
+                "title": "实现并测试纯函数",
+                "environment": [
+                  "isolated Node"
+                ],
+                "validation": [
+                  "node --test src/parse.test.mjs"
+                ]
+              }
+            ],
+            "ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+            "parent_plan_ref": null
+          },
+          "plans": [
+            {
+              "title": "记录导入基础",
+              "goal": "提供纯函数解析器，接受固定 id,value 头和无引号逗号分隔行，保留每行 id/value；不完整行抛出行号。",
+              "scope": [
+                "src/parse.mjs",
+                "src/parse.test.mjs"
+              ],
+              "exclusions": [
+                "浏览器界面",
+                "上传文件",
+                "批次列表",
+                "权限控制",
+                "真实业务项目"
+              ],
+              "acceptance": [
+                "有效两行保留字段",
+                "缺失value报告行号"
+              ],
+              "steps": [
+                {
+                  "id": "S-PARSE",
+                  "title": "实现并测试纯函数",
+                  "environment": [
+                    "isolated Node"
+                  ],
+                  "validation": [
+                    "node --test src/parse.test.mjs"
+                  ]
+                }
+              ],
+              "ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+              "parent_plan_ref": null
+            }
+          ],
+          "adopted_by": ".workflow-system/records/events/key-27639231d68ee44c6044cd46e07d74a1a2de5bc320a4cae90cff5c3cf871c9c5.json",
+          "adoption": {
+            "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+            "decision_source": "本次BINDING-PROGRESS隔离验收设计（协调Agent）",
+            "decision_text": "在隔离合成项目采用该计划；不是用户真实业务任务或用户原话。",
+            "activate": true,
+            "focus": true,
+            "ref": ".workflow-system/records/events/key-27639231d68ee44c6044cd46e07d74a1a2de5bc320a4cae90cff5c3cf871c9c5.json"
+          },
+          "candidate_plan_refs": [],
+          "current_step_id": null,
+          "steps": [
+            {
+              "id": "S-PARSE",
+              "title": "实现并测试纯函数",
+              "environment": [
+                "isolated Node"
+              ],
+              "validation": [
+                "node --test src/parse.test.mjs"
+              ],
+              "state": "executed",
+              "legacy_step_status": null,
+              "execution_ref": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+              "execution": {
+                "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+                "step_id": "S-PARSE",
+                "source_revision": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+                "result": "已写纯函数及两项Node测试；实际执行两项均通过。未实现UI或批次列表。",
+                "commands": [
+                  "node --test src/parse.test.mjs"
+                ],
+                "ref": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+                "interpretation_ref": null
+              },
+              "review_ref": null,
+              "review_status": "not-reviewed",
+              "findings": [],
+              "review_choice": null,
+              "review_decision_ref": null,
+              "review_decisions": [],
+              "tests": [],
+              "disposition_ref": null,
+              "historical_execution_refs": []
+            }
+          ],
+          "reviews": [],
+          "executions": [
+            {
+              "plan_ref": ".workflow-system/records/events/key-a4cef41a59372c4358f03c43ce72525e8f6d0cdf0c27d86bb33f967b77462243.json",
+              "step_id": "S-PARSE",
+              "source_revision": "22668d3cdcad69a4de72a4b060388467a0138f5a5da427f64aa13b092e882e87",
+              "result": "已写纯函数及两项Node测试；实际执行两项均通过。未实现UI或批次列表。",
+              "commands": [
+                "node --test src/parse.test.mjs"
+              ],
+              "ref": ".workflow-system/records/events/key-330a7e094077b3c212ed22c71ecfc82ff9fef9efe1dcc5dd3c810d51c15bbf6e.json",
+              "interpretation_ref": null
+            }
+          ],
+          "tests": [],
+          "review_decisions": [],
+          "commits": [],
+          "dispositions": [
+            {
+              "remaining_work": [],
+              "gaps": [
+                "仅是隔离解析器验证，没有UI或真实业务验收，没有独立代码审查。"
+              ],
+              "decision_source": "本次隔离验收设计（协调Agent）",
+              "decision_text": "关闭已执行的隔离解析器任务，保留其范围和验证局限。",
+              "ref": ".workflow-system/records/events/key-bae65d30634220016e6c809cfe572f548ae70083940ff60585cddc1b4fd06038.json",
+              "action": "close"
+            }
+          ],
+          "next_route": null,
+          "next_mode": null,
+          "next_action": null,
+          "recommendation_only": true,
+          "origin": null,
+          "dependency": {
+            "state": "not-applicable",
+            "ref": null
+          },
+          "return_entry": null,
+          "return_result": null,
+          "dependencies": [],
+          "waiting_on_task_ids": [],
+          "continuation": null,
+          "legacy_source": null,
+          "legacy_plan_ref": null,
+          "legacy_plan": null,
+          "heads": [
+            ".workflow-system/records/events/key-bae65d30634220016e6c809cfe572f548ae70083940ff60585cddc1b4fd06038.json"
+          ]
+        }
+      ],
+      "focus": {
+        "task_id": "task-0102c3bd2813bcffa3e597e327d47300",
+        "ref": ".workflow-system/records/events/key-27639231d68ee44c6044cd46e07d74a1a2de5bc320a4cae90cff5c3cf871c9c5.json",
+        "conflict": null
+      },
+      "next_task_id": null,
+      "next_step_id": null,
+      "next_route": null,
+      "next_mode": null,
+      "next_action": null,
+      "issues": [],
+      "unassociated_records": [],
+      "health": "consistent",
+      "recovery_options": [
+        "rebuild",
+        "link",
+        "correct",
+        "resolve",
+        "defer",
+        "pause",
+        "close"
+      ],
+      "heads": [
+        ".workflow-system/records/events/key-cc83bf947166637306b4af546373097d59f67e6ec6637596d14900f7f1e1a144.json"
+      ],
+      "records_scanned": 6,
+      "state_completeness": "complete",
+      "view_revision": "0ae25a24061fdcae3da5460118b1dc53fe65d22c4f37d0f7d8033f07486a01b7",
+      "display_revision": "ef1c178137f60b7d7561dc289728413386bd7bc05aec46f4ce08b3dae3400dbf",
+      "status": "available",
+      "projection": {
+        "cache": "current",
+        "display": "current",
+        "display_format": "v2",
+        "display_comparison": "semantic-content",
+        "read_only_rebuilt": true
+      },
+      "note": "Computed from retained facts, not a stale CURRENT_TASK or a first page of search hits. Display freshness compares displayed meaning; retained v1 revision stamps are historical. A partial association is reported, never interpreted as approval or absence of work."
+    }
+  }
+]

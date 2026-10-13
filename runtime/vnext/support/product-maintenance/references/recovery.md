@@ -13,6 +13,25 @@ only the relevant document/manifest in already granted scope, preserving content
 and IDs. Other v1 files stay readable; unsupported versions retain raw locators.
 No full-history migration or silent field aliases. Two worktrees remain separate.
 
+For contribution maintenance use binding-contribution.md and explicit migrate=v5
+only on affected files. v1–v4 schemas remain fixed; v5 inherits the v4 Roadmap baseline
+and the same v3/v4/v5 business definition algorithm. A v3 Goal, v5 Requirement and v4
+Roadmap may coexist without migrating all files or the plan. Preserve IDs, old scopes,
+reports and unreviewed bindings lacking classification. Unknown future versions retain
+raw locators and unsupported diagnostics; an old writer must not receive a v5 field
+under v4. Report unavailable format support, with independent work still permitted.
+
+New/reclassified v5 relations need actual coverage, reason and sources under the
+shared method; missing evidence means abstain from new binding and keep old unknowns.
+An unchanged historical reference+direct is diagnosed, not auto-fixed. Reclassification
+keeps the same binding ID and necessary old basis, never a duplicate active row.
+Before retry read successes and dismissed history; changed contribution, a fresh ID
+or reworded reason cannot revive an equivalent dismissed relation. A genuinely new
+basis or explicit current reversal is handled once through existing protections.
+Pure migration or an unrelated field edit does not force semantic cleanup of neighbors.
+No-change rejudgment/read/check creates no new timestamp, snapshot or same-result report.
+
+
 On malformed individual metadata retain original bytes and report exact item,
 pointer/line; read unaffected entries. On file encoding/frontmatter errors use its
 raw source or ordinary authorized tools. Correct format while preserving actual
