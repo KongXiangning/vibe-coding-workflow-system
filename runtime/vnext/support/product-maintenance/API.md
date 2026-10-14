@@ -22,6 +22,30 @@ source positions. `impact_ids=[...]` finds direct candidates for host-model judg
 not transitive invalidation. Scope selection never claims unenumerated files checked.
 `paths=[...]` limits managed enumeration; cross-object completeness is then unknown.
 
+Scoped reads with `item_ids` selecting requirements/assessments, or with an
+`assessment_query`, also return `impact` by default. Explicit `impact_ids` overrides
+those seeds (an empty array requests no candidates). Discovery includes direct
+relations/work items, shared active known Task IDs, and matching scoped file or
+non-Markdown implementation/data references. Unscoped business Markdown and a
+shared goal alone do not expand to all its requirements. Assessment seeds also
+use their actual target's bindings/sources. Each candidate retains reasons and a
+locator; coverage and unresolved seeds remain visible. No source body, Runtime
+journal or model is scanned, and no conclusion or dependency is inferred.
+
+Use the local impact procedure in `references/reconcile.md` for new counterevidence:
+read candidate obligations, reconcile actual affected scopes or persist their exact
+source in existing `pending_sources`; return unsaved/out-of-authority locators.
+No candidates is not proof that semantic impact is absent.
+
+Read/check and candidate check/apply report `ASSESSMENT_BODY_COPY` warnings when
+the same target has matching substantive full report bodies (root ID/title and
+newline style ignored). Precisely different v3+ scope/object identities are not
+classified as copies. Saving remains allowed; the helper never chooses a winner,
+merges independent observations, deletes history or changes scope selection.
+Keep one detailed report per actual evaluation scope/object, with brief links on
+navigation and legacy summary surfaces. Inspect possible independent objects
+before treating matching text as a mirror. Read back both content and selection.
+
 ### v3 product view and scoped assessment selection (VN-03)
 
 `read.product_view` adds `root_goal: {status,id}`, `requirement_order`,

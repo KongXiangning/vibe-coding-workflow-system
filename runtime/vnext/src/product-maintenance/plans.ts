@@ -1,4 +1,4 @@
-import { diagnostic, type Catalog, type Item, type ObjectValue } from './model';
+import { diagnostic, type Catalog, type Diagnostic, type Item, type ObjectValue } from './model';
 import { allowed, relativePath } from './paths';
 
 export function collectSources(value: any): ObjectValue[] {
@@ -160,7 +160,90 @@ export function planTasks(catalog: Catalog): ObjectValue[] {
 }
 export function impactCandidates(catalog: Catalog, ids: string[]): ObjectValue {
   const relations = reverseRelations(catalog);
-  return { seeds: ids, scope: 'direct-candidates-only', candidates: catalog.items.filter(i => i.usable && (ids.includes(i.id) || relations.some(r => (ids.includes(r.owner) && r.target === i.id) || (ids.includes(r.target) && r.owner === i.id)) || (i.type === 'plan' && i.metadata.work_items.some((w: any) => w.targets.some((t: any) => ids.includes(t.target)))))).map(i => ({ id: i.id, type: i.type, path: i.path, title: i.title, relations: relations.filter(r => r.owner === i.id || r.target === i.id), task_bindings: i.metadata.task_bindings ?? [] })), judgment: 'Agent must read candidate content and decide actual impact; references/inferred links do not imply strong dependency or project-wide invalidation' };
+  const seeds = ids.flatMap(id => {
+    const item = catalog.byId.get(id);
+    if (!item) return [];
+    const target = item.type === 'assessment' ? catalog.byId.get(item.metadata.target) : undefined;
+    return target ? [item, target] : [item];
+  });
+  const candidates = [];
+  for (const item of catalog.items.filter(i => i.usable)) {
+    const reasons: ObjectValue[] = [];
+    if (ids.includes(item.id)) reasons.push({ kind: 'selected-item' });
+    for (const relation of relations) {
+      if ((ids.includes(relation.owner) && relation.target === item.id) || (ids.includes(relation.target) && relation.owner === item.id)) {
+        reasons.push({ kind: 'relation', relation });
+      }
+    }
+    if (item.type === 'plan' && item.metadata.work_items.some((w: any) => w.targets.some((t: any) => ids.includes(t.target)))) reasons.push({ kind: 'work-item-target' });
+    if (item.type === 'requirement' || item.type === 'goal') {
+      for (const seed of seeds) {
+        if (seed.id === item.id) continue;
+        const seedBindings = (seed.metadata.task_bindings ?? []).filter((b: any) => b.state === 'active');
+        for (const binding of item.metadata.task_bindings ?? []) {
+          if (binding.state !== 'active' || !binding.task.task_id) continue;
+          const shared = seedBindings.filter((b: any) => b.task.task_id === binding.task.task_id);
+          for (const original of shared) reasons.push({ kind: 'shared-task', seed_id: seed.id, task_id: binding.task.task_id, seed_binding_id: original.id, binding_id: binding.id });
+        }
+        const seedSources = implementationSources(seed);
+        for (const source of implementationSources(item)) {
+          if (seedSources.some(s => sourceKey(s) === sourceKey(source))) reasons.push({ kind: 'shared-source', seed_id: seed.id, source });
+        }
+      }
+    }
+    if (reasons.length) candidates.push({ id: item.id, type: item.type, path: item.path, title: item.title, locator: { kind: 'file', path: item.path, item_id: item.id },
+      reasons: [...new Map(reasons.map(reason => [JSON.stringify(reason), reason])).values()],
+      relations: relations.filter(r => r.owner === item.id || r.target === item.id), task_bindings: item.metadata.task_bindings ?? [] });
+  }
+  return { seeds: ids, scope: 'direct-candidates-only', coverage: { complete: catalog.coverage.complete, paths: catalog.coverage.paths, omitted: catalog.coverage.omitted },
+    unresolved_seeds: ids.filter(id => !catalog.byId.has(id)), candidates,
+    judgment: 'Read candidate obligations and actual evidence before judging impact. Shared tasks/sources are discovery hints, not dependencies, consent or invalidation. Unrecorded relationships may still require local semantic lookup.' };
+}
+
+function implementationSources(item: Item): ObjectValue[] {
+  const bindings = (item.metadata.task_bindings ?? []).filter((b: any) => b.state === 'active');
+  return collectSources([item.metadata.sources, item.metadata.pending_sources, bindings.map((b: any) => [b.task.source, b.sources])])
+    .filter(source => source.kind === 'file' && (source.item_id || source.section || source.lines || !/\.md$/i.test(source.path)));
+}
+
+function sourceKey(source: ObjectValue): string {
+  // Paths locate candidates across revisions; byte applicability is checked later.
+  return JSON.stringify([source.path, source.item_id ?? null, source.section ?? null, source.lines ? [source.lines.start, source.lines.end] : null]);
+}
+
+export function assessmentCopyDiagnostics(items: Item[]): Diagnostic[] {
+  const groups = new Map<string, Item[]>();
+  for (const item of items.filter(i => i.usable && i.type === 'assessment')) {
+    // The parser already identified the root heading. Ignore its ID/title only;
+    // retain all substantive text, including scope, object and evidence limits.
+    const body = item.body.replace(/\r\n|\r/g, '\n').replace(/^##[^\n]*\n/, '').trim();
+    if (!body) continue;
+    const key = JSON.stringify([item.metadata.target, body]);
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
+  }
+  const diagnostics: Diagnostic[] = [];
+  for (const group of groups.values()) {
+    for (const item of group) {
+      const identity = evaluationIdentity(item);
+      const copies = group.filter(other => {
+        const otherIdentity = evaluationIdentity(other);
+        return other !== item && (!identity || !otherIdentity || identity === otherIdentity);
+      });
+      if (!copies.length) continue;
+      diagnostics.push(diagnostic('ASSESSMENT_BODY_COPY', item.path,
+        `Matching assessment body also occurs in ${copies.map(other => `${other.path}#${other.id}`).join(', ')}. Keep independent observations; use summary links for mirrors of one current report. No automatic merge or invalidation.`,
+        { item_id: item.id, line: item.line }));
+    }
+  }
+  return diagnostics;
+}
+
+function evaluationIdentity(item: Item): string | null {
+  if ((item.version ?? 0) < 3) return null;
+  const { applicability, subject } = item.metadata;
+  return JSON.stringify([applicability.goal_id, applicability.scope_id, subject.kind, subject.value, subject.revision ?? null]);
 }
 export function recallDiscussions(catalog: Catalog, ids: string[]): ObjectValue[] {
   return catalog.items.filter(i => i.usable && i.type === 'discussion' && i.metadata.record_state === 'active' && i.metadata.links?.some((l: any) => l.relation === 'discusses' && l.state === 'active' && ids.includes(l.target))).map(i => ({ id: i.id, title: i.title, path: i.path, summary: i.sections['整理摘要']?.[0]?.text ?? '', raw_ref: i.metadata.raw_ref, links: i.metadata.links, adopted: false }));

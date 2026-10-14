@@ -83,16 +83,30 @@ Before invoking the `bootstrap-project` Agent Skill, that command returns
 
 ## Project goals and requirements maintenance
 
-The local `0.24.0` candidate includes `maintain-project` for goals, requirements,
-designs, implementation plans, task bindings, discussions, and delivery reconciliation.
-See [the usage guide](docs/guides/maintain-project.md) and
-[the implementation and delivery evidence](docs/ops/vnext-project-maintenance-delivery.md).
-Implementation Roadmap keeps the internal `plan` interface and adds a v4 reviewed
-scope/version baseline for first and ongoing planning. See the
-[Roadmap contract and example](docs/product/project-maintenance/examples/roadmap-reconciliation.md)
-and [validation scope](docs/ops/vnext-roadmap-validation.md).
-The candidate has not been published; installation alone does not enable product
-maintenance or create business documents.
+Current source version `0.24.11` includes `maintain-project` for goals, requirements,
+designs, Implementation Roadmaps, task bindings, discussions, and scoped delivery
+reconciliation. Start with [the usage guide](docs/guides/maintain-project.md):
+
+- [项目实施路线图与一致性方案](docs/guides/maintain-project.md#项目实施路线图与一致性方案):
+  initialize full or local Roadmaps from existing requirements, retain stable work
+  identities, and compare current members, definitions and arrangements with an
+  actually reviewed v4/v5 baseline. Alignment does not certify delivery or create
+  future Tasks. See the [contract and example](docs/product/project-maintenance/examples/roadmap-reconciliation.md)
+  and [validation scope](docs/ops/vnext-roadmap-validation.md).
+- [需求实施关联与进度聚焦方案](docs/guides/maintain-project.md#需求实施关联与进度聚焦方案):
+  record owner-specific direct or supporting contribution in v5, rejudge historical
+  bindings under their original identities, and keep arranged work, actual activity
+  and scoped delivery separate. Missing historical classification stays pending;
+  new bindings require actual coverage and sources. See the [shared judgment method](runtime/vnext/support/product-maintenance/references/binding-contribution.md),
+  [example](docs/product/project-maintenance/examples/binding-contribution.md) and
+  [validation scope](docs/ops/binding-progress-v5-validation.md).
+
+Document formats v1–v5 remain readable under their own contracts; writing new
+fields requires explicit migration of the affected file. Manifest remains v2.
+This source version and local artifacts do not establish an npm publication or a
+target-project installation. Installation alone does not enable product maintenance
+or create business documents. The [original maintenance delivery evidence](docs/ops/vnext-project-maintenance-delivery.md)
+and later validation records retain their respective historical scopes.
 
 ## Source-development and legacy tooling
 

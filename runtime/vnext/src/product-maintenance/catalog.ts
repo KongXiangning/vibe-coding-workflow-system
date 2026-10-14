@@ -4,7 +4,7 @@ import { diagnostic, type Catalog, type ObjectValue } from './model';
 import { decode, definitionAlgorithm, parseProduct, requirementDigest, sha256, strictYaml } from './parser';
 import { allowed, enumerate, matches, relativePath, safePath } from './paths';
 import { manifestSchema, validate } from './schemas';
-import { analyze } from './plans';
+import { analyze, assessmentCopyDiagnostics } from './plans';
 
 export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog {
   const root = fs.realpathSync(path.resolve(rootInput));
@@ -94,6 +94,7 @@ export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog
   }
   if (projects.length !== 1 || projects[0]?.path !== manifest.entry) catalog.diagnostics.push(diagnostic('PROJECT_ENTRY', manifestPath, 'Expected a unique project entry in the manifest entry document'));
   analyze(catalog);
+  catalog.diagnostics.push(...assessmentCopyDiagnostics(catalog.items));
   catalog.coverage = { ...catalog.coverage, omitted: [...new Set(catalog.coverage.omitted)], complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter(i => i.usable).length, invalid_count: catalog.items.filter(i => !i.usable).length };
   return catalog;
 }

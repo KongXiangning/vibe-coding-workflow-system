@@ -35,6 +35,66 @@ code snapshot. Different subjects/inputs explain distinct results, not automatic
 mixed. Unknown is valid; other reported labels need actual source and exact coverage.
 Repeated unchanged read/check does not append assessments or timestamps.
 
+## New counterevidence: finish the local impact pass
+
+Treat this as part of normal reassessment, including a request naming only one
+requirement. After saving the new observation once, read the selected requirement
+and inspect helper `impact` hints. Scoped item/assessment reads include them by
+default; explicit `impact_ids` selects the seed. Candidates include direct links,
+shared active Task identities and scoped/code file sources, even without a declared
+requirement dependency. A shared overall goal or unscoped business Markdown alone
+is not a reason to evaluate every requirement. Hints never certify actual impact.
+
+Read candidate definitions and existing reports, then map the observed behavior to
+their concrete obligations. Also use the known implementation entry and actual
+input/output when metadata cannot locate a relevant requirement; no candidate is
+not proof of no impact. Preserve no-impact/unknown judgments with their reasons in
+the original report's impact section, without a second observation database.
+
+For each directly affected scope, save a local reconciliation or add the exact
+new SourceRef to the applicable report's `pending_sources`. Reuse the original
+probe/log bytes and report unknown version/input applicability; do not rerun work,
+create TaskBindings, change acceptance or erase older results. If no applicable
+report exists, retain the requirement/scope/evidence locator and missing declaration
+in the originating report. If maintenance is read-only, paused, deferred, outside
+authority, conflicted or unread, return those precise pending locators and save only
+within existing authority. A related save failure does not undo the main report.
+
+Example: an empty MD aborts judicial directory import before per-item results.
+Record it against judicial handling and check batch import's per-item terminal and
+failure-isolation obligations. An older batch PASS cannot hide this counterexample;
+persist pending evidence there if full reconciliation is deferred. A name containing
+a type keyword does not automatically invalidate an unrelated Evidence coordinate
+contract. Explain the actual affected behavior, not transitive graph reachability.
+
+Read back each saved affected report/pending source separately. Return evaluated,
+no-impact, pending and unsaved direct scopes; a main report saved/selectable alone
+does not mean its known impact has been handled. Do not recursively reevaluate the
+project or turn unfinished maintenance into a development gate.
+
+## One detailed assessment and linked summaries
+
+Before saving, choose the existing applicable detailed report or create one independent
+scope/object report using the current contract. Preserve distinct objects, runs,
+failures and scopes; reuse a report for unchanged reads, and use explicit same-location
+supersession when its conclusion is replaced. Do not choose by filename or recency.
+
+Keep the complete functional-point table, acceptance checks, evidence/limits and
+remaining work in that report only. PROJECT and existing progress/implementation
+reports may retain a short coverage/result/pending summary and a Markdown/SourceRef
+link to the detailed item. Do not paste the full new report into those old surfaces
+or refresh their checked_at/verification as if an additional evaluation occurred.
+Use existing links/SourceRefs, not a new required summary schema or report registry.
+
+Helper `ASSESSMENT_BODY_COPY` is a read/check/apply warning for matching full bodies
+on the same target. Inspect the actual objects before treating them as mirrors;
+independent factual reports remain separate. For an authorized mirrored current
+surface, preserve its old bytes via existing history/preimage and maintain only
+the brief summary/link. Do not delete historical duplicates, edit frozen files,
+auto-merge reports or shorten independent evidence merely to clear the warning.
+Read the saved detailed report and each navigation/summary back. Only those selected
+reports and actual new impact are maintained; unrelated summaries stay untouched.
+
 E6: one requirement, original E6A/B/C plan work items, actual task/step refs where
 they exist. After A/B disposition, an external import failure can insert E6R with
 origin=added, problem source, original requirement coverage, repair binding to A

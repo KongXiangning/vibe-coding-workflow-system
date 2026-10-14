@@ -3,7 +3,7 @@ import { readCatalog } from './catalog';
 import { diagnostic, type ObjectValue } from './model';
 import { decode, parseProduct, strictYaml } from './parser';
 import { allowed } from './paths';
-import { impactCandidates, planTasks, recallDiscussions, reverseRelations } from './plans';
+import { assessmentCopyDiagnostics, impactCandidates, planTasks, recallDiscussions, reverseRelations } from './plans';
 import { readSource, resolveSources } from './references';
 import { manifestSchema, requestSchema, validate } from './schemas';
 import { apply, capture } from './writer';
@@ -30,13 +30,22 @@ export function run(action: string, root: string, input: ObjectValue = {}): Obje
     if (action === 'read') {
       if (input.source) return { ...envelope, root: catalog.root, project_id: catalog.manifest?.project_id ?? null, ...readSource(catalog, input.source, input) };
       const selected = catalog.items.filter(i => !input.item_ids || input.item_ids.includes(i.id));
+      let impactIds = input.impact_ids;
+      if (impactIds === undefined) {
+        if (input.item_ids) {
+          impactIds = input.item_ids.filter((id: string) => {
+            const item = catalog.byId.get(id);
+            return !item || ['requirement', 'assessment'].includes(item.type);
+          });
+        } else impactIds = input.assessment_query ? [input.assessment_query.target] : [];
+      }
       return { ...envelope, status: catalog.status, project_id: catalog.manifest?.project_id ?? null, working_copy: { root: catalog.root, identity: path.resolve(catalog.root) }, read_at: new Date().toISOString(), manifest: catalog.manifest, manifest_path: catalog.manifest_path, manifest_sha256: catalog.manifest_sha256,
         documents: catalog.documents.map(d => ({ path: d.path, sha256: d.sha256, schema: d.schema, usable_count: d.items.filter(i => i.usable).length, raw_locator: { kind: 'file', path: d.path } })),
         usable_items: selected.filter(i => i.usable).map(i => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, definition_algorithm: i.definition_algorithm ?? null, ...(input.detail === 'items' ? { body: i.body } : {}), ...(i.type === 'discussion' ? { summary: i.sections['整理摘要']?.[0]?.text ?? '' } : {}), locator: { kind: 'file', path: i.path, item_id: i.id } })),
         unusable_items: selected.filter(i => !i.usable).map(i => ({ id: i.id ?? null, type: i.type ?? null, path: i.path, line: i.line, diagnostics: i.diagnostics, raw_locator: { kind: 'file', path: i.path }, ...(input.detail === 'items' ? { body: i.body } : {}) })),
         product_view: productView(catalog), assessment_selection: input.assessment_query ? selectAssessment(catalog, input.assessment_query, input) : null,
         roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog, input.roadmap_query) : null,
-        reverse_relations: reverseRelations(catalog), plan_tasks: planTasks(catalog), discussions: input.discussion_targets ? recallDiscussions(catalog, input.discussion_targets) : [], impact: input.impact_ids ? impactCandidates(catalog, input.impact_ids) : null,
+        reverse_relations: reverseRelations(catalog), plan_tasks: planTasks(catalog), discussions: input.discussion_targets ? recallDiscussions(catalog, input.discussion_targets) : [], impact: impactIds.length || input.impact_ids ? impactCandidates(catalog, impactIds) : null,
         sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [], diagnostics: catalog.diagnostics, coverage: { ...catalog.coverage, selection: input.item_ids ?? 'all-enumerated-items', source_bodies: input.resolve_sources ? 'byte status only; fetch selected source explicitly' : 'not-read' }, task_status: 'not-computed; use existing assistance only when actual task state is needed' };
     }
     if (action === 'check') {
@@ -49,7 +58,8 @@ export function run(action: string, root: string, input: ObjectValue = {}): Obje
         }
         if (!catalog.manifest || !allowed(catalog.manifest, input.path, 'managed')) throw new Error('CHECK_OUT_OF_RANGE: candidate is outside managed_paths');
         const doc = parseProduct(input.content, input.path);
-        return { ...envelope, status: doc.diagnostics.some(d => d.severity === 'error') ? 'invalid' : 'valid', schema: doc.schema, usable_items: doc.items.filter(i => i.usable).map(i => i.id), diagnostics: doc.diagnostics, business_validity: 'not-evaluated' };
+        const diagnostics = [...doc.diagnostics, ...assessmentCopyDiagnostics([...catalog.items.filter(i => i.path !== input.path), ...doc.items]).filter(d => d.path === input.path)];
+        return { ...envelope, status: diagnostics.some(d => d.severity === 'error') ? 'invalid' : 'valid', schema: doc.schema, usable_items: doc.items.filter(i => i.usable).map(i => i.id), diagnostics, business_validity: 'not-evaluated' };
       }
       return { ...envelope, status: catalog.status !== 'available' ? catalog.status : !catalog.coverage.complete || catalog.diagnostics.some(d => d.severity === 'error') ? 'partial' : 'checked', diagnostics: catalog.diagnostics, coverage: catalog.coverage, sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [], roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog, input.roadmap_query) : null, business_validity: 'not-evaluated' };
     }

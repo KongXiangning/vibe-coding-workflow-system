@@ -88,6 +88,16 @@ recoverable batches, reporting read/judged/unread/unsaved scope. Preserve real T
 old unknown bindings and failures; never invent old Tasks or shrink requirements to code.
 No new mode, per-edge approval or mandatory all-project cleanup is introduced.
 
+For every new failure or counterexample, follow reconcile.md's local impact pass
+before declaring maintenance complete: inspect shared implementation/task candidates,
+read their actual obligations, and reconcile directly affected reports or retain the
+new source as pending. A local request does not justify silently losing a known direct
+impact. Read-only/deferred/out-of-scope work returns exact pending locators instead.
+Keep one detailed report per assessed scope/object. Existing progress/implementation
+surfaces retain brief summaries and links, not another copy of the full report.
+Check helper impact hints, copy diagnostics and scoped readback; none judges business
+truth or grants permission. Ordinary requests need no additional prompt checklist.
+
 Read the relevant index, actual candidate bodies and needed sources before making
 business judgments. Keep current/planned/candidate/retired requirements, delivered
 current capability, unclassified requirements and unreviewed sources visible.

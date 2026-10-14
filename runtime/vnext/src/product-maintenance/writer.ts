@@ -8,6 +8,7 @@ import { type Catalog, type Item, type ObjectValue, type ProductDocument, type P
 import { decode, parseProduct, sha256, strictYaml } from './parser';
 import { allowed, matches, relativePath, safePath } from './paths';
 import { manifestSchema, validate } from './schemas';
+import { assessmentCopyDiagnostics } from './plans';
 import { assertBaseline } from './roadmaps';
 
 export function frozen(root: string, relative: string, original?: Buffer): void {
@@ -438,7 +439,8 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
         if (previous && (parsed.version ?? 0) < (previous.version ?? 0)) throw new Error('VERSION_DOWNGRADE: preserve fields and history');
         if (previous && parsed.version !== previous.version && operation.migrate !== `v${parsed.version}`) throw new Error(`MIGRATION_REQUIRED: explicitly select migrate=v${parsed.version} for this document`);
         next.affected = validateProductCandidate(previous, parsed, operation, next.affected, catalog);
-        diagnostics = parsed.diagnostics;
+        diagnostics = [...parsed.diagnostics, ...assessmentCopyDiagnostics([...catalog.items.filter(i => i.path !== operation.path), ...parsed.items])
+          .filter(d => d.path === operation.path && next.affected.includes(d.item_id!))];
         newRequirements = parsed.items.filter(i => i.type === 'requirement' && i.usable && !previous?.items.some(old => old.id === i.id));
         explicitOrder ||= suppliesOrder(operation, parsed);
         baselinePlans = parsed.items.filter(i => i.usable && i.type === 'plan' && i.metadata.planning_baseline

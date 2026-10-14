@@ -40,14 +40,20 @@ be withdrawn with its failure retained; if that failure affects remaining capabi
 describe that actual scope. Never require repairing retired scope before honoring
 new intent, stopping or continuing other authorized work.
 
-For v3 keep root_goal_id an explicit project choice and current part_of/supports
+For v3/v4/v5 keep root_goal_id an explicit project choice and current part_of/supports
 relations distinct from dependencies and historical replaces/derived_from. Adding
 a child retains the parent's identity/scope by default; real replacement needs
 explicit withdrawn coverage and the corresponding old scope/relations changed,
 not just a replaces edge. Preserve any other goal the old item still supports.
 Maintain one project requirement_order: initial adopted decomposition order, then
-append each new batch's v2/v3 requirements in the adopted order when a usable v3
-project exists. Do not migrate the requirement files merely to register order.
+the helper appends successfully saved new v2/v3/v4/v5 requirement IDs in batch/file-item
+order when a unique usable v3/v4/v5 project exists. An explicit order supplied or
+removed in the request takes precedence, including an intentionally empty order.
+Do not migrate the requirement files merely to register order. If project order
+maintenance is pending/failed, retain saved requirements and retry only that update;
+v2-only additions without a usable v3/v4/v5 project keep their legacy save behavior,
+while v3/v4/v5 additions report pending order maintenance. Read back the final project
+and requirement files after the batch; the order follow-up is a separate per-file save.
 Only an explicitly adopted reorder changes existing positions; record its basis
 and old/new order. Dependency, task, work-item and report changes never reorder it.
 Keep all readable unordered requirements visible rather than inventing order.
