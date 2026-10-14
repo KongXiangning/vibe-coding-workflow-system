@@ -263,16 +263,45 @@ function changedItem(previous: ProductDocument | undefined, document: ProductDoc
     || previous.text.slice(old.metadata_start, old.metadata_end) !== document.text.slice(next.metadata_start, next.metadata_end)
     || itemDiagnostics(old) !== itemDiagnostics(next);
 }
+function matchPreviousBindings(previous: ObjectValue[], next: ObjectValue[]): Map<ObjectValue, ObjectValue> {
+  const remaining = [...previous];
+  const matches = new Map<ObjectValue, ObjectValue>();
+  function countIds(rows: ObjectValue[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const row of rows) counts.set(row.id, (counts.get(row.id) ?? 0) + 1);
+    return counts;
+  }
+  const previousCounts = countIds(previous), nextCounts = countIds(next);
+  const sameIdentity = (old: ObjectValue, binding: ObjectValue) => relationIdentity(old, 'task_bindings') === relationIdentity(binding, 'task_bindings');
+  // Reserve retained rows before reclassifications, independent of array order.
+  // Display edits keep identity; each historical row can account for only one row.
+  const matchers = [
+    (old: ObjectValue, binding: ObjectValue) => canonical(old) === canonical(binding),
+    (old: ObjectValue, binding: ObjectValue) => sameIdentity(old, binding) && old.state === binding.state && old.contribution === binding.contribution,
+    sameIdentity,
+    (old: ObjectValue, binding: ObjectValue) => previousCounts.get(old.id) === 1 && nextCounts.get(binding.id) === 1,
+  ];
+  for (const equivalent of matchers) {
+    for (const binding of next) {
+      if (matches.has(binding)) continue;
+      const index = remaining.findIndex(old => old.id === binding.id && equivalent(old, binding));
+      if (index < 0) continue;
+      matches.set(binding, remaining.splice(index, 1)[0]!);
+    }
+  }
+  return matches;
+}
 // Legacy formats remain readable/writable under their original contract. In v5,
 // optional contribution retains unknown history; it is not an authoring shortcut.
 function validateBindingChanges(previous: ProductDocument | undefined, next: ProductDocument): void {
   if (next.version !== 5) return;
   for (const item of next.items) {
     const oldBindings = relationList(previous?.items.find(old => old.id === item.id)?.metadata.task_bindings);
-    for (const binding of relationList(item.metadata.task_bindings)) {
+    const bindings = relationList(item.metadata.task_bindings);
+    const previousBindings = matchPreviousBindings(oldBindings, bindings);
+    for (const binding of bindings) {
       if (binding.state !== 'active') continue;
-      const sameId = oldBindings.filter(old => old.id === binding.id);
-      const old = sameId.length === 1 ? sameId[0] : sameId.find(old => canonical(old) === canonical(binding));
+      const old = previousBindings.get(binding);
       const changed = !old || old.state !== 'active' || old.contribution !== binding.contribution
         || relationIdentity(old, 'task_bindings') !== relationIdentity(binding, 'task_bindings');
       if (!changed) continue;

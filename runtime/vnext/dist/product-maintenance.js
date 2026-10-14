@@ -18072,16 +18072,46 @@ function changedItem(previous2, document4, next) {
     return true;
   return old.body !== next.body || canonical(old.metadata) !== canonical(next.metadata) || previous2.text.slice(old.metadata_start, old.metadata_end) !== document4.text.slice(next.metadata_start, next.metadata_end) || itemDiagnostics(old) !== itemDiagnostics(next);
 }
+function matchPreviousBindings(previous2, next) {
+  const remaining = [...previous2];
+  const matches2 = new Map;
+  function countIds(rows) {
+    const counts = new Map;
+    for (const row of rows)
+      counts.set(row.id, (counts.get(row.id) ?? 0) + 1);
+    return counts;
+  }
+  const previousCounts = countIds(previous2), nextCounts = countIds(next);
+  const sameIdentity = (old, binding) => relationIdentity(old, "task_bindings") === relationIdentity(binding, "task_bindings");
+  const matchers = [
+    (old, binding) => canonical(old) === canonical(binding),
+    (old, binding) => sameIdentity(old, binding) && old.state === binding.state && old.contribution === binding.contribution,
+    sameIdentity,
+    (old, binding) => previousCounts.get(old.id) === 1 && nextCounts.get(binding.id) === 1
+  ];
+  for (const equivalent of matchers) {
+    for (const binding of next) {
+      if (matches2.has(binding))
+        continue;
+      const index2 = remaining.findIndex((old) => old.id === binding.id && equivalent(old, binding));
+      if (index2 < 0)
+        continue;
+      matches2.set(binding, remaining.splice(index2, 1)[0]);
+    }
+  }
+  return matches2;
+}
 function validateBindingChanges(previous2, next) {
   if (next.version !== 5)
     return;
   for (const item of next.items) {
     const oldBindings = relationList(previous2?.items.find((old) => old.id === item.id)?.metadata.task_bindings);
-    for (const binding of relationList(item.metadata.task_bindings)) {
+    const bindings = relationList(item.metadata.task_bindings);
+    const previousBindings = matchPreviousBindings(oldBindings, bindings);
+    for (const binding of bindings) {
       if (binding.state !== "active")
         continue;
-      const sameId = oldBindings.filter((old2) => old2.id === binding.id);
-      const old = sameId.length === 1 ? sameId[0] : sameId.find((old2) => canonical(old2) === canonical(binding));
+      const old = previousBindings.get(binding);
       const changed = !old || old.state !== "active" || old.contribution !== binding.contribution || relationIdentity(old, "task_bindings") !== relationIdentity(binding, "task_bindings");
       if (!changed)
         continue;

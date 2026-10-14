@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { stringify } from 'yaml';
 import { run } from '../runtime/vnext/src/product-maintenance/cli';
 import { documentSchema, validate } from '../runtime/vnext/src/product-maintenance/schemas';
@@ -111,6 +111,56 @@ test('conflicting equivalent classifications stay separate and diagnosed, never 
   expect(read.diagnostics.some((d: any) => d.code === 'DUPLICATE_BINDING_CANDIDATE')).toBe(true);
   expect(read.diagnostics.some((d: any) => d.code === 'BINDING_CONTRIBUTION_CONFLICT')).toBe(true);
   expect(read.usable_items.find((i: any) => i.id === 'REQ-A').metadata.task_bindings).toHaveLength(2);
+});
+
+test.each([false, true])('v5 retained duplicate IDs allow display edits without requiring classification (bundle=%s)', bundled => {
+  const unknown: any = binding({ task: { task_id: null, source, label: '旧解析任务' } });
+  delete unknown.contribution; delete unknown.reason; delete unknown.sources;
+  const second = { ...unknown, coverage: '记录操作时间；历史任务范围待核对' };
+  const root = fixture([unknown, second]);
+  const before = get(root);
+  const rows = [second, { ...unknown, task: { ...unknown.task, label: 'CSV 解析任务' } }];
+  const result = invoke(root, 'apply', { files: [op(root, { updates: [{ id: 'REQ-A', metadata: { task_bindings: rows } }] })] }, bundled);
+  expect(result.status).toBe('saved');
+  const after = parseProduct(get(root), relative);
+  expect(after.items[0]!.metadata.task_bindings).toEqual(rows);
+  expect(after.items[0]!.body).toBe(parseProduct(before, relative).items[0]!.body);
+  expect(invoke(root, 'read', {}, bundled).diagnostics.some((d: any) => d.code === 'DUPLICATE_BINDING_ID')).toBe(true);
+  expect(invoke(root, 'apply', { files: [op(root, { updates: [{ id: 'REQ-A', metadata: { task_bindings: rows } }] })] }, bundled).files[0].status).toBe('unchanged');
+});
+
+test.each([false, true])('v5 retained bindings cannot exempt additional rows or reclassifications (bundle=%s)', bundled => {
+  const unknown: any = binding(); delete unknown.contribution; delete unknown.reason; delete unknown.sources;
+  const classified: any = binding({ contribution: 'supporting' }); delete classified.reason; delete classified.sources;
+  const reference = binding({ role: 'reference' });
+  const cases = [
+    { old: [unknown], rows: [unknown, { ...unknown, task: { ...unknown.task, label: '新增副本' } }], error: 'BINDING_CONTRIBUTION_REQUIRED' },
+    { old: [unknown], rows: [{ ...unknown, task: { ...unknown.task, label: '新增副本' } }, unknown], error: 'BINDING_CONTRIBUTION_REQUIRED' },
+    { old: [classified], rows: [classified, { ...classified, task: { ...classified.task, label: '新增副本' } }], error: 'BINDING_BASIS_REQUIRED' },
+    { old: [reference], rows: [reference, { ...reference, task: { ...reference.task, label: '新增副本' } }], error: 'BINDING_ROLE_CONTRIBUTION' },
+    // Reserve the unchanged row even when the edited row precedes it.
+    { old: [unknown, classified], rows: [{ ...unknown, contribution: 'supporting' }, classified], error: 'BINDING_BASIS_REQUIRED' },
+  ];
+  for (const scenario of cases) {
+    const root = fixture(scenario.old), before = get(root);
+    const request = { files: [op(root, { updates: [{ id: 'REQ-A', metadata: { task_bindings: scenario.rows } }] })] };
+    const processResult = bundled ? spawnSync('node', ['runtime/vnext/dist/product-maintenance.js', 'apply', '--root', root], { input: JSON.stringify(request), encoding: 'utf8' }) : null;
+    if (processResult) { expect(processResult.error).toBeUndefined(); expect(processResult.status).toBe(1); }
+    const result = processResult ? JSON.parse(processResult.stdout) : run('apply', root, request);
+    expect(result.status).toBe('failed'); expect(result.files[0].error).toContain(scenario.error);
+    expect(get(root)).toBe(before);
+  }
+});
+
+test.each([false, true])('v5 same-identity legacy rows retain their own classification after display edits and reorder (bundle=%s)', bundled => {
+  const direct: any = binding(); delete direct.reason; delete direct.sources;
+  const supporting = { ...direct, contribution: 'supporting' };
+  const root = fixture([direct, supporting]);
+  const rows = [supporting, direct].map(row => ({ ...row, task: { ...row.task, label: `CSV 解析任务：${row.contribution}` } }));
+  expect(invoke(root, 'apply', { files: [op(root, { updates: [{ id: 'REQ-A', metadata: { task_bindings: rows } }] })] }, bundled).status).toBe('saved');
+  const read = invoke(root, 'read', {}, bundled);
+  expect(read.usable_items.find((i: any) => i.id === 'REQ-A').metadata.task_bindings).toEqual(rows);
+  expect(read.diagnostics.some((d: any) => d.code === 'BINDING_CONTRIBUTION_CONFLICT')).toBe(true);
 });
 
 test('unknown Task source identity ignores display labels, byte hashes and map key order for conflict diagnostics', () => {
