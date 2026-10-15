@@ -9,6 +9,7 @@ import { manifestSchema, requestSchema, validate } from './schemas';
 import { apply, capture } from './writer';
 import { productView, selectAssessment } from './scoped';
 import { reconcileRoadmap } from './roadmaps';
+import { assessmentEvidence } from './dispositions';
 
 export function run(action: string, root: string, input: ObjectValue = {}): ObjectValue {
   const envelope = { kind: 'product-maintenance-result/v1', action, development_gate: false, qualification: 'not-evaluated', task_operations: 'not-performed' };
@@ -41,12 +42,12 @@ export function run(action: string, root: string, input: ObjectValue = {}): Obje
       }
       return { ...envelope, status: catalog.status, project_id: catalog.manifest?.project_id ?? null, working_copy: { root: catalog.root, identity: path.resolve(catalog.root) }, read_at: new Date().toISOString(), manifest: catalog.manifest, manifest_path: catalog.manifest_path, manifest_sha256: catalog.manifest_sha256,
         documents: catalog.documents.map(d => ({ path: d.path, sha256: d.sha256, schema: d.schema, usable_count: d.items.filter(i => i.usable).length, raw_locator: { kind: 'file', path: d.path } })),
-        usable_items: selected.filter(i => i.usable).map(i => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, definition_algorithm: i.definition_algorithm ?? null, ...(input.detail === 'items' ? { body: i.body } : {}), ...(i.type === 'discussion' ? { summary: i.sections['整理摘要']?.[0]?.text ?? '' } : {}), locator: { kind: 'file', path: i.path, item_id: i.id } })),
+        usable_items: selected.filter(i => i.usable).map(i => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, definition_algorithm: i.definition_algorithm ?? null, ...(input.detail === 'items' ? { body: i.body } : {}), ...(i.type === 'assessment' ? assessmentEvidence(catalog, i, input) : {}), ...(i.type === 'discussion' ? { summary: i.sections['整理摘要']?.[0]?.text ?? '' } : {}), locator: { kind: 'file', path: i.path, item_id: i.id } })),
         unusable_items: selected.filter(i => !i.usable).map(i => ({ id: i.id ?? null, type: i.type ?? null, path: i.path, line: i.line, diagnostics: i.diagnostics, raw_locator: { kind: 'file', path: i.path }, ...(input.detail === 'items' ? { body: i.body } : {}) })),
         product_view: productView(catalog), assessment_selection: input.assessment_query ? selectAssessment(catalog, input.assessment_query, input) : null,
         roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog, input.roadmap_query) : null,
         reverse_relations: reverseRelations(catalog), plan_tasks: planTasks(catalog), discussions: input.discussion_targets ? recallDiscussions(catalog, input.discussion_targets) : [], impact: impactIds.length || input.impact_ids ? impactCandidates(catalog, impactIds) : null,
-        sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [], diagnostics: catalog.diagnostics, coverage: { ...catalog.coverage, selection: input.item_ids ?? 'all-enumerated-items', source_bodies: input.resolve_sources ? 'byte status only; fetch selected source explicitly' : 'not-read' }, task_status: 'not-computed; use existing assistance only when actual task state is needed' };
+        sources: input.resolve_sources ? resolveSources(catalog, input.item_ids, input) : [], diagnostics: catalog.diagnostics, coverage: { ...catalog.coverage, selection: input.item_ids ?? 'all-enumerated-items', source_bodies: input.resolve_sources ? 'byte status only; fetch selected source explicitly' : 'not-read' }, task_status: 'not-computed; use existing assistance only when actual task state is needed' };
     }
     if (action === 'check') {
       if (input.content !== undefined && input.path) {
@@ -61,7 +62,7 @@ export function run(action: string, root: string, input: ObjectValue = {}): Obje
         const diagnostics = [...doc.diagnostics, ...assessmentCopyDiagnostics([...catalog.items.filter(i => i.path !== input.path), ...doc.items]).filter(d => d.path === input.path)];
         return { ...envelope, status: diagnostics.some(d => d.severity === 'error') ? 'invalid' : 'valid', schema: doc.schema, usable_items: doc.items.filter(i => i.usable).map(i => i.id), diagnostics, business_validity: 'not-evaluated' };
       }
-      return { ...envelope, status: catalog.status !== 'available' ? catalog.status : !catalog.coverage.complete || catalog.diagnostics.some(d => d.severity === 'error') ? 'partial' : 'checked', diagnostics: catalog.diagnostics, coverage: catalog.coverage, sources: input.resolve_sources ? resolveSources(catalog, input.item_ids) : [], roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog, input.roadmap_query) : null, business_validity: 'not-evaluated' };
+      return { ...envelope, status: catalog.status !== 'available' ? catalog.status : !catalog.coverage.complete || catalog.diagnostics.some(d => d.severity === 'error') ? 'partial' : 'checked', diagnostics: catalog.diagnostics, coverage: catalog.coverage, sources: input.resolve_sources ? resolveSources(catalog, input.item_ids, input) : [], roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog, input.roadmap_query) : null, business_validity: 'not-evaluated' };
     }
     throw new Error('UNKNOWN_ACTION: use read, check, apply or capture');
   } catch (error: any) { return { ...envelope, status: 'failed', error: error.message }; }

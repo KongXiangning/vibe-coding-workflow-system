@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:33:58.998Z",
+  "payload_sha256": "e5b5035ba0bb9d30a62d400e38f7b883d368038e3cbb0871f5741c15b1b72ed5",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-finish-S1",
+    "request": {
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+      "decision_source": "2026-10-15 用户修复与复审请求",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "action": "step",
+      "step_id": "S1",
+      "state": "finished",
+      "decision_ref": ".workflow-system/records/events/key-72cde730f3a5719ff5d14f420d1d5813f25bea567d762436293db214560acd9e.json",
+      "remaining_work": [],
+      "decision_text": "三处修复和回归已完成，继续完成页面与交付审查。",
+      "idempotency_key": "evidence-review-followup-20261015-finish-S1"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-72cde730f3a5719ff5d14f420d1d5813f25bea567d762436293db214560acd9e.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+        "decision_source": "2026-10-15 用户修复与复审请求",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "step_id": "S1",
+        "state": "finished",
+        "decision_ref": ".workflow-system/records/events/key-72cde730f3a5719ff5d14f420d1d5813f25bea567d762436293db214560acd9e.json",
+        "remaining_work": [],
+        "decision_text": "三处修复和回归已完成，继续完成页面与交付审查。"
+      }
+    }
+  },
+  "issues": []
+}

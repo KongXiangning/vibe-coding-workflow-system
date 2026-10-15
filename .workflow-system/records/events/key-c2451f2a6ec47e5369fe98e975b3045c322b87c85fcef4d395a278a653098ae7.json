@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T08:25:33.511Z",
+  "payload_sha256": "77cda396ccf500df0ebdffcfa3c156f06b9d46b7c64eda0ab244b757055ac9ca",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:scoped-evidence-reuse-20261015-adopt",
+    "request": {
+      "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+      "decision_source": "本聊天用户当前明确实施指令",
+      "decision_text": "那就按你建议的三点修复 workflow-system 和 TraceLens：普通步骤只记录证据，实质变化才局部对账，同一变更的处理结果可复用，界面明确区分待核对原因。不要只改提示文案，也不要增加新的流程门槛。",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "action": "adopt",
+      "idempotency_key": "scoped-evidence-reuse-20261015-adopt",
+      "focus": false
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "parents": [
+        ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+        "decision_source": "本聊天用户当前明确实施指令",
+        "decision_text": "那就按你建议的三点修复 workflow-system 和 TraceLens：普通步骤只记录证据，实质变化才局部对账，同一变更的处理结果可复用，界面明确区分待核对原因。不要只改提示文案，也不要增加新的流程门槛。",
+        "focus": false,
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

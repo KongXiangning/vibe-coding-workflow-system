@@ -1,14 +1,14 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { storeRead, storeReadFile, storeStat } from '../../support/record-storage.mjs';
-import { diagnostic, type Catalog, type ObjectValue } from './model';
+import { diagnostic, type Catalog, type Item, type ObjectValue } from './model';
 import { allowed, safePath } from './paths';
 import { decode, definitionAlgorithm, parseProduct, requirementDigest, sha256 } from './parser';
 import { collectSources } from './plans';
 
 const markdown = unified().use(remarkParse);
 
-export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectValue = {}): ObjectValue {
+function readSourceResult(catalog: Catalog, source: ObjectValue, input: ObjectValue, onDefinition?: (item: Item) => void): ObjectValue {
   const base: ObjectValue = { source, byte_status: 'unknown', status: 'unavailable', diagnostics: [], fetched_remote: false };
   if (source.kind === 'uri') return { ...base, status: 'reference-only', navigation_allowed: /^https?:/i.test(source.uri), note: 'URI retained only; its body has not been obtained or archived' };
   if (source.kind === 'text') return { ...base, status: 'available', text: source.text, label: source.label, note: 'Text basis is not authenticated as verbatim user speech' };
@@ -23,7 +23,7 @@ export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectV
     if (base.byte_status === 'changed') base.diagnostics.push(diagnostic('SOURCE_CHANGED', source.path, 'Current bytes differ from referenced bytes; a digest cannot recover historical content'));
     let start = 0, end = stat.size;
     if (source.item_id || source.section || source.lines) {
-      if (stat.size > (input.max_file_bytes ?? 4 * 1024 * 1024)) return { ...base, diagnostics: [...base.diagnostics, diagnostic('LOCATOR_BYTE_LIMIT', source.path, 'Structured locator was not resolved; raw bytes remain available via a locator-free paged read')] };
+      if (stat.size > (input.max_file_bytes ?? catalog.coverage.max_file_bytes ?? 4 * 1024 * 1024)) return { ...base, diagnostics: [...base.diagnostics, diagnostic('LOCATOR_BYTE_LIMIT', source.path, 'Structured locator was not resolved; raw bytes remain available via a locator-free paged read')] };
       const bytes = storeReadFile(catalog.root, source.path);
       if (sha256(bytes) !== digest) throw new Error('SOURCE_READ_CHANGED: source changed during reading; restart this read');
       const text = decode(bytes);
@@ -38,6 +38,7 @@ export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectV
           if (item.usable && (item.type === 'requirement' || item.type === 'goal' && (item.version ?? 0) >= 3)) {
             base.definition_sha256 = requirementDigest(item);
             base.definition_algorithm = definitionAlgorithm(item);
+            onDefinition?.(item);
           }
           charStart = item.start; charEnd = item.end;
           if (source.section) {
@@ -74,10 +75,22 @@ export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectV
     return { ...base, status: 'available', size, file_size: stat.size, storage, verification, locator_start_byte: start, offset, data_base64: data.toString('base64'), text_preview: data.toString('utf8'), next_offset: offset + data.length < size ? offset + data.length : null, content_is_referenced_bytes: base.byte_status === 'same-bytes' };
   } catch (error: any) { return { ...base, byte_status: base.actual_sha256 ? base.byte_status : 'unavailable', diagnostics: [...base.diagnostics, diagnostic('SOURCE_UNAVAILABLE', source.path, error.message)] }; }
 }
-export function resolveSources(catalog: Catalog, ids?: string[]): ObjectValue[] {
+
+export function readSource(catalog: Catalog, source: ObjectValue, input: ObjectValue = {}): ObjectValue {
+  return readSourceResult(catalog, source, input);
+}
+
+/** Reuse the parsed definition from the same verified read; never reread mutable bytes. */
+export function readSourceDefinition(catalog: Catalog, source: ObjectValue, input: ObjectValue = {}): { result: ObjectValue; definition?: Item } {
+  let definition: Item | undefined;
+  const result = readSourceResult(catalog, source, input, item => { definition = item; });
+  return { result, definition: result.status === 'available' ? definition : undefined };
+}
+
+export function resolveSources(catalog: Catalog, ids?: string[], budget: ObjectValue = {}): ObjectValue[] {
   const refs = catalog.items.filter(i => i.usable && (!ids || ids.includes(i.id))).flatMap(i => collectSources(i.metadata));
   return [...new Map(refs.map(r => [JSON.stringify(r), r])).values()].map(r => {
-    const result = readSource(catalog, r, { max_bytes: 1 });
+    const result = readSource(catalog, r, { max_file_bytes: budget.max_file_bytes, max_bytes: 1 });
     const basisChecks = catalog.items.filter(i => i.usable && i.type === 'assessment').flatMap(i => ['target', ...((i.version ?? 0) >= 3 ? ['goal'] : [])].filter(role => JSON.stringify(i.metadata[`${role}_basis`]) === JSON.stringify(r)).map(role => {
       const expected = i.metadata[`${role}_definition_sha256`];
       const actual = result.definition_sha256 ?? null;

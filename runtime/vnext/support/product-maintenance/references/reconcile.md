@@ -25,15 +25,76 @@ inferred links do not invalidate an entire graph or mandate project-wide recheck
 Expand only actual impact; unknown/no-impact remain explicit. Reuse existing
 debugging/execution capabilities for product root cause, not a maintenance debugger.
 
-An unchanged requirement/file digest cannot hide new counterevidence. Add obtained
-related sources to selected assessment.pending_sources when not yet reconciled,
-or save a new scope-specific assessment and explicitly select it. Preserve the
+## Trigger local reconciliation by material change
+
+Ordinary Task/Step execution and successful checks save their actual execution/test
+facts and evidence. A new step record, test source, commit, touched file, shared Task
+or supporting dependency does not itself change requirement obligations or invalidate
+an existing report. Do not add those sources to every related report, require a
+per-step impact declaration or make maintenance a prerequisite for continuing.
+Accumulate normal progress for the task's authorized milestone or delivery assessment.
+
+Use a local assessment or pending disposition when at least one actual trigger exists:
+
+- Adopted obligation, acceptance, responsibility or Task coverage changes alter what a
+  selected report claims. Compare the changed meaning and concrete coverage; preserve
+  unaffected obligations, other goal scopes and useful historical evidence.
+- A new failure, counterexample or compatibility break bears on a report's actual
+  obligation/subject/inputs. Preserve it even when definitions and digests are unchanged;
+  unknown applicability stays explicit rather than silently dismissed.
+- An authorized milestone or delivery assessment calls for judging accumulated evidence.
+  The assessment uses that scope, not an automatic full report review after each step.
+
+Definition digests and exact source bytes are separate check hints. Source relocation,
+metadata editing or unrelated changes in a shared file need their own source diagnostic;
+they do not by themselves establish a new business failure or propagate pending work
+across the Task/requirement graph. A responsibility migration can require one mapping
+of retained, moved and unverified obligations without rerunning all old acceptance.
+
+For actual new counterevidence or a material coverage change not yet reconciled, add
+its exact source to the affected report's pending_sources, or save a new scope-specific
+assessment and explicitly select it. Ordinary positive progress remains in Task/Step
+evidence until the authorized assessment. Preserve the
 original reports and prior assessment where a conclusion materially changes.
 Compare historical byte availability, requirement definition alignment and current
 implementation applicability separately. Working-copy label is not a precise
 code snapshot. Different subjects/inputs explain distinct results, not automatic
 mixed. Unknown is valid; other reported labels need actual source and exact coverage.
 Repeated unchanged read/check does not append assessments or timestamps.
+
+## Reuse a change disposition
+
+Handle one responsibility decision or observation as one change with its original
+fixed source reference. Map it once to concrete affected obligations and applicable
+report target/goal/scope/subject; a report count is not a count of independent changes.
+Reuse an existing evidence-incorporated/no-impact/deferred disposition when its change identity,
+obligation version and report applicability still match. Retain its evidence and limits;
+do not refresh checked_at, duplicate pending sources or request the same decision again
+merely because a later step ran or another report links the same Task.
+
+One disposition can explain several affected reports, but its coverage must name the
+actual obligations/reports served. A no-impact judgment for one scope cannot clear a
+different scope. A deferred disposition remains unresolved; reuse avoids duplicate
+work and repeated choices, never hides the pending evidence. A new obligation version,
+new input/subject applicability or distinct failure requires only the changed portion
+to be considered. Same file pathname, same Task, similar log text or a broad old
+"reviewed" statement does not prove it is the same change. Do not replace actual new
+failure observations with an old result or manufacture fixed identities/digests.
+
+Keep the reason visible with the pending source/disposition: obligation or responsibility
+migration, new counterevidence, or historical exact-source applicability. Missing legacy
+reason stays unknown; do not relabel it a failure or mark it handled automatically.
+These are explanations of existing evidence/maintenance, not new workflow approvals.
+
+When machine-readable reuse is useful, selected v6 assessment reports may keep optional
+evidence_dispositions through the existing read/apply operations. Read API.md/contract.md
+for the exact entry and basis fields; the basis binds the change's fixed source bytes,
+actual obligation definition, subject/coverage and evaluated report. Only an unchanged,
+verified basis can reuse a handled result. deferred remains pending; changed/unavailable
+sources, definition or basis mismatches and conflicts retain their own checks. Older
+v1–v5 reports stay readable; normal steps do not require migrating them or writing this
+field. A report's historical conclusion and pending-source history are not erased by
+adding a disposition.
 
 ## New counterevidence: finish the local impact pass
 
@@ -51,7 +112,8 @@ input/output when metadata cannot locate a relevant requirement; no candidate is
 not proof of no impact. Preserve no-impact/unknown judgments with their reasons in
 the original report's impact section, without a second observation database.
 
-For each directly affected scope, save a local reconciliation or add the exact
+For each materially affected scope not already covered by an applicable disposition,
+save a local reconciliation or add the exact
 new SourceRef to the applicable report's `pending_sources`. Reuse the original
 probe/log bytes and report unknown version/input applicability; do not rerun work,
 create TaskBindings, change acceptance or erase older results. If no applicable
@@ -199,7 +261,8 @@ reopen old work or gate authorized development, Git, closure or stopping.
 
 ## Local assessment after task closure
 
-When a child requirement changes or produces evidence, read its actual current
+When a child requirement's obligation changes or its evidence reveals material impact,
+read its actual current
 part_of parents and compare only the affected obligation against each parent's
 declared coverage. A parent may be evaluated from direct integration evidence;
 it does not require reports for every child and never equals all(children).
@@ -215,7 +278,8 @@ not call a model. In close-task, save the actual closure first and read task-sta
 to confirm closed and removed from active focus; separately report publication
 gaps. Only then, when maintenance is enabled and the current authority covers it,
 evaluate this task's actually related requirements/goals, their current scope and
-the evaluated object. Do not evaluate each step, scan all project history or treat
+the evaluated object. Do not evaluate each step, turn routine positive evidence into
+pending work, scan all project history or treat
 closure as evidence of satisfaction. Pure read-only requests do not save reports.
 Read and retain the actual parent continuation/focus first. Product evaluation
 and next-business advice do not focus a new task, replace that continuation or

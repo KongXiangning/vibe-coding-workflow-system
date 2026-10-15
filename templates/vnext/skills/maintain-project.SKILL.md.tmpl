@@ -91,7 +91,11 @@ No new mode, per-edge approval or mandatory all-project cleanup is introduced.
 For every new failure or counterexample, follow reconcile.md's local impact pass
 before declaring maintenance complete: inspect shared implementation/task candidates,
 read their actual obligations, and reconcile directly affected reports or retain the
-new source as pending. A local request does not justify silently losing a known direct
+new source as pending. Shared Task/file hints only locate candidates; they do not
+establish business impact or require every candidate report to be reassessed. Reuse
+an applicable disposition of the same change for the same obligation version and
+report scope, while retaining new counterevidence and unresolved deferred sources.
+A local request does not justify silently losing a known direct
 impact. Read-only/deferred/out-of-scope work returns exact pending locators instead.
 Keep one detailed report per assessed scope/object. Existing progress/implementation
 surfaces retain brief summaries and links, not another copy of the full report.
@@ -141,9 +145,14 @@ not a user decision. Candidate plan, adopted design, binding, valid schema, clos
 or historical PASS never proves current implementation or complete verification.
 
 If maintenance is enabled and authorization already covers it, maintain the
-related scope after actual requirement/design change, task preparation or new
-delivery/verification material. Do not scan the whole source history at every
-step. A read-only review returns pending maintenance locators without writing.
+related scope after an actual obligation/acceptance/adopted-scope change, task
+preparation, new counterevidence or an authorized milestone/delivery assessment.
+Ordinary positive step execution/tests only save Task/Step evidence; they do not
+automatically add pending sources, invalidate reports or require per-step impact
+declarations. Do not scan the whole source history at every step. Read reconcile.md
+for local impact and optional same-change disposition reuse through existing read/apply;
+no new approval or workflow action is required. A read-only review returns pending
+maintenance locators without writing.
 An explicit request to implement first or defer maintenance takes precedence;
 retain the deferred scope without inventing completed synchronization.
 

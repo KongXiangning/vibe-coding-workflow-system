@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T06:13:04.528Z",
+  "payload_sha256": "42bcd72e5d0e8390731c329af55deb719e37ec504a0079ae174c64ac31e457e0",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:assessment-scope-alignment-20261015-execution",
+    "request": {
+      "action": "execution",
+      "task_id": "task-219e6e49b2e10b6c02082fa0be509de2",
+      "plan_ref": ".workflow-system/records/events/key-1f2b31966f732d2a84e0d7399a6ef522655101f3e2fa335167a9b1f61d403573.json",
+      "step_id": "S1",
+      "idempotency_key": "assessment-scope-alignment-20261015-execution",
+      "source_revision": "26af10ef0d9224c44d906ccbf4d362412b28e067 + current uncommitted scope-alignment changes",
+      "result": {
+        "summary": "已将其他范围声明变化的有限豁免统一到 vNext 契约、指南、共用样例、范围选择读取逻辑和本地 Node 产物；TraceLens 现有行为保留。旧目标快照必须有可验证的原文件和完整定义摘要，比较仅排除其他范围声明，本范围/共同目标/需求定义/来源/pending_sources/报告冲突继续检查，目标自评不豁免。",
+        "validation": {
+          "product_maintenance": {
+            "passed": 120,
+            "failed": 0,
+            "files": 5
+          },
+          "tracelens_targeted": {
+            "passed": 40,
+            "failed": 0,
+            "files": 4
+          },
+          "cross_consumer": {
+            "passed": 20,
+            "consumers": [
+              "vNext source",
+              "vNext Node bundle",
+              "TraceLens source"
+            ],
+            "compared": [
+              "conclusion",
+              "selected report",
+              "sorted reason codes"
+            ],
+            "read_only_bytes_unchanged": true,
+            "cases": [
+              "other-add",
+              "other-change",
+              "other-remove",
+              "same-target-other",
+              "v4",
+              "v5",
+              "body",
+              "relation",
+              "kind",
+              "goal-scope",
+              "coverage",
+              "requirement",
+              "file-changed",
+              "missing",
+              "sha-missing",
+              "wrong-definition",
+              "algorithm",
+              "pending",
+              "overall",
+              "multiple-reports"
+            ]
+          },
+          "checks": [
+            "validate:protocol passed",
+            "validate:freshness passed",
+            "validate:vnext-source passed",
+            "workflow:health OK",
+            "git diff --check passed"
+          ]
+        },
+        "self_check": "使用 simplify 审视新增读取包装和范围比较，复用同一次已校验读取的完整条目，保持公共 read 响应及文档算法不变。自查不冒充独立审查。",
+        "limits": [
+          "本轮源码、本地产物和合成输入消费者验证；未发布、提交推送或升级业务项目",
+          "未重新运行 TraceLens 浏览器页面验收或真实业务语义评估",
+          "首次新增测试有一项将删除全部需求范围预期写成 scope-not-current；已按既有 scope-unavailable 行为纠正测试，完整产品回归通过",
+          "既有 CURRENT_TASK 展示漂移保留；事实保存和投影状态分开报告"
+        ]
+      },
+      "commands": [
+        "bun run test:product-maintenance",
+        "npm test -- tests/product-v3.test.ts tests/assessment-review.test.ts tests/assessment-review-dialog.test.tsx tests/overview-filters.test.tsx (E:/coding/tracelens)",
+        "bun run - (20 isolated shared-fixture comparisons across vNext source, Node bundle and TraceLens; checked file hashes before/after)",
+        "bun run validate:protocol",
+        "bun run validate:freshness",
+        "bun run validate:vnext-source",
+        "bun run workflow:health --root .",
+        "git diff --check"
+      ]
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-219e6e49b2e10b6c02082fa0be509de2",
+      "parents": [
+        ".workflow-system/records/events/key-484bc2fdb52c606a41523b51ddf149d187a6cbb12b2444b44ab70077994f2f47.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-1f2b31966f732d2a84e0d7399a6ef522655101f3e2fa335167a9b1f61d403573.json",
+        "step_id": "S1",
+        "source_revision": "26af10ef0d9224c44d906ccbf4d362412b28e067 + current uncommitted scope-alignment changes",
+        "result": null,
+        "commands": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "2cf0a300a430cd437c0bd09dddbe7287995e236a8947b3a9aaccae835f222f17",
+        "references": [
+          {
+            "data_pointer": "/commands",
+            "request_pointer": "/commands"
+          },
+          {
+            "data_pointer": "/result",
+            "request_pointer": "/result"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

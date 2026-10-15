@@ -9,10 +9,10 @@ import { analyze, assessmentCopyDiagnostics } from './plans';
 export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog {
   const root = fs.realpathSync(path.resolve(rootInput));
   const manifestPath = input.manifest ?? '.workflow-system/PRODUCT.yaml';
-  const catalog: Catalog = { root, manifest_path: manifestPath, manifest: null, manifest_sha256: null, status: 'unavailable', documents: [], items: [], byId: new Map(), diagnostics: [], coverage: { complete: false, files_read: 0, bytes_read: 0, enumeration: 'managed_paths only; sources are read only by explicit reference', omitted: [] } };
   const maxFileBytes = input.max_file_bytes ?? 4 * 1024 * 1024;
   const maxTotalBytes = input.max_total_bytes ?? 32 * 1024 * 1024;
   const maxFiles = input.max_files ?? 1000;
+  const catalog: Catalog = { root, manifest_path: manifestPath, manifest: null, manifest_sha256: null, status: 'unavailable', documents: [], items: [], byId: new Map(), diagnostics: [], coverage: { complete: false, files_read: 0, bytes_read: 0, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, enumeration: 'managed_paths only; sources are read only by explicit reference', omitted: [] } };
   let bytes: Buffer;
   try {
     const file = safePath(root, manifestPath);

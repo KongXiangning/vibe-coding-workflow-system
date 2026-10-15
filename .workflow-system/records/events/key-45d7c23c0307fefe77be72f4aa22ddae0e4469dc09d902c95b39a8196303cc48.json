@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T08:50:19.415Z",
+  "payload_sha256": "037c93e059ce1762b1e0c84905fd15546eb80d02ba6b121aa28690e99b655450",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:scoped-evidence-reuse-20261015-execution-S3",
+    "request": {
+      "summary": "完成独立只读复审、22个跨消费者相同夹具、生成/规则验证和交付记录。保留任务开始前已有修改，未改 LawAgent、未提交发布或部署。",
+      "idempotency_key": "scoped-evidence-reuse-20261015-execution-S3",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "source_revision": "本地未提交工作区；源码与本地产物，精确验证边界见交付记录",
+      "result": "passed",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "action": "execution",
+      "step_id": "S3",
+      "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+      "commands": [
+        {
+          "command": "bun run scripts/check-evidence-dispositions-consumers.ts E:/coding/tracelens",
+          "result": "passed",
+          "cases": 22
+        },
+        {
+          "result": "passed",
+          "command": "validate:protocol / validate:freshness / validate:vnext-source / workflow:health"
+        }
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "parents": [
+        ".workflow-system/records/events/key-c8c5a38d46cd62905e8c61aaf7f4fdc539c986408dfcf268fac3c467ef98c453.json"
+      ],
+      "data": {
+        "summary": "完成独立只读复审、22个跨消费者相同夹具、生成/规则验证和交付记录。保留任务开始前已有修改，未改 LawAgent、未提交发布或部署。",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "source_revision": "本地未提交工作区；源码与本地产物，精确验证边界见交付记录",
+        "result": "passed",
+        "step_id": "S3",
+        "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+        "commands": [
+          {
+            "command": "bun run scripts/check-evidence-dispositions-consumers.ts E:/coding/tracelens",
+            "result": "passed",
+            "cases": 22
+          },
+          {
+            "result": "passed",
+            "command": "validate:protocol / validate:freshness / validate:vnext-source / workflow:health"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

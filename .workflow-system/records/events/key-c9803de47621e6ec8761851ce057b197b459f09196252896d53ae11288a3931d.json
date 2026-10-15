@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:33:59.750Z",
+  "payload_sha256": "9320c17323704062853fd338a8c734b8800e3adea1f03aaeb606ef727102361f",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-execution-S2",
+    "request": {
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+      "decision_source": "2026-10-15 用户修复与复审请求",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "action": "execution",
+      "step_id": "S2",
+      "source_revision": "未提交工作区；workflow-system base 26af10ef0d9224c44d906ccbf4d362412b28e067，TraceLens base 79541e6b1ac7a32893b93f7127e1f4afe199a8d5；本轮实际源码与构建以交付记录为证",
+      "result": "passed",
+      "summary": "完成三项独立复审、最终构建、跨消费者与隔离安装、真实浏览器回归；保留已有未提交修改和CURRENT_TASK展示漂移。",
+      "commands": [
+        {
+          "command": "bun run scripts/check-evidence-dispositions-consumers.ts E:/coding/tracelens",
+          "result": "22 passed, read-only bytes unchanged"
+        },
+        {
+          "command": "bun run test:product-maintenance:install",
+          "result": "5 passed, 348 assertions"
+        },
+        {
+          "command": "node tests/evidence-presentation-browser.mjs",
+          "result": "passed, output/playwright/evidence-presentation-63wafH"
+        },
+        {
+          "command": "node tests/overview-browser.mjs",
+          "result": "passed, output/playwright/overview-5ZIYAS"
+        },
+        {
+          "command": "node tests/requirement-task-navigation-browser.mjs",
+          "result": "passed, output/playwright/requirement-task-navigation-MZ6u69"
+        },
+        {
+          "command": "protocol/freshness/vnext-source/workflow health/diff check",
+          "result": "passed"
+        },
+        {
+          "command": "node tests/scoped-browser.mjs",
+          "result": "not-run: fixture entry missing TRACELENS_TEST_INPUT; no browser scenarios executed"
+        }
+      ],
+      "idempotency_key": "evidence-review-followup-20261015-execution-S2"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-e62188b7c350499803db0b0a0f32e072f1b606a3766458867f2301a69c3d9562.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+        "decision_source": "2026-10-15 用户修复与复审请求",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "step_id": "S2",
+        "source_revision": "未提交工作区；workflow-system base 26af10ef0d9224c44d906ccbf4d362412b28e067，TraceLens base 79541e6b1ac7a32893b93f7127e1f4afe199a8d5；本轮实际源码与构建以交付记录为证",
+        "result": "passed",
+        "summary": "完成三项独立复审、最终构建、跨消费者与隔离安装、真实浏览器回归；保留已有未提交修改和CURRENT_TASK展示漂移。",
+        "commands": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "623f42814b7996c962338e5d95da44366c99478e39ce0862566681e8f675878f",
+        "references": [
+          {
+            "data_pointer": "/commands",
+            "request_pointer": "/commands"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

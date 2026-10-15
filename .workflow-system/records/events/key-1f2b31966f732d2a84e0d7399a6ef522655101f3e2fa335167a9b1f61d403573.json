@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T06:03:18.596Z",
+  "payload_sha256": "192f20faad8a3fff3805aeb55653366a69be417dd663ddc373cba9f5764a561a",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:assessment-scope-alignment-20261015-prepare",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "assessment-scope-alignment-20261015-prepare",
+      "plan": {
+        "title": "统一范围评估的其他范围变更豁免",
+        "goal": "将 TraceLens 已验证的其他范围声明变更豁免统一到 vNext 契约、读取器和生成产物，保持相关变化及证据缺口诊断。",
+        "scope": [
+          "产品文档契约与使用指南",
+          "评估选择读取逻辑及定向测试",
+          "本地产物与 TraceLens 同样本一致性核验"
+        ],
+        "exclusions": [
+          "发布、提交推送及业务项目升级",
+          "改变整文件来源摘要不一致规则",
+          "业务语义重新评估"
+        ],
+        "acceptance": [
+          "已验证旧目标快照且仅其他范围变化时保留需求本范围结论",
+          "目标自评及相关变化、来源失真、pending_sources 仍待核对",
+          "源码和 Node 产物与 TraceLens 同样本判定一致"
+        ],
+        "steps": [
+          {
+            "id": "S1",
+            "title": "统一契约与读取实现并验证",
+            "environment": [
+              "Windows 本地工作区"
+            ],
+            "validation": [
+              "产品维护定向回归",
+              "产物生成与新鲜度核验",
+              "TraceLens 同样本结果比较"
+            ]
+          }
+        ]
+      },
+      "decision_source": "当前对话用户明确要求进行操作"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-219e6e49b2e10b6c02082fa0be509de2",
+      "parents": [
+        ".workflow-system/records/events/key-88cf9ce5f3b386b90d6030348d4bf4b60ca11657f2f182b3fed9d191e967b76d.json"
+      ],
+      "data": {
+        "plan": null,
+        "decision_source": "当前对话用户明确要求进行操作",
+        "create": true,
+        "display_id": "TASK-021"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "448c76d4f969f88666021c8992eb205d043ec21b75393a671e18b003295c0865",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

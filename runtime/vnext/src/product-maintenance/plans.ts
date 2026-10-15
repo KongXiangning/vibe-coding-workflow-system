@@ -1,5 +1,6 @@
 import { diagnostic, type Catalog, type Diagnostic, type Item, type ObjectValue } from './model';
 import { allowed, relativePath } from './paths';
+import { assessmentEvidence } from './dispositions';
 
 export function collectSources(value: any): ObjectValue[] {
   if (Array.isArray(value)) return value.flatMap(collectSources);
@@ -81,11 +82,11 @@ export function analyze(catalog: Catalog): void {
       if (target && m.target_definition_sha256 && m.target_definition_sha256 !== target.definition_sha256) report('DEFINITION_CHANGED', item, 'Current requirement definition differs from the reported basis; semantic/current code applicability is not evaluated');
       if (!m.target_definition_sha256) report('DEFINITION_UNKNOWN', item, 'Requirement version alignment is unknown');
       if ((m.implementation !== 'unknown' || m.verification !== 'unknown') && !m.sources?.length) report('REPORT_SOURCE_MISSING', item, 'Reported implementation/verification requires actual sources and a coverage explanation');
-      if (m.pending_sources?.length) report('PENDING_SOURCES', item, 'New material is pending reconciliation; existing PASS is not a current completeness claim');
+      if (assessmentEvidence(catalog, item).pending_sources.length) report('PENDING_SOURCES', item, 'Unresolved material is pending reconciliation; existing PASS is not a current completeness claim');
       if ((item.version ?? 0) >= 3) {
         const goal = expectTarget(item, m.applicability.goal_id, ['goal'], 'Assessment goal');
         if (target?.type === 'goal' && target.id !== m.applicability.goal_id) report('ASSESSMENT_GOAL', item, 'A goal assessment must select that goal itself');
-        if (goal && m.goal_definition_sha256 !== goal.definition_sha256) report('GOAL_DEFINITION_CHANGED', item, 'Goal definition alignment requires checking; this is not business invalidation');
+        if (goal && m.goal_definition_sha256 !== goal.definition_sha256) report('GOAL_DEFINITION_CHANGED', item, 'Whole goal definition digest differs; assessment_selection determines scoped applicability after source verification, not business validity');
       }
     }
     if (item.type === 'change') for (const delta of m.deltas) if (!byId.has(delta.target)) report('CHANGE_TARGET', item, `Changed target ${delta.target} is unresolved; history is retained`);

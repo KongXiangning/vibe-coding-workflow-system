@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T08:25:14.583Z",
+  "payload_sha256": "45a81506d325c62445128a877c7f2083307e7429eeeb1e173b80e35a9b661d00",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:scoped-evidence-reuse-20261015-plan",
+    "request": {
+      "plan": {
+        "exclusions": [
+          "不改 LawAgent 业务或报告",
+          "不提交推送、发布或升级业务项目",
+          "不增加流程门槛"
+        ],
+        "steps": [
+          {
+            "id": "S1",
+            "validation": [
+              "精确复用、新反例重开、旧格式兼容"
+            ],
+            "title": "实现跨仓证据处置与局部触发规则",
+            "environment": [
+              "本地源码与临时测试夹具"
+            ]
+          },
+          {
+            "id": "S2",
+            "validation": [
+              "消费结果与生产端一致、UI聚合保留逐范围信息"
+            ],
+            "title": "接入 TraceLens 分类、聚合与只读消费",
+            "environment": [
+              "本地源码与合成文档"
+            ]
+          },
+          {
+            "id": "S3",
+            "validation": [
+              "生成一致性、类型检查、跨消费者行为验证"
+            ],
+            "title": "聚焦回归、自查与交付说明",
+            "environment": [
+              "本地构建和定向测试"
+            ]
+          }
+        ],
+        "scope": [
+          "workflow-system v6 可选局部证据处置与执行指引",
+          "TraceLens v6 只读消费、原因分类和变更聚合"
+        ],
+        "goal": "普通步骤只记录证据，实质变化才局部对账；精确依据未变时复用处置，界面按变化聚合原因。",
+        "title": "局部证据对账与 TraceLens 原因聚合"
+      },
+      "action": "prepare",
+      "idempotency_key": "scoped-evidence-reuse-20261015-plan"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "parents": [
+        ".workflow-system/records/events/key-cc10d389b83c94af9dd54c45bab2dc984b1361aeb15b3ed602a65ffaaf0958cc.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-022"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "0b3c6883df747f6b45ff9c4f94cf80f512c4a6e45ce503c1729b97f046202b58",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:25:57.830Z",
+  "payload_sha256": "825b095487f7fa15a9b7a8d1d527952124eea011275f4ebc92c4e645616fb78a",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-adopt",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+      "focus": false,
+      "decision_source": "2026-10-15 本轮用户消息",
+      "decision_text": "修复三个问题，补齐回归，修完再审查，不增加流程门槛。",
+      "idempotency_key": "evidence-review-followup-20261015-adopt"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+        "focus": false,
+        "decision_source": "2026-10-15 本轮用户消息",
+        "decision_text": "修复三个问题，补齐回归，修完再审查，不增加流程门槛。",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

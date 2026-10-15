@@ -93,6 +93,7 @@ export function parseProduct(text: string, file: string): ProductDocument {
       if (metadata.subject?.kind === 'working-copy' && !metadata.subject.revision && !metadata.subject.limitations) problem('Unfixed working copy requires limitations');
       if (metadata.target === metadata.applicability?.goal_id && (metadata.target_definition_algorithm !== metadata.goal_definition_algorithm || metadata.target_definition_sha256 !== metadata.goal_definition_sha256)) problem('Goal self-assessment requires equal target and goal algorithms/digests');
       if (yaml.value.items.some((m: any) => ['requirement', 'goal'].includes(m?.type))) problem('Assessments must be stored separately from requirement and goal definitions');
+      for (const disposition of Array.isArray(metadata.evidence_dispositions) ? metadata.evidence_dispositions : []) if (!/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(disposition?.checked_at ?? '') || !Number.isFinite(Date.parse(disposition?.checked_at))) problem('Disposition checked_at must be an actual ISO time with timezone');
     }
     if (matches.length !== 1) diagnostics.push(diagnostic('ITEM_HEADING', file, `Expected exactly one root level ## [${metadata?.id}] heading; found ${matches.length}`, { severity: 'error', item_id: metadata?.id }));
     if (yaml.value.items.filter((m: any) => m?.id === metadata?.id).length !== 1) diagnostics.push(diagnostic('DUPLICATE_ID', file, 'Metadata ID is not unique', { severity: 'error', item_id: metadata?.id }));

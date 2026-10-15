@@ -15,6 +15,7 @@ for (const version of [1, 2] as const) {
 fs.writeFileSync(path.join(directory, 'product-doc-v3.json'), `${JSON.stringify(documentSchema(3), null, 2)}\n`);
 fs.writeFileSync(path.join(directory, 'product-doc-v4.json'), `${JSON.stringify(documentSchema(4), null, 2)}\n`);
 fs.writeFileSync(path.join(directory, 'product-doc-v5.json'), `${JSON.stringify(documentSchema(5), null, 2)}\n`);
+fs.writeFileSync(path.join(directory, 'product-doc-v6.json'), `${JSON.stringify(documentSchema(6), null, 2)}\n`);
 fs.writeFileSync(path.join(directory, 'request-v1.json'), `${JSON.stringify(requestSchema, null, 2)}\n`);
 fs.writeFileSync(path.join(directory, 'result-v1.json'), `${JSON.stringify(resultSchema, null, 2)}\n`);
 execFileSync('bun', ['build', 'runtime/vnext/src/product-maintenance/cli.ts', '--target=node', '--outfile', 'runtime/vnext/dist/product-maintenance.js'], { cwd: root, stdio: 'inherit' });

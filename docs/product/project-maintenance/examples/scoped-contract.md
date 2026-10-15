@@ -4,6 +4,8 @@
 
 修订 0.3.2：保留 0.3.1 的范围声明、两份依据和旧需求变体；新增同定位缺字段、显式修正坏报告及保守摘要策略的消费预期。这些演算不保证 AI 必然遵循或业务结论正确。
 
+修订 0.3.3（2026-10-15）：区分无法验证原依据的保守核对，与已验证旧目标快照时的其他范围声明变化豁免；报告原完整定义摘要保持不变。
+
 以下代码块分别代表同一合成项目的文件。定义与报告分开；manifest 保持 v2，文档使用待实施的 v3。`sample-copy-a` 只在该合成工作副本登记内有效。摘要是按契约算法对本页定义代码块计算的值，复用样例时不要将它当成真实项目摘要。
 
 ## 1. 输入
@@ -327,7 +329,9 @@ sample-release-0：没有全量入库能力，演示失败。
 | 独立从基础输入克隆 A-DEMO-2，同定位同 coverage；A-DEMO 与 A-DEMO-2 互相 supersedes | 当前 FULL 选择为 undetermined／conflict；其他目标／范围的结论不受该环影响。 |
 | 修改 R-IMPORT 的验收正文，保留原报告摘要 | undetermined／definition-changed；原满足报告及全量成果保留为历史，Task 可正常继续。 |
 | 只将 G-DEMO 范围正文改为“要求全量导入并支持失败恢复”，保留声明和报告 | R-IMPORT 摘要未变，但 G-DEMO 摘要改变：FULL 选择为 undetermined／goal-definition-changed；不能继续称当前目标已满足。 |
-| 只在 G-DEMO 增加 R-NEW／BATCH-CHECK 的合法声明，coverage 为“批量输入的追加检查”；明确选择原 R-IMPORT／FULL，其他内容不变 | 所选 FULL 声明和需求摘要未变，目标整体摘要改变，旧 A-DEMO 为 undetermined／goal-definition-changed。这是首版保守提示的已知代价，保留原成果；不自动要求 AI 全范围重新评估，不列作消费缺陷。 |
+| 只在 G-DEMO 增加 R-NEW／BATCH-CHECK 的合法声明，coverage 为“批量输入的追加检查”；明确选择原 R-IMPORT／FULL，仍引用已改变的当前文件，其他内容不变 | 所选 FULL 声明和需求摘要未变，但目标整体摘要改变且旧目标依据未恢复，旧 A-DEMO 仍为 undetermined／goal-definition-changed，并保留来源核对缺口和原成果。 |
+| 先保存 G-DEMO 的完整旧文件快照，将其路径加入 source_paths，并令 A-DEMO.goal_basis 引用该快照及其实际文件 SHA-256；再仅增删改其他声明，明确选择 R-IMPORT／FULL | 验证原完整目标定义及文件摘要后，目标正文、类型、scope、关系及 FULL 均一致，A-DEMO 继续为 satisfied；历史摘要、原报告和交付对象不变。其他范围也可为同一需求的不同 scope_id。 |
+| 在上述快照场景中改目标正文／关系／本范围，损坏或删除快照，或登记 pending_sources | 相应变化和依据缺口仍待核对；只要有其他缺口就不提供当前满足结论。目标自身 OVERALL 报告始终核对完整目标定义，不应用此豁免。 |
 | 将 G-DEMO 当前声明的 FULL 改为 FULL-RECOVERY，并更新 coverage 为全量入库及失败恢复 | 默认当前范围为 FULL-RECOVERY，没有新报告时 no-applicable-report；显式拿旧 FULL 作当前查询为 scope-not-current。旧 A-DEMO 在历史入口继续可读。 |
 | 只修改 FULL 声明 coverage 为新的恢复范围，没有改 scope_id | 当前声明与旧报告不符：scope-definition-changed，同时保留目标摘要变化诊断；要求维护身份，但不自动修复或阻止 Task。 |
 | 去掉 G-DEMO.assessment_scopes；或增加同 target 的另一合法 scope_id | 分别为 scope-unavailable／未明确选择时 scope-selection-required；不按报告时间补当前范围。 |
@@ -381,7 +385,7 @@ items:
 
 ## 5. 完整 v3 报告引用 v2／v1 需求
 
-这是独立变体：保留第 4 节 LEGACY.md 的 v2 定义；在 G-DEMO.assessment_scopes 追加 `{target: R-LEGACY, scope_id: LEGACY, coverage: 历史导入要求}`；将下列新报告文件加入 managed_paths。其他输入不变。这里只增加评估范围，不自动生成 supports 或 TaskBinding。报告中的目标摘要已包含这条新增声明，目标原有报告应保留目标定义待核对提示，不能因新报告合法而回写旧报告依据。
+这是独立变体：保留第 4 节 LEGACY.md 的 v2 定义；在 G-DEMO.assessment_scopes 追加 `{target: R-LEGACY, scope_id: LEGACY, coverage: 历史导入要求}`；将下列新报告文件加入 managed_paths。其他输入不变。这里只增加评估范围，不自动生成 supports 或 TaskBinding。报告中的目标摘要已包含这条新增声明；本变体未保存原目标快照，目标原有报告仍保留目标定义待核对提示，不能因新报告合法而回写旧报告依据。
 
 `docs/product/SCOPED_LEGACY_REPORT.md`：
 

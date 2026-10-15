@@ -444,6 +444,38 @@ test('installed v5 contribution helper, templates, shared guidance and offline r
   const bytes = fs.readFileSync(path.join(root, file));
   expect(invoke('apply', { files: [{ path: file, expected_sha256: sha256(bytes), updates: [{ id: req.id, metadata: { task_bindings: rows } }] }] }).files[0].status).toBe('unchanged');
   const offline = JSON.parse(execFileSync('node', [path.join(support, 'offline-reader.js'), root], { encoding: 'utf8' }));
-  expect(offline.contract).toBe('vnext-product-doc/v5'); expect(offline.items.find((i: any) => i.id === req.id).metadata.task_bindings).toEqual(rows);
+  expect(offline.contract).toBe('vnext-product-doc/v6'); expect(offline.supported_formats).toContain('vnext-product-doc/v5'); expect(offline.items.find((i: any) => i.id === req.id).metadata.task_bindings).toEqual(rows);
   expect(fs.readFileSync(path.join(root, file))).toEqual(bytes); expect(fs.existsSync(path.join(root, '.workflow-system/records'))).toBe(false);
+});
+
+test('installed v6 Node helper reuses an exact local disposition without rewriting pending history', { timeout: 45000 }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'disposition-installed-')); roots.push(root);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"disposition-install-fixture","private":true,"type":"module"}\n');
+  expect(installDistribution({ targetRoot: root, packageRoot }).status).toBe('installed');
+  const support = path.join(root, '.workflow-system/runtime/support/product-maintenance');
+  expect(fs.readFileSync(path.join(support, 'schemas/product-doc-v6.json'))).toEqual(fs.readFileSync('runtime/vnext/support/product-maintenance/schemas/product-doc-v6.json'));
+  fs.cpSync(path.join(support, 'examples/scoped/docs'), path.join(root, 'docs'), { recursive: true });
+  fs.copyFileSync(path.join(support, 'examples/scoped/.workflow-system/PRODUCT.yaml'), path.join(root, '.workflow-system/PRODUCT.yaml'));
+  const helper = path.join(root, '.workflow-system/runtime/support/product-maintenance.js');
+  const invoke = (action: string, input: any) => JSON.parse(execFileSync('node', [helper, action, '--root', root], { encoding: 'utf8', input: JSON.stringify(input) }));
+  const file = 'docs/product/ASSESSMENTS.md', filename = path.join(root, file);
+  const source = { kind: 'text', text: '合成职责调整不影响本范围已报成果。', label: '安装夹具，非业务事实' };
+  const update = (metadata: any, migrate?: string) => invoke('apply', { files: [{ path: file, expected_sha256: sha256(fs.readFileSync(filename)), ...(migrate ? { migrate } : {}), updates: [{ id: 'A-DEMO', metadata }] }] });
+  const query = { target: 'R-IMPORT', goal_id: 'G-DEMO', scope_id: 'FULL', subject: { kind: 'working-copy', value: 'sample-copy-a', revision: 'sample-baseline' } };
+  expect(update({ pending_sources: [source] }, 'v6').status).toBe('saved');
+  const before = invoke('read', { detail: 'items', assessment_query: query });
+  expect(before.assessment_selection.reasons).toContain('pending-evidence');
+  const report = before.usable_items.find((item: any) => item.id === 'A-DEMO');
+  expect(update({ evidence_dispositions: [{ change_id: 'CHANGE-INSTALL', kind: 'scope-change', source, disposition: 'no-impact', checked_at: '2026-10-15T00:00:00Z', reason: '已按本合成范围核对，原成果保持；非真实业务认证。', basis: report.disposition_basis }] }).status).toBe('saved');
+  const bytes = fs.readFileSync(filename);
+  for (let read = 0; read < 2; read++) {
+    const result = invoke('read', { detail: 'items', assessment_query: query });
+    expect(result.assessment_selection.conclusion).toBe('satisfied');
+    const saved = result.usable_items.find((item: any) => item.id === 'A-DEMO');
+    expect(saved.metadata.pending_sources).toEqual([source]);
+    expect(saved.pending_sources).toEqual([]);
+    expect(saved.evidence_dispositions[0].reuse_status).toBe('reused');
+    expect(fs.readFileSync(filename)).toEqual(bytes);
+    expect(result.development_gate).toBe(false);
+  }
 });

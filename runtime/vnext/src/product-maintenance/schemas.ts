@@ -75,6 +75,13 @@ export function itemSchema(version: ProductDocumentVersion): Schema {
       goal_basis: ref('SourceRef'), goal_definition_algorithm: string, goal_definition_sha256: nullable(digest), conclusion: choice('satisfied', 'partially-satisfied', 'not-satisfied', 'undetermined'), supersedes: array(id) });
     types.assessment!.required.push('applicability', 'target_definition_algorithm', 'goal_basis', 'goal_definition_algorithm', 'goal_definition_sha256', 'conclusion');
   }
+  if (version >= 6) types.assessment!.fields.evidence_dispositions = array(object({
+    change_id: string, kind: choice('scope-change', 'counterevidence', 'delivery-evidence', 'source-change'), source,
+    disposition: choice('no-impact', 'evidence-incorporated', 'deferred'), reason: string, checked_at: string,
+    basis: object({ target: id, goal_id: id, scope_id: id, coverage: string, subject: subject(version),
+      target_definition_algorithm: string, target_definition_sha256: digest, goal_definition_algorithm: string, goal_definition_sha256: digest, goal_scope_definition_sha256: digest, report_sources: sources,
+      report_algorithm: { const: 'vnext-assessment-disposition/v1' }, report_sha256: digest }), sources,
+  }, ['change_id', 'kind', 'source', 'disposition', 'reason', 'checked_at', 'basis']));
   return { oneOf: Object.entries(types).map(([type, spec]) => {
     const extra: ObjectValue[] = [];
     if (type === 'assessment') extra.push({ properties: { target_basis: { properties: { kind: { const: 'file' } }, required: ['kind'] } } });
@@ -88,14 +95,14 @@ export function itemSchema(version: ProductDocumentVersion): Schema {
   }) };
 }
 export function documentSchema(version: ProductDocumentVersion): Schema {
-  return { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: `https://vnext.local/schemas/product-doc-v${version}.json`, $defs: version === 5 ? { ...definitions, TaskBinding: { ...definitions.TaskBinding, properties: { ...definitions.TaskBinding.properties, contribution: choice('direct', 'supporting') } } } : definitions,
+  return { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: `https://vnext.local/schemas/product-doc-v${version}.json`, $defs: version >= 5 ? { ...definitions, TaskBinding: { ...definitions.TaskBinding, properties: { ...definitions.TaskBinding.properties, contribution: choice('direct', 'supporting') } } } : definitions,
     ...object({ schema: { const: `vnext-product-doc/v${version}` }, items: array(itemSchema(version)) }) };
 }
 export function manifestSchema(version: 1 | 2): Schema {
   return { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: `https://vnext.local/schemas/product-manifest-v${version}.json`,
     ...object({ schema: { const: `vnext-product-manifest/v${version}` }, project_id: string, entry: string, managed_paths: array(string, 1), source_paths: array(string), ...(version === 2 ? { capture_paths: array(string) } : {}), exclude_paths: array(string), maintenance: choice('enabled', 'paused'), extensions }, ['schema', 'project_id', 'entry', 'managed_paths', 'source_paths', 'exclude_paths', 'maintenance']) };
 }
-const fileOperation = object({ path: string, expected_sha256: nullable(digest), content: { type: 'string' }, updates: array(object({ id, metadata: { type: 'object' }, body: { type: 'string' }, remove_fields: array(string) }, ['id'])), append: array(object({ metadata: { type: 'object' }, body: string })), migrate: choice('v2', 'v3', 'v4', 'v5'), preimage_path: string,
+const fileOperation = object({ path: string, expected_sha256: nullable(digest), content: { type: 'string' }, updates: array(object({ id, metadata: { type: 'object' }, body: { type: 'string' }, remove_fields: array(string) }, ['id'])), append: array(object({ metadata: { type: 'object' }, body: string })), migrate: choice('v2', 'v3', 'v4', 'v5', 'v6'), preimage_path: string,
   remove_items: array(id), remove_relations: array(object({ item_id: id, field: choice('links', 'task_bindings'), id })) }, ['path', 'expected_sha256']);
 export const requestSchema: Schema = { $schema: 'https://json-schema.org/draft/2020-12/schema', $defs: definitions,
   ...object({ manifest: string, detail: choice('summary', 'items'), item_ids: array(id), paths: array(string), max_files: { type: 'integer', minimum: 1, maximum: 10000 }, max_file_bytes: { type: 'integer', minimum: 1, maximum: 67108864 }, max_total_bytes: { type: 'integer', minimum: 1, maximum: 268435456 }, resolve_sources: { type: 'boolean' }, source: source, offset: { type: 'integer', minimum: 0 }, max_bytes: { type: 'integer', minimum: 1, maximum: 1048576 }, impact_ids: array(id), discussion_targets: array(id),

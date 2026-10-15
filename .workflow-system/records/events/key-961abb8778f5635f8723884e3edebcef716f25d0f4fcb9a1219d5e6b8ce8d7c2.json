@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:34:01.386Z",
+  "payload_sha256": "157b95ebbcd9d3c80f67d6b22322161fc0bf1e16d666b8ebffff1f1b38e4372b",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-finish-S2",
+    "request": {
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+      "decision_source": "2026-10-15 用户修复与复审请求",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "action": "step",
+      "step_id": "S2",
+      "state": "finished",
+      "decision_ref": ".workflow-system/records/events/key-9ddc336dc43b5e02bc30361ad01f95b6d6de3499877059f4b75280f363a40a11.json",
+      "remaining_work": [],
+      "decision_text": "本轮修复和要求的复审完成，验证边界已记录。",
+      "idempotency_key": "evidence-review-followup-20261015-finish-S2"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-9ddc336dc43b5e02bc30361ad01f95b6d6de3499877059f4b75280f363a40a11.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+        "decision_source": "2026-10-15 用户修复与复审请求",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "step_id": "S2",
+        "state": "finished",
+        "decision_ref": ".workflow-system/records/events/key-9ddc336dc43b5e02bc30361ad01f95b6d6de3499877059f4b75280f363a40a11.json",
+        "remaining_work": [],
+        "decision_text": "本轮修复和要求的复审完成，验证边界已记录。"
+      }
+    }
+  },
+  "issues": []
+}

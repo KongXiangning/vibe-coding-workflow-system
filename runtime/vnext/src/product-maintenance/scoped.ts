@@ -1,5 +1,7 @@
 import { type Catalog, type Item, type ObjectValue } from './model';
-import { readSource } from './references';
+import { definitionAlgorithm, requirementDigest } from './parser';
+import { readSourceDefinition } from './references';
+import { assessmentEvidence } from './dispositions';
 
 const normalize = (text: string): string => text.replace(/\r\n|\r/g, '\n');
 const subjectKey = (s: any): string => JSON.stringify([s?.kind, s?.value, s?.revision ?? null]);
@@ -62,12 +64,37 @@ export function productView(catalog: Catalog): ObjectValue {
   return { project_id: project?.id ?? null, root_goal: rootGoal(catalog, project), requirement_order: registered, unordered_requirements: unordered, current_relations: current, diagnostics };
 }
 
+/** Other declarations may change only after the original whole goal has been verified. */
+function unchangedGoalScope(report: Item, goal: Item, source: ObjectValue, previous?: Item): boolean {
+  const m = report.metadata, basis = m.goal_basis, digest = m.goal_definition_sha256;
+  if (!report.usable || !goal.usable || m.target === goal.id || !previous?.usable || previous.type !== 'goal' || previous.id !== goal.id) return false;
+  if (basis?.kind !== 'file' || basis.item_id !== goal.id || !basis.sha256
+    || source.status !== 'available' || source.byte_status !== 'same-bytes') return false;
+  if (goal.definition_algorithm !== 'vnext-product-definition/v1' || m.goal_definition_algorithm !== goal.definition_algorithm
+    || definitionAlgorithm(previous) !== goal.definition_algorithm || !goal.definition_sha256 || !digest
+    || source.definition_algorithm !== goal.definition_algorithm || source.definition_sha256 !== digest
+    || requirementDigest(previous) !== digest || requirementDigest(goal) !== goal.definition_sha256) return false;
+
+  const scopedDigest = (item: Item): string | null => {
+    const declarations = (item.metadata.assessment_scopes ?? []).filter((s: any) => s.target === m.target && s.scope_id === m.applicability.scope_id);
+    if (declarations.length !== 1) return null;
+    return requirementDigest({ ...item, metadata: { ...item.metadata, assessment_scopes: declarations } });
+  };
+  const before = scopedDigest(previous), after = scopedDigest(goal);
+  return before !== null && before === after;
+}
+
 /** Select only explicitly reported scope/object; no model or Task operations. */
 export function selectAssessment(catalog: Catalog, query: ObjectValue, budget: ObjectValue = {}): ObjectValue {
   const reasons: string[] = [], candidates: Item[] = [], historical: string[] = [];
+  const evidence = new Map<Item, ObjectValue>();
+  const evidenceFor = (report: Item): ObjectValue => {
+    if (!evidence.has(report)) evidence.set(report, assessmentEvidence(catalog, report, budget));
+    return evidence.get(report)!;
+  };
   const pending = catalog.items.filter(i => i.type === 'assessment' && !located(i.metadata)).map(i => i.id);
   const result = (): ObjectValue => ({ selection: query, conclusion: reasons.length ? 'undetermined' : candidates[0]?.metadata.conclusion ?? 'undetermined',
-    assessment_id: reasons.length ? null : candidates[0]?.id ?? null, reasons: [...new Set(reasons)], reports: candidates.map(i => ({ id: i.id, conclusion: i.metadata.conclusion ?? null, usable: i.usable, locator: { kind: 'file', path: i.path, item_id: i.id } })), historical_reports: historical, pending_reports: pending, business_validity: 'not-evaluated' });
+    assessment_id: reasons.length ? null : candidates[0]?.id ?? null, reasons: [...new Set(reasons)], reports: candidates.map(i => ({ id: i.id, conclusion: i.metadata.conclusion ?? null, usable: i.usable, locator: { kind: 'file', path: i.path, item_id: i.id }, ...evidenceFor(i) })), historical_reports: historical, pending_reports: pending, business_validity: 'not-evaluated' });
   const fail = (reason: string): ObjectValue => { reasons.push(reason); return result(); };
   const goal = catalog.byId.get(query.goal_id), target = catalog.byId.get(query.target);
   if (!goal || goal.type !== 'goal' || (goal.version ?? 0) < 3) return fail('scope-unavailable');
@@ -119,13 +146,18 @@ export function selectAssessment(catalog: Catalog, query: ObjectValue, budget: O
       const label = prefix === 'target' ? 'definition' : 'goal-definition';
       const algorithm = m[`${prefix}_definition_algorithm`], digest = m[`${prefix}_definition_sha256`];
       if (['vnext-product-definition/v1', 'vnext-requirement-definition/v1'].includes(algorithm) && algorithm !== definition.definition_algorithm) reasons.push('definition-algorithm-changed');
-      if (algorithm === definition.definition_algorithm && digest && digest !== definition.definition_sha256) reasons.push(`${label}-changed`);
       const basis = m[`${prefix}_basis`];
-      if (!digest || !basis || algorithm !== definition.definition_algorithm) { reasons.push(`${label}-unverified`); continue; }
-      const source = readSource(catalog, basis, { max_file_bytes: budget.max_file_bytes, max_bytes: 1 });
+      const read = digest && basis && algorithm === definition.definition_algorithm
+        ? readSourceDefinition(catalog, basis, { max_file_bytes: budget.max_file_bytes, max_bytes: 1 }) : undefined;
+      if (algorithm === definition.definition_algorithm && digest && digest !== definition.definition_sha256) {
+        const sameGoalScope = prefix === 'goal' && read && unchangedGoalScope(report, definition, read.result, read.definition);
+        if (!sameGoalScope) reasons.push(`${label}-changed`);
+      }
+      if (!read) { reasons.push(`${label}-unverified`); continue; }
+      const source = read.result;
       if (source.status !== 'available' || source.definition_algorithm !== algorithm || source.definition_sha256 !== digest || source.byte_status === 'changed') reasons.push(`${label}-unverified`);
     }
-    if (m.pending_sources?.length) reasons.push('pending-evidence');
+    if (evidenceFor(report).pending_sources.length) reasons.push('pending-evidence');
   }
   return result();
 }

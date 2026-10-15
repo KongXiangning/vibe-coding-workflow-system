@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T06:03:39.844Z",
+  "payload_sha256": "c5d2514bade1f0d675d39ed6919ace216282a1653907a049f97a4933e1f3f161",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:assessment-scope-alignment-20261015-adopt",
+    "request": {
+      "action": "adopt",
+      "task_id": "task-219e6e49b2e10b6c02082fa0be509de2",
+      "plan_ref": ".workflow-system/records/events/key-1f2b31966f732d2a84e0d7399a6ef522655101f3e2fa335167a9b1f61d403573.json",
+      "focus": false,
+      "decision_source": "当前对话用户消息",
+      "decision_text": "把这项规则统一到 vNext 契约和读取逻辑中，再保持 TraceLens 一致，而不是为了符合旧契约撤掉豁免。进行操作",
+      "idempotency_key": "assessment-scope-alignment-20261015-adopt"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "adopt",
+      "task_id": "task-219e6e49b2e10b6c02082fa0be509de2",
+      "parents": [
+        ".workflow-system/records/events/key-1f2b31966f732d2a84e0d7399a6ef522655101f3e2fa335167a9b1f61d403573.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-1f2b31966f732d2a84e0d7399a6ef522655101f3e2fa335167a9b1f61d403573.json",
+        "focus": false,
+        "decision_source": "当前对话用户消息",
+        "decision_text": "把这项规则统一到 vNext 契约和读取逻辑中，再保持 TraceLens 一致，而不是为了符合旧契约撤掉豁免。进行操作",
+        "activate": true
+      }
+    }
+  },
+  "issues": []
+}

@@ -1,6 +1,6 @@
-export const PRODUCT_DOCUMENT_VERSIONS = [1, 2, 3, 4, 5] as const;
+export const PRODUCT_DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6] as const;
 export type ProductDocumentVersion = typeof PRODUCT_DOCUMENT_VERSIONS[number];
-export const ROADMAP_DOCUMENT_VERSIONS: readonly ProductDocumentVersion[] = [4, 5];
+export const ROADMAP_DOCUMENT_VERSIONS: readonly ProductDocumentVersion[] = [4, 5, 6];
 export type ObjectValue = Record<string, any>;
 export interface Diagnostic {
   code: string;

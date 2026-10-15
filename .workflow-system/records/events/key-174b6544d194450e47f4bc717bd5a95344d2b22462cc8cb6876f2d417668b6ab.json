@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T08:50:16.385Z",
+  "payload_sha256": "7a6f5cb4e82ce8e19b45663ba6e3f06d02070162f1d80e18e915e4cfcd14a72d",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:scoped-evidence-reuse-20261015-execution-S1",
+    "request": {
+      "summary": "实现普通步骤证据与实质变化的局部触发规则、v6 可选证据处置、精确来源及局部范围复用；旧依据、反例和冲突仍独立保留。",
+      "idempotency_key": "scoped-evidence-reuse-20261015-execution-S1",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "source_revision": "本地未提交工作区；源码与本地产物，精确验证边界见交付记录",
+      "result": "passed",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "action": "execution",
+      "step_id": "S1",
+      "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+      "commands": [
+        {
+          "command": "bun run test:product-maintenance",
+          "result": "passed",
+          "tests": 143
+        },
+        {
+          "command": "bun test test/product-maintenance-install.test.ts",
+          "result": "passed",
+          "tests": 5
+        }
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "parents": [
+        ".workflow-system/records/events/key-c2451f2a6ec47e5369fe98e975b3045c322b87c85fcef4d395a278a653098ae7.json"
+      ],
+      "data": {
+        "summary": "实现普通步骤证据与实质变化的局部触发规则、v6 可选证据处置、精确来源及局部范围复用；旧依据、反例和冲突仍独立保留。",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "source_revision": "本地未提交工作区；源码与本地产物，精确验证边界见交付记录",
+        "result": "passed",
+        "step_id": "S1",
+        "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+        "commands": [
+          {
+            "command": "bun run test:product-maintenance",
+            "result": "passed",
+            "tests": 143
+          },
+          {
+            "command": "bun test test/product-maintenance-install.test.ts",
+            "result": "passed",
+            "tests": 5
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

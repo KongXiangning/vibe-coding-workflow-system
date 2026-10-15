@@ -46,7 +46,7 @@ test('v1-v4 schema assets remain byte-identical; v5 alone accepts contribution',
     expect(validate({ schema: 'vnext-product-doc/v5', items: [item('GOAL', 'goal', { task_bindings: [row] }).metadata] }, documentSchema(5))).toEqual([]);
   }
   for (const contribution of [null, 'undetermined', 'unrelated', '', 1]) expect(parseProduct(newDocument([item('REQ-A', 'requirement', { task_bindings: [binding({ contribution })] })], '非法字段', 5), relative).items[0]!.usable).toBe(false);
-  expect(parseProduct(newDocument([item('REQ-A')], '', 5).replace('doc/v5', 'doc/v6'), relative).diagnostics[0]!.code).toBe('UNSUPPORTED_VERSION');
+  expect(parseProduct(newDocument([item('REQ-A')], '', 5).replace('doc/v5', 'doc/v7'), relative).diagnostics[0]!.code).toBe('UNSUPPORTED_VERSION');
 });
 
 test('v3/v4/v5 definitions use identical algorithms and exclude binding classifications', () => {

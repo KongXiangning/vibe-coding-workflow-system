@@ -27,6 +27,25 @@ const query = (goal_id = 'G-DEMO', scope_id = 'FULL', subject = { kind: 'working
 const read = (root: string, selection: any = query()) => run('read', root, { detail: 'items', assessment_query: selection });
 const op = (root: string, file: string, rest: any) => ({ path: file, expected_sha256: sha256(get(root, file)), ...rest });
 const report = (root: string, id = 'A-DEMO') => parseProduct(get(root, reportPath), reportPath).items.find(i => i.id === id)!;
+const basisPath = 'docs/evidence/definitions-before.md';
+function captureDefinitionBasis(root: string, id = 'A-DEMO'): void {
+  const raw = get(root, projectPath), original = report(root, id);
+  put(root, basisPath, raw);
+  put(root, '.workflow-system/PRODUCT.yaml', get(root, '.workflow-system/PRODUCT.yaml').replace('source_paths:', `source_paths:\n  - ${basisPath}`));
+  const metadata = Object.fromEntries(['target', 'goal'].map(role => [`${role}_basis`, { ...original.metadata[`${role}_basis`], path: basisPath, sha256: sha256(raw) }]));
+  expect(run('apply', root, { files: [op(root, reportPath, { updates: [{ id, metadata }] })] }).status).toBe('saved');
+}
+function selectWith(root: string, bundled: boolean, selection: any = query()): any {
+  if (!bundled) return read(root, selection).assessment_selection;
+  const response = spawnSync('node', ['runtime/vnext/dist/product-maintenance.js', 'read', '--root', root], { input: JSON.stringify({ assessment_query: selection }), encoding: 'utf8' });
+  expect(response.status).toBe(0);
+  return JSON.parse(response.stdout).assessment_selection;
+}
+function updateGoal(root: string, change: (goal: ReturnType<typeof parseProduct>['items'][number]) => void, id = 'G-DEMO'): void {
+  const goal = parseProduct(get(root, projectPath), projectPath).items.find(i => i.id === id)!;
+  change(goal);
+  expect(run('apply', root, { files: [op(root, projectPath, { updates: [{ id, metadata: goal.metadata, body: goal.body }] })] }).status).toBe('saved');
+}
 
 function applyWith(root: string, input: any, bundled: boolean): any {
   if (!bundled) return run('apply', root, input);
@@ -260,6 +279,86 @@ test('VN03 declaration choice, scope changes and goal digest conservation follow
   expect(run('apply', root, { files: [op(root, projectPath, { updates: [{ id: goal.id, metadata: { assessment_scopes: [{ ...goal.metadata.assessment_scopes[0], coverage: '入库及恢复' }] } }] })] }).status).toBe('saved');
   expect(read(root).assessment_selection.reasons).toContain('scope-definition-changed');
 });
+
+test.each([false, true])('VN03 verified other-scope changes preserve the selected requirement report (bundle=%s)', bundled => {
+  const root = fixture(); captureDefinitionBasis(root);
+  const savedReport = get(root, reportPath);
+  const originalDigest = report(root).metadata.goal_definition_sha256;
+  const changes = [
+    (goal: any) => goal.metadata.assessment_scopes.push({ target: 'R-NEW', scope_id: 'EXTRA', coverage: 'Independent batch' }),
+    (goal: any) => { goal.metadata.assessment_scopes.find((s: any) => s.scope_id === 'EXTRA').coverage = 'Changed independent batch'; },
+    (goal: any) => { goal.metadata.assessment_scopes = goal.metadata.assessment_scopes.filter((s: any) => s.target !== 'R-NEW'); },
+    (goal: any) => goal.metadata.assessment_scopes.push({ target: 'R-IMPORT', scope_id: 'OTHER', coverage: 'Another explicit scope for this requirement' }),
+  ];
+  for (const change of changes) {
+    updateGoal(root, change);
+    expect(read(root).usable_items.find((i: any) => i.id === 'G-DEMO').definition_sha256).not.toBe(originalDigest);
+    expect(selectWith(root, bundled)).toMatchObject({ conclusion: 'satisfied', assessment_id: 'A-DEMO', reasons: [] });
+    expect(get(root, reportPath)).toBe(savedReport);
+  }
+  const ambiguous: any = query(); delete ambiguous.scope_id;
+  expect(selectWith(root, bundled, ambiguous).reasons).toEqual(['scope-selection-required']);
+});
+
+test.each(['body', 'relation', 'goal-kind', 'goal-scope', 'coverage', 'scope-removed', 'requirement', 'overall', 'pending'])(
+  'VN03 other-scope exemption retains %s changes and gaps', condition => {
+    const root = fixture(), overall = condition === 'overall';
+    captureDefinitionBasis(root, overall ? 'A-ALL' : 'A-DEMO');
+    const selection = overall ? { ...query('G-ALL', 'OVERALL'), target: 'G-ALL' } : query();
+    updateGoal(root, goal => {
+      goal.metadata.assessment_scopes.push({ target: 'R-NEW', scope_id: 'EXTRA', coverage: 'Independent batch' });
+      if (condition === 'body') goal.body += '\n### 新要求\n改变共同目标。\n';
+      if (condition === 'relation') goal.metadata.links = [];
+      if (condition === 'goal-kind') goal.metadata.goal_kind = 'outcome';
+      if (condition === 'goal-scope') goal.metadata.scope = 'planned';
+      if (condition === 'coverage') goal.metadata.assessment_scopes[0].coverage = 'Changed selected coverage';
+      if (condition === 'scope-removed') goal.metadata.assessment_scopes.shift();
+    }, overall ? 'G-ALL' : 'G-DEMO');
+    if (condition === 'requirement') updateGoal(root, item => { item.body += '\nAdditional acceptance obligation.\n'; }, 'R-IMPORT');
+    if (condition === 'pending') expect(run('apply', root, { files: [op(root, reportPath, { updates: [{ id: 'A-DEMO', metadata: { pending_sources: [{ kind: 'file', path: 'docs/evidence/import.md' }] } }] })] }).status).toBe('saved');
+    const specificReasons: Record<string, string> = { pending: 'pending-evidence', requirement: 'definition-changed', 'scope-removed': 'scope-unavailable' };
+    const reason = specificReasons[condition] ?? 'goal-definition-changed';
+    for (const bundled of [false, true]) {
+      const result = selectWith(root, bundled, selection);
+      expect(result.conclusion).toBe('undetermined');
+      expect(result.reasons).toContain(reason);
+      if (condition !== 'scope-removed') expect(result.reports[0].conclusion).toBe(overall ? 'undetermined' : 'satisfied');
+    }
+  },
+);
+
+test.each(['v4', 'v5'])('VN03 scoped comparison survives compatible %s definition migration', version => {
+  const root = fixture(); captureDefinitionBasis(root);
+  expect(run('apply', root, { files: [op(root, projectPath, { migrate: version })] }).status).toBe('saved');
+  updateGoal(root, goal => { goal.metadata.assessment_scopes.push({ target: 'R-NEW', scope_id: 'EXTRA', coverage: 'Independent batch' }); });
+  for (const bundled of [false, true]) expect(selectWith(root, bundled)).toMatchObject({ conclusion: 'satisfied', reasons: [] });
+});
+
+test.each(['file-changed', 'missing', 'digest-missing', 'wrong-definition', 'algorithm', 'item-missing', 'duplicate-item'])(
+  'VN03 scope exemption requires an intact original basis: %s', condition => {
+    const root = fixture(); captureDefinitionBasis(root);
+    updateGoal(root, goal => { goal.metadata.assessment_scopes.push({ target: 'R-NEW', scope_id: 'EXTRA', coverage: 'Independent batch' }); });
+    const old = report(root), metadata: any = {};
+    if (condition === 'file-changed') put(root, basisPath, get(root, basisPath) + '\n<!-- unrelated file change -->\n');
+    if (condition === 'missing') metadata.goal_basis = { ...old.metadata.goal_basis, path: 'docs/evidence/missing.md' };
+    if (condition === 'digest-missing') { metadata.goal_basis = { ...old.metadata.goal_basis }; delete metadata.goal_basis.sha256; }
+    if (condition === 'wrong-definition') metadata.goal_definition_sha256 = '0'.repeat(64);
+    if (condition === 'algorithm') metadata.goal_definition_algorithm = 'unknown-algorithm';
+    if (condition === 'item-missing' || condition === 'duplicate-item') {
+      const document = parseProduct(get(root, basisPath), basisPath);
+      const items = document.items.filter(i => condition !== 'item-missing' || i.id !== 'G-DEMO');
+      if (condition === 'duplicate-item') items.push(items.find(i => i.id === 'G-DEMO')!);
+      put(root, basisPath, newDocument(items, 'Invalid historical identity', 3));
+      metadata.goal_basis = { ...old.metadata.goal_basis, sha256: sha256(get(root, basisPath)) };
+    }
+    if (Object.keys(metadata).length) expect(run('apply', root, { files: [op(root, reportPath, { updates: [{ id: 'A-DEMO', metadata }] })] }).status).toBe('saved');
+    for (const bundled of [false, true]) {
+      const result = selectWith(root, bundled);
+      expect(result.conclusion).toBe('undetermined');
+      expect(result.reasons).toContain(condition === 'algorithm' ? 'goal-definition-unverified' : 'goal-definition-changed');
+    }
+  },
+);
 
 test.each([2, 3] as const)('VN03 cross-file v%s batch order reports a partial save without undoing the successful requirement', version => {
   const root = fixture(), addedPath = 'docs/product/ADDED.md';

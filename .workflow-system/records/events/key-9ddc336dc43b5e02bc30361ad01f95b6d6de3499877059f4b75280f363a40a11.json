@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:34:00.624Z",
+  "payload_sha256": "9504dc31438af4a36e4fa3969eb2744fa4226ed514e9f4572ae924c024b2000b",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-review-S2",
+    "request": {
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+      "decision_source": "2026-10-15 用户修复与复审请求",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "action": "review",
+      "stage": "change",
+      "step_id": "S2",
+      "execution_ref": ".workflow-system/records/events/key-c9803de47621e6ec8761851ce057b197b459f09196252896d53ae11288a3931d.json",
+      "verdict": "clean",
+      "findings": [],
+      "coverage": [
+        "概览详情导出及deferred/handled状态真实浏览器",
+        "报告、来源、返回概览、需求Task跳转",
+        "1440/390详情宽度及四种宽度概览回归",
+        "源码、Node bundle、TraceLens相同夹具与安装保留旧功能"
+      ],
+      "provenance": {
+        "reviewer": "root",
+        "method": "复核三份独立审查，运行最终测试、生产构建、浏览器及截图检查",
+        "limits": "旧browser-smoke颜色断言、product-browser标题等待基线问题未作为通过；scoped脚本夹具未重建；未升级业务项目"
+      },
+      "idempotency_key": "evidence-review-followup-20261015-review-S2"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-c9803de47621e6ec8761851ce057b197b459f09196252896d53ae11288a3931d.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+        "decision_source": "2026-10-15 用户修复与复审请求",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "stage": "change",
+        "step_id": "S2",
+        "execution_ref": ".workflow-system/records/events/key-c9803de47621e6ec8761851ce057b197b459f09196252896d53ae11288a3931d.json",
+        "verdict": "clean",
+        "findings": [],
+        "coverage": [
+          "概览详情导出及deferred/handled状态真实浏览器",
+          "报告、来源、返回概览、需求Task跳转",
+          "1440/390详情宽度及四种宽度概览回归",
+          "源码、Node bundle、TraceLens相同夹具与安装保留旧功能"
+        ],
+        "provenance": {
+          "reviewer": "root",
+          "method": "复核三份独立审查，运行最终测试、生产构建、浏览器及截图检查",
+          "limits": "旧browser-smoke颜色断言、product-browser标题等待基线问题未作为通过；scoped脚本夹具未重建；未升级业务项目"
+        }
+      }
+    }
+  },
+  "issues": []
+}

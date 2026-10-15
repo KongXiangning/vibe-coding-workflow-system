@@ -6,9 +6,25 @@ JSON stdin; JSON stdout. Exit 1 means a real failed/partial service result or in
 requested read coverage, never a development veto. Read status=available describes
 service availability, not complete coverage or usable structure.
 `kind=product-maintenance-result/v1`, `development_gate=false`, `qualification=not-evaluated`.
-Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents in v1/v2/v3/v4/v5 Schema and manifests in v1/v2 Schema plus `contract.md`. v4 adds optional plan.planning_baseline; migrate only the selected document with migrate=v4. v5 inherits that baseline and adds optional TaskBinding.contribution only in Goal/Requirement bindings; see contract.md section 12 and references/binding-contribution.md. Manifest remains v2, and old v1–v4 schemas remain unchanged. Old paths and internal plan IDs remain compatible. Source, distribution, installed helper, host behavior and TraceLens delivery are separate evidence scopes.
+Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents in v1/v2/v3/v4/v5/v6 Schema and manifests in v1/v2 Schema plus `contract.md`. v4 adds optional plan.planning_baseline; migrate only the selected document with migrate=v4. v5 inherits that baseline and adds optional TaskBinding.contribution only in Goal/Requirement bindings; see contract.md section 12 and references/binding-contribution.md. Manifest remains v2, and old v1–v5 schemas remain unchanged. Old paths and internal plan IDs remain compatible. Source, distribution, installed helper, host behavior and TraceLens delivery are separate evidence scopes.
 
 ## Read and check
+
+v6 adds optional Assessment `evidence_dispositions`; see contract.md section 13.
+Ordinary successful steps retain Task/Step evidence without adding report pending.
+Only actual obligation/scope changes, counterevidence or authorized delivery evaluation
+start a local reconciliation. No new action, approval or required migration is added.
+
+For a selected v6 Assessment, `read` returns `disposition_basis`, evaluated
+`evidence_dispositions` (`reuse_status`, `reuse_reasons`), effective `pending_sources`
+and `handled_sources`. Use the returned basis with the actual source, reason and
+disposition in an ordinary digest-protected `apply` update (`migrate: "v6"` only
+for the affected older document). Re-read the saved report and scoped selection.
+Unchanged exact source/context permits reuse; a changed report, definition, object,
+source or conflicting judgment keeps that source pending. These records never exempt
+independent definition/basis/conflict checks or certify business validity. File sources
+must remain readable at their recorded SHA and locator; URI and missing hashes cannot
+clear pending. Legacy v1–v5 documents keep their original behavior.
 
 ```json
 {"detail":"summary"}

@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:33:58.236Z",
+  "payload_sha256": "bc093d32b7687fef585c51e09b355123c59bdb35f1a254c26ce8e9d318e0458e",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-review-S1",
+    "request": {
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+      "decision_source": "2026-10-15 用户修复与复审请求",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "action": "review",
+      "stage": "change",
+      "step_id": "S1",
+      "execution_ref": ".workflow-system/records/events/key-837d677bd333d812aaabd0d6c6bf30668f7eac2de3a6c1380e8e9276a22a9da5.json",
+      "verdict": "clean",
+      "findings": [],
+      "coverage": [
+        "预算传递、默认兼容与单请求缓存隔离",
+        "同一scope变化合并及不同/缺失身份防误并",
+        "有效pending/handled/reused跨表面一致与旧提示恢复",
+        "未引入流程门槛"
+      ],
+      "provenance": {
+        "reviewers": [
+          "review_budget_fix",
+          "review_scope_fix",
+          "review_views_fix"
+        ],
+        "method": "三名未参与对应实现的代理只读源码审查及独立专项测试，50/32/126项通过",
+        "limits": "未穷尽历史页面组合；无并发外部替换压力测试"
+      },
+      "idempotency_key": "evidence-review-followup-20261015-review-S1"
+    },
+    "task_event": {
+      "version": 2,
+      "action": "review",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-837d677bd333d812aaabd0d6c6bf30668f7eac2de3a6c1380e8e9276a22a9da5.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+        "decision_source": "2026-10-15 用户修复与复审请求",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "stage": "change",
+        "step_id": "S1",
+        "execution_ref": ".workflow-system/records/events/key-837d677bd333d812aaabd0d6c6bf30668f7eac2de3a6c1380e8e9276a22a9da5.json",
+        "verdict": "clean",
+        "findings": [],
+        "coverage": [
+          "预算传递、默认兼容与单请求缓存隔离",
+          "同一scope变化合并及不同/缺失身份防误并",
+          "有效pending/handled/reused跨表面一致与旧提示恢复",
+          "未引入流程门槛"
+        ],
+        "provenance": null
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "409060e7d1c1e946537b03674291c6d9e8906bd51a1f0df9da161321b2255926",
+        "references": [
+          {
+            "data_pointer": "/provenance",
+            "request_pointer": "/provenance"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T08:50:17.857Z",
+  "payload_sha256": "23466909ad346bd06c9c4fd2a230a3194bac69618788d77460ce618c55882f13",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:scoped-evidence-reuse-20261015-execution-S2",
+    "request": {
+      "summary": "TraceLens 实现 v6 来源核验与有效pending、原因分类、同变更跨报告聚合、逐范围结论入口及已复用处置展示。",
+      "idempotency_key": "scoped-evidence-reuse-20261015-execution-S2",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "source_revision": "本地未提交工作区；源码与本地产物，精确验证边界见交付记录",
+      "result": "passed",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "action": "execution",
+      "step_id": "S2",
+      "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+      "commands": [
+        {
+          "command": "npm test -- --maxWorkers=4",
+          "result": "passed",
+          "tests": 453
+        },
+        {
+          "result": "passed",
+          "command": "npm run build"
+        },
+        {
+          "result": "passed",
+          "command": "node tests/overview-browser.mjs"
+        }
+      ]
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "parents": [
+        ".workflow-system/records/events/key-d2f59ec514d10abe548e0693cdc768cc631743595b486d05efe3bcf384240ab5.json"
+      ],
+      "data": {
+        "summary": "TraceLens 实现 v6 来源核验与有效pending、原因分类、同变更跨报告聚合、逐范围结论入口及已复用处置展示。",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "source_revision": "本地未提交工作区；源码与本地产物，精确验证边界见交付记录",
+        "result": "passed",
+        "step_id": "S2",
+        "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+        "commands": [
+          {
+            "command": "npm test -- --maxWorkers=4",
+            "result": "passed",
+            "tests": 453
+          },
+          {
+            "result": "passed",
+            "command": "npm run build"
+          },
+          {
+            "result": "passed",
+            "command": "node tests/overview-browser.mjs"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

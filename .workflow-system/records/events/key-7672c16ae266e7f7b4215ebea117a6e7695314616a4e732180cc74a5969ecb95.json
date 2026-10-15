@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:34:02.159Z",
+  "payload_sha256": "9cb45ffb94b58ea44cb0eccfe0d16c6d69452d9abc9aaddce8b89d01fe27d0c7",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-close",
+    "request": {
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+      "decision_source": "2026-10-15 用户修复与复审请求",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "action": "close",
+      "remaining_work": [],
+      "gaps": [
+        "既存CURRENT_TASK展示漂移保留，事实保存与关联成功但展示发布partial",
+        "旧浏览器基线断言/标题等待问题及未重建scoped脚本夹具单独保留，未声称全站穷尽通过"
+      ],
+      "decision_text": "按用户请求完成三个修复、回归测试和再次审查；交付本地源码及本地产物，未提交发布或安装到LawAgent。",
+      "idempotency_key": "evidence-review-followup-20261015-close"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-961abb8778f5635f8723884e3edebcef716f25d0f4fcb9a1219d5e6b8ce8d7c2.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+        "decision_source": "2026-10-15 用户修复与复审请求",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "remaining_work": [],
+        "gaps": [
+          "既存CURRENT_TASK展示漂移保留，事实保存与关联成功但展示发布partial",
+          "旧浏览器基线断言/标题等待问题及未重建scoped脚本夹具单独保留，未声称全站穷尽通过"
+        ],
+        "decision_text": "按用户请求完成三个修复、回归测试和再次审查；交付本地源码及本地产物，未提交发布或安装到LawAgent。"
+      }
+    }
+  },
+  "issues": []
+}

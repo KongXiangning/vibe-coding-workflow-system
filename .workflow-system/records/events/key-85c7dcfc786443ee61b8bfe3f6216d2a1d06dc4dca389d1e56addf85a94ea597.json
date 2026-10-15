@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T08:50:20.453Z",
+  "payload_sha256": "6daa6929a1baef3ec963b5618e88be74f80d04fd087f626565ae4a6826dfe20d",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:scoped-evidence-reuse-20261015-finish-S3",
+    "request": {
+      "idempotency_key": "scoped-evidence-reuse-20261015-finish-S3",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "decision_source": "本聊天用户已授权实施范围；实际实现、独立源码复审及定向验证完成",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "remaining_work": [],
+      "action": "step",
+      "step_id": "S3",
+      "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+      "state": "finished"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "step",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "parents": [
+        ".workflow-system/records/events/key-babcd9ea7b05d9f7faee628a8520fa5122c82a34991378c0ae412a6070a84e12.json"
+      ],
+      "data": {
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "decision_source": "本聊天用户已授权实施范围；实际实现、独立源码复审及定向验证完成",
+        "remaining_work": [],
+        "step_id": "S3",
+        "plan_ref": ".workflow-system/records/events/key-f2cfd0ac46c95748767894d58dc33b0820d484770a91c943452b7c9909f213d4.json",
+        "state": "finished"
+      }
+    }
+  },
+  "issues": []
+}

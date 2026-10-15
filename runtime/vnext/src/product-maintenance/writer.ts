@@ -295,7 +295,7 @@ function matchPreviousBindings(previous: ObjectValue[], next: ObjectValue[]): Ma
 // Legacy formats remain readable/writable under their original contract. In v5,
 // optional contribution retains unknown history; it is not an authoring shortcut.
 function validateBindingChanges(previous: ProductDocument | undefined, next: ProductDocument): void {
-  if (next.version !== 5) return;
+  if ((next.version ?? 0) < 5) return;
   for (const item of next.items) {
     const oldBindings = relationList(previous?.items.find(old => old.id === item.id)?.metadata.task_bindings);
     const bindings = relationList(item.metadata.task_bindings);
@@ -425,7 +425,7 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
           if (previous.diagnostics.some(d => d.severity === 'error' && (!d.item_id || ['DUPLICATE_ID', 'ITEM_HEADING'].includes(d.code)))) throw new Error('ORIGINAL_UNRESOLVED: original identities/AST locations are ambiguous; preserve raw bytes and use an authorized raw repair');
         }
         if (!version) throw new Error('UNSUPPORTED_VERSION: edit raw source with ordinary authorized tools; no guessed migration');
-        if (version === 1 && operation.migrate !== 'v2' && (isManifest || !['v3', 'v4', 'v5'].includes(operation.migrate))) throw new Error('V1_READ_ONLY: explicitly migrate this file before writing');
+        if (version === 1 && operation.migrate !== 'v2' && (isManifest || !['v3', 'v4', 'v5', 'v6'].includes(operation.migrate))) throw new Error('V1_READ_ONLY: explicitly migrate this file before writing');
       }
       const next = candidate(original, operation, previous);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024)) throw new Error('WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced');
@@ -435,7 +435,7 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
       if (isManifest) validateManifestCandidate(next.text, operation.path);
       else {
         const parsed = parseProduct(next.text, operation.path);
-        if (![2, 3, 4, 5].includes(parsed.version ?? 0)) throw new Error('V2_REQUIRED: new writes must use the v2, v3, v4 or v5 document protocol');
+        if (![2, 3, 4, 5, 6].includes(parsed.version ?? 0)) throw new Error('V2_REQUIRED: new writes must use the v2, v3, v4, v5 or v6 document protocol');
         if (previous && (parsed.version ?? 0) < (previous.version ?? 0)) throw new Error('VERSION_DOWNGRADE: preserve fields and history');
         if (previous && parsed.version !== previous.version && operation.migrate !== `v${parsed.version}`) throw new Error(`MIGRATION_REQUIRED: explicitly select migrate=v${parsed.version} for this document`);
         next.affected = validateProductCandidate(previous, parsed, operation, next.affected, catalog);

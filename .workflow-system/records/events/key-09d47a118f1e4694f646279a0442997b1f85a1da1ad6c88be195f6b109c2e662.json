@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:25:42.553Z",
+  "payload_sha256": "224b78aaf2590f6b961fe927323983d1af81d77b6691a8b8955559c0d289d1c9",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-plan",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "evidence-review-followup-20261015-plan",
+      "plan": {
+        "title": "修复局部对账审查发现的三处一致性问题",
+        "goal": "统一 TraceLens 待核对展示和导出，正确聚合同一范围变化，统一读取预算，并审查原有功能及页面跳转",
+        "scope": [
+          "TraceLens 有效待核对、历史处置解释与范围变化分组",
+          "workflow-system 请求读取预算及结果复用",
+          "定向回归、跨消费者及真实浏览器检查、独立审查"
+        ],
+        "exclusions": [
+          "不新增流程门槛",
+          "不改 LawAgent 或发布安装",
+          "不覆盖既存任务展示漂移或无关修改"
+        ],
+        "steps": [
+          {
+            "id": "S1",
+            "title": "修复三个问题并补齐回归",
+            "environment": [
+              "两个源码仓库与隔离合成项目"
+            ],
+            "validation": [
+              "局部及兼容测试",
+              "跨概览详情导出及范围分组",
+              "预算上下界及缓存隔离"
+            ]
+          },
+          {
+            "id": "S2",
+            "title": "独立审查与页面跳转回归",
+            "environment": [
+              "本地构建与真实浏览器"
+            ],
+            "validation": [
+              "独立源码审查",
+              "跨消费者和安装包验证",
+              "概览详情导出来源跳转浏览器回归"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-33a4671d5c863c83f0c4de398a63fb73963da858910a37383d0bf28495b82de8.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-023"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "8ecbb6a878ec5f365eb2786b168aa3c20c4ce4d9bb02d36840d836af3ec64696",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

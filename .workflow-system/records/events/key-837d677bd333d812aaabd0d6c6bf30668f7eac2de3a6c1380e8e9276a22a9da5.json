@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T09:33:57.466Z",
+  "payload_sha256": "25f11f42f54a061edfac04afcbe8ccecd815a8ab2a15a93e1c0bf760d6279e19",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:evidence-review-followup-20261015-execution-S1",
+    "request": {
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+      "decision_source": "2026-10-15 用户修复与复审请求",
+      "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+      "action": "execution",
+      "step_id": "S1",
+      "source_revision": "未提交工作区；workflow-system base 26af10ef0d9224c44d906ccbf4d362412b28e067，TraceLens base 79541e6b1ac7a32893b93f7127e1f4afe199a8d5；本轮实际源码与构建以交付记录为证",
+      "result": "passed",
+      "summary": "修复有效pending展示、范围变化重复分组和请求读取预算，补充回归；全套捕获的旧报告适用性提示遗漏亦按有效pending恢复。未新增流程门槛或修改LawAgent。",
+      "commands": [
+        {
+          "command": "bun run test:product-maintenance",
+          "result": "149 passed, 2282 assertions"
+        },
+        {
+          "command": "npm test -- --maxWorkers=4",
+          "result": "44 files, 470 passed"
+        },
+        {
+          "command": "npm run build",
+          "result": "passed"
+        }
+      ],
+      "idempotency_key": "evidence-review-followup-20261015-execution-S1"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "execution",
+      "task_id": "task-a1e1f5bb698f1aa431b4407c1ca13047",
+      "parents": [
+        ".workflow-system/records/events/key-bd0d4ec028b7791c64f6ec2c669768029398ccc171d9f5eae1e099c34f9ef378.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-09d47a118f1e4694f646279a0442997b1f85a1da1ad6c88be195f6b109c2e662.json",
+        "decision_source": "2026-10-15 用户修复与复审请求",
+        "report_ref": "docs/ops/local-evidence-dispositions-validation.md",
+        "step_id": "S1",
+        "source_revision": "未提交工作区；workflow-system base 26af10ef0d9224c44d906ccbf4d362412b28e067，TraceLens base 79541e6b1ac7a32893b93f7127e1f4afe199a8d5；本轮实际源码与构建以交付记录为证",
+        "result": "passed",
+        "summary": "修复有效pending展示、范围变化重复分组和请求读取预算，补充回归；全套捕获的旧报告适用性提示遗漏亦按有效pending恢复。未新增流程门槛或修改LawAgent。",
+        "commands": [
+          {
+            "command": "bun run test:product-maintenance",
+            "result": "149 passed, 2282 assertions"
+          },
+          {
+            "command": "npm test -- --maxWorkers=4",
+            "result": "44 files, 470 passed"
+          },
+          {
+            "command": "npm run build",
+            "result": "passed"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

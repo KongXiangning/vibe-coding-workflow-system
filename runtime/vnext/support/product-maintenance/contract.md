@@ -1,12 +1,14 @@
 # 托管文档契约：目标、需求、项目实施路线图及资料关联
 
+2026-10-15 局部证据处置增量：第 13 节定义 `vnext-product-doc/v6` 的可选 `assessment.evidence_dispositions`，用于复用同一变更在精确范围内的已记录判断。普通步骤只积累执行证据；实质变化才局部对账。v1–v5 Schema、旧报告与开发权限不变；不要求项目迁移或增加流程动作。
+
 2026-10-14 贡献关联增量：第 12 节固定 `vnext-product-doc/v5` 的 `TaskBinding.contribution` 及共同消费规则；完整继承第 11 节 v4 Roadmap，不改变 v1–v4 Schema 或 v3/v4/v5 的业务定义摘要算法。宿主判定统一见安装包 `references/binding-contribution.md`；本节契约不代表真实项目重判、发布或部署已经完成。
 
 2026-10-14 增量：第 11 节定义 `vnext-product-doc/v4` 的项目实施路线图核对基线；内部仍为 `plan`。当前改动与验证边界见[路线图实施记录](../../ops/vnext-roadmap-validation.md)。Manifest 继续 v2；v1/v2/v3 按原版本读取与写入规则兼容，不要求全项目迁移。
 
 契约设计 0.3（2026-10-11，VN-01 确定）。当前已验收源码及本地 `0.24.6` 产物支持 `vnext-product-doc/v3` 的解析、校验与保存，Manifest 保持 `vnext-product-manifest/v2`；分发安装、宿主 Skill 指导及 TraceLens 只读接入的实际证据见[最新实施与验收交接](../../ops/full-scope-planning-evidence/实施与验收交接.md)，不表示 npm 发布或已合并 main。日常使用见[maintain-project 指南](../../guides/maintain-project.md)。
 
-本文件是生产侧和离线消费者共用的字段语义。第 1–9 节描述既有格式，第 10 节是 v3 最小增量，第 11 节定义 v4，第 12 节定义 v5；发生冲突时按所读文件的格式版本解释。v1 保留读取与显式迁移，v2 写入兼容保留；无需全项目迁移。正文中的设计演算及历史阶段说明保留原背景，当前交付以以上入口为准。Schema 通过不认证业务事实。
+本文件是生产侧和离线消费者共用的字段语义。第 1–9 节描述既有格式，第 10 节是 v3 最小增量，第 11 节定义 v4，第 12 节定义 v5，第 13 节定义 v6；发生冲突时按所读文件的格式版本解释。v1 保留读取与显式迁移，v2 写入兼容保留；无需全项目迁移。正文中的设计演算及历史阶段说明保留原背景，当前交付以以上入口为准。Schema 通过不认证业务事实。
 
 ## 1. 入口、范围及版本
 
@@ -372,7 +374,11 @@ declared 表示当前规范明确记录、有可追溯依据的关系，不要�
 
 coverage 是范围解释，不是前端语义表达式；报告文本与当前声明仅归一换行后逐字比较。已选 scope_id 不在当前声明中时为 scope-not-current；在但 coverage 不同时为 scope-definition-changed，均不能称当前满足。文字澄清保留身份、记录依据并重新核对报告，实质范围改变新建 scope_id 并更新当前声明；退出范围从声明数组移出并保留 change／历史，旧报告继续可读。历史入口可明确选择报告自己的旧范围，但必须标成历史陈述，不能越过当前声明规则冒充当前结论。
 
-评估范围声明不自动创建 supports、part_of 或 TaskBinding。声明的登记是维护行为，不是评估已经完成；无报告仍未知。正文或声明变化后的 hash 诊断只提示核对，不自动判断该变化的业务效力。当前首版对所选目标整体定义作保守核对：新增另一条范围声明也会使同目标的旧报告待核对，保留其成果，不以此生成目标版本或 Task。
+评估范围声明不自动创建 supports、part_of 或 TaskBinding。声明的登记是维护行为，不是评估已经完成；无报告仍未知。正文或声明变化后的 hash 诊断只提示核对，不自动判断该变化的业务效力。需求的范围评估允许按下述规则排除其他范围声明的变化；目标自身的整体评估仍核对完整目标定义。两者都保留原成果，不以此生成目标版本或 Task。
+
+**其他范围声明变化的有限豁免（2026-10-15）：** 仅适用于 target 为 requirement 的报告。读取器须先验证 goal_basis 指向同一目标的唯一可读旧条目，文件 SHA-256 已记录且与读取字节一致，旧条目定义算法及完整定义摘要均与报告一致；当前目标须唯一可读且使用相同的 `vnext-product-definition/v1` 算法。在旧、新目标中各保留唯一的 `(target, scope_id)` 声明，使用既有定义算法比较目标身份、scope、goal_kind、正文、已声明关系及本范围 coverage；全部一致时，其他范围声明的新增、修改或删除不产生本选择的 goal-definition-changed。其他范围包括同一需求的不同 scope_id；未明确选定多范围时仍需选择，不能据此自动挑选报告。
+
+该比较仅用于读取时选择，既不改写报告保存的完整目标摘要或旧依据，也不新增持久化局部摘要、算法标识或文档版本。原快照缺失、文件摘要未记录或不一致、条目无法唯一定位、算法或旧定义摘要不匹配时不能豁免；本范围缺失／变化、目标共同定义变化及目标自评继续按原规则诊断。需求定义、交付对象、pending_sources、报告完整性和冲突的检查全部保留。整文件变化不是此豁免，不能只因当前条目摘要一致而跳过原依据校验；范围化选择通过也不认证业务判断正确。
 
 subject 的 kind＋value＋revision（缺失按 null）精确匹配，不把 commit、release 和工作副本标签自动换算为同一对象。commit.value 为实际完整提交身份，release.value 为实际发布身份；working-copy.value 为登记时绑定到该副本的标识，不能跨 root 复用结果。工作副本未固定 revision 时必须写 limitations，消费者只在用户明确查看这个已报告对象时展示，不自动称为实时工作副本结论。unknown 或 value=null 仅提供可读历史材料，不能自动匹配已知对象。
 
@@ -382,7 +388,7 @@ subject 的 kind＋value＋revision（缺失按 null）精确匹配，不把 com
 2. 仅对精确定位的候选应用显式 supersedes，只有同定位、旧报告存在且无循环的替代边才生效。先保留合法替代结果；已被合法替代的旧报告及其异常边留作历史诊断，不继续使当前选择冲突。未被替代候选的跨目标／范围／对象替代、缺目标或循环，使**发出非法声明的候选所属选择**显示 undetermined／conflict，保留候选及异常边。被它指向的其他选择不删除、不被连带降级；不能用非法边或循环冒充合法修正。不同 coverage 的未替代候选仍待核对，不自动合并。
 3. 无适用候选显示 undetermined，reason=`no-applicable-report`。同定位的未替代不完整候选使当前选择为 undetermined／metadata-incomplete，即使同时存在完整旧报告也保留该缺口；多个候选等其他诊断一并保留。不能变成未满足或零成果。
 4. 当前必需元数据、coverage 和两份定义依据只核对未被合法替代的候选；旧报告已过时的依据／文字作为历史诊断，不让它重新阻止有效替代。多个未被替代报告一律待核对，reason=`multiple-reports`，即使结论标签相同；首版不自动合并证据，也不按时间选最新。同定位不完整候选按第 3 步保留缺口，删除必需字段不能比填写 null 获得更确定的结论。单个有效报告才提供其 conclusion。
-5. 对选中报告分别核对 target 与 goal 的当前定义。按报告保存的算法及旧依据版本核对算法身份，再与当前定义比较：target 摘要不同为 definition-changed，goal 摘要不同为 goal-definition-changed；任一摘要为 null、旧定义不可恢复或算法无法解释分别为 definition-unverified／goal-definition-unverified。文件升级导致算法不同且未重新核对时为 definition-algorithm-changed，不把跨算法数值不同冒充业务变化。有 pending_sources 为 pending-evidence。所有缺口分别保留，不由单个 reason 遮盖其他诊断；当前标签为 undetermined，原报告结论、成果和明确缺口仍是可读历史，不撤销交付、强制补测试或阻止 Task。
+5. 对选中报告分别核对 target 与 goal 的当前定义。按报告保存的算法及旧依据版本核对算法身份，再与当前定义比较：target 摘要不同为 definition-changed；goal 摘要不同且未满足本节“其他范围声明变化的有限豁免”时为 goal-definition-changed。任一摘要为 null、旧定义不可恢复或算法无法解释分别为 definition-unverified／goal-definition-unverified。文件升级导致算法不同且未重新核对时为 definition-algorithm-changed，不把跨算法数值不同冒充业务变化。有 pending_sources 为 pending-evidence。所有缺口分别保留，不由单个 reason 遮盖其他诊断；当前标签为 undetermined，原报告结论、成果和明确缺口仍是可读历史，不撤销交付、强制补测试或阻止 Task。目录级 GOAL_DEFINITION_CHANGED 保留完整目标摘要不同的事实，不覆盖范围化 assessment_selection 的最终适用性诊断。
 
 四值标签只针对该范围：partially-satisfied 需要明确已满足部分和明确未满足部分；一部分确定、其余未知时为 undetermined 并保留已知部分。新改进 Task 不自动否定满足报告；新增失败材料也不能被“摘要未变”掩盖。目标层独立使用 goal-targeted assessment，同样按范围与对象选择，不汇总子需求／Task 数量。
 
@@ -394,7 +400,7 @@ v1／v2 继续采用第 7 节的 `vnext-requirement-definition/v1`，不改写�
 2. relations 取 declared＋active 的 part_of／supports／depends_on／replaces／derived_from，仍仅取 `[relation,target]`、去重并按 ASCII 排序；新增合法方向也参与。
 3. 紧凑 JSON 固定键序 `{type,id,scope,goal_kind,relations,assessment_scopes,body}`；requirement 的 goal_kind 和 assessment_scopes 均为 null；goal_kind 缺省为 outcome，goal.assessment_scopes 缺省为 []。每个声明仅取 `{target,scope_id,coverage}` 固定键序，coverage 归一换行，声明按 target、scope_id ASCII 排序；重复／坏声明不能算成有效定义。以 `vnext-product-definition/v1\n` 前缀拼接 UTF-8 字节计算 SHA-256。
 
-新报告按实际评估时的定义版本保存算法，不靠后来已被覆盖的文件猜历史版本。v1／v2 requirement 使用 vnext-requirement-definition/v1；v3 requirement 和 goal 使用 vnext-product-definition/v1。读取时当前版本用于计算当前摘要，旧依据用于核对原算法；不识别或不可恢复就保留未核对，不将不同算法直接比较。目标正文或当前范围声明变化会改变 goal 摘要，需求摘要即使未变也不能遮蔽它。goal 自评两组算法／摘要必须一致。仍排除 assessment_id、task_bindings、sources、project.requirement_order 和报告；不递归散列子项或支撑图，不要求每新增需求生成目标版本。声明顺序也不改变需求展示顺序。
+新报告按实际评估时的定义版本保存算法，不靠后来已被覆盖的文件猜历史版本。v1／v2 requirement 使用 vnext-requirement-definition/v1；v3 requirement 和 goal 使用 vnext-product-definition/v1。读取时当前版本用于计算当前摘要，旧依据用于核对原算法；不识别或不可恢复就保留未核对，不将不同算法直接比较。目标正文或当前范围声明变化会改变完整 goal 摘要，需求摘要即使未变也不能遮蔽它；只有第 10.4 节验证成立的其他范围声明变化可免除本选择的目标变化诊断。goal 自评两组算法／摘要必须一致。仍排除 assessment_id、task_bindings、sources、project.requirement_order 和报告；不递归散列子项或支撑图，不要求每新增需求生成目标版本。声明顺序也不改变需求展示顺序。
 
 旧 assessment_id 仅为历史导航入口；v3 中也不能覆盖多范围选择。v1／v2 报告的 implementation、verification、subject 和正文仍可读，但缺新定位不推断四值结论。**完整 v3 报告可以引用未迁移的 v1／v2 requirement**，使用原 requirement 算法核对；所选 goal 的当前范围声明和目标依据仍须可读，通常仅将相关 goal 所在文件显式迁为 v3 即可，不要求迁移全部需求。旧文件未增加新核心字段，不冒称已升级。
 
@@ -537,3 +543,51 @@ role 回答该关联中的活动，contribution 回答其与具体义务的关�
 - Roadmap current 只表示核对材料一致；requirement_order 不是实施规划，工作项无 Task 不等于未开始，关闭不证明前置就绪或自动决定下一项
 
 共同说明样例见[贡献关联与重判样例](examples/binding-contribution.md)。样例、格式测试、真实宿主判断、安装行为和只读消费者验证分别取证；有限样例不承诺所有模型、所有历史项目已正确分类。
+
+## 13. v6：局部证据处置与同一变化的复用
+
+v6 完整继承 v5，只在 Assessment 增加可选 `evidence_dispositions`。Manifest 仍为 v2，v1–v5 Schema 保持原字节；按文件显式 `migrate: v6`，不要求全项目迁移。v6 的业务定义与 Roadmap 摘要沿用原算法，格式升级不代表需求变化。旧报告没有这个字段时保持原来的 pending 语义，不自动补造判断。
+
+### 13.1 触发边界
+
+普通步骤实施与局部自检成功，只保存实际 Task／Step、执行和测试证据；不因步骤推进、共享 Task、调用领域工具或文件变化，自动往需求报告添加 pending。义务、验收、职责或采用范围发生实质变化，新失败／反例反驳已报成果，或授权的阶段／交付评估，才在实际受影响的范围局部对账。正向证据可在阶段汇总时纳入报告 `sources`，不能为每份新日志制造一轮需求复评。
+
+影响候选只是定位线索。实质变化的处理按一次变化组织，同一变化可涉及多份报告，但每份报告保留自己的范围、对象、原成果和判断。不扫描整张关联图，不把维护缺口挂到实施、Git、步骤结束或 Task 关闭之前。
+
+### 13.2 可选记录结构
+
+每条 `evidence_dispositions` 为闭合对象：
+
+| 字段 | 语义 |
+| --- | --- |
+| change_id | 同一次变化的稳定展示身份；不能凭该 ID 清除其他来源或其他报告的待核对 |
+| kind | `scope-change`（职责／义务／范围变化）、`counterevidence`（新反例）、`delivery-evidence`（交付证据）或 `source-change`（来源变化）；旧材料未分类时不从 note 猜测 |
+| source | 被处置的精确 SourceRef；保留原 pending 来源，不删除历史材料 |
+| disposition | `no-impact`、`evidence-incorporated` 或 `deferred`；只描述本条材料对本报告范围的判断，不是通过或用户审批 |
+| reason、checked_at | 实际判断理由及带时区的 ISO 核对时间，不冒充功能完成时间 |
+| basis | 精确的 target、goal_id、scope_id、coverage、完整 subject，两种定义算法／摘要、goal_scope_definition_sha256、report_sources，以及 report_algorithm／report_sha256 |
+| sources | 可选的实际判断依据；给出时每个文件依据都必须固定摘要且可核验，source 自身也属于必须核验的材料 |
+
+`read` 的选中 Assessment 及 `assessment_selection.reports` 返回 `disposition_basis`，宿主可以在实际判断后将它与来源、理由、处置一起通过现有 `apply` 保存。basis 是定位及版本比较数据，不是批准令牌；不要求人工计算、增加新动作或每步必填。
+
+报告指纹算法为 `vnext-assessment-disposition/v1`：对 `{metadata, body}` 递归按对象键排序、保留数组顺序，以紧凑 JSON 编码；metadata 排除 `evidence_dispositions`、`pending_sources`、`sources`，body 将 CRLF／CR 转为 LF 并去除末尾换行；在 JSON 前添加算法名及一个 LF，再计算 UTF-8 SHA-256。它绑定报告身份、原始定义依据、结论、对象和正文，也不会因把处置写回同一文档形成自引用。`basis.report_sources` 保存判断时的报告来源集合；复用要求这些精确来源仍存在于当前 `sources`，允许追加正向证据，删除或替换原来源会重新提示。集合保留检查不认证所有旧证据的当前业务适用性；实际判断依赖的附加材料须列入处置 `sources` 并逐个核验。
+
+`goal_scope_definition_sha256` 使用同一业务定义算法，非目标自评只保留本 `(target, scope_id)` 声明，仍包含目标共同正文、类型、关系等定义。非自评复用比较这个局部摘要，完整 `goal_definition_sha256` 保留为当时版本记录，不因其他范围声明增删改而单独重开；目标自评仍比较完整定义。此处不豁免原报告完整 goal_basis 的历史核验或原有范围选择规则。
+
+### 13.3 有效 pending 与重新提示
+
+读取只在以下条件全部成立时复用，返回 `reuse_status: reused`：
+
+1. 报告是结构可用的 v6 Assessment，当前目标／需求、唯一范围声明及对象可定位，保存的 basis 按上述局部 Goal 和来源集合规则与当前计算值匹配，其余字段必须精确相同。
+2. 被处置来源与该条 pending 的 SourceRef 完全相同，只忽略展示 note；文件路径、item_id、section、lines、sha256 均参与匹配，文本的 text 和 label 精确匹配。URI、没有摘要的文件、越界／排除／缺失／预算未读／字节变化或定位失效的文件均不可复用；附加 sources 也逐个核验。
+3. `evidence-incorporated` 的来源确实已出现在本报告的 `sources` 中；`no-impact` 有实际局部判断理由。`deferred` 始终保留 pending。同一来源与当前依据下的有效处置相互冲突时，全部返回 `conflict`，不按时间或任取一条获胜。
+
+原 `pending_sources` 保留在文档中；有效 pending 是其中未被精确有效处置的材料，已消解者通过 `handled_sources` 返回。处置另外返回 `reuse_reasons`，说明 `basis-changed`、`source-unverified`、`evidence-not-incorporated` 或 `conflicting-dispositions`。定义、范围、对象、原报告或材料变化后，原判断不再消解 pending；新反例的不同来源也不会被旧 change_id 一并清除。
+
+这项复用只处理材料，不豁免旧 target_basis／goal_basis 不可恢复、定义不一致、覆盖变化、报告冲突或其他现有适用性检查。职责迁移影响旧结论时，仍需真实局部核对后更新／新增报告及其依据；不能靠一条 no-impact 或只刷新摘要把历史结论变成当前 PASS。
+
+### 13.4 消费与展示
+
+生产端和 TraceLens 按相同算法与精确来源核验计算有效 pending。TraceLens 只读取文档及其允许来源，不运行目标项目的 Runtime 或业务命令，不保存浏览器确认、屏蔽项或第二份处置库。
+
+待核对信息按原因类别和精确变化来源聚合，保留各需求／报告的目标、scope、subject、原结论和来源入口；同一变化跨多个报告只组织一次调查。不同来源版本不得因为 change_id 相同而混并，A 范围的处置不得借给 B。定义／职责变化、新反例、交付证据待汇总、来源变化、报告冲突、元数据问题和旧材料未分类分别显示；历史成果继续可读。有效复用可展示其理由，既不要求再次确认，也不生成新的审查或验收结论。

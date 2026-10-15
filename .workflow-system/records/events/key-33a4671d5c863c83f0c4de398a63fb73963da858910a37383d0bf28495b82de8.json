@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-15T08:50:34.833Z",
+  "payload_sha256": "8dad0af046a98d176a1d7e30ef0c4a455c36cdcf4d07c0adcf407290eb68d7ef",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:scoped-evidence-reuse-20261015-close",
+    "request": {
+      "idempotency_key": "scoped-evidence-reuse-20261015-close",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "action": "close",
+      "gaps": [
+        "现有CURRENT_TASK展示漂移保留；事实保存及关联成功，旧用户修改展示未覆盖"
+      ],
+      "summary": "两仓源码与本地产物已实现局部证据对账及TraceLens原因聚合；验证与交付边界见docs/ops/local-evidence-dispositions-validation.md；未发布或升级LawAgent",
+      "decision_source": "本聊天用户已授权实施范围完成，三步实现、复审与验证已记录",
+      "remaining_work": []
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-e31cac2d01ca1bdbcf819a4f03d86f8f",
+      "parents": [
+        ".workflow-system/records/events/key-85c7dcfc786443ee61b8bfe3f6216d2a1d06dc4dca389d1e56addf85a94ea597.json"
+      ],
+      "data": {
+        "gaps": [
+          "现有CURRENT_TASK展示漂移保留；事实保存及关联成功，旧用户修改展示未覆盖"
+        ],
+        "summary": "两仓源码与本地产物已实现局部证据对账及TraceLens原因聚合；验证与交付边界见docs/ops/local-evidence-dispositions-validation.md；未发布或升级LawAgent",
+        "decision_source": "本聊天用户已授权实施范围完成，三步实现、复审与验证已记录",
+        "remaining_work": []
+      }
+    }
+  },
+  "issues": []
+}
