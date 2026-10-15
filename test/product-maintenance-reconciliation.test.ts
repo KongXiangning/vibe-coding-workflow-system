@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { stringify } from 'yaml';
 import { run } from '../runtime/vnext/src/product-maintenance/cli';
 import { parseProduct, sha256 } from '../runtime/vnext/src/product-maintenance/parser';
@@ -18,6 +19,10 @@ afterEach(() => {
 function put(root: string, file: string, text: string): void {
   fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
   fs.writeFileSync(path.join(root, file), text);
+}
+function assistance(root: string, command: 'task' | 'task-status', input: Record<string, unknown>): any {
+  return JSON.parse(execFileSync('node', [path.resolve(import.meta.dir, '../runtime/vnext/support/assistance.mjs'), command, '--root', root],
+    { input: JSON.stringify(input), encoding: 'utf8' }));
 }
 function fixture(): string {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'product-reconcile-'));
@@ -41,6 +46,59 @@ function assessment(id: string, target = 'REQ-JUDICIAL', text = '逐项证据及
   return { metadata: { id, type: 'assessment', target, target_basis: { kind: 'file', path: 'docs/product/REQUIREMENTS.md', item_id: target },
     target_definition_sha256: null, checked_at: '2026-10-15T00:00:00Z', subject: { kind: 'unknown', value: null }, implementation: 'unknown', verification: 'unknown' },
     body: `## [${id}] 详细评估\n### 覆盖范围\nMD逐项终态。\n### 交付与验证依据\n${text}\n### 剩余与待核对\n保留真实失败和历史范围。\n` };
+}
+
+for (const declared of [false, true]) {
+  test(`closed task and legacy progress append cannot supply a ${declared ? 'missing assessment' : 'missing goal scope'}`, () => {
+    const root = fixture();
+    put(root, 'docs/product/REQUIREMENTS.md', newDocument([requirement('REQ-INGEST')], '需求', 3));
+    put(root, 'docs/product/GOALS.md', newDocument([{ metadata: { id: 'GOAL', type: 'goal', scope: 'current',
+      assessment_scopes: declared ? [{ target: 'REQ-INGEST', scope_id: 'BATCH', coverage: 'MD逐项终态。' }] : [] },
+      body: '## [GOAL] 可恢复导入\n### 目标说明\n批量恢复。\n### 范围边界\nMD目录。\n' }], '目标', 3));
+    const legacy = assessment('AS-LEGACY', 'REQ-INGEST', '原版本的局部验证。');
+    legacy.metadata.implementation = 'partial-reported';
+    legacy.metadata.verification = 'pass-reported';
+    const original = newDocument([legacy]);
+    put(root, 'docs/product/PROGRESS.md', original);
+
+    const prepared = assistance(root, 'task', { action: 'prepare', plan: { title: '批量导入切片', steps: [{ id: 'S1', title: '逐项终态' }] } });
+    assistance(root, 'task', { action: 'adopt', task_id: prepared.task_id, plan_ref: prepared.ref, decision_text: '采用切片计划' });
+    assistance(root, 'task', { action: 'execution', result: '已实施；本夹具不执行业务命令', source_revision: 'fixture-source' });
+    assistance(root, 'task', { action: 'step', state: 'finished' });
+    const closed = assistance(root, 'task', { action: 'close', task_id: prepared.task_id, decision_text: '关闭切片，保留产品范围与证据限制' });
+    expect(closed.recorded).toBe(true);
+    expect(closed.task.lifecycle).toBe('closed');
+    const closeBytes = fs.readFileSync(path.join(root, closed.ref));
+    const events = fs.readdirSync(path.join(root, '.workflow-system/records/events')).sort();
+    const query = { target: 'REQ-INGEST', goal_id: 'GOAL', ...(declared ? { scope_id: 'BATCH' } : {}),
+      subject: { kind: 'working-copy', value: root, revision: 'fixture-source' } };
+    const reason = declared ? 'no-applicable-report' : 'scope-unavailable';
+    expect(run('read', root, { assessment_query: query }).assessment_selection.reasons).toContain(reason);
+
+    const saved = run('apply', root, { files: [{ path: 'docs/product/PROGRESS.md', expected_sha256: sha256(original),
+      updates: [{ id: 'AS-LEGACY', body: `${legacy.body}\n本次切片已关闭；当前范围交付对账见收口记录。\n` }] }] });
+    expect(saved.status).toBe('saved');
+    const pending = { task_id: prepared.task_id, close_ref: closed.ref,
+      requirement: 'docs/product/REQUIREMENTS.md#REQ-INGEST', functional_points: ['单项失败终态验收'],
+      goal: 'docs/product/GOALS.md#GOAL', scope_id: declared ? 'BATCH' : null,
+      subject: query.subject, evidence_refs: [closed.ref], reason,
+      next_action: declared ? '按当前声明和可用依据保存独立范围评价并回读' : '明确目标范围后保存独立评价并回读' };
+    const closureReport = `# 收口\n任务已关闭；该范围交付对账待处理。\n\n${JSON.stringify(pending, null, 2)}\n`;
+    put(root, 'docs/evidence/closure.md', closureReport);
+    expect(fs.readFileSync(path.join(root, 'docs/evidence/closure.md'), 'utf8')).toBe(closureReport);
+
+    const selection = run('read', root, { assessment_query: query }).assessment_selection;
+    expect(selection.conclusion).toBe('undetermined');
+    expect(selection.reasons).toContain(reason);
+    const stored = parseProduct(fs.readFileSync(path.join(root, 'docs/product/PROGRESS.md'), 'utf8'), 'docs/product/PROGRESS.md').items[0]!;
+    expect(stored.metadata).toEqual(legacy.metadata);
+    const status = assistance(root, 'task-status', { detail: 'task', task_ref: prepared.task_id });
+    expect(status.current_task_id).toBeNull();
+    expect(status.task.lifecycle).toBe('closed');
+    expect(status.task.tests).toHaveLength(0);
+    expect(fs.readFileSync(path.join(root, closed.ref))).toEqual(closeBytes);
+    expect(fs.readdirSync(path.join(root, '.workflow-system/records/events')).sort()).toEqual(events);
+  });
 }
 
 test('local reads discover an unlinked batch obligation by actual active Task, without expanding shared goals or unknown identities', () => {

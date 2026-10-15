@@ -293,6 +293,60 @@ retain ambiguous/missing declarations as pending scope. Use the reported subject
 assuming today's working copy matches a historical result. Requirements, reports,
 definitions' alignment and evidence applicability answer different questions.
 
+### Account for delivered functional points and pending evaluation
+
+Task closure is the delivery-assessment milestone for the authorized local scope.
+Finish this accounting in the same invocation when maintenance is enabled and
+authorized, unless an applicable deferral or actual limitation prevents it. Reuse
+an existing applicable assessment/disposition for unchanged scope, subject and
+evidence; do not produce a second report or refresh timestamps merely for closure.
+
+Map the adopted Task coverage and actual delivery to the current requirement's
+functional points and agreed acceptance. In the one detailed report, identify the
+covered points/clauses, delivered behavior, implementation and verification basis,
+actual subject/revision and input limits, known unmet obligations and unknown or
+unread remainder. Use existing point IDs or section locators; this does not create
+new requirement identities or a second backlog. Include changed/new points absent
+from an old table. Preserve the full requirement and distinguish the Task's slice
+from the selected goal's declared coverage; do not narrow that declaration to make
+the Task satisfy it. Evaluate parent/other scopes only for the actual impact above.
+
+For each selected scope, finish with either an applicable independent assessment
+saved/reused and read back as below, or an explicit pending entry. A closure report
+with a delivery table is useful evidence, but is not itself a selectable Assessment
+unless it meets the existing report contract. Appending prose or pending_sources
+to a legacy progress report does not replace this accounting. Keep such navigation
+surfaces as brief summaries/links, retaining old report metadata and history.
+If the declared scope and available basis permit an assessment within authority,
+create the missing report now; its absence alone is not a reason to defer. A report
+may conclude undetermined while preserving known achievements and evidence limits.
+An applicable undetermined report can complete evaluation of those limits without
+completing product delivery; distinguish that from an evaluation not performed.
+
+Missing/ambiguous goal.assessment_scopes, no applicable report, insufficient evidence,
+paused/missing PRODUCT, explicit deferral or save/readback failure must have a
+concrete pending locator. Retain the real Task/close ref, requirement and affected
+functional points, goal/declaration or report path/item when known, subject and
+available evidence refs, the missing/ambiguous part, reason and next maintenance
+action. Unknown IDs/coverage remain unknown; do not invent a scope or change a goal
+definition just to make selection succeed. Record these facts in the originating
+closure report or an existing authorized project maintenance location, reuse an
+equivalent pending entry, and read back the saved entry. This is ordinary report
+content, not a new Runtime field, schema, registry or mandatory Task action. If no
+durable location is writable/authorized, return the exact unsaved pending locator
+and failure/authority limit; do not claim it was persisted.
+
+Continue the substantive local coverage account from available evidence even when
+formal scope selection is unavailable. Do not call missing scope/report "not
+applicable" merely to clear pending work; genuinely unrelated maintenance Tasks can
+explain why no product obligation was evaluated without inventing a binding.
+Separate closure saved/read back, evaluated coverage and selectable conclusion,
+and pending/deferred/unsaved evaluation in the final result. A pending entry makes
+the gap visible; it does not complete the evaluation. Say "task closed; delivery
+reconciliation pending" for unresolved scope, never full management completion
+from a summary append. Unrelated historical pending entries do not all have to be
+cleared. Do not turn routine positive Step evidence into pending work.
+
 Judge against the actual agreed acceptance and scope, preserving qualitative
 criteria; do not invent KPI thresholds or demand fresh tests just to close or
 write a summary. Use the existing four conclusions: satisfied, partially-satisfied,

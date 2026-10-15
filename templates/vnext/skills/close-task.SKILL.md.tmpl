@@ -125,16 +125,27 @@ and offer rebuild/correction/defer rather than claiming every management update 
 Retain useful lessons as observations; legacy archive mirrors are not the current view.
 
 After that close is saved and read back, perform local product evaluation when
-maintenance is enabled and the existing authorization covers it, using
-maintain-project references/reconcile.md. Start with this task's actual related
-requirements/goals, current goal-declared scopes, evaluated subject and available
-evidence. Do not evaluate every step or scan the whole project. Reuse explicit
-deferral and qualitative acceptance; do not add KPIs or derive satisfaction from
-task/child counts. Runtime close itself only records facts and never starts a model.
-Paused/missing PRODUCT, explicit deferral, unavailable evidence or an assessment
-save failure leaves the close intact. Report saved closure and evaluated/deferred
-scope separately; never reopen the task, force new checks or create a repair task
-merely to obtain an assessment. Details and report production belong in reconcile.md.
+maintenance is enabled and the existing authorization covers it. Read and follow
+`.workflow-system/runtime/support/product-maintenance/references/reconcile.md`,
+section **Local assessment after task closure** (source checkout:
+`runtime/vnext/support/product-maintenance/references/reconcile.md`). This is the
+shared maintain-project subflow, not a suggestion to leave authorized accounting
+to a later invocation. Product-document writes use that subflow's
+authorized_product_documents boundary and helper; this entry's empty direct
+product-file boundary does not authorize business implementation edits.
+Reconcile the task's actual delivered slice against current
+related requirements, functional points and acceptance, with subject/input evidence,
+known gaps and unknowns. Do not evaluate every step or scan the whole project.
+Before reporting the result, either save/reuse an applicable independent scoped
+assessment and read back its selection, or retain an explicit pending locator for
+the missing scope/report or deferred/failed evaluation. A progress-summary append,
+new pending_sources entry, clean review or saved close alone does not complete
+delivery reconciliation. Never infer whole-scope delivery from task/child counts.
+Reuse explicit deferral and qualitative acceptance without adding KPIs. Runtime
+close itself only records facts and never starts a model. Paused/missing PRODUCT,
+missing goal scope, unavailable evidence or an assessment save failure leaves the
+close intact. Preserve known delivery and concrete pending work; never reopen the
+task, force new checks or create a repair task merely to obtain an assessment.
 If actual closure evidence reveals a wrong contribution or coverage, use the shared
 references/binding-contribution.md method for only that authorized relation correction,
 keeping the binding ID, sources and necessary history. Supporting work closing is not
@@ -150,7 +161,13 @@ first making those gaps disappear; preserve them explicitly in the closure repor
 
 ## Result
 
-Return local assessment results and any pending/deferred maintenance locators.
+Report closure persistence/association/view separately from product reconciliation:
+the assessed requirement/functional-point coverage, applicable report and readback
+conclusion, and any pending/deferred/unsaved scope with its locator and reason.
+When a scope or assessment is missing, say **task closed; delivery reconciliation
+pending** for that scope, not that the management loop is complete. Follow the
+shared reference for durable pending entries; if none can be saved, return their
+exact unsaved locators. Summary-only updates never justify a completion claim.
 Close remains the existing assistance task disposition, not verification
 or requirement delivery. Report the arranged next business item or a scoped suggestion
 separately from next_route and actual task/step focus. Preserve parent continuation
