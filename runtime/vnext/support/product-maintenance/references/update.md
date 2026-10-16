@@ -1,5 +1,8 @@
 # Current requirements, design and changes
 
+For projected/paged product reads and receipt recovery, use [compact-context.md](compact-context.md).
+Keep this mode’s existing scope, judgments and write rules.
+
 Read selected requirement/goal/design bodies, declared constraints, related summaries
 and recalled discussion summaries before updating. Expand only relevant raw fragments.
 Verify current explicit intent against historical sources; do not let task plans

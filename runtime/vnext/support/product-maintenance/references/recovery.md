@@ -1,5 +1,8 @@
 # Entry, compatibility and partial I/O
 
+For projected/paged product reads and receipt recovery, use [compact-context.md](compact-context.md).
+Keep this mode’s existing scope, judgments and write rules.
+
 Initialize only when user authority covers creating project assets: select one
 manifest path, stable project_id, current entry, managed/source/capture/excluded
 paths and enabled/paused maintenance. Use templates/PRODUCT.yaml as a format,

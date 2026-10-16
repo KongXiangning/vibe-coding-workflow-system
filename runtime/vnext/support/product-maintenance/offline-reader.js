@@ -15843,6 +15843,19 @@ var requestSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $defs: definitions,
   ...object({
+    presentation: choice("compact", "legacy"),
+    encoding: choice("text", "base64"),
+    expected_revision: digest,
+    page: object({ offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 100 }, max_bytes: { type: "integer", minimum: 256, maximum: 65536 } }, []),
+    query: object({
+      kind: choice("catalog", "item", "collection", "search", "assessment", "roadmap"),
+      item_id: id,
+      owner_id: id,
+      name: choice("result", "metadata", "body", "links", "task_bindings", "sources", "work_items", "impact", "relations", "diagnostics", "product_view", "plan_tasks", "discussions"),
+      path: array({ type: "string" }),
+      text: string3,
+      scope: choice("managed")
+    }, ["kind"]),
     manifest: string3,
     detail: choice("summary", "items"),
     item_ids: array(id),

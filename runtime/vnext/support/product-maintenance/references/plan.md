@@ -1,5 +1,8 @@
 # Implementation Roadmap, next-work selection and actual task bindings
 
+For projected/paged product reads and receipt recovery, use [compact-context.md](compact-context.md).
+Keep this mode’s existing scope, judgments and write rules.
+
 Implementation Roadmap (项目实施路线图) is the public name of the existing plan object;
 it is independent of Agent Plan Mode and prepare-task's Task Plan. For a new file suggest
 docs/product/IMPLEMENTATION_ROADMAP.md registered in PRODUCT.yaml. Keep legacy PLAN.md,

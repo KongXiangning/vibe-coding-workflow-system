@@ -1,5 +1,8 @@
 # Authorized business inventory
 
+For projected/paged product reads and receipt recovery, use [compact-context.md](compact-context.md).
+Keep this mode’s existing scope, judgments and write rules.
+
 Read PRODUCT and summary catalog first. If absent, follow recovery.md to initialize
 only the authorized project-owned manifest and assets; do not scan a project and
 guess all ordinary Markdown files to be managed. Ask only about genuinely missing

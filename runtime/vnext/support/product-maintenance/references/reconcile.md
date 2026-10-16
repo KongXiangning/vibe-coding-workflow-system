@@ -1,5 +1,8 @@
 # Observations, local impact and E6 repair
 
+For projected/paged product reads and receipt recovery, use [compact-context.md](compact-context.md).
+Keep this mode’s existing scope, judgments and write rules.
+
 Implementation Roadmap reconciliation is separate from delivery assessment. Use plan.md
 and read/check roadmap_query for the selected scope's baseline differences; current means
 reviewed versions match, never delivered/PASS. Task closure or binding never satisfies a

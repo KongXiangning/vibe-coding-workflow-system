@@ -1,5 +1,8 @@
 # Selected discussion and host-model semantic association
 
+For projected/paged product reads and receipt recovery, use [compact-context.md](compact-context.md).
+Keep this mode’s existing scope, judgments and write rules.
+
 Save only the user-selected text/file/fragment, using authorized capture_paths.
 Retain exact uploaded bytes or received text; do not claim a full chat export.
 A URL without acquired body is source metadata only, not an archived discussion.

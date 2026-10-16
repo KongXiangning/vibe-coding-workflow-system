@@ -122,6 +122,17 @@ test('installed maintenance assets execute with Node and upgrade preserves all t
   const owned = ['.workflow-system/PRODUCT.yaml', 'docs/product/PROJECT.md', 'docs/product/REQUIREMENTS.md', 'docs/product/PLAN.md', 'docs/product/ASSESSMENTS.md', 'docs/product/DISCUSSIONS.md', 'docs/product/raw/selected.txt', 'docs/product/history/earlier.md'];
   const before = owned.map(relative => fs.readFileSync(path.join(root, relative)));
   const read = invoke('read', { detail: 'items', discussion_targets: ['REQ-IMPORT'] }); expect(read.usable_items.some((i: any) => i.type === 'plan')).toBe(true); expect(read.discussions).toHaveLength(1);
+  expect(fs.existsSync(path.join(support, 'references/compact-context.md'))).toBe(true);
+  expect(fs.readFileSync(path.join(root, '.agents/skills/maintain-project/SKILL.md'), 'utf8')).toContain('presentation: compact');
+  const compact = invoke('read', { presentation: 'compact', query: { kind: 'item', item_id: 'REQ-IMPORT' } });
+  expect(compact.presentation_contract).toBe('product-context/v1');
+  expect(compact.items.value[0].id).toBe('REQ-IMPORT');
+  const originalBody = read.usable_items.find((i: any) => i.id === 'REQ-IMPORT').body;
+  const actualBody = invoke('read', { presentation: 'compact', query: { kind: 'collection', name: 'body', owner_id: 'REQ-IMPORT' } });
+  expect(actualBody.value).toBe(originalBody);
+  expect(actualBody.pagination.next_request).toBeNull();
+  owned.forEach((relative, i) => expect(fs.readFileSync(path.join(root, relative))).toEqual(before[i]!));
+
   const statePath = path.join(root, '.workflow-system/vnext/DISTRIBUTION_STATE.json');
   const state = JSON.parse(fs.readFileSync(statePath, 'utf8')); state.distribution_version = '0.0.1'; fs.writeFileSync(statePath, JSON.stringify(state));
   const upgraded = upgradeDistribution({ targetRoot: root, packageRoot }); expect(upgraded.status).toBe('upgraded');

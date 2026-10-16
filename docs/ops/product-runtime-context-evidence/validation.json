@@ -1,0 +1,120 @@
+{
+  "baseline": "e4f758d9bded80efe6e594bfa18d1292fe32aff2",
+  "helper_sha256": "2b011157e561d66861587e7d436c856dfcd703f788c5ec35066d59134134e395",
+  "comparisons": [
+    {
+      "action": "read",
+      "input": {},
+      "equal": true
+    },
+    {
+      "action": "read",
+      "input": {
+        "detail": "items",
+        "item_ids": [
+          "REQ-INGEST"
+        ]
+      },
+      "equal": true
+    },
+    {
+      "action": "check",
+      "input": {},
+      "equal": true
+    },
+    {
+      "action": "read",
+      "input": {
+        "roadmap_query": {
+          "plan_id": "PLAN-FOUNDATION"
+        }
+      },
+      "equal": true
+    }
+  ],
+  "sizes": [
+    {
+      "input": {},
+      "legacy_bytes": 1032336,
+      "compact_bytes": 20794
+    },
+    {
+      "input": {
+        "item_ids": [
+          "REQ-INGEST"
+        ],
+        "detail": "items"
+      },
+      "legacy_bytes": 609041,
+      "compact_bytes": 27477
+    }
+  ],
+  "business_invariants": [
+    {
+      "file": "runtime/vnext/src/product-maintenance/writer.ts",
+      "git_normalized_sha256": "6525722be0b40e53e2b8b3741ee2f346b3623c3484fdeaceb18780f498b06890",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/catalog.ts",
+      "git_normalized_sha256": "b801e6ec9fbda41563b71dcd2789f952d24ee91ea35f833da1ddc16ee2802b3f",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/plans.ts",
+      "git_normalized_sha256": "3ffdfa0fd893e037913fade1ab7a866928717e38207c6185f90aec8cc944c658",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/references.ts",
+      "git_normalized_sha256": "e909d2a29e5f04016eb812c4694a8541709d9b3bac6f9f7354117924dd0b6839",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/scoped.ts",
+      "git_normalized_sha256": "06e06c0e69bab32ab47a3b928a60216140ae8e2bef0f163cce3a145762579427",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/roadmaps.ts",
+      "git_normalized_sha256": "83dd72ab3c42d6c2e3d4671aa308b182feef15bd23a62207b75b561c98bd802b",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/dispositions.ts",
+      "git_normalized_sha256": "de093e503bc3432c87633a76d9bc4074da87467861ab20c5ef9d13642f5f5d29",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/parser.ts",
+      "git_normalized_sha256": "4db6b52cf82031ee5c91402b27bd5b5ca2aa9f8d63a18691df1f8c47bcd6b523",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/paths.ts",
+      "git_normalized_sha256": "912cd341102d945f903ae9fbd6fece77cb72a24684a6148e31cc973313d92fe5",
+      "unchanged": true
+    },
+    {
+      "file": "runtime/vnext/src/product-maintenance/model.ts",
+      "git_normalized_sha256": "b562baac1fd65b74b1181a7b9845a5563ab66d61c3594fc6608fcb18cfca2481",
+      "unchanged": true
+    }
+  ],
+  "agent": {
+    "queries": 52,
+    "reads": 49,
+    "writes": 3,
+    "total_cli_response_bytes": 413821,
+    "all_26_candidate_ids_observed": true,
+    "complete_original_body_pages": 3,
+    "original_binding_count": 25,
+    "dismissed_history_preserved": true,
+    "neighbors_unchanged": 25,
+    "missing_provider_retained": true,
+    "known_saved_not_replayed": true,
+    "unknown_delivery_read_before_retry": true,
+    "non_blind_current_agent": true,
+    "final_helper_inventory_state": "partial"
+  }
+}

@@ -539,6 +539,109 @@
   },
   "type": "object",
   "properties": {
+    "presentation": {
+      "type": "string",
+      "enum": [
+        "compact",
+        "legacy"
+      ]
+    },
+    "encoding": {
+      "type": "string",
+      "enum": [
+        "text",
+        "base64"
+      ]
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "page": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 65536
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "query": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "catalog",
+            "item",
+            "collection",
+            "search",
+            "assessment",
+            "roadmap"
+          ]
+        },
+        "item_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "owner_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$"
+        },
+        "name": {
+          "type": "string",
+          "enum": [
+            "result",
+            "metadata",
+            "body",
+            "links",
+            "task_bindings",
+            "sources",
+            "work_items",
+            "impact",
+            "relations",
+            "diagnostics",
+            "product_view",
+            "plan_tasks",
+            "discussions"
+          ]
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 0
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "managed"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
     "manifest": {
       "type": "string",
       "minLength": 1,

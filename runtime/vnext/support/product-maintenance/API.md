@@ -8,6 +8,60 @@ service availability, not complete coverage or usable structure.
 `kind=product-maintenance-result/v1`, `development_gate=false`, `qualification=not-evaluated`.
 Requests are described in `schemas/request-v1.json`, result envelope in `schemas/result-v1.json`; documents in v1/v2/v3/v4/v5/v6 Schema and manifests in v1/v2 Schema plus `contract.md`. v4 adds optional plan.planning_baseline; migrate only the selected document with migrate=v4. v5 inherits that baseline and adds optional TaskBinding.contribution only in Goal/Requirement bindings; see contract.md section 12 and references/binding-contribution.md. Manifest remains v2, and old v1–v5 schemas remain unchanged. Old paths and internal plan IDs remain compatible. Source, distribution, installed helper, host behavior and TraceLens delivery are separate evidence scopes.
 
+## Optional compact presentation (product-context/v1)
+
+Omitted presentation or presentation=legacy retains the old response and algorithms.
+Explicit presentation=compact adds a read-only projection after original computation;
+read/check/apply/capture retain the original envelope and actual operation status.
+check and write receipts retain their full factual payload; no preimage is silently
+removed and no extra capture is performed. A presentation failure returns the original
+receipt with presentation_error. Unknown delivery is read back before retry, never
+interpreted as proof the write failed. Detailed host procedure: [compact-context](references/compact-context.md).
+
+Read query kinds (all require compact):
+
+| kind | selector and result |
+| --- | --- |
+| catalog | items page; project inventory, diagnostic categories, derived collection entrances |
+| item | item_id, consistent with item_ids if also supplied; selected body, heading directory and metadata access |
+| collection | name and optional owner_id; original metadata/body/links/task_bindings/sources/work_items or derived impact/relations/diagnostics/product_view/plan_tasks/discussions |
+| search | nonempty literal text, scope=managed; selected usable item bodies including headings, all matches pageable |
+| assessment | required existing assessment_query, unchanged selection semantics |
+| roadmap | required existing roadmap_query, unchanged selection semantics |
+
+Machine-generated collection name=result requests carry a path array within a whitelist
+of output fields; lookup only traverses own properties of the computed JSON, never files,
+code or inherited properties. It supports paged nested objects, arrays and long strings.
+These selectors cannot be used with mutation/check. source and query are exclusive.
+Selectors that conflict are rejected, not silently prioritized. No new metadata schema.
+
+All deferred values carry their original type, count/size and detail_request. Arrays
+and objects page through value with pagination; object pages contain original field
+names and explicit field presence. Inline small values are unchanged. Projections and
+deferred descriptors are not writeback data. Raw original arrays include dismissed
+records; derived views remain separate. Body sections use Markdown AST headings.
+
+page supports offset (default 0), limit (default 20, max 100), max_bytes (256–65536).
+A default collection budget of 12 KiB leaves room for envelope and concurrent impact
+information; normal first responses target 32 KiB. Byte budgets are presentation goals,
+not hard limits that discard required diagnostics/history. Long members have their own
+follow-up requests. String offsets count UTF-8 bytes, other offsets count members/fields.
+Follow each independent next_request; catalog and impact pages are different collections.
+
+expected_revision binds the actual Manifest, enumerated file bytes, scope, working copy
+and computed result. QUERY_VERSION_CHANGED provides restart_request without merging
+pages. read_at is excluded. Original source reads bind Manifest and actual source bytes;
+the supplied SourceRef SHA remains historical evidence and is not silently refreshed.
+Source text defaults to one UTF-8 representation, character-complete chunks; explicit
+encoding=base64 retains exact binary paging. Decode problems return SOURCE_ENCODING
+and a binary read request. source text references also page. Remote URIs are not fetched.
+A query_error must be handled even when the underlying read status remains available.
+
+Global diagnostic categories/counts, selected issues and project inventory remain visible.
+Whole semantic coverage is never certified by paging. Search excludes invalid/unregistered
+material explicitly; zero matches is not a business conclusion. Neither read completeness
+nor revision creates task admission or a new approval.
+
 ## Read and check
 
 v6 adds optional Assessment `evidence_dispositions`; see contract.md section 13.

@@ -10,8 +10,9 @@ import { apply, capture } from './writer';
 import { productView, selectAssessment } from './scoped';
 import { reconcileRoadmap } from './roadmaps';
 import { assessmentEvidence } from './dispositions';
+import { computationInput, deliver, present } from './presentation';
 
-export function run(action: string, root: string, input: ObjectValue = {}): ObjectValue {
+function runLegacy(action: string, root: string, input: ObjectValue = {}, compact = false): ObjectValue {
   const envelope = { kind: 'product-maintenance-result/v1', action, development_gate: false, qualification: 'not-evaluated', task_operations: 'not-performed' };
   const inputErrors = validate(input, requestSchema);
   function checkJson(value: any, pointer = ''): void {
@@ -29,7 +30,7 @@ export function run(action: string, root: string, input: ObjectValue = {}): Obje
     if (action === 'capture') return { ...envelope, ...capture(root, input) };
     const catalog = readCatalog(root, input);
     if (action === 'read') {
-      if (input.source) return { ...envelope, root: catalog.root, project_id: catalog.manifest?.project_id ?? null, ...readSource(catalog, input.source, input) };
+      if (input.source) return { ...envelope, root: catalog.root, project_id: catalog.manifest?.project_id ?? null, ...(compact ? { manifest_sha256: catalog.manifest_sha256 } : {}), ...readSource(catalog, input.source, input) };
       const selected = catalog.items.filter(i => !input.item_ids || input.item_ids.includes(i.id));
       let impactIds = input.impact_ids;
       if (impactIds === undefined) {
@@ -44,6 +45,7 @@ export function run(action: string, root: string, input: ObjectValue = {}): Obje
         documents: catalog.documents.map(d => ({ path: d.path, sha256: d.sha256, schema: d.schema, usable_count: d.items.filter(i => i.usable).length, raw_locator: { kind: 'file', path: d.path } })),
         usable_items: selected.filter(i => i.usable).map(i => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, definition_algorithm: i.definition_algorithm ?? null, ...(input.detail === 'items' ? { body: i.body } : {}), ...(i.type === 'assessment' ? assessmentEvidence(catalog, i, input) : {}), ...(i.type === 'discussion' ? { summary: i.sections['整理摘要']?.[0]?.text ?? '' } : {}), locator: { kind: 'file', path: i.path, item_id: i.id } })),
         unusable_items: selected.filter(i => !i.usable).map(i => ({ id: i.id ?? null, type: i.type ?? null, path: i.path, line: i.line, diagnostics: i.diagnostics, raw_locator: { kind: 'file', path: i.path }, ...(input.detail === 'items' ? { body: i.body } : {}) })),
+        ...(compact ? { project_context: catalog.items.filter(i => i.type === 'project').map(i => ({ id: i.id, path: i.path, usable: i.usable, metadata: i.metadata })) } : {}),
         product_view: productView(catalog), assessment_selection: input.assessment_query ? selectAssessment(catalog, input.assessment_query, input) : null,
         roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog, input.roadmap_query) : null,
         reverse_relations: reverseRelations(catalog), plan_tasks: planTasks(catalog), discussions: input.discussion_targets ? recallDiscussions(catalog, input.discussion_targets) : [], impact: impactIds.length || input.impact_ids ? impactCandidates(catalog, impactIds) : null,
@@ -66,6 +68,15 @@ export function run(action: string, root: string, input: ObjectValue = {}): Obje
     }
     throw new Error('UNKNOWN_ACTION: use read, check, apply or capture');
   } catch (error: any) { return { ...envelope, status: 'failed', error: error.message }; }
+}
+
+export function run(action: string, root: string, input: ObjectValue = {}): ObjectValue {
+  if (validate(input, requestSchema).length) return runLegacy(action, root, input);
+  let computed: ObjectValue;
+  try { computed = computationInput(action, input); }
+  catch (error: any) { return { kind: 'product-maintenance-result/v1', action, status: 'failed', error: error.message, development_gate: false, qualification: 'not-evaluated', task_operations: 'not-performed' }; }
+  const result = runLegacy(action, root, computed, input.presentation === 'compact');
+  return input.presentation === 'compact' ? deliver(result, () => present(result, input, computed)) : result;
 }
 
 async function main(): Promise<void> {

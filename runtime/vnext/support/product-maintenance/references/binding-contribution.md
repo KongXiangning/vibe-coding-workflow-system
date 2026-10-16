@@ -1,5 +1,8 @@
 # Shared TaskBinding contribution judgment
 
+For projected/paged product reads and receipt recovery, use [compact-context.md](compact-context.md).
+Keep this mode’s existing scope, judgments and write rules.
+
 Use this one method for prepare/actual adoption, existing-project inventory and
 rejudgment, local updates, closure, debugging and validation. Read contract.md
 section 12 and API.md for versioned fields and persistence. The host reads and
