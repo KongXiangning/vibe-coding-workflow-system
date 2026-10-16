@@ -280,6 +280,50 @@ test('VN03 declaration choice, scope changes and goal digest conservation follow
   expect(read(root).assessment_selection.reasons).toContain('scope-definition-changed');
 });
 
+test.each([false, true])('VN03 shared definition file edits preserve unaffected reports without refreshing evidence (bundle=%s)', bundled => {
+  for (const change of ['binding', 'neighbor', 'order', 'line-endings']) {
+    const root = fixture(), originalFile = get(root, projectPath);
+    const originalReports = parseProduct(get(root, reportPath), reportPath).items;
+    expect(run('apply', root, { files: [op(root, reportPath, { updates: originalReports.map(item => ({ id: item.id, metadata: {
+      target_basis: { ...item.metadata.target_basis, sha256: sha256(originalFile) },
+      goal_basis: { ...item.metadata.goal_basis, sha256: sha256(originalFile) },
+    } })) })] }).status).toBe('saved');
+    const savedReports = get(root, reportPath), basis = report(root).metadata.target_basis;
+    if (change === 'binding') updateGoal(root, item => { item.metadata.task_bindings = [{
+      id: 'B-REPAIR', task: { task_id: 'actual-repair-task', source: { kind: 'text', label: 'Task association', text: 'Local repair only' } },
+      role: 'repair', coverage: 'Existing import obligation', origin: 'declared', state: 'active',
+    }]; }, 'R-IMPORT');
+    if (change === 'neighbor') updateGoal(root, item => { item.body += '\nAdditional unrelated acceptance.\n'; }, 'R-NEW');
+    if (change === 'order') updateGoal(root, item => { item.metadata.requirement_order.reverse(); }, 'PROJECT');
+    if (change === 'line-endings') put(root, projectPath, originalFile.replace(/\n/g, '\r\n'));
+
+    for (const [selection, conclusion, id] of [
+      [query(), 'satisfied', 'A-DEMO'],
+      [query('G-LIVE', 'RECOVERABLE'), 'partially-satisfied', 'A-LIVE'],
+      [query('G-DEMO', 'FULL', { kind: 'release', value: 'sample-release-0' } as any), 'not-satisfied', 'A-RELEASE'],
+      [{ ...query('G-ALL', 'OVERALL'), target: 'G-ALL' }, 'undetermined', 'A-ALL'],
+    ] as const) expect(selectWith(root, bundled, selection)).toMatchObject({ conclusion, assessment_id: id, reasons: [] });
+    const source = run('read', root, { source: basis, max_bytes: 1 });
+    expect(source).toMatchObject({ status: 'available', byte_status: 'changed', content_is_referenced_bytes: false,
+      definition_sha256: report(root).metadata.target_definition_sha256 });
+    expect(source.diagnostics.some((d: any) => d.code === 'SOURCE_CHANGED')).toBe(true);
+    const resolved = run('read', root, { item_ids: ['A-DEMO'], resolve_sources: true });
+    const checks = resolved.sources.flatMap((s: any) => s.basis_checks ?? []).filter((b: any) => b.assessment_id === 'A-DEMO');
+    expect(checks).toHaveLength(2);
+    expect(checks.every((b: any) => b.definition_alignment === 'same-definition')).toBe(true);
+    expect(get(root, reportPath)).toBe(savedReports);
+    expect(fs.existsSync(path.join(root, '.workflow-system/records'))).toBe(false);
+
+    // A real change to this requirement still affects only its existing report coverage.
+    updateGoal(root, item => { item.body += '\nNew import acceptance obligation.\n'; }, 'R-IMPORT');
+    const changed = selectWith(root, bundled);
+    expect(changed.conclusion).toBe('undetermined');
+    expect(changed.reasons).toContain('definition-changed');
+    expect(changed.reports[0].conclusion).toBe('satisfied');
+    expect(get(root, reportPath)).toBe(savedReports);
+  }
+});
+
 test.each([false, true])('VN03 verified other-scope changes preserve the selected requirement report (bundle=%s)', bundled => {
   const root = fixture(); captureDefinitionBasis(root);
   const savedReport = get(root, reportPath);
@@ -298,6 +342,23 @@ test.each([false, true])('VN03 verified other-scope changes preserve the selecte
   }
   const ambiguous: any = query(); delete ambiguous.scope_id;
   expect(selectWith(root, bundled, ambiguous).reasons).toEqual(['scope-selection-required']);
+});
+
+test.each([false, true])('VN03 unrelated captured file edits retain verified goal scope comparison (bundle=%s)', bundled => {
+  const root = fixture(); captureDefinitionBasis(root);
+  const savedReports = get(root, reportPath), basis = report(root).metadata.goal_basis;
+  updateGoal(root, goal => { goal.metadata.assessment_scopes.push({ target: 'R-NEW', scope_id: 'EXTRA', coverage: 'Independent batch' }); });
+  put(root, basisPath, get(root, basisPath) + '\n<!-- unrelated file annotation -->\n');
+  expect(selectWith(root, bundled)).toMatchObject({ conclusion: 'satisfied', assessment_id: 'A-DEMO', reasons: [] });
+  expect(run('read', root, { source: basis, max_bytes: 1 })).toMatchObject({ byte_status: 'changed',
+    definition_sha256: report(root).metadata.goal_definition_sha256, content_is_referenced_bytes: false });
+  // Changing the captured goal itself loses the original comparison, even though the current scope is unchanged.
+  const original = parseProduct(get(root, basisPath), basisPath);
+  original.items.find(i => i.id === 'G-DEMO')!.body += '\nDifferent historical goal.\n';
+  put(root, basisPath, newDocument(original.items, 'Changed captured goal', 3));
+  expect(selectWith(root, bundled).reasons).toContain('goal-definition-changed');
+  expect(selectWith(root, bundled).reasons).toContain('goal-definition-unverified');
+  expect(get(root, reportPath)).toBe(savedReports);
 });
 
 test.each(['body', 'relation', 'goal-kind', 'goal-scope', 'coverage', 'scope-removed', 'requirement', 'overall', 'pending'])(
@@ -334,12 +395,11 @@ test.each(['v4', 'v5'])('VN03 scoped comparison survives compatible %s definitio
   for (const bundled of [false, true]) expect(selectWith(root, bundled)).toMatchObject({ conclusion: 'satisfied', reasons: [] });
 });
 
-test.each(['file-changed', 'missing', 'digest-missing', 'wrong-definition', 'algorithm', 'item-missing', 'duplicate-item'])(
+test.each(['missing', 'digest-missing', 'wrong-definition', 'algorithm', 'item-missing', 'duplicate-item'])(
   'VN03 scope exemption requires an intact original basis: %s', condition => {
     const root = fixture(); captureDefinitionBasis(root);
     updateGoal(root, goal => { goal.metadata.assessment_scopes.push({ target: 'R-NEW', scope_id: 'EXTRA', coverage: 'Independent batch' }); });
     const old = report(root), metadata: any = {};
-    if (condition === 'file-changed') put(root, basisPath, get(root, basisPath) + '\n<!-- unrelated file change -->\n');
     if (condition === 'missing') metadata.goal_basis = { ...old.metadata.goal_basis, path: 'docs/evidence/missing.md' };
     if (condition === 'digest-missing') { metadata.goal_basis = { ...old.metadata.goal_basis }; delete metadata.goal_basis.sha256; }
     if (condition === 'wrong-definition') metadata.goal_definition_sha256 = '0'.repeat(64);

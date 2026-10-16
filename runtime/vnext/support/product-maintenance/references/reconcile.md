@@ -54,6 +54,18 @@ they do not by themselves establish a new business failure or propagate pending 
 across the Task/requirement graph. A responsibility migration can require one mapping
 of retained, moved and unverified obligations without rerunning all old acceptance.
 
+For target_basis/goal_basis, successful unique item location and the recorded
+definition algorithm/digest verify the definition independently of whole-file SHA.
+Keep SOURCE_CHANGED and unavailable historical bytes as source diagnostics without
+turning unchanged item definitions into pending_sources, recheck tasks or a batch
+report rewrite. Do not refresh old basis hashes, checked_at or conclusions merely
+because task_bindings, order, line endings or another item changed. A verified old
+goal definition can still support comparison of the selected scope when unrelated
+bytes in its source file changed. Missing/ambiguous definitions, changed obligations,
+scope/subject changes and real counterevidence retain their own local checks; an
+unchanged definition is not a new test of the implementation. Fixed execution/log
+evidence and change-disposition sources still require their actual recorded bytes.
+
 For actual new counterevidence or a material coverage change not yet reconciled, add
 its exact source to the affected report's pending_sources, or save a new scope-specific
 assessment and explicitly select it. Ordinary positive progress remains in Task/Step

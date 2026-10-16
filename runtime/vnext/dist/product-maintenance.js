@@ -17659,7 +17659,7 @@ function unchangedGoalScope(report, goal, source2, previous2) {
   const m = report.metadata, basis = m.goal_basis, digest3 = m.goal_definition_sha256;
   if (!report.usable || !goal.usable || m.target === goal.id || !previous2?.usable || previous2.type !== "goal" || previous2.id !== goal.id)
     return false;
-  if (basis?.kind !== "file" || basis.item_id !== goal.id || !basis.sha256 || source2.status !== "available" || source2.byte_status !== "same-bytes")
+  if (basis?.kind !== "file" || basis.item_id !== goal.id || !basis.sha256 || source2.status !== "available")
     return false;
   if (goal.definition_algorithm !== "vnext-product-definition/v1" || m.goal_definition_algorithm !== goal.definition_algorithm || definitionAlgorithm(previous2) !== goal.definition_algorithm || !goal.definition_sha256 || !digest3 || source2.definition_algorithm !== goal.definition_algorithm || source2.definition_sha256 !== digest3 || requirementDigest(previous2) !== digest3 || requirementDigest(goal) !== goal.definition_sha256)
     return false;
@@ -17779,7 +17779,7 @@ function selectAssessment(catalog2, query, budget = {}) {
         continue;
       }
       const source2 = read.result;
-      if (source2.status !== "available" || source2.definition_algorithm !== algorithm || source2.definition_sha256 !== digest3 || source2.byte_status === "changed")
+      if (source2.status !== "available" || source2.definition_algorithm !== algorithm || source2.definition_sha256 !== digest3)
         reasons.push(`${label}-unverified`);
     }
     if (evidenceFor(report).pending_sources.length)

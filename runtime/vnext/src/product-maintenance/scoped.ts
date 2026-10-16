@@ -64,12 +64,12 @@ export function productView(catalog: Catalog): ObjectValue {
   return { project_id: project?.id ?? null, root_goal: rootGoal(catalog, project), requirement_order: registered, unordered_requirements: unordered, current_relations: current, diagnostics };
 }
 
-/** Other declarations may change only after the original whole goal has been verified. */
+/** Verify the original goal definition before comparing this scope, independently of file bytes. */
 function unchangedGoalScope(report: Item, goal: Item, source: ObjectValue, previous?: Item): boolean {
   const m = report.metadata, basis = m.goal_basis, digest = m.goal_definition_sha256;
   if (!report.usable || !goal.usable || m.target === goal.id || !previous?.usable || previous.type !== 'goal' || previous.id !== goal.id) return false;
   if (basis?.kind !== 'file' || basis.item_id !== goal.id || !basis.sha256
-    || source.status !== 'available' || source.byte_status !== 'same-bytes') return false;
+    || source.status !== 'available') return false;
   if (goal.definition_algorithm !== 'vnext-product-definition/v1' || m.goal_definition_algorithm !== goal.definition_algorithm
     || definitionAlgorithm(previous) !== goal.definition_algorithm || !goal.definition_sha256 || !digest
     || source.definition_algorithm !== goal.definition_algorithm || source.definition_sha256 !== digest
@@ -155,7 +155,9 @@ export function selectAssessment(catalog: Catalog, query: ObjectValue, budget: O
       }
       if (!read) { reasons.push(`${label}-unverified`); continue; }
       const source = read.result;
-      if (source.status !== 'available' || source.definition_algorithm !== algorithm || source.definition_sha256 !== digest || source.byte_status === 'changed') reasons.push(`${label}-unverified`);
+      // A shared file can change through bindings, ordering or another item. The
+      // resolved item's definition verifies this basis; byte history stays in readSource diagnostics.
+      if (source.status !== 'available' || source.definition_algorithm !== algorithm || source.definition_sha256 !== digest) reasons.push(`${label}-unverified`);
     }
     if (evidenceFor(report).pending_sources.length) reasons.push('pending-evidence');
   }

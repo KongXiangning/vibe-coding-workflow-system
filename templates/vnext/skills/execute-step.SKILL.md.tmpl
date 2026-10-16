@@ -166,6 +166,11 @@ assessment.pending_sources, change report applicability or start requirement
 reconciliation. No per-step impact declaration, new approval or requirement-report
 write is needed to continue. A shared Task, touched file, dependency or new source
 reference alone is not a material change to every related requirement.
+Recording a Task binding or progress can change a shared definition file's byte
+SHA without changing its requirement/goal definitions. Keep that source-history
+diagnostic; do not reopen reports, add pending_sources or refresh old report
+hashes/checked_at solely to clear it. Use the item's actual definition alignment
+and any concrete new counterevidence to determine local maintenance.
 
 When enabled maintenance and existing authorization cover it, use maintain-project
 references/reconcile.md only for an actual obligation/acceptance/adopted-scope change,

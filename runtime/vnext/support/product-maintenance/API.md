@@ -145,6 +145,17 @@ unknown or changed definitions and pending evidence yield undetermined while
 retaining achievements. Diagnostics do not authorize business judgments or Task
 operations. This read does not write records, definitions or reports.
 
+Definition verification is item-scoped: a readable, uniquely located basis with
+the recorded definition algorithm/digest still verifies that definition when
+`byte_status=changed`. Task bindings, navigation order, line endings and edits to
+other items in the same file do not invalidate unchanged report coverage. For
+other-goal-scope comparison, the located original goal must still match its full
+recorded definition before comparing the selected scope. Missing/ambiguous bases,
+actual definition changes and pending counterevidence retain their checks.
+`SOURCE_CHANGED`, the original file SHA and `content_is_referenced_bytes=false`
+remain source-history diagnostics; they alone are not requirement recheck work.
+Do not refresh report basis hashes, checked_at or conclusions to clear them.
+
 VN-01 fields and digest algorithms remain defined by contract.md section 10.
 The source handoff fixture is `examples/scoped/`; its data is synthetic evidence.
 
