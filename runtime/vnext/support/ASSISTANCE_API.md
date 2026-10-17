@@ -377,9 +377,10 @@ send accepted user choices back through old complete/replan/close gates.
 ## Git checkpoint: one git-commit invocation
 
 The **Git checkpoint policy** in WORKFLOW_PROTOCOL makes an ordinary authorized task/stage
-commit include project-wide persistent records, not just business filenames. It never grants
-push or includes other tasks' business work. Narrow user instructions and an existing local-only
-policy override it. This section is the internal recipe for git-commit, not another public Skill.
+commit include only the requested business changes and related incremental records.
+Project-wide record inventory, archive checks and recovery snapshots require an explicit
+full checkpoint/audit request. It never grants push or includes unrelated work. Narrow user
+instructions and an existing local-only policy override it. This is git-commit's internal recipe.
 
 `git-checkpoint` performs read-only Git/filesystem inspection. It never stages, commits, writes
 configuration, updates task state or deletes anything. All actions retain development_gate=false.
@@ -389,16 +390,34 @@ per-record approval is required. API shapes are deliberately not permission/qual
 ### Plan
 
 ```json
-{"action":"plan","mode":"checkpoint","business_paths":["src/example.ts"],"exclude_paths":[],"untrack_derived":true}
+{"action":"plan","business_paths":["src/example.ts"],"record_paths":[".workflow-system/records/events/<actual-event>.json",".workflow-system/records/attachments/<actual-event>.json",".workflow-system/records/evidence-objects/<actual-sha256>.blob"],"exclude_paths":[]}
 ```
 
 Send this to `assistance.mjs git-checkpoint --root <exact Git worktree root>`.
 `business_paths` are exact file or Gitlink paths whose intended diffs the Skill has identified,
 not globs or an entire directory collection. `exclude_paths` are exact files or directory prefixes (never glob rules).
-`mode=paths` restricts candidates to business_paths and proposes no configuration or untracking;
+`record_paths` are exact related persistent file paths identified from this work's actual
+diff and known record refs, not all dirty records or a task-ID-wide collection. Select necessary
+new attachment manifests and evidence objects explicitly; dependencies already saved in Git
+can be reused without selecting them again. Unknown relevance does not authorize inclusion.
+Derived views/temporary files are invalid record_paths. No task clean/closed state is required.
+
+| mode | Selection and inspection |
+| --- | --- |
+| `incremental` (default) | Exact business_paths + record_paths; selected records and direct typed dependencies only; no global record/archive traversal, ignore proposals or untracking |
+| `paths` | Exact business_paths + record_paths, no configuration or untracking; use for files-only/staged-only instructions |
+| `checkpoint` (explicit full checkpoint/audit request) | Project-wide persistent records, archives and recovery material, plus authorized business_paths; existing full inventory and policy checks |
+
+For example, an explicitly requested full checkpoint uses
+`{"action":"plan","mode":"checkpoint","business_paths":["src/example.ts"],"untrack_derived":true}`.
+A plain commit request, task closure or completed maintenance does not select that mode.
+Explicitly selecting archive backing files also invokes archive validation; ordinary incremental
+commits do not select archives. This validates available bytes; it does not create an archive.
+
+`mode=paths` restricts candidates to the explicit paths and proposes no configuration or untracking;
 use it for an explicit files-only/staged-only instruction or an existing records opt-out.
 `workflow_home` is supported as in other assistance commands. No task identity or clean state
-is required. All tasks' records are considered because parents/attachments cross task boundaries.
+is required. Only explicit full checkpoint mode considers all tasks' records.
 
 `source=worktree` (default) plans the authorized working copies. `source=index` plans the
 already prepared index content for business_paths: blob OIDs, Git modes and HEAD/index deletions.
@@ -406,7 +425,9 @@ For a staged-only request use `{"mode":"paths","source":"index","business_paths"
 These business entries are never placed in add_paths, and their working copies need not exist
 or equal the index. The helper still detects later index content/mode changes and staged paths
 outside scope. With checkpoint mode, source=index can preserve selected business hunks while
-automatically selected management records and policy files continue to come from the worktree.
+selected record_paths and policy files continue to come from the worktree. The same mixed-source
+behavior applies in incremental mode. For fully staged-only records, list them in business_paths
+with mode=paths, source=index; no worktree record is added implicitly.
 
 Index blob hashing uses fixed-size file reads after Git writes its raw output directly to a
 private OS temporary file. Blob payloads do not pass through the 64 MiB command-output buffer.
@@ -426,13 +447,18 @@ remains available when a requested operation is outside the helper's supported i
 
 The result is `kind=git-checkpoint-plan/v1` with `base_head`, a file manifest (path, role,
 source, Git mode when selected from the index or a link, sha256, raw_git_oid, size, byte_exact), `add_paths`, `delete_paths`, `untrack_paths`,
-configuration proposals, omitted paths, issues, reference_issues and counts. Keep the full JSON
+configuration proposals, omitted paths, issues, reference_issues, reference_scope and counts. Keep the full JSON
 in an **OS temporary file**, not under records or a distribution-owned path; show the user
 counts, scope and actionable exceptions, not every hash. A plan is a snapshot of inspected
-files, not a transaction over ongoing writers. Configuration proposals are not yet applied.
+files, not a transaction over ongoing writers. reference_scope is selected-records for scoped
+inspection and project for full inspection. A scoped no-known-gaps result is not a statement
+about unrelated history or archives. Configuration proposals are not yet applied.
 Gitlinks have no blob bytes: sha256/size are null and raw_git_oid is the commit pointer.
 
-| Existing path | Default treatment |
+The following project-wide inventory table applies only to explicit full checkpoint mode.
+Incremental mode selects only the explicit related files; it does not discover other rows.
+
+| Existing path | Full checkpoint treatment |
 | --- | --- |
 | records/events/*.json, attachments/*.json, task-labels/*.json | Preserve, even if a saved report is malformed/unassociated |
 | records/evidence-objects/<sha256>.blob, legacy/baseline.json, legacy/current-<sha256>.md | Preserve original bytes; retain and report known digest/reference gaps |
@@ -454,6 +480,12 @@ still arrive and will be reported at the next inspection. This fixes checkpoint 
 physical file growth. A saved snapshot is not a backup of future writes or an audit certification.
 
 ### Scoped configuration and staging
+
+Incremental mode proposes only byte-preserving .gitattributes policy needed for selected
+record directories (records/** or selected historical evidence-objects/*.blob). It does not
+propose .gitignore changes, display inspection, cache untracking or archive migration.
+If no record is selected, it proposes no policy. Existing exclusions, custom attributes and
+freeze rules apply; a conflicting project storage choice is not silently overwritten.
 
 For checkpoint mode, `configuration` proposes appended managed blocks in records/.gitignore
 and records/.gitattributes. The attribute block disables text, filter, ident and working-tree-encoding
@@ -520,12 +552,21 @@ No Git operation is replayed. Hooks or concurrent writers may change what is com
 any mismatch with the real SHA, without automatic amend/reset or claiming a verified checkpoint.
 The plan is not an authorization object. Do not alter its scope merely to hide an unexpected diff.
 
-`remaining_records` lists new/changed/unclassified local records that differ from the saved
-snapshot, including ignored entries. `planning_issues` and `reference_issues` remain visible.
+For full checkpoints, `remaining_records` lists new/changed/unclassified local records that
+differ from the saved snapshot, including ignored entries. Incremental/paths mode checks only
+selected working-copy records, with remaining_records_scope=selected-records; use Git status
+for other residual paths. It does not inspect the contents of every uncommitted record.
+`planning_issues` and `reference_issues` remain visible. Existing recorded validation limits,
+historical failures and unrelated unresolved issues remain intact; saving bytes does not
+mark requirements complete or trigger new testing/reconciliation.
 Missing objects, transformed object bytes and unsafe index attributes found during verification
 also remain reference gaps; an earlier clean plan cannot make them report no-known-gaps.
-Verification reads planned attachment manifests from the actual index/commit and checks their
-typed object dependencies there, including legacy objects omitted by an older v1 plan. It does
+Verification reads selected records/manifests from the actual index/commit and checks direct
+typed dependencies there. Incremental mode reuses already saved dependencies without recursively
+auditing their historical parents or opening archives. An archive-only dependency may remain
+an uninspected/missing reference in this limited view; disclose the gap rather than claiming
+loss or launching a full archive audit. Full checkpoint verification also checks history and
+archives, including legacy objects omitted by an older v1 plan. It does
 not substitute the current working copies, scan arbitrary strings or enlarge the planned scope.
 An omitted dependency reports a reference gap; a previously saved dependency is checked by its
 actual Git mode, digest and attachment metadata even if it was absent from the plan. Available

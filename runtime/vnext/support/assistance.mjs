@@ -694,6 +694,16 @@ function checkpointInventory(root, display, business = []) {
   return { files, logicalFiles, archived, archives: archives.archives, quarantined: archives.quarantined ?? [],
     issues, evidence_objects: objects, reference_issues: [...referenceIssues, ...issues.filter(i => i.path === `${STORE}/archives`)] };
 }
+function checkpointScopedInventory(root, display, refs) {
+  const files = new Map(), objects = new Set();
+  for (const ref of refs) {
+    const object = checkpointObjectPath(root, ref), role = checkpointRole(ref, display);
+    if (object) objects.add(ref);
+    if (object || ref.startsWith(`${STORE}/`) || role === 'display') files.set(ref, object ? 'fact' : role);
+  }
+  return { files, logicalFiles: files, archived: new Map(), archives: [], quarantined: [],
+    issues: [], evidence_objects: objects, reference_issues: [] };
+}
 function checkpointAttributes(root, refs, cached = false) {
   if (!refs.length) return new Map();
   const attrs = ['text', 'filter', 'ident', 'working-tree-encoding'];
@@ -704,16 +714,17 @@ function checkpointAttributes(root, refs, cached = false) {
   }
   return result;
 }
-function checkpointPolicy(root, home, generatedDisplay, evidenceObjects = []) {
-  const legacyDirectories = [...new Set(evidenceObjects.filter(ref => !ref.startsWith(`${STORE}/`))
+function checkpointPolicy(root, home, generatedDisplay, recordPaths = [], incremental = false) {
+  const legacyDirectories = [...new Set(recordPaths.filter(ref => !ref.startsWith(`${STORE}/`) && checkpointObjectPath(root, ref))
     .map(ref => path.posix.dirname(ref)))].sort();
   const oldIgnore = '/task-view.json\n/task-views/\n/task-view*.lock\n**/*.tmp\n';
-  const definitions = [
-    [`${STORE}/.gitignore`, `${oldIgnore}/.archive-staging/\n/archive-quarantine/\n/.record-store-locks/\n`],
-    [`${STORE}/.gitattributes`, '** -text -filter -ident -working-tree-encoding\n'],
-    ...legacyDirectories.map(directory => [`${directory}/.gitattributes`, '*.blob -text -filter -ident -working-tree-encoding\n']),
-    ...(generatedDisplay ? [[`${home}/.gitignore`, '/CURRENT_TASK.md\n']] : []),
-  ];
+  const definitions = [];
+  if (!incremental) definitions.push([`${STORE}/.gitignore`, `${oldIgnore}/.archive-staging/\n/archive-quarantine/\n/.record-store-locks/\n`]);
+  if (!incremental || recordPaths.some(ref => ref.startsWith(`${STORE}/`)))
+    definitions.push([`${STORE}/.gitattributes`, '** -text -filter -ident -working-tree-encoding\n']);
+  for (const directory of legacyDirectories)
+    definitions.push([`${directory}/.gitattributes`, '*.blob -text -filter -ident -working-tree-encoding\n']);
+  if (generatedDisplay) definitions.push([`${home}/.gitignore`, '/CURRENT_TASK.md\n']);
   const edits = [], paths = [], issues = [];
   for (const [ref, body] of definitions) {
     paths.push(ref);
@@ -763,7 +774,7 @@ function checkpointReferences(root, inventory, selected, read = ref => storeRead
       return target;
     } catch (error) { issues.push({ ...issue(error), from, path: ref }); }
   };
-  for (const [ref, role] of inventory.logicalFiles ?? inventory.files) {
+  for (const [ref, role] of inventory.inspectedFiles ?? inventory.logicalFiles ?? inventory.files) {
     if (role !== 'fact') continue;
     try {
       if (!ref.endsWith('.json')) {
@@ -818,6 +829,38 @@ function checkpointSelectedRecords(inventory, files, excluded = () => false) {
   for (const record of inventory.archived.values()) if (!selected.has(record.ref) && !excluded(record.ref) && complete.has(record.archiveId))
     selected.set(record.ref, { ...record, role: 'fact', storage: 'archive' });
   return selected;
+}
+function checkpointScopedReferences(root, files, target, { planning = false, isCommit = false } = {}) {
+  // Existing Git dependencies can satisfy a selected record without reopening
+  // their historical parents or auditing unrelated records and archive packs.
+  const inspectedFiles = new Map(files.map(file => [file.path, file.role]));
+  const logicalFiles = new Map([...target.keys()].map(ref => [ref, checkpointRole(ref, '')]));
+  const objects = new Map(planning ? files.map(file => [file.path, file]) : []);
+  if (planning) for (const [ref, role] of inspectedFiles) logicalFiles.set(ref, role);
+  const metadata = ref => {
+    if (objects.has(ref)) return objects.get(ref);
+    const entry = target.get(ref);
+    if (!entry) return undefined;
+    if (!['100644', '100755'].includes(entry.mode)) throw failure('STORED_MODE_DIFFERS', `Expected regular preserved bytes: ${ref}`);
+    const value = checkpointIndexFile(root, entry); objects.set(ref, value); return value;
+  };
+  const selected = { has: ref => logicalFiles.has(ref), get: metadata };
+  const planned = new Map(files.map(file => [file.path, file]));
+  const read = ref => {
+    const file = planning && planned.get(ref);
+    if (file && file.source !== 'index') return fs.readFileSync(local(root, ref));
+    const oid = file ? file.raw_git_oid : target.get(ref)?.oid;
+    if (!oid) throw failure('REFERENCE_MISSING', `No saved record: ${ref}`);
+    metadata(ref);
+    return checkpointBlob(root, oid, blob => fs.readFileSync(blob));
+  };
+  const issues = checkpointReferences(root, { logicalFiles, inspectedFiles, reference_issues: [] }, selected, read);
+  if (!planning && !isCommit) for (const [ref, row] of checkpointAttributes(root,
+    [...objects.keys()].filter(ref => checkpointObjectPath(root, ref)), true)) {
+    if (row.text !== 'unset' || ['filter', 'ident', 'working-tree-encoding'].some(k => !['unset', 'unspecified'].includes(row[k])))
+      issues.push({ code: 'INDEX_BYTE_ATTRIBUTES_UNSAFE', path: ref, attributes: row });
+  }
+  return { issues, archived: new Map(), archives: [] };
 }
 function checkpointStoredReferences(root, plan, target, isCommit) {
   const issues = [], objects = new Map(), archivePaths = [], directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-checkpoint-archives-'));
@@ -881,44 +924,51 @@ export function gitCheckpoint(root, input = {}) {
   const headResult = checkpointGit(root, ['rev-parse', '--verify', '-q', 'HEAD'], undefined, [0, 1]);
   const head = headResult.status === 0 ? headResult.stdout.trim() : null;
   if (action !== 'plan') return verifyCheckpoint(root, input, head, algorithm);
-  const mode = input.mode ?? 'checkpoint';
-  if (!['checkpoint', 'paths'].includes(mode)) throw failure('INVALID_CHECKPOINT_MODE', mode);
+  const mode = input.mode ?? 'incremental';
+  if (!['incremental', 'checkpoint', 'paths'].includes(mode)) throw failure('INVALID_CHECKPOINT_MODE', mode);
   const source = input.source ?? 'worktree';
   if (!['worktree', 'index'].includes(source)) throw failure('INVALID_CHECKPOINT_SOURCE', 'source must be worktree or index; it selects the business content, not authority.');
   const exactPaths = values => {
     if (!Array.isArray(values) || values.some(v => typeof v !== 'string')) throw failure('EXACT_PATHS_REQUIRED', 'Use an array of exact file paths, not a glob or directory.');
     return [...new Set(values.map(v => checkpointPath(root, v)))].sort();
   };
-  const business = exactPaths(input.business_paths ?? []), exclusions = exactPaths(input.exclude_paths ?? []);
+  const business = exactPaths(input.business_paths ?? []), records = exactPaths(input.record_paths ?? []);
+  const requested = [...new Set([...business, ...records])], exclusions = exactPaths(input.exclude_paths ?? []);
+  for (const ref of records) if (!['fact', 'recovery', 'archive', 'configuration'].includes(checkpointRole(ref, '')) && !checkpointObjectPath(root, ref))
+    throw failure('INVALID_RECORD_PATH', `Select an exact persistent record, not a derived view or business file: ${ref}`);
   // A selected link's own value is supported; a linked ancestor must not turn a
   // worktree path into an alias for another scope. Index sources need no traversal.
-  if (source === 'worktree') for (const ref of business) local(root, path.posix.dirname(ref));
+  if (source === 'worktree') for (const ref of requested) local(root, path.posix.dirname(ref));
   const excluded = ref => exclusions.some(p => ref === p || ref.startsWith(`${p}/`));
   const { home, issues: homeIssues } = workflowHome(root, input.workflow_home), display = `${home}/CURRENT_TASK.md`;
   let generatedDisplay = false, displayHasMarker = false;
-  try {
-    const published = readTaskDisplay(root, display, { local });
-    displayHasMarker = published.managed;
-    generatedDisplay = published.verified;
-  } catch (error) { if (error.code !== 'ENOENT') homeIssues.push({ ...issue(error), path: display }); }
-  const inventory = checkpointInventory(root, display, source === 'worktree' ? business : []), before = checkpointTree(root, head), index = checkpointIndex(root);
+  if (mode === 'checkpoint') {
+    try {
+      const published = readTaskDisplay(root, display, { local });
+      displayHasMarker = published.managed;
+      generatedDisplay = published.verified;
+    } catch (error) { if (error.code !== 'ENOENT') homeIssues.push({ ...issue(error), path: display }); }
+  }
+  const fullInspection = mode === 'checkpoint' || requested.some(ref => !excluded(ref) && checkpointRole(ref, display) === 'archive');
+  const inventory = fullInspection ? checkpointInventory(root, display, source === 'worktree' ? requested : [])
+    : checkpointScopedInventory(root, display, requested);
+  const before = checkpointTree(root, head), index = checkpointIndex(root);
   const symlinks = checkpointGit(root, ['config', '--bool', 'core.symlinks'], undefined, [0, 1]).stdout.trim() !== 'false';
   const archivesById = new Map(inventory.archives.map(archive => [archive.id, archive]));
   const quarantineByRef = new Map(inventory.quarantined.map(record => [record.ref, record]));
   const excludedArchiveIds = new Set([...inventory.archived.values()].filter(record => excluded(record.ref)).map(record => record.archiveId));
   const blockedArchives = inventory.archives.filter(archive => excludedArchiveIds.has(archive.id));
   const blockedArchivePaths = new Set(blockedArchives.flatMap(archive => archive.physical_files.map(file => file.ref)));
-  const selected = new Set(business.filter(ref => !excluded(ref) && !blockedArchivePaths.has(ref)));
+  const selected = new Set(requested.filter(ref => !excluded(ref) && !blockedArchivePaths.has(ref)));
   const files = [], deletions = [], archiveMigrations = [];
-  const omitted = [], problems = [...homeIssues, ...inventory.issues], policy = mode === 'checkpoint'
-    ? checkpointPolicy(root, home, generatedDisplay, [...inventory.evidence_objects].filter(ref => inventory.files.has(ref) && !excluded(ref)))
+  const omitted = [], problems = [...homeIssues, ...inventory.issues], policy = mode !== 'paths'
+    ? checkpointPolicy(root, home, generatedDisplay, [...inventory.files.keys()].filter(ref => !excluded(ref)), mode === 'incremental')
     : { edits: [], paths: [], issues: [] };
   if (mode === 'checkpoint') {
     for (const [ref, role] of inventory.files) {
       if (['fact', 'recovery', 'archive', 'configuration'].includes(role) && !excluded(ref) && !blockedArchivePaths.has(ref)) selected.add(ref);
       else omitted.push({ path: ref, role, reason: excluded(ref) || blockedArchivePaths.has(ref) ? 'user-excluded' : ['derived', 'temporary'].includes(role) ? 'local-generated' : 'classification-required' });
     }
-    for (const ref of policy.paths) if (!excluded(ref) && fs.existsSync(local(root, ref))) selected.add(ref);
     const selectedArchives = new Set(inventory.archives.filter(archive => archive.physical_files.every(file => selected.has(file.ref))).map(archive => archive.id));
     for (const ref of new Set([...before.keys(), ...index.entries.keys()])) {
       const role = checkpointRole(ref, display);
@@ -942,9 +992,10 @@ export function gitCheckpoint(root, input = {}) {
       }
       problems.push({ code: 'PERSISTENT_FILE_MISSING', path: ref, message: 'Do not silently stage this deletion as checkpoint cleanup; an archive copy alone is not explicit quarantine proof.' });
     }
-    for (const registry of ['FREEZE_REGISTRY.md', '.workflow-system/FREEZE_REGISTRY.md'])
-      if (fs.existsSync(local(root, registry)) && policy.edits.length) problems.push({ code: 'FREEZE_POLICY_REVIEW', path: registry });
   }
+  for (const ref of policy.paths) if (!excluded(ref) && fs.existsSync(local(root, ref))) selected.add(ref);
+  for (const registry of ['FREEZE_REGISTRY.md', '.workflow-system/FREEZE_REGISTRY.md'])
+    if (fs.existsSync(local(root, registry)) && policy.edits.length) problems.push({ code: 'FREEZE_POLICY_REVIEW', path: registry });
   for (const archive of blockedArchives) problems.push({ code: 'ARCHIVE_SCOPE_EXCLUSION', path: archive.manifestRef,
     message: 'This archive contains an excluded logical record; its indivisible backing files were not selected.' });
   const configuration = policy.edits.filter(e => !excluded(e.path));
@@ -975,7 +1026,7 @@ export function gitCheckpoint(root, input = {}) {
       else metadata = checkpointFile(root, ref, algorithm);
       files.push({ path: ref, role, source: fileSource, byte_exact: byteExact, ...metadata });
     } catch (error) {
-      if (error.code === 'ENOENT' && business.includes(ref) && before.has(ref) && mode === 'paths') deletions.push(ref);
+      if (error.code === 'ENOENT' && requested.includes(ref) && before.has(ref) && mode === 'paths') deletions.push(ref);
       else if (error.code === 'ENOENT' && business.includes(ref) && before.has(ref) && !ref.startsWith(`${STORE}/`)) deletions.push(ref);
       else problems.push({ ...issue(error), path: ref });
     }
@@ -1014,8 +1065,8 @@ export function gitCheckpoint(root, input = {}) {
       problems.push({ code: 'PRESTAGED_CONTENT_DIFFERS', path: f.path, message: 'Inspect staged hunks/normalization; do not silently replace a partial stage.' });
   }
   const selectedRecords = checkpointSelectedRecords(inventory, files, excluded);
-  const referenceIssues = mode === 'checkpoint' || files.some(file => file.role === 'archive')
-    ? checkpointReferences(root, inventory, selectedRecords) : [];
+  const referenceIssues = fullInspection ? checkpointReferences(root, inventory, selectedRecords)
+    : checkpointScopedReferences(root, files, before, { planning: true }).issues;
   for (const archive of inventory.archives) if (archive.physical_files.some(file => selectedRecords.has(file.ref)))
     for (const file of archive.physical_files) {
       const selectedFile = selectedRecords.get(file.ref);
@@ -1030,7 +1081,8 @@ export function gitCheckpoint(root, input = {}) {
   const addPaths = files.filter(f => f.source !== 'index' && (!index.entries.has(f.path) || index.entries.get(f.path).oid !== f.raw_git_oid || f.role === 'business')).map(f => f.path);
   const migratedPaths = new Set(archiveMigrations.map(migration => migration.path));
   const plan = { kind: 'git-checkpoint-plan/v1', root: path.resolve(root), base_head: head, object_format: algorithm, mode, source,
-    workflow_home: home, business_paths: business, exclude_paths: exclusions, files, delete_paths: deletions, archive_migrations: archiveMigrations,
+    workflow_home: home, business_paths: business, record_paths: records, exclude_paths: exclusions,
+    reference_scope: fullInspection ? 'project' : 'selected-records', files, delete_paths: deletions, archive_migrations: archiveMigrations,
     add_paths: [...new Set([...addPaths, ...deletions.filter(ref => migratedPaths.has(ref)
       ? index.entries.has(ref) : source === 'worktree')])].sort(), untrack_paths: untrack.sort(), untrack_files: untrackFiles,
     configuration, tracked_derived_retained: trackedDerived.filter(p => !untrack.includes(p)), omitted,
@@ -1039,7 +1091,7 @@ export function gitCheckpoint(root, input = {}) {
     counts: { selected: files.length, facts: files.filter(f => f.role === 'fact').length, recovery: files.filter(f => f.role === 'recovery').length,
       archives: files.filter(f => f.role === 'archive').length, archived_records: [...selectedRecords.values()].filter(f => f.storage === 'archive').length,
       add: plan.add_paths.length, untrack: untrack.length, omitted: omitted.length },
-    note: 'Project-wide records are candidates under the Skill checkpoint policy, not permission. Apply authorized configuration, re-plan, review the index, then verify. Reference gaps do not prohibit preserving existing bytes. Keep this plan in an OS temporary file, not in records.' };
+    note: 'Only explicitly selected paths are candidates by default; mode=checkpoint explicitly inspects project-wide records and archives. Apply authorized configuration, re-plan and review the index. Reference gaps remain gaps; keep this plan in an OS temporary file.' };
 }
 function verifyCheckpoint(root, input, head, algorithm) {
   const plan = input.plan;
@@ -1129,7 +1181,9 @@ function verifyCheckpoint(root, input, head, algorithm) {
     problems.push({ code: 'COMMITTED_TREE_DIFFERS_FROM_REVIEWED_INDEX' });
   // Older v1 plans may omit legacy objects. Inspect saved manifests and Git dependencies,
   // without adding paths to the user's plan or substituting later working-copy facts.
-  const storedReferences = checkpointStoredReferences(root, plan, target, isCommit);
+  const fullInspection = plan.mode === 'checkpoint' || plan.files.some(file => file.role === 'archive');
+  const storedReferences = fullInspection ? checkpointStoredReferences(root, plan, target, isCommit)
+    : checkpointScopedReferences(root, plan.files, target, { isCommit });
   referenceIssues.push(...storedReferences.issues);
   const plannedPaths = new Set(plan.files.map(file => file.path)), baseTree = checkpointTree(root, plan.base_head);
   const selectedArchives = new Set(storedReferences.archives.filter(archive => archive.physical_files.every(file => plannedPaths.has(file.ref))).map(archive => archive.id));
@@ -1150,7 +1204,10 @@ function verifyCheckpoint(root, input, head, algorithm) {
       } catch (error) { storageIssue({ ...issue(error), path: migration.path }); }
     }
   }
-  const inventory = checkpointInventory(root, `${plan.workflow_home}/CURRENT_TASK.md`, plan.files.filter(f => f.source !== 'index').map(f => f.path)), saved = new Map(plan.files.map(f => [f.path, f]));
+  const workingPaths = plan.files.filter(f => f.source !== 'index').map(f => f.path);
+  const inventory = fullInspection ? checkpointInventory(root, `${plan.workflow_home}/CURRENT_TASK.md`, workingPaths)
+    : checkpointScopedInventory(root, `${plan.workflow_home}/CURRENT_TASK.md`, workingPaths);
+  const saved = new Map(plan.files.map(f => [f.path, f]));
   const remaining = [...inventory.issues.map(i => ({ ...i, reason: 'unreadable' }))];
   for (const f of byteExactFiles) if (!inventory.files.has(f.path)) remaining.push({ path: f.path, role: f.role, reason: 'missing-from-worktree' });
   for (const [ref, role] of inventory.files) if (['fact', 'archive', 'recovery', 'configuration', 'unclassified'].includes(role)) {
@@ -1165,6 +1222,7 @@ function verifyCheckpoint(root, input, head, algorithm) {
     tree_sha256: treeDigest, snapshot_verified: problems.length === 0,
     reviewed_index_compared: isCommit && !!input.index_verification?.tree_sha256,
     reference_health: referenceIssues.length ? 'gaps-retained' : 'no-known-gaps',
+    reference_scope: fullInspection ? 'project' : 'selected-records', remaining_records_scope: fullInspection ? 'project' : 'selected-records',
     reference_issues: referenceIssues, planning_issues: plan.issues ?? [], issues: problems, remaining_records: remaining,
     scope_exclusions: plan.exclude_paths, recovery_files_retained: plan.files.filter(f => f.role === 'recovery').length,
     note: 'Checks the planned Git snapshot, not task completion, secret safety, future writes or remote backup. No project file/index/history was modified. New records after planning remain for a later authorized checkpoint; do not recursively commit.' };

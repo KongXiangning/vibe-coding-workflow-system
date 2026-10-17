@@ -40,8 +40,9 @@ Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
 `node .workflow-system/runtime/support/assistance.mjs <command> --root <project>`.
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
-Use `task-status` (or the `context.management` view) to identify the task, adopted
-plan, step, review/disposition and actual commits. It reads the complete journal,
+When task identity or routing needs clarification, use `task-status` (or the
+`context.management` view) to identify the task, adopted plan, step and disposition.
+An ordinary commit needs no task-state audit. The query reads the complete journal,
 not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
 For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
 `record` is for general observations, not a substitute for task registration.
@@ -75,13 +76,21 @@ requested commit scope. Only an actual instruction to commit authorizes a commit
 a next_route recommendation is not that instruction. Do not require a Runtime
 completed/clean/archived tuple before honoring an authorized commit.
 
-For an ordinary task/stage checkpoint, use the project's **Git checkpoint policy**
-from WORKFLOW_PROTOCOL. Within this invocation, run assistance `git-checkpoint`
-plan -> authorized setup/staging -> verify-index -> Git commit -> verify-commit.
-Follow ASSISTANCE_API's Git checkpoint section for exact inputs and the recipe.
-Do not require a separate Skill, archive command or another user turn for these
-internal steps. Include project-wide persistent records and recovery material;
-do not restrict records to the focused task or wait for tasks to close.
+For an ordinary task/stage commit, use the project's **Git checkpoint policy**
+from WORKFLOW_PROTOCOL. Default to assistance `git-checkpoint` mode=incremental:
+select only this invocation's authorized business changes and related incremental
+records. Identify record_paths from the actual diff and known execution/maintenance
+record refs, not every dirty record or merely the active task. Include necessary
+new attachment manifests and evidence objects for those records; reuse already
+committed dependencies. Do not collect unrelated tasks, old recovery captures or
+archives, repair historical references, or run a project-wide audit by default.
+An unresolved record's relevance is a scope choice, not permission to stage it.
+Within this invocation, run plan -> necessary authorized byte-policy setup/staging
+-> verify-index -> Git commit -> verify-commit. Follow ASSISTANCE_API for exact
+inputs. Whole-project inventory, archive validation and recovery snapshots require
+an explicit user request for a full checkpoint/audit (mode=checkpoint); a plain
+commit request does not trigger them. Do not require a separate Skill or another
+user turn for the authorized internal steps.
 Explicit paths-only/staged-only requests and user exclusions override this default.
 Use `mode=paths, source=index` for staged-only requests. In a checkpoint with approved
 partial business hunks, `source=index` preserves those business entries while recording
@@ -92,9 +101,12 @@ Inspect actual staged hunks: the helper checks record bytes and Git path scope,
 not whether selected business hunks match the user's intended implementation.
 Preserve unrelated/partial staging and custom ignore/attribute policy. Resolve an
 actual scope or policy conflict once; never reset the index or force-add to hide it.
-Keep plans and verification output in OS temporary files, not in records. Report
-saved facts, saved recovery snapshots, locally retained caches, excluded/unknown
-files and reference gaps separately. Do not call all residual changes garbage.
+Keep plans and verification output in OS temporary files, not in records. Reuse
+existing useful validation; do not rerun tests, review task completion, or reconcile
+overall requirements merely to commit. Preserve the recorded validation limits,
+failed outcomes and unrelated unresolved issues. Report saved scope, selected-record
+reference gaps and residual Git changes; incremental verification is not a full
+history/archive health claim. Do not call all residual changes garbage.
 
 Commit only authorized paths and report the actual Git result. Do not push, amend,
 reset, clean, force or bypass host security unless specifically authorized. Existing
@@ -105,9 +117,10 @@ and checkpoint plan; a mismatch is reported, not auto-amended or recursively rep
 Do not automatically call `task git`, `record`, `rebuild`
 or refresh CURRENT_TASK merely to report this commit. Missing journal Git observations
 do not mean the commit is missing and do not require supplementation or another commit.
-After a successful commit, read task-status and use its current unfinished stage
-for the result's `next_route` (normally `execute-step` for the next step, or
-`close-task` when the task has no unfinished step). Do not repeat an earlier
+After a successful commit, use the known task outcome for `next_route`; query
+task-status only if current routing is unclear. A closed task with completed
+maintenance normally needs no route. For an open task, use its current unfinished
+stage (`execute-step`, or `close-task` when no unfinished step remains). Do not repeat an earlier
 execute-step Git recommendation solely because no `task git` association exists.
 If no commit was made, report why and do not imply the Git checkpoint completed.
 

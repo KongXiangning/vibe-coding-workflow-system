@@ -1,5 +1,49 @@
 # vNext Git 检查点收口：实现与验证
 
+## 2026-10-17：默认改为相关增量提交
+
+本节修正下文历史版本的默认行为；下文原有实现记录、失败和验证限制原样保留。
+普通提交默认 `mode=incremental`，只选择本次授权业务改动与明确相关的 `record_paths`。
+全项目持久事实清单、归档验证及旧恢复材料快照改为显式 `mode=checkpoint`，不由普通
+提交、任务关闭或维护完成自动触发。显式选入归档文件时仍检查归档完整性。
+
+### 实施范围
+
+- Runtime 在增量/精确路径模式只读取所选记录及直接依赖；复用 Git 中已保存的引用，
+  不遍历全项目记录目录、归档包或 CURRENT_TASK 展示。全项目模式保留原有能力。
+- 新增 `record_paths`、`reference_scope` 和 `remaining_records_scope`。局部无已知缺口
+  不代表全项目历史健康；仅在归档中的依赖可能保留为本次未检查/缺失引用，不据此推断丢失。
+- 增量模式仅提议相关记录的字节保真 attributes，不自动修改 ignore、取消跟踪或迁移归档。
+  暂存范围、部分暂存、记录字节和实际提交树与已审阅索引的核对继续保留。
+- Skill、共享协议、两份 API、任务管理/辅助服务设计及存储维护说明同步收敛。
+  普通提交仅在身份或后续路由不明确时查询任务状态，不增加生命周期/审查审计。
+- 既有验证可复用；验证范围限制、历史失败、无关未解决问题和原始记录均不改写。
+  不因提交重新运行产品测试、对账整体需求或把整体需求标为全部完成。
+
+### 有限验证与交付边界
+
+在 Windows 本地源码仓库执行：
+
+```powershell
+node --check runtime/vnext/support/assistance.mjs
+node --test test/vnext-git-checkpoint.test.mjs test/vnext-git-checkpoint-archive.test.mjs test/vnext-generation-checkpoint.test.mjs
+bun run validate:vnext-source
+bun test test/workflow-vnext-source.test.ts
+git diff --check
+```
+
+Git 定向回归：51 项，50 通过、1 跳过、0 失败。跳过实体符号链接用例的原因是当前
+Windows 主机无法创建该链接；索引链接和 Windows 占位文件的覆盖仍通过。
+入口契约测试 19 通过；源码契约、语法和差异格式检查通过。新增场景覆盖相关记录的
+精确提交、已提交的无关损坏历史/归档不触发默认审计、复用已提交证据、保留缺失引用，
+并保留原有显式全项目归档/恢复回归。
+
+未运行 `test:workflow-all`、目标产品测试、分发安装/升级或 Agent 实际对话验收。
+未修改目标项目安装文件、真实任务/需求状态、发行版本；没有提交、推送或部署。
+这些结果证明本地服务与入口契约的限定行为，不证明已在 TermLink 或其他项目生效。
+
+## 原实现与历史验证记录
+
 基线：`c74828bdcfc4c12dbdd57ee658404cf7f79e14c7`。保留改造一的精简查询与改造二的因果内存优化。
 
 ## 用户体验与实施范围

@@ -29,6 +29,7 @@ function fixture(t) {
   return root;
 }
 function prepared(root, input = {}) {
+  input = { mode: 'checkpoint', ...input };
   for (const edit of gitCheckpoint(root, input).configuration) write(root, edit.path, edit.content);
   return gitCheckpoint(root, input);
 }
@@ -161,7 +162,7 @@ test('stable semantic display remains checkpoint-generated after unrelated facts
   record(root, { kind: 'test-output', body: 'independent report does not change task presentation' });
   assert.notEqual(taskStatus(root).source_revision, status.source_revision);
   assert.deepEqual(bytes(root, DISPLAY), before);
-  const plan = gitCheckpoint(root, { untrack_derived: true });
+  const plan = gitCheckpoint(root, { mode: 'checkpoint', untrack_derived: true });
   assert.ok(plan.untrack_paths.includes(DISPLAY));
   assert.ok(!plan.issues.some(issue => issue.code === 'DISPLAY_DRIFT_RETAINED'));
   assert.ok(plan.configuration.some(edit => edit.path === 'docs/workflow/.gitignore'));
@@ -181,7 +182,7 @@ test('v1 generated baselines remain recognized and edited, unknown or absent bas
       const revision = /^display_revision: ([a-f0-9]{64})$/m.exec(bytes(root, DISPLAY).toString())[1];
       fs.unlinkSync(path.join(root, `${STORE}/task-views/${revision}.md`));
     }
-    const before = bytes(root, DISPLAY), plan = gitCheckpoint(root, { untrack_derived: true });
+    const before = bytes(root, DISPLAY), plan = gitCheckpoint(root, { mode: 'checkpoint', untrack_derived: true });
     assert.equal(plan.untrack_paths.includes(DISPLAY), scenario === 'v1');
     assert.equal(plan.configuration.some(edit => edit.path === 'docs/workflow/.gitignore'), scenario === 'v1');
     assert.equal(plan.issues.some(issue => issue.code === 'DISPLAY_DRIFT_RETAINED'), scenario !== 'v1');

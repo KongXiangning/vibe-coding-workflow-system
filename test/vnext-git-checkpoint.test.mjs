@@ -35,8 +35,8 @@ function applyAuthorizedPolicy(root, plan) {
   }
 }
 function prepared(root, request = {}) {
-  applyAuthorizedPolicy(root, gitCheckpoint(root, { ...request, untrack_derived: true }));
-  return gitCheckpoint(root, { ...request, untrack_derived: true });
+  applyAuthorizedPolicy(root, gitCheckpoint(root, { mode: 'checkpoint', ...request, untrack_derived: true }));
+  return gitCheckpoint(root, { mode: 'checkpoint', ...request, untrack_derived: true });
 }
 function stage(root, plan) {
   if (plan.add_paths.length) git(root, ['add', '--pathspec-from-file=-', '--pathspec-file-nul'], plan.add_paths.join('\0') + '\0');
@@ -61,7 +61,87 @@ function treeBytes(root) {
   return out.sort(([a], [b]) => a.localeCompare(b));
 }
 
-test('one checkpoint saves project-wide facts and recoveries, not unrelated code; clone recovers exact CRLF bytes', t => {
+test('default incremental commit saves only selected changes and records, retaining failed outcomes and unrelated history', t => {
+  const root = fixture(t);
+  write(root, 'report.txt', 'failed on fixed APK\r\nvalidation limited to tested repair\r\n');
+  const current = record(root, { body: 'failed; scope limited; overall requirements remain unfinished', files: ['report.txt'] });
+  const unrelated = record(root, { body: 'unrelated unresolved issue' });
+  const recovery = `${STORE}/legacy/display-capture-unrelated.md`;
+  write(root, recovery, 'old editor recovery bytes');
+  const original = treeBytes(path.join(root, STORE));
+  write(root, 'app.txt', 'current repair\n'); write(root, 'other.txt', 'unrelated business edit');
+  const record_paths = [current.ref, current.attachments_ref, ...current.attachments.map(a => a.ref)];
+  const request = { business_paths: ['app.txt'], record_paths, untrack_derived: true };
+  const proposed = gitCheckpoint(root, request);
+  assert.equal(proposed.mode, 'incremental'); assert.equal(proposed.reference_scope, 'selected-records');
+  assert.deepEqual(proposed.configuration.map(e => e.path), [`${STORE}/.gitattributes`]);
+  applyAuthorizedPolicy(root, proposed);
+  const plan = gitCheckpoint(root, request);
+  assert.deepEqual(new Set(plan.files.map(f => f.path)), new Set(['app.txt', ...record_paths, `${STORE}/.gitattributes`]));
+  assert.deepEqual(plan.untrack_paths, []); assert.equal(plan.counts.recovery, 0);
+  const result = finish(root, plan);
+  assert.equal(result.status, 'verified'); assert.equal(result.reviewed_index_compared, true);
+  assert.equal(result.reference_scope, 'selected-records'); assert.equal(result.remaining_records_scope, 'selected-records');
+  assert.match(git(root, ['show', `HEAD:${current.ref}`]), /overall requirements remain unfinished/);
+  assert.equal(git(root, ['ls-tree', 'HEAD', '--', unrelated.ref, recovery, 'other.txt']), '');
+  for (const [ref, digest, mtime] of original) {
+    assert.equal(hash(bytes(root, `${STORE}/${ref}`)), digest);
+    assert.equal(fs.statSync(path.join(root, STORE, ref)).mtimeMs, mtime);
+  }
+});
+
+test('ordinary business commits skip unrelated broken records and archives; project audit requires explicit checkpoint mode', t => {
+  const root = fixture(t), bad = `${STORE}/events/bad.json`;
+  const manifest = `${STORE}/archives/${'a'.repeat(64)}/manifest.json`;
+  write(root, bad, '{bad old record'); write(root, manifest, '{bad old archive');
+  git(root, ['add', '--', bad, manifest]); git(root, ['commit', '-qm', 'retain broken historical bytes']);
+  write(root, 'app.txt', 'authorized business change\n');
+  const plan = gitCheckpoint(root, { business_paths: ['app.txt'] });
+  assert.equal(plan.mode, 'incremental'); assert.deepEqual(plan.issues, []); assert.deepEqual(plan.reference_issues, []);
+  assert.deepEqual(plan.add_paths, ['app.txt']); assert.deepEqual(plan.configuration, []);
+  const result = finish(root, plan); assert.equal(result.status, 'verified');
+  assert.equal(result.reference_scope, 'selected-records'); assert.deepEqual(result.remaining_records, []);
+  assert.equal(bytes(root, bad).toString(), '{bad old record'); assert.equal(bytes(root, manifest).toString(), '{bad old archive');
+  const full = gitCheckpoint(root, { mode: 'checkpoint' });
+  assert.equal(full.reference_scope, 'project');
+  assert.ok(full.issues.some(i => i.path === `${STORE}/archives`));
+  assert.ok(full.reference_issues.some(i => i.path === bad));
+  const exact = gitCheckpoint(root, { mode: 'paths', business_paths: ['app.txt'] });
+  assert.deepEqual(exact.issues, []); assert.deepEqual(exact.reference_issues, []);
+});
+
+test('incremental references reuse committed evidence and retain missing dependencies without collecting unrelated records', t => {
+  const root = fixture(t); write(root, 'evidence.txt', 'historical failed test\r\n');
+  const prior = record(root, { body: 'prior failure remains', files: ['evidence.txt'] });
+  finish(root, prepared(root));
+  const next = record(root, { body: 'reuse scoped evidence without claiming global success', evidence_refs: [
+    { ref: prior.attachments[0].ref, sha256: prior.attachments[0].sha256, purpose: 'prior fixed run' },
+  ] });
+  const request = { record_paths: [next.ref, next.attachments_ref] };
+  write(root, prior.attachments[0].ref, 'unrelated live drift must not replace Git evidence');
+  const plan = gitCheckpoint(root, request);
+  assert.deepEqual(plan.issues, []); assert.deepEqual(plan.reference_issues, []);
+  assert.equal(plan.files.some(f => f.path === prior.attachments[0].ref), false);
+  assert.equal(finish(root, plan).reference_health, 'no-known-gaps');
+  const gap = record(root, { body: 'current missing evidence remains a gap', files: ['missing.txt'] });
+  const gapPlan = gitCheckpoint(root, { record_paths: [gap.ref, gap.attachments_ref] });
+  assert.ok(gapPlan.reference_issues.some(i => i.code === 'RETAINED_ATTACHMENT_UNAVAILABLE'));
+  const saved = finish(root, gapPlan);
+  assert.equal(saved.status, 'verified'); assert.equal(saved.reference_health, 'gaps-retained');
+  assert.equal(saved.reference_scope, 'selected-records');
+});
+
+test('incremental record selection rejects derived views and reports an omitted new attachment dependency', t => {
+  const root = fixture(t), current = record(root, { body: 'do not silently widen selection', files: ['app.txt'] });
+  assert.throws(() => gitCheckpoint(root, { record_paths: [`${STORE}/task-view.json`] }), { code: 'INVALID_RECORD_PATH' });
+  assert.throws(() => gitCheckpoint(root, { record_paths: ['app.txt'] }), { code: 'INVALID_RECORD_PATH' });
+  const plan = prepared(root, { mode: 'incremental', record_paths: [current.ref, current.attachments_ref] });
+  assert.equal(plan.files.some(f => f.path === current.attachments[0].ref), false);
+  assert.ok(plan.reference_issues.some(i => i.code === 'REFERENCE_MISSING' && i.path === current.attachments[0].ref));
+  assert.equal(finish(root, plan).reference_health, 'gaps-retained');
+});
+
+test('one explicit checkpoint saves project-wide facts and recoveries, not unrelated code; clone recovers exact CRLF bytes', t => {
   const root = fixture(t);
   write(root, '.gitattributes', '* text=auto\n'); git(root, ['add', '--', '.gitattributes']); git(root, ['commit', '-qm', 'project attributes']);
   const a = task(root, { action: 'prepare', plan: { title: 'A', steps: [{ id: 'S1' }] } });
@@ -108,7 +188,9 @@ test('paths-only requests add no implicit records or policy and literal special 
   write(root, 'only[1].txt', 'chosen'); write(root, 'only1.txt', 'unrelated');
   const plan = gitCheckpoint(root, { mode: 'paths', business_paths: ['only[1].txt'] });
   assert.deepEqual(plan.add_paths, ['only[1].txt']); assert.equal(plan.configuration.length, 0); assert.equal(plan.untrack_paths.length, 0);
-  const result = finish(root, plan); assert.equal(result.status, 'verified'); assert.ok(result.remaining_records.length);
+  const result = finish(root, plan); assert.equal(result.status, 'verified');
+  assert.equal(result.remaining_records_scope, 'selected-records');
+  assert.equal(fs.existsSync(path.join(root, STORE, 'events')), true);
   assert.equal(git(root, ['ls-tree', '-r', '--name-only', 'HEAD']).includes('only1.txt'), false);
   assert.equal(fs.existsSync(path.join(root, STORE, '.gitattributes')), false);
 });
@@ -119,7 +201,7 @@ test('explicit exclusions and existing ignore rules are reported, never force-ad
   write(root, '.gitignore', `${obj.ref}\n`);
   const before = bytes(root, '.gitignore');
   let plan = prepared(root); assert.ok(plan.issues.some(i => i.code === 'SELECTED_PATH_IGNORED' && i.path === obj.ref));
-  plan = gitCheckpoint(root, { exclude_paths: [obj.ref] });
+  plan = gitCheckpoint(root, { mode: 'checkpoint', exclude_paths: [obj.ref] });
   assert.equal(plan.add_paths.includes(obj.ref), false);
   assert.ok(plan.reference_issues.some(i => i.code === 'REFERENCE_NOT_SELECTED' && i.path === obj.ref));
   assert.ok(plan.files.some(f => f.path === event.ref)); assert.deepEqual(bytes(root, '.gitignore'), before);
@@ -198,14 +280,14 @@ test('index/source drift and post-verification tree changes are reported without
 test('edited displays, custom policy blocks, missing persistent files and unsafe paths are not silently cleaned', t => {
   const root = fixture(t); task(root, { action: 'prepare', plan: { title: 'work', steps: [] } });
   const display = 'docs/workflow/CURRENT_TASK.md'; fs.appendFileSync(path.join(root, display), '\nMy note\n');
-  let plan = gitCheckpoint(root, { untrack_derived: true });
+  let plan = gitCheckpoint(root, { mode: 'checkpoint', untrack_derived: true });
   assert.ok(plan.issues.some(i => i.code === 'DISPLAY_DRIFT_RETAINED'));
   assert.equal(plan.untrack_paths.includes(display), false);
   assert.equal(plan.configuration.some(e => e.path === 'docs/workflow/.gitignore'), false);
   assert.throws(() => gitCheckpoint(root, { business_paths: ['.git/config'] }), /Git-control/);
   assert.throws(() => gitCheckpoint(root, { business_paths: ['../escape'] }), /repository-relative/);
   write(root, `${STORE}/.gitattributes`, '# BEGIN vNext checkpoint Git policy\nCUSTOM\n# END vNext checkpoint Git policy\n');
-  plan = gitCheckpoint(root); assert.ok(plan.issues.some(i => i.code === 'POLICY_BLOCK_EDITED'));
+  plan = gitCheckpoint(root, { mode: 'checkpoint' }); assert.ok(plan.issues.some(i => i.code === 'POLICY_BLOCK_EDITED'));
   assert.equal(plan.configuration.some(e => e.path === `${STORE}/.gitattributes`), false);
 });
 
@@ -219,7 +301,7 @@ test('unborn SHA-256 repository and installed native CLI use the same byte and s
     const r = spawnSync(process.execPath, [path.join(dest, 'assistance.mjs'), 'git-checkpoint', '--root', root], { input: JSON.stringify(payload), encoding: 'utf8' });
     assert.equal(r.status, 0, r.stdout + r.stderr); return JSON.parse(r.stdout);
   };
-  applyAuthorizedPolicy(root, run({})); const plan = run({}); assert.equal(plan.base_head, null); assert.equal(plan.object_format, 'sha256');
+  applyAuthorizedPolicy(root, run({ mode: 'checkpoint' })); const plan = run({ mode: 'checkpoint' }); assert.equal(plan.base_head, null); assert.equal(plan.object_format, 'sha256');
   stage(root, plan); const check = run({ action: 'verify-index', plan }); assert.equal(check.status, 'verified');
   git(root, ['commit', '-qm', 'first checkpoint']); const sha = git(root, ['rev-parse', 'HEAD']); assert.equal(sha.length, 64);
   assert.equal(run({ action: 'verify-commit', plan, commit_sha: sha, index_verification: check }).status, 'verified');
@@ -228,7 +310,7 @@ test('unborn SHA-256 repository and installed native CLI use the same byte and s
 test('a removed tracked fact stays a reported gap instead of becoming an implicit deletion', t => {
   const root = fixture(t), fact = record(root, { body: 'must survive' });
   finish(root, prepared(root)); fs.unlinkSync(path.join(root, fact.ref));
-  const plan = gitCheckpoint(root);
+  const plan = gitCheckpoint(root, { mode: 'checkpoint' });
   assert.ok(plan.issues.some(i => i.code === 'PERSISTENT_FILE_MISSING' && i.path === fact.ref));
   assert.equal(plan.delete_paths.includes(fact.ref), false); assert.equal(plan.add_paths.includes(fact.ref), false);
   assert.ok(git(root, ['ls-files']).includes(fact.ref));
@@ -242,7 +324,7 @@ test('changed or staged display data cannot silently enter an untracking migrati
   assert.match(bytes(root, 'docs/workflow/CURRENT_TASK.md').toString(), /Human note/);
   const root2 = fixture(t); task(root2, { action: 'prepare', plan: { title: 'work', steps: [] } });
   git(root2, ['add', '--', 'docs/workflow/CURRENT_TASK.md']);
-  const staged = gitCheckpoint(root2, { untrack_derived: true });
+  const staged = gitCheckpoint(root2, { mode: 'checkpoint', untrack_derived: true });
   assert.equal(staged.untrack_paths.includes('docs/workflow/CURRENT_TASK.md'), false);
   assert.ok(staged.issues.some(i => i.code === 'STAGED_DERIVED_CHANGE'));
 });
@@ -253,12 +335,12 @@ test('policy proposals preserve customized CRLF bytes, respect freezes and do no
   write(root, 'a.txt', 'evidence'); const object = snapshot(root, { path: 'a.txt' });
   git(root, ['config', 'filter.danger.clean', `touch "${path.join(root, 'filter-ran')}"`]);
   write(root, '.gitattributes', '*.blob filter=danger\n');
-  const plan = gitCheckpoint(root), edit = plan.configuration.find(e => e.path === ref);
+  const plan = gitCheckpoint(root, { mode: 'checkpoint' }), edit = plan.configuration.find(e => e.path === ref);
   assert.ok(edit.content.startsWith('# project-specific comments\r\n'));
   assert.equal(edit.project_policy_review, true); assert.ok(plan.issues.some(i => i.code === 'BYTE_ATTRIBUTE_REVIEW' && i.path === object.ref));
   assert.equal(fs.existsSync(path.join(root, 'filter-ran')), false);
   write(root, ref, '# DO NOT MODIFY\n');
-  const frozen = gitCheckpoint(root); assert.ok(frozen.issues.some(i => i.code === 'POLICY_FILE_FROZEN'));
+  const frozen = gitCheckpoint(root, { mode: 'checkpoint' }); assert.ok(frozen.issues.some(i => i.code === 'POLICY_FILE_FROZEN'));
   assert.equal(frozen.configuration.some(e => e.path === ref), false);
 });
 
@@ -422,15 +504,17 @@ test('index source ignores worktree drift but detects changed staged content, mo
 });
 
 test('index business selection and worktree management records coexist in one checkpoint', t => {
-  const root = fixture(t); write(root, 'app.txt', 'selected staged part\n'); git(root, ['add', '--', 'app.txt']);
-  write(root, 'app.txt', 'local unstaged remainder\n'); const event = record(root, { body: 'checkpoint facts' });
-  const plan = prepared(root, { source: 'index', business_paths: ['app.txt'] });
-  assert.equal(plan.files.find(f => f.path === 'app.txt').source, 'index');
-  assert.equal(plan.add_paths.includes('app.txt'), false); assert.ok(plan.add_paths.includes(event.ref));
-  assert.equal(finish(root, plan).status, 'verified');
-  assert.equal(git(root, ['show', 'HEAD:app.txt']), 'selected staged part');
-  assert.equal(bytes(root, 'app.txt').toString(), 'local unstaged remainder\n');
-  assert.throws(() => gitCheckpoint(root, { source: 'unknown' }), { code: 'INVALID_CHECKPOINT_SOURCE' });
+  for (const mode of ['incremental', 'checkpoint']) {
+    const root = fixture(t); write(root, 'app.txt', 'selected staged part\n'); git(root, ['add', '--', 'app.txt']);
+    write(root, 'app.txt', 'local unstaged remainder\n'); const event = record(root, { body: 'checkpoint facts' });
+    const plan = prepared(root, { mode, source: 'index', business_paths: ['app.txt'], record_paths: [event.ref] });
+    assert.equal(plan.files.find(f => f.path === 'app.txt').source, 'index');
+    assert.equal(plan.add_paths.includes('app.txt'), false); assert.ok(plan.add_paths.includes(event.ref));
+    assert.equal(finish(root, plan).status, 'verified');
+    assert.equal(git(root, ['show', 'HEAD:app.txt']), 'selected staged part');
+    assert.equal(bytes(root, 'app.txt').toString(), 'local unstaged remainder\n');
+    assert.throws(() => gitCheckpoint(root, { source: 'unknown' }), { code: 'INVALID_CHECKPOINT_SOURCE' });
+  }
 });
 
 test('Git symlink index entries and Windows placeholders retain link mode and content', t => {

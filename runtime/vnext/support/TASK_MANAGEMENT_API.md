@@ -274,8 +274,9 @@ projection is not implemented in this version; correctness does not rely on a tr
 ## Git checkpoints versus task/commit associations
 
 The installed Git checkpoint policy and ASSISTANCE_API's `git-checkpoint` section define
-how one git-commit invocation saves existing project-wide facts and recovery material,
-excludes rebuildable caches, and verifies actual index/commit bytes. This helper is read-only;
+how one git-commit invocation saves related incremental records by default, excludes
+rebuildable caches, and verifies actual index/commit bytes. Project-wide facts, archives
+and recovery material require an explicit full checkpoint request. This helper is read-only;
 it is not a `task` action and does not append an association. Explicit files-only instructions
 and existing project storage exclusions take precedence over the checkpoint default.
 

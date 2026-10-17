@@ -151,7 +151,11 @@ outside immutable archive reclamation.
 
 If Git persistence is explicitly requested, follow the existing git-commit Skill
 and exact assistance git-checkpoint plan/index/commit verification; include the
-necessary packs/indices and verified loose deletions. No git add ., automatic
-commit/push, or event/commit loop recording a checkpoint's own SHA. Until then,
+necessary packs/indices and verified loose deletions.
+Project-wide archive inventory/checks still require an explicit full checkpoint request;
+ordinary commits select only the related storage-maintenance delta. For verified archive
+migration/deletions, use the explicit full checkpoint recipe rather than treating missing
+loose records as ordinary incremental cleanup. No git add ., automatic commit/push,
+or event/commit loop recording a checkpoint's own SHA. Until then,
 report local changes and backup coverage as they actually stand. The final
 next_route is advisory (normally null for completed storage work), not permission.

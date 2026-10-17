@@ -25,6 +25,7 @@ function fixture(t) {
   return root;
 }
 function prepared(root, request = {}) {
+  request = { mode: 'checkpoint', ...request };
   const proposed = gitCheckpoint(root, request);
   for (const edit of proposed.configuration) {
     assert.equal(fs.existsSync(path.join(root, edit.path)) ? hash(bytes(root, edit.path)) : null, edit.before_sha256);

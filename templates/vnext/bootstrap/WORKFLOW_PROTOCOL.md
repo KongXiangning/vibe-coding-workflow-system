@@ -130,8 +130,10 @@ Non-blocking does not mean unmanaged. Use assistance `task` actions for task
 preparation, adoption, execution, tests, reviews, review disposition, explicit Git associations
 and lifecycle. Read `TASK_MANAGEMENT_API.md` for their association fields and recovery.
 At every explicit workflow Skill invocation, reread the selected project-local
-`SKILL.md` from disk and query the current `task-status` or `context.management`,
-even when the same conversation invoked it earlier. Earlier Skill text and route
+`SKILL.md` from disk. Task-management entries query the current `task-status` or
+`context.management` even when the same conversation invoked them earlier.
+Ordinary git-commit queries task state only when identity or routing is unclear;
+it does not audit lifecycle/reviews as a commit prerequisite. Earlier Skill text and route
 suggestions are historical context. Report a failed state query truthfully and
 continue independent authorized work rather than treating it as a development gate.
 A new prepare allocates stable identity and a display number; a revision keeps identity.
@@ -217,31 +219,39 @@ Historical transactional instructions are in support/CONTEXT_API.md.
 
 ## Git checkpoint policy
 
-In projects adopting this policy, an ordinary task/stage `git-commit` request
-includes the authorized business changes and a project-wide snapshot of existing
-persistent management facts. This is not authorization for other tasks' business
-code, push, deletion or task closure. Explicit paths-only/staged-only instructions,
-exclusions and an already chosen local-only policy take precedence.
+An ordinary task/stage `git-commit` request includes only the authorized business
+changes and related incremental management records. Select exact record paths from
+this work's actual changes and known refs, including necessary new manifests and
+evidence objects; reuse dependencies already in Git. Do not select every dirty
+record, all records for the active task, unrelated tasks or old recovery captures.
+Explicit paths-only/staged-only instructions, exclusions and a local-only policy
+take precedence. Commit authorization does not grant push, deletion or task closure.
 
 The same Skill invocation plans, stages, commits and verifies the checkpoint.
-Use assistance `git-checkpoint` for the deterministic inventory and Git checks;
+Use assistance `git-checkpoint` with default mode=incremental for scoped Git checks;
 its plan/verification output is temporary data, not new journal facts or approval.
 The Skill owns actual Git writes and the scoped policy setup described in
 ASSISTANCE_API. Preserve custom policy, frozen files and unrelated staged changes;
 combine only genuinely unresolved choices, never ask per generated filename.
 
-Events, evidence objects, attachment manifests, labels and old baselines are saved.
-Until a separate safe recovery lifecycle is implemented, also preserve legacy
-display/capture bytes as recovery material at each checkpoint; never delete their
-original files or infer that a Git commit protects future writes through old handles.
-Exclude rebuildable projections, locks and temporary files from default staging.
-Untracking a verified generated view retains its local file and must be explicit
+A project-wide checkpoint/audit requires an explicit user request and mode=checkpoint.
+Only that full mode inventories all persistent facts, validates archives and retains
+legacy display/capture recovery material. Do not infer it from a plain commit,
+task closure or maintenance completion. It never deletes original recovery files
+or protects future writes through open handles. Storage cleanup remains separate.
+Incremental commits exclude rebuildable projections, locks and temporary files,
+and propose no ignore changes or automatic untracking. In a full checkpoint,
+untracking a verified generated view retains its local file and must be explicit
 in the plan. An edited/unrecognized CURRENT_TASK is not silently hidden.
 
 A failed test, unassociated record or missing historical attachment is a retained
 gap, not a reason to demand clean task state before saving available facts.
+Reuse existing validation and preserve its scope limits, failures and unresolved
+issues; do not rerun tests or mark overall requirements complete merely to commit.
 Verify actual staged/committed record bytes and exact path scope. A mismatch is
 not successful persistence; independent authorized business work remains possible.
+Incremental reference checks cover selected records and direct dependencies only,
+not the health of all history or archives. Report that limit and residual Git changes.
 After the commit, only read Git and report residual/new/excluded records. Do not
 write or recursively commit an event recording the checkpoint's own SHA.
 
