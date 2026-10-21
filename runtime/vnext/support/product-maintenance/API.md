@@ -64,6 +64,15 @@ nor revision creates task admission or a new approval.
 
 ## Read and check
 
+Functional-point production/consumption uses [functional-points.md](functional-points.md),
+contract `vnext-functional-points/v1`. Assessment reads include `functional_points`;
+candidate check and apply file receipts include per-report `functional_points` arrays.
+Status/coverage and missing/duplicate/unknown IDs are separate from saving, schema
+validity and assessment selection. Unknown fields retain their original labels/text
+and produce warnings. No automatic legacy rewrite or development gate is introduced.
+The bundled `functional-points.js` exports the same pure parser and header mappings
+for consumers; the ASSESSMENT template is generated from its standard headers.
+
 v6 adds optional Assessment `evidence_dispositions`; see contract.md section 13.
 Ordinary successful steps retain Task/Step evidence without adding report pending.
 Only actual obligation/scope changes, counterevidence or authorized delivery evaluation

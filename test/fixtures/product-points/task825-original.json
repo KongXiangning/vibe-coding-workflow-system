@@ -1,0 +1,38 @@
+{
+  "source_project": "LawAgent",
+  "source_path": "docs/product/history/task825-point-display-20261021/TASK825_DELIVERY_ASSESSMENTS-before.md",
+  "source_sha256": "cde98b08e718c7549fbcadae6c1ef4cf3d9e49d3c3860d1b9d6fd2ac830b7324",
+  "note": "原报告逐点表格原文摘录；只验证文档结构兼容，不构成业务交付复验。",
+  "reports": [
+    {
+      "report_id": "AS-JUDICIAL-TASK825-CLOSURE-20261021",
+      "target": "REQ-JUDICIAL",
+      "expected_points": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6"
+      ],
+      "body": "| 原功能点/条款 | 有据成果 | 本对象边界 |\n| --- | --- | --- |\n| F1 四层身份/候选归组 | 原四层模型及候选/程序关系成果保留；本次升级保持文书/程序/版本身份 | 本任务不扩充同案归并；完整多来源/全集在当前工作区未重验 |\n| F2 法院/案由/日期 | 作成日保留issued_at，不无据填closed_at；缺失/非法/公开日分离、同程序多文书和重复导入有据 | D3保护已有有据结案日；无独立结案候选入口。D4等价旧错误/合法同日对照与更正方案；无历史更正工具，真实残留未知；法院/区划权威等其余义务未本轮验收 |\n| F3 文书内参与人/隐私 | 正文第三人、完整限定/复合role_raw、共享角色规则、明确多人逐项拆分、MD/TSV一致与101项不截断；PG/API双坐标、最小化脱敏、同名角色/代理人/歧义边界通过 | 源有据规则而非自由文本全集认证；未知原值保留。角色子表/第三人请求权类型推断/跨案主体不实现；FK/M:N不属本任务 |\n| F4 诉辩/事实/争点/理由/结果/法规引用 | 多人拆分后单人/共同/混合诉辩归属和未决保护通过；TASK-824原F4成果及M1–M10/UP-F4所选同字节回归保留 | 不将所选回归扩大为完整F4或819MD/34样本/S5/S6新验收；全材料语义/法规消歧质量仍未知 |\n| F5 归属/多来源/独立Parse及采用 | 固定旧实现3个升级起点，MD/TSV各自升级/显式采用/幂等，旧Evidence与分析保持，权限撤销/恢复与跨Parse拒绝有据 | 全集及原69缺失、开发库当前采用/同步未知；不把旧排队记录当今天状态。REQ-INGEST通用终态范围不在本轮重评 |\n| F6 明确文书类型 | TASK-824原类型识别/冲突/采用同步及UP-F6所选回归保留 | 本次不重做全类型产品或全集质量验收，原Task/评估对象不变 |\n"
+    },
+    {
+      "report_id": "AS-PROJECTIONS-TASK825-CLOSURE-20261021",
+      "target": "REQ-PROJECTIONS",
+      "expected_points": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10"
+      ],
+      "body": "| 原功能点/条款 | 有据成果 | 本对象边界 |\n| --- | --- | --- |\n| F2 全文检索；F6 专业Adapter/共享Writer | JudicialProjectionAdapter的participant_masked_names按version+所捕获active Parse过滤，与正文/revision/Evidence一致；真实非空Search payload、旧新名字隔离、空名单/NULL选择及CASE兼容通过 | 本地PG/Adapter结果；未运行外部Writer或ES索引查询/重建。未交付完整关键词组合过滤/高亮或正式全域产品 |\n| F1/F3/F4/F5 原件、语义向量、namespace/profile、全图谱 | 原Foundation限定域与fixture成果按历史报告保留，本任务未改这些义务 | 本对象的全存储/正式域/17类节点与关系及当前服务未验证；不以本次payload通过认证 |\n| F7/F8/F9 幂等代次重试、安全重建、删除传播 | 既有Parse/revision/权限与CASE兼容所选回归保留；原C5等安全重建/删除证据仍限原对象 | 未消费外部任务或查询删除回执，当前队列/索引未知；全域重建未重跑 |\n| F10 高频缓存 | 旧评估记录业务缓存路径未交付，保留该历史结论 | 本任务无缓存实现/验收，当前完整范围不能由修复任务推断 |\n"
+    }
+  ]
+}

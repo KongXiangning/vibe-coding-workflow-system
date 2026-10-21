@@ -11,6 +11,29 @@ const roots: string[] = [];
 afterAll(() => { for (const root of roots) fs.rmSync(root, { recursive: true, force: true }); });
 const packageRoot = path.resolve(import.meta.dir, '../packages/vibe-governance');
 
+test('installed functional-point contract reads real legacy tables without dependencies or business rewrites', { timeout: 45000 }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'points-installed-')); roots.push(root);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"name":"points-install-fixture","private":true,"type":"module"}\n');
+  expect(installDistribution({ targetRoot: root, packageRoot }).status).toBe('installed');
+  const support = path.join(root, '.workflow-system/runtime/support/product-maintenance');
+  for (const asset of ['functional-points.js', 'functional-points.md', 'templates/ASSESSMENT.md']) {
+    expect(fs.readFileSync(path.join(support, asset))).toEqual(fs.readFileSync(path.resolve(import.meta.dir, '../runtime/vnext/support/product-maintenance', asset)));
+  }
+  expect(fs.readFileSync(path.join(root, '.agents/skills/maintain-project/SKILL.md'), 'utf8')).toContain('product-maintenance/functional-points.md');
+  expect(fs.existsSync(path.join(root, 'node_modules'))).toBe(false);
+  const sample = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/product-points/task825-original.json'), 'utf8')).reports[0];
+  const consumer = path.join(support, 'functional-points.js');
+  const reportPath = path.join(root, 'legacy-table.md'); fs.writeFileSync(reportPath, sample.body);
+  const before = fs.readFileSync(reportPath);
+  const script = `import {readFileSync} from 'node:fs';import {pathToFileURL} from 'node:url';
+    const {readAssessmentPoints}=await import(pathToFileURL(process.argv[1]).href);
+    let input='';for await(const chunk of process.stdin)input+=chunk;const value=JSON.parse(input);
+    console.log(JSON.stringify(readAssessmentPoints(readFileSync(process.argv[2],'utf8'),value.target,value.expected_points.map(id=>({id,title:id,line:1})))));`;
+  const parsed = JSON.parse(execFileSync('node', ['--input-type=module', '-e', script, consumer, reportPath], { input: JSON.stringify(sample), encoding: 'utf8', cwd: root }));
+  expect(parsed.status).toBe('parsed'); expect(parsed.coverage).toBe('complete'); expect(parsed.rows).toHaveLength(6);
+  expect(fs.readFileSync(reportPath)).toEqual(before);
+});
+
 test('installed v4 Roadmap initializes and detects manual changes without writing on reads', { timeout: 45000 }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'roadmap-installed-')); roots.push(root);
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"roadmap-install-fixture","private":true,"type":"module"}\n');

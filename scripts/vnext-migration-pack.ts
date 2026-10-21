@@ -2909,6 +2909,9 @@ function loadAndValidateBundle(
     if (skillContent.includes('product-maintenance/references/record-storage.md')) {
       required.push(`${support}/references/record-storage.md`);
     }
+    if (skillContent.includes('product-maintenance/functional-points.md')) {
+      required.push(`${support}/functional-points.md`, `${support}/functional-points.js`, `${support}/templates/ASSESSMENT.md`);
+    }
     for (const target of required) {
       if (!artifacts.some(a => a.target_path === target && a.required)) throw new MigrationPackError('BUNDLE_INVALID', `Project maintenance bundle is missing required software asset ${target}.`);
     }

@@ -20,3 +20,4 @@ fs.writeFileSync(path.join(directory, 'request-v1.json'), `${JSON.stringify(requ
 fs.writeFileSync(path.join(directory, 'result-v1.json'), `${JSON.stringify(resultSchema, null, 2)}\n`);
 execFileSync('bun', ['build', 'runtime/vnext/src/product-maintenance/cli.ts', '--target=node', '--outfile', 'runtime/vnext/dist/product-maintenance.js'], { cwd: root, stdio: 'inherit' });
 execFileSync('bun', ['build', 'runtime/vnext/src/product-maintenance/offline-reader.ts', '--target=node', '--outfile', 'runtime/vnext/support/product-maintenance/offline-reader.js'], { cwd: root, stdio: 'inherit' });
+execFileSync('bun', ['build', 'runtime/vnext/src/product-maintenance/functional-points.ts', '--target=node', '--outfile', 'runtime/vnext/support/product-maintenance/functional-points.js'], { cwd: root, stdio: 'inherit' });

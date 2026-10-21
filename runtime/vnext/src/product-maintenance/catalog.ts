@@ -5,6 +5,7 @@ import { decode, definitionAlgorithm, parseProduct, requirementDigest, sha256, s
 import { allowed, enumerate, matches, relativePath, safePath } from './paths';
 import { manifestSchema, validate } from './schemas';
 import { analyze, assessmentCopyDiagnostics } from './plans';
+import { assessmentPointResults, pointResultDiagnostics } from './functional-points';
 
 export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog {
   const root = fs.realpathSync(path.resolve(rootInput));
@@ -95,6 +96,11 @@ export function readCatalog(rootInput: string, input: ObjectValue = {}): Catalog
   if (projects.length !== 1 || projects[0]?.path !== manifest.entry) catalog.diagnostics.push(diagnostic('PROJECT_ENTRY', manifestPath, 'Expected a unique project entry in the manifest entry document'));
   analyze(catalog);
   catalog.diagnostics.push(...assessmentCopyDiagnostics(catalog.items));
+  const pointResults = assessmentPointResults(catalog.items);
+  for (const result of pointResults) {
+    for (const item of catalog.items.filter(item => item.id === result.report_id && item.path === result.path)) item.functional_points = result.functional_points;
+  }
+  catalog.diagnostics.push(...pointResultDiagnostics(pointResults));
   catalog.coverage = { ...catalog.coverage, omitted: [...new Set(catalog.coverage.omitted)], complete: !enumeration.incomplete && !catalog.coverage.omitted.length, files_read: catalog.documents.length, bytes_read: bytesRead, max_files: maxFiles, max_file_bytes: maxFileBytes, max_total_bytes: maxTotalBytes, usable_count: catalog.items.filter(i => i.usable).length, invalid_count: catalog.items.filter(i => !i.usable).length };
   return catalog;
 }

@@ -1,3 +1,5 @@
+import type { FunctionalPoints } from './functional-points';
+
 export const PRODUCT_DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6] as const;
 export type ProductDocumentVersion = typeof PRODUCT_DOCUMENT_VERSIONS[number];
 export const ROADMAP_DOCUMENT_VERSIONS: readonly ProductDocumentVersion[] = [4, 5, 6];
@@ -29,6 +31,7 @@ export interface Item {
   definition_sha256?: string;
   definition_algorithm?: string;
   version?: ProductDocumentVersion;
+  functional_points?: FunctionalPoints;
 }
 export interface ProductDocument {
   path: string;

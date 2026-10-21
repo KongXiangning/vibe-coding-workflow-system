@@ -6,6 +6,7 @@ import { storeReadFile, storeStat } from '../../support/record-storage.mjs';
 import { readCatalog } from './catalog';
 import { type Catalog, type Item, type ObjectValue, type ProductDocument, type ProductDocumentVersion } from './model';
 import { decode, parseProduct, sha256, strictYaml } from './parser';
+import { assessmentPointResults, pointResultDiagnostics } from './functional-points';
 import { allowed, matches, relativePath, safePath } from './paths';
 import { manifestSchema, validate } from './schemas';
 import { assessmentCopyDiagnostics } from './plans';
@@ -430,6 +431,7 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
       const next = candidate(original, operation, previous);
       if (Buffer.byteLength(next.text) > (input.max_file_bytes ?? 4 * 1024 * 1024)) throw new Error('WRITE_BYTE_LIMIT: candidate exceeds explicit file bound; no bytes were replaced');
       let diagnostics: any[] = [];
+      let functional_points: ReturnType<typeof assessmentPointResults> = [];
       let newRequirements: Item[] = [];
       let baselinePlans: Item[] = [];
       if (isManifest) validateManifestCandidate(next.text, operation.path);
@@ -441,6 +443,9 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
         next.affected = validateProductCandidate(previous, parsed, operation, next.affected, catalog);
         diagnostics = [...parsed.diagnostics, ...assessmentCopyDiagnostics([...catalog.items.filter(i => i.path !== operation.path), ...parsed.items])
           .filter(d => d.path === operation.path && next.affected.includes(d.item_id!))];
+        functional_points = assessmentPointResults([...catalog.items.filter(i => i.path !== operation.path), ...parsed.items])
+          .filter(result => result.path === operation.path && next.affected.includes(result.report_id));
+        diagnostics.push(...pointResultDiagnostics(functional_points));
         newRequirements = parsed.items.filter(i => i.type === 'requirement' && i.usable && !previous?.items.some(old => old.id === i.id));
         explicitOrder ||= suppliesOrder(operation, parsed);
         baselinePlans = parsed.items.filter(i => i.usable && i.type === 'plan' && i.metadata.planning_baseline
@@ -469,7 +474,7 @@ export function apply(root: string, input: ObjectValue): ObjectValue {
           return { plan_id: plan.id, status: 'matched', ...(retained.length ? { retained_snapshots: retained } : {}) };
         } catch (error: any) { return { plan_id: plan.id, status: 'pending-recheck', reason: error.message }; }
       });
-      results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics, baseline_readback: baselineReadback });
+      results.push({ path: operation.path, ...saved, affected_items: next.affected, diagnostics, functional_points, baseline_readback: baselineReadback });
       addedRequirements.push(...newRequirements);
     } catch (error: any) { results.push({ path: operation.path, status: 'failed', saved: false, error: error.message }); }
   }

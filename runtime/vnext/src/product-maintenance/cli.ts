@@ -11,6 +11,7 @@ import { productView, selectAssessment } from './scoped';
 import { reconcileRoadmap } from './roadmaps';
 import { assessmentEvidence } from './dispositions';
 import { computationInput, deliver, present } from './presentation';
+import { assessmentPointResults, pointResultDiagnostics } from './functional-points';
 
 function runLegacy(action: string, root: string, input: ObjectValue = {}, compact = false): ObjectValue {
   const envelope = { kind: 'product-maintenance-result/v1', action, development_gate: false, qualification: 'not-evaluated', task_operations: 'not-performed' };
@@ -43,7 +44,7 @@ function runLegacy(action: string, root: string, input: ObjectValue = {}, compac
       }
       return { ...envelope, status: catalog.status, project_id: catalog.manifest?.project_id ?? null, working_copy: { root: catalog.root, identity: path.resolve(catalog.root) }, read_at: new Date().toISOString(), manifest: catalog.manifest, manifest_path: catalog.manifest_path, manifest_sha256: catalog.manifest_sha256,
         documents: catalog.documents.map(d => ({ path: d.path, sha256: d.sha256, schema: d.schema, usable_count: d.items.filter(i => i.usable).length, raw_locator: { kind: 'file', path: d.path } })),
-        usable_items: selected.filter(i => i.usable).map(i => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, definition_algorithm: i.definition_algorithm ?? null, ...(input.detail === 'items' ? { body: i.body } : {}), ...(i.type === 'assessment' ? assessmentEvidence(catalog, i, input) : {}), ...(i.type === 'discussion' ? { summary: i.sections['整理摘要']?.[0]?.text ?? '' } : {}), locator: { kind: 'file', path: i.path, item_id: i.id } })),
+        usable_items: selected.filter(i => i.usable).map(i => ({ id: i.id, type: i.type, title: i.title, path: i.path, line: i.line, metadata: i.metadata, definition_sha256: i.definition_sha256 ?? null, definition_algorithm: i.definition_algorithm ?? null, ...(input.detail === 'items' ? { body: i.body } : {}), ...(i.type === 'assessment' ? { functional_points: i.functional_points, ...assessmentEvidence(catalog, i, input) } : {}), ...(i.type === 'discussion' ? { summary: i.sections['整理摘要']?.[0]?.text ?? '' } : {}), locator: { kind: 'file', path: i.path, item_id: i.id } })),
         unusable_items: selected.filter(i => !i.usable).map(i => ({ id: i.id ?? null, type: i.type ?? null, path: i.path, line: i.line, diagnostics: i.diagnostics, raw_locator: { kind: 'file', path: i.path }, ...(input.detail === 'items' ? { body: i.body } : {}) })),
         ...(compact ? { project_context: catalog.items.filter(i => i.type === 'project').map(i => ({ id: i.id, path: i.path, usable: i.usable, metadata: i.metadata })) } : {}),
         product_view: productView(catalog), assessment_selection: input.assessment_query ? selectAssessment(catalog, input.assessment_query, input) : null,
@@ -61,8 +62,10 @@ function runLegacy(action: string, root: string, input: ObjectValue = {}, compac
         }
         if (!catalog.manifest || !allowed(catalog.manifest, input.path, 'managed')) throw new Error('CHECK_OUT_OF_RANGE: candidate is outside managed_paths');
         const doc = parseProduct(input.content, input.path);
-        const diagnostics = [...doc.diagnostics, ...assessmentCopyDiagnostics([...catalog.items.filter(i => i.path !== input.path), ...doc.items]).filter(d => d.path === input.path)];
-        return { ...envelope, status: diagnostics.some(d => d.severity === 'error') ? 'invalid' : 'valid', schema: doc.schema, usable_items: doc.items.filter(i => i.usable).map(i => i.id), diagnostics, business_validity: 'not-evaluated' };
+        const candidates = [...catalog.items.filter(i => i.path !== input.path), ...doc.items];
+        const functional_points = assessmentPointResults(candidates).filter(result => result.path === input.path);
+        const diagnostics = [...doc.diagnostics, ...assessmentCopyDiagnostics(candidates).filter(d => d.path === input.path), ...pointResultDiagnostics(functional_points)];
+        return { ...envelope, status: diagnostics.some(d => d.severity === 'error') ? 'invalid' : 'valid', schema: doc.schema, usable_items: doc.items.filter(i => i.usable).map(i => i.id), diagnostics, functional_points, business_validity: 'not-evaluated' };
       }
       return { ...envelope, status: catalog.status !== 'available' ? catalog.status : !catalog.coverage.complete || catalog.diagnostics.some(d => d.severity === 'error') ? 'partial' : 'checked', diagnostics: catalog.diagnostics, coverage: catalog.coverage, sources: input.resolve_sources ? resolveSources(catalog, input.item_ids, input) : [], roadmap_reconciliation: input.roadmap_query ? reconcileRoadmap(catalog, input.roadmap_query) : null, business_validity: 'not-evaluated' };
     }

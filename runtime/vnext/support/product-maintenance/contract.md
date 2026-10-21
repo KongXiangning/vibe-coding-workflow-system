@@ -1,5 +1,8 @@
 # 托管文档契约：目标、需求、项目实施路线图及资料关联
 
+2026-10-21 逐点结构增量：第 14 节统一 `vnext-functional-points/v1` 的表头、编号、
+兼容读取和静态诊断；正文结构结果与保存、评估选择及业务结论分别报告，现有 Schema 不变。
+
 2026-10-15 局部证据处置增量：第 13 节定义 `vnext-product-doc/v6` 的可选 `assessment.evidence_dispositions`，用于复用同一变更在精确范围内的已记录判断。普通步骤只积累执行证据；实质变化才局部对账。v1–v5 Schema、旧报告与开发权限不变；不要求项目迁移或增加流程动作。
 
 2026-10-14 贡献关联增量：第 12 节固定 `vnext-product-doc/v5` 的 `TaskBinding.contribution` 及共同消费规则；完整继承第 11 节 v4 Roadmap，不改变 v1–v4 Schema 或 v3/v4/v5 的业务定义摘要算法。宿主判定统一见安装包 `references/binding-contribution.md`；本节契约不代表真实项目重判、发布或部署已经完成。
@@ -593,3 +596,20 @@ v6 完整继承 v5，只在 Assessment 增加可选 `evidence_dispositions`。Ma
 生产端和 TraceLens 按相同算法与精确来源核验计算有效 pending。TraceLens 只读取文档及其允许来源，不运行目标项目的 Runtime 或业务命令，不保存浏览器确认、屏蔽项或第二份处置库。
 
 待核对信息按原因类别和精确变化来源聚合，保留各需求／报告的目标、scope、subject、原结论和来源入口；同一变化跨多个报告只组织一次调查。不同来源版本不得因为 change_id 相同而混并，A 范围的处置不得借给 B。定义／职责变化、新反例、交付证据待汇总、来源变化、报告冲突、元数据问题和旧材料未分类分别显示；历史成果继续可读。有效复用可展示其理由，既不要求再次确认，也不生成新的审查或验收结论。
+
+## 14. 逐点记录生产与消费
+
+正文逐点结构使用 `vnext-functional-points/v1`，独立于文档 Schema 和范围评估选择。
+详见分发支持文件 `product-maintenance/functional-points.md` 与可直接导入的
+`functional-points.js`；源码为 `runtime/vnext/src/product-maintenance/functional-points.ts`。
+生成的 ASSESSMENT 模板从同一实现读取标准表头；消费者复用解析器和别名映射，
+不另立隐含的表头白名单。标准列为功能点、实现判断、本次已知交付/保留成果、
+本对象验证与限制、剩余、发现与边界；一点一条主记录，未覆盖点保留原因。
+
+helper read、候选 check、apply 回执和离线读取返回独立的 functional_points 结构结果，
+区分 absent、unrecognized、partial、parsed，并报告覆盖未知、漏号、重号、合并编号、
+不存在的编号及无法映射的字段。旧表头兼容读取，原行、字段内容、行号及结构问题保留。
+没有唯一读到目标需求定义不声明覆盖完整；代码块和普通验收表不猜作功能点。
+这些诊断为 warning，不改变条目可用性、业务结论、源摘要或 Task 生命周期；
+保存、Schema 有效和范围选择成功不等于逐点结构可读。不得靠批量改写历史消除诊断。
+结构验证直接调用共用实现，无须每次访问浏览器。当前 vNext 交付不代表 TraceLens 已接入。

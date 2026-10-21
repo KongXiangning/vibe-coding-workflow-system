@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { stringify } from 'yaml';
 import { newDocument } from '../runtime/vnext/src/product-maintenance/writer';
 import { sectionsByType, type ObjectValue } from '../runtime/vnext/src/product-maintenance/model';
+import { standardPointHeaders } from '../runtime/vnext/src/product-maintenance/functional-points';
 
 export function buildProductAssets(root: string): void {
   const support = path.join(root, 'runtime/vnext/support/product-maintenance');
@@ -32,7 +33,11 @@ export function buildProductAssets(root: string): void {
   };
   for (const [type, metadata] of Object.entries(fields)) {
     const filename = type === 'project' ? 'PROJECT' : type === 'requirement' ? 'REQUIREMENTS' : type.toUpperCase();
-    write(`templates/${filename}.md`, newDocument([{ metadata: { type, ...metadata }, body: `## [${metadata.id}] 待填写的${type}\n${sectionsByType[type]!.map(name => `### ${name}\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。`).join('\n')}\n` }], '格式模板（不是事实）', ['goal', 'requirement'].includes(type) ? 5 : 2));
+    const bodySections = sectionsByType[type]!.map(name => {
+      if (type === 'assessment' && name === '交付与验证依据') return `### ${name}\n逐点格式遵循 functional-points.md（vnext-functional-points/v1）。以下仅为占位示例；按目标需求的实际功能清单逐点替换，一点一条主记录，不合并编号。不在本报告范围的点注明未覆盖及原因；不补造实现判断。\n\n| ${standardPointHeaders.join(' | ')} |\n| ${standardPointHeaders.map(() => '---').join(' | ')} |\n| F1 待替换为原功能点 | | 待填写实际有据成果或明确未知 | 待填写对象、输入、验证及限制 | 待填写剩余、未知或未覆盖原因 |`;
+      return `### ${name}\n未记录。按真实授权材料填写；模板不是业务决定或交付报告。`;
+    });
+    write(`templates/${filename}.md`, newDocument([{ metadata: { type, ...metadata }, body: `## [${metadata.id}] 待填写的${type}\n${bodySections.join('\n')}\n` }], '格式模板（不是事实）', ['goal', 'requirement'].includes(type) ? 5 : 2));
   }
   write('templates/IMPLEMENTATION_ROADMAP.md', newDocument([{ metadata: { type: 'plan', ...fields.plan },
     body: `## [PLAN-ID] 项目实施路线图\n${sectionsByType.plan!.map(name => `### ${name}\n模板不是已采用安排；核对实际需求与交付后填写。`).join('\n')}\n` }], '项目实施路线图模板（不是事实）', 4));

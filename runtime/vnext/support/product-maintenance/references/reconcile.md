@@ -326,6 +326,17 @@ from an old table. Preserve the full requirement and distinguish the Task's slic
 from the selected goal's declared coverage; do not narrow that declaration to make
 the Task satisfy it. Evaluate parent/other scopes only for the actual impact above.
 
+For machine-readable point records, follow `../functional-points.md` and the generated
+ASSESSMENT template. Use its standard headers and one primary row per current point;
+explicitly record not-covered points and reasons without claiming they were evaluated
+or implemented. Never group IDs or duplicate a primary row to separate subtopics.
+Read/check returns `functional_points` independently of scope selection and saving.
+Inspect its status, coverage, missing/duplicate/unknown IDs and unmapped-field diagnostics
+before claiming the point accounting is readable. Unknown/unread definitions keep
+coverage unavailable. Existing legacy reports remain readable and are not automatically
+rewritten; diagnostics do not reopen Tasks or gate ordinary development. No browser
+visit is needed for this structural check. Supplementary evidence is not a new judgment.
+
 For each selected scope, finish with either an applicable independent assessment
 saved/reused and read back as below, or an explicit pending entry. A closure report
 with a delivery table is useful evidence, but is not itself a selectable Assessment
