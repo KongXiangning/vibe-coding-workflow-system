@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-21T15:22:37.306Z",
+  "payload_sha256": "397e4d7af99187aa25d46120a270d495b9e20afc8e4b126fce413e25e37674d0",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:minimal-sufficient-be47e417-execution",
+    "request": {
+      "action": "execution",
+      "task_id": "task-cad254834e60232ee6635ff741e7694b",
+      "plan_ref": ".workflow-system/records/events/key-33918b5c8d22c8c8f9994b37fd307a6281f5b72e1bf88ee785ff9239e1a69c1d.json",
+      "step_id": "S1",
+      "idempotency_key": "minimal-sufficient-be47e417-execution",
+      "source_revision": "be47e41740ff277a6e2da57b09843411d6e2cbd0 + uncommitted 0.24.18 candidate",
+      "result": {
+        "summary": "已完成共享原则、测试政策与六入口方法衔接；源码和本地候选分发检查通过。未进行正式审查或独立模型行为实验。",
+        "source_contract": "passed",
+        "source_tests": {
+          "pass": 19,
+          "fail": 0
+        },
+        "distribution_tests": {
+          "pass": 4,
+          "fail": 0,
+          "filtered": 28
+        },
+        "upgrade": {
+          "baseline_kind": "baseline-source-build",
+          "baseline_commit": "be47e41740ff277a6e2da57b09843411d6e2cbd0",
+          "from": "0.24.17",
+          "to": "0.24.18",
+          "upgrade": "upgraded",
+          "read_back_verified": true,
+          "files": [
+            {
+              "path": ".workflow-system/WORKFLOW_PROTOCOL.md",
+              "baseline_sha256": "b6a42fc8fb3a457913822a4bd6c78bbaf38bb291bdd8d02b0367d1cd5d097ed5",
+              "candidate_sha256": "186c71555f811bc9cc786ad6eef93a0e53f9282c31b997cf0a5363f577e74c0e",
+              "changed": true
+            },
+            {
+              "path": "docs/workflow/test-admission-policy.md",
+              "baseline_sha256": "03b5a4fa93bfe9e95a17f318a08e7e8bd79faf9ba1567c1d8fce72315047697f",
+              "candidate_sha256": "cf3a0bf20e2c7d0121d547841bd2726b4a2ff61b84facc96268b9a6ba2231563",
+              "changed": true
+            },
+            {
+              "path": ".agents/skills/prepare-task/SKILL.md",
+              "baseline_sha256": "1946832e5fab89758a6b3d6feffd9a68ffc02b92cbb30c2b2173d17585d31e0b",
+              "candidate_sha256": "10227f7fcf9933aecc5b7fc9c294304545744984975bfa28a0e3ecf44b1aeca5",
+              "changed": true
+            },
+            {
+              "path": ".agents/skills/review-draft/SKILL.md",
+              "baseline_sha256": "dab177d1aab486299cb12984b0edd6311a013818aef301b03cf2295dbb81de13",
+              "candidate_sha256": "e077db7ade93969e670807f9f2c0b3789218a362bde894481fed92da25715fe8",
+              "changed": true
+            },
+            {
+              "path": ".agents/skills/execute-step/SKILL.md",
+              "baseline_sha256": "3138834067bdc6c81263b45a402a3661ae37bda877c9c0975f037452cd562e5c",
+              "candidate_sha256": "c8881ff99c1526cde1eebefaa28bb6823414799baabbb004f339953fe10825b8",
+              "changed": true
+            },
+            {
+              "path": ".agents/skills/debug-task/SKILL.md",
+              "baseline_sha256": "7c9102666e9752098efd2b7c81b97f399a799207686c31311f530badd080a044",
+              "candidate_sha256": "d452b3a53b2a43e267cf7684c3cf0b747b81104897c279b9a642fec6135672d4",
+              "changed": true
+            },
+            {
+              "path": ".agents/skills/review-change/SKILL.md",
+              "baseline_sha256": "5d6e8b03c945b7f855de6b793b13482cac8b88d12f3b3cf7af5c2bf10f295763",
+              "candidate_sha256": "c5393e025522e58665f34ae52f2762ec1c8aacb20780ae49fb12df9b9920f4bd",
+              "changed": true
+            },
+            {
+              "path": ".agents/skills/validate-change/SKILL.md",
+              "baseline_sha256": "57a0b6cd4dc76ba965dc16ede6500fd70071486ecbace97cb0a2945ee0a4ee26",
+              "candidate_sha256": "4959b38a574bd8f8619272e60422c662d2a6730bde84352c6e5f4a0d22ad70d0",
+              "changed": true
+            }
+          ],
+          "drift": {
+            "status": "rejected",
+            "blockers": [
+              {
+                "code": "MANAGED_TARGET_CONFLICT",
+                "message": "Distribution-managed target differs from the admitted payload.",
+                "path": ".agents/skills/execute-step/SKILL.md"
+              }
+            ],
+            "files_and_state_preserved": true
+          },
+          "target": "C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-minimal-e8a1bbbe8a384057b54d4c1fd56febb9\\upgrade-target-29DxHd"
+        },
+        "scope_check": "六 Skill Method 之外保持原样；Runtime 源码和编译 CLI 仅版本常量变化",
+        "retained_failures": [
+          "首次构建遗漏 Runtime 锁文件版本，补齐元数据后通过",
+          "临时检查使用当前源码安装器安装旧包被身份校验拒绝，改用旧包自己的 CLI",
+          "临时漂移断言预期 DRIFT，实际 CONFLICT；修正断言后完整重跑通过"
+        ],
+        "limits": [
+          "未验证独立模型行为或长期遵从",
+          "未提交、发布或升级业务项目",
+          "旧 CURRENT_TASK 展示漂移及旧资料关联缺口保留"
+        ]
+      },
+      "commands": [
+        "bun run validate:vnext-source",
+        "bun test test/workflow-vnext-source.test.ts",
+        "bun run build:vnext-runtime",
+        "bun run build:vibe-governance-distribution",
+        "bun test test/vibe-governance-distribution.test.ts --test-name-pattern 'fresh Node install promotes complete software|same-version install is a read-back no-op|template ending drift never admits body edits|release builder enforces Distribution'",
+        "bun C:\\Users\\kongx\\AppData\\Local\\Temp\\vnext-minimal-e8a1bbbe8a384057b54d4c1fd56febb9/verify-upgrade.ts",
+        "git diff --check"
+      ],
+      "files": [
+        "docs/ops/vnext-minimum-sufficient-validation.md"
+      ]
+    },
+    "files": [
+      "docs/ops/vnext-minimum-sufficient-validation.md"
+    ],
+    "task_event": {
+      "version": 2,
+      "action": "execution",
+      "task_id": "task-cad254834e60232ee6635ff741e7694b",
+      "parents": [
+        ".workflow-system/records/events/key-e45b2814cee95f22ed2f671945cdffb2c44704db4f90aea088762711fa8f407e.json"
+      ],
+      "data": {
+        "plan_ref": ".workflow-system/records/events/key-33918b5c8d22c8c8f9994b37fd307a6281f5b72e1bf88ee785ff9239e1a69c1d.json",
+        "step_id": "S1",
+        "source_revision": "be47e41740ff277a6e2da57b09843411d6e2cbd0 + uncommitted 0.24.18 candidate",
+        "result": null,
+        "commands": null,
+        "files": [
+          "docs/ops/vnext-minimum-sufficient-validation.md"
+        ]
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "c4b058f6f04f7dd9460285c23d57526fc1a219c7d06dc8c7247b745423df23eb",
+        "references": [
+          {
+            "data_pointer": "/commands",
+            "request_pointer": "/commands"
+          },
+          {
+            "data_pointer": "/result",
+            "request_pointer": "/result"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

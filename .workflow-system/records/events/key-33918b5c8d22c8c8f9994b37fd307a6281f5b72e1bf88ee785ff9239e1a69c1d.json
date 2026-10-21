@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-21T15:14:28.323Z",
+  "payload_sha256": "e8236eec5a3fb8d81a81ab755e8a03d10310c4932c4fb7334567378209f2af66",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:minimal-sufficient-be47e417-plan",
+    "request": {
+      "action": "prepare",
+      "idempotency_key": "minimal-sufficient-be47e417-plan",
+      "plan": {
+        "title": "实施 vNext 最小充分工程原则",
+        "goal": "按审核修订方案贯穿共享协议、测试政策及六入口，保持辅助型定位与 Skill 边界",
+        "source": "docs/ops/vNext_最小充分工程方案_审核修订版_be47e417.md",
+        "scope": [
+          "共享协议和测试政策",
+          "六个工程 Skill 的方法衔接",
+          "必要候选版本元数据与现有分发检查"
+        ],
+        "exclusions": [
+          "需求管理",
+          "Runtime 行为与权限/schema",
+          "额外审批或遥测",
+          "提交、推送、发布和业务项目升级"
+        ],
+        "acceptance": [
+          "决策触发和一次确认边界正确",
+          "六入口引用统一政策且不扩权",
+          "新安装与真实不同内容版本升级回读",
+          "行为证据与未验证项如实报告"
+        ],
+        "steps": [
+          {
+            "id": "S1",
+            "title": "实现原则与入口衔接，完成定向交付核对",
+            "environment": [
+              "本地源码与隔离安装目标"
+            ],
+            "validation": [
+              "源码契约",
+              "相关分发用例",
+              "0.24.17 基线源码包到候选包升级回读",
+              "静态自检与可用行为观察"
+            ]
+          }
+        ]
+      }
+    },
+    "task_event": {
+      "version": 2,
+      "action": "prepare",
+      "task_id": "task-cad254834e60232ee6635ff741e7694b",
+      "parents": [
+        ".workflow-system/records/events/key-7672c16ae266e7f7b4215ebea117a6e7695314616a4e732180cc74a5969ecb95.json"
+      ],
+      "data": {
+        "plan": null,
+        "create": true,
+        "display_id": "TASK-024"
+      },
+      "data_encoding": {
+        "version": 1,
+        "kind": "request-json-pointers",
+        "request_sha256": "186bb7f39caae3648b4482b0d042918d06a8a65380fe770db10c0d758b1ab3f2",
+        "references": [
+          {
+            "data_pointer": "/plan",
+            "request_pointer": "/plan"
+          }
+        ]
+      }
+    }
+  },
+  "issues": []
+}

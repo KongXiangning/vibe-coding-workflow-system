@@ -78,8 +78,13 @@ report real gaps without making them PASS. Pause only an unresolved user choice.
 
 ## Method
 
-Read `docs/workflow/test-admission-policy.md` when selecting tests; treat it as
+Read `docs/workflow/test-admission-policy.md` when reviewing test/validation choices; treat it as
 methodological guidance, not a requirement to repair Runtime state or create tests.
+
+Apply the shared minimum-sufficient engineering principle in both directions:
+identify missing protections and unnecessary implementation/testing obligations.
+Check whether proposed defenses or abstractions have a concrete contract or failure
+mechanism behind them; an imagined risk alone does not create an obligation.
 
 Read the original request, relevant design and the actual draft. Review goal,
 acceptance, scope, unresolved decisions, feasibility, cross-step interactions and

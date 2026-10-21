@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-21T15:29:11.367Z",
+  "payload_sha256": "2ab8e74da1cd43044365ba5d05831db90cd7f8fae4f12cd2e892f620e3831109",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:minimal-sufficient-independent-review",
+    "request": {
+      "action": "review",
+      "task_id": "task-cad254834e60232ee6635ff741e7694b",
+      "stage": "change",
+      "execution_ref": ".workflow-system/records/events/key-7558ad1f30804571eec2b36680a409a7b929f35772a6bc72b1b5daba4720db59.json",
+      "verdict": "clean",
+      "findings": [],
+      "coverage": [
+        "完整 tracked diff：共享协议、政策、六 Skill、版本元数据、生成 CLI、分发测试",
+        "八文件当前源码/基线包/升级目标与历史证据摘要只读一致性",
+        "触发条件、职责、能力边界及额外流程"
+      ],
+      "provenance": {
+        "kind": "independent-review",
+        "reviewer": "/root/independent_review",
+        "source": "独立 Agent 返回本会话的最终审查结论",
+        "participated_in_implementation": false,
+        "external_human_review": false
+      },
+      "limitations": [
+        "未重跑构建安装升级或写入型测试",
+        "模型行为效果仍未验证；不将规范/分发完成等同于模型行为改善"
+      ],
+      "source_revision": "be47e41740ff277a6e2da57b09843411d6e2cbd0 + reviewed 0.24.18 working tree",
+      "idempotency_key": "minimal-sufficient-independent-review",
+      "files": [
+        "docs/ops/vnext-minimum-sufficient-validation.md"
+      ]
+    },
+    "files": [
+      "docs/ops/vnext-minimum-sufficient-validation.md"
+    ],
+    "task_event": {
+      "version": 1,
+      "action": "review",
+      "task_id": "task-cad254834e60232ee6635ff741e7694b",
+      "parents": [
+        ".workflow-system/records/events/key-7558ad1f30804571eec2b36680a409a7b929f35772a6bc72b1b5daba4720db59.json"
+      ],
+      "data": {
+        "stage": "change",
+        "execution_ref": ".workflow-system/records/events/key-7558ad1f30804571eec2b36680a409a7b929f35772a6bc72b1b5daba4720db59.json",
+        "verdict": "clean",
+        "findings": [],
+        "coverage": [
+          "完整 tracked diff：共享协议、政策、六 Skill、版本元数据、生成 CLI、分发测试",
+          "八文件当前源码/基线包/升级目标与历史证据摘要只读一致性",
+          "触发条件、职责、能力边界及额外流程"
+        ],
+        "provenance": {
+          "kind": "independent-review",
+          "reviewer": "/root/independent_review",
+          "source": "独立 Agent 返回本会话的最终审查结论",
+          "participated_in_implementation": false,
+          "external_human_review": false
+        },
+        "limitations": [
+          "未重跑构建安装升级或写入型测试",
+          "模型行为效果仍未验证；不将规范/分发完成等同于模型行为改善"
+        ],
+        "source_revision": "be47e41740ff277a6e2da57b09843411d6e2cbd0 + reviewed 0.24.18 working tree",
+        "files": [
+          "docs/ops/vnext-minimum-sufficient-validation.md"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

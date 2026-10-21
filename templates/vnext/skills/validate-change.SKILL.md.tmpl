@@ -86,6 +86,13 @@ or run only the user's authorized read-only checks. Keep the actual invocation,
 version, observation, evidence and failed/not-run result. Evidence can be historical
 without qualifying the current code. No Runtime plan/admission is needed to read it.
 
+When selecting validation or proposing missing evidence, apply the shared
+minimum-sufficient engineering principle and read `docs/workflow/test-admission-policy.md`.
+Assess reused evidence against its subject, version, inputs, environment and actual
+impact; neither a changed global SHA nor an unchanged test name settles applicability.
+Executing already selected unchanged checks does not restart necessity review. These
+methods grant no repair/test-creation permission and do not cancel agreed checks.
+
 Do not fix code, widen validation, add persistent tests or launch a full regression
 unless the user separately requested that work. Report evidence gaps as observations,
 not new mandatory tasks. An explicitly read-only request writes neither product files

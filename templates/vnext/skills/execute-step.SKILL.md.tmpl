@@ -110,6 +110,13 @@ from discovery alone. Distinguish a real workflow/scope choice from internal map
 quota, receipt or revision drift; apply the shared confirmation rule to the former,
 not the latter.
 
+In default/repair, apply the shared minimum-sufficient engineering principle even
+without an earlier prepare step: staying in the same file scope does not justify
+unneeded behavior or complexity. Read `docs/workflow/test-admission-policy.md` when
+adding/significantly expanding tests or changing validation choices; reuse effective
+coverage and fill concrete gaps. This does not restart implementation, tests or formal
+review in finish mode.
+
 Run only the authorized, necessary validation. Keep actual selectors, commands, outputs,
 source versions, failures and not-run checks. Do not add persistent tests or full-suite/E2E
 runs merely to satisfy a workflow record. Use `task` action `execution` and/or `test`,

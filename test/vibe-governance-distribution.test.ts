@@ -285,8 +285,10 @@ describe('Vibe Governance Distribution / Installer', () => {
     );
     const managedFiles = JSON.parse(fs.readFileSync(targetPath(target, VIBE_GOVERNANCE_DISTRIBUTION_STATE_RELATIVE_PATH), 'utf8')).managed_files;
     expect(managedFiles.some((file: { path: string }) => file.path === policyPath)).toBe(true);
-    for (const skill of ['prepare-task', 'review-draft']) {
-      expect(fs.readFileSync(targetPath(target, `.agents/skills/${skill}/SKILL.md`), 'utf8')).toContain(policyPath);
+    for (const skill of ['prepare-task', 'review-draft', 'execute-step', 'debug-task', 'review-change', 'validate-change']) {
+      const installedSkill = fs.readFileSync(targetPath(target, `.agents/skills/${skill}/SKILL.md`), 'utf8');
+      expect(installedSkill).toContain(policyPath);
+      expect(installedSkill).toBe(fs.readFileSync(path.join(ROOT, `templates/vnext/skills/${skill}.SKILL.md.tmpl`), 'utf8'));
     }
     expect(fs.readFileSync(targetPath(target, '.gitattributes'), 'utf8')).toBe('* text=auto\n');
     expect(fs.readFileSync(targetPath(target, 'docs/workflow/.gitattributes'), 'utf8')).toContain('CURRENT_TASK.md -text');

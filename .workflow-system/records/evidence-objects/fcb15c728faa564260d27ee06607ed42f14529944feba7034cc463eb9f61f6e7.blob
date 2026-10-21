@@ -1,0 +1,97 @@
+# vNext 最小充分工程原则：实施与有限验证
+
+日期：2026-10-21。方案：[审核修订版](vNext_最小充分工程方案_审核修订版_be47e417.md)。
+源码基线：`be47e41740ff277a6e2da57b09843411d6e2cbd0`，版本 `0.24.17`。
+本次为该基线上的未提交变更，本地候选版本 `0.24.18`；未发布、推送或升级业务项目。
+
+## 实施范围
+
+- 共享协议增加一个最小充分工程原则短节，限定实现/验证决策触发点，保留安全、数据、契约、有效用户决定及历史事实。
+- 测试政策扩展至六个工程入口，区分实现必要性、本次证据、长期保护和当前执行；不重复复制政策。
+- prepare-task、review-draft、execute-step、debug-task、review-change、validate-change 仅修改 Method；原有 frontmatter、权限、需求管理相关段落及 Result 保持不变。
+- 仅记录、处置、汇总、提交和执行不变检查不重新开展必要性审查。恢复既定契约的授权修复不额外确认；finish、review-only、investigate-only 和只读验证不扩权。
+- 在已有新安装用例中，将政策引用和目标文件一致性检查扩展到六入口，没有新建测试套件或政策措辞断言。
+- 为真实升级验证同步版本元数据：根包、分发包、Runtime 包与锁文件、Runtime contract 的 package_version、源码版本常量及重建后的 CLI 常量。Runtime 源码和编译 CLI 的 diff 均仅为版本常量变化。
+
+没有新增 Skill、Runtime 行为、schema、命令、审批、遥测、加载回执或需求管理机制。构建按既有依赖链生成产物，未扩展产品维护功能或测试范围。
+
+## 静态及现有验证
+
+环境：Windows，Node.js `v24.12.0`，Bun `1.3.10`。
+
+| 实际检查 | 结果及覆盖 |
+| --- | --- |
+| `bun run validate:vnext-source` | 通过：9 个 daily、1 个 administrative、2 个 expert 入口，28 capabilities、11 Runtime operations |
+| `bun test test/workflow-vnext-source.test.ts` | 19 pass，0 fail；保持入口、权限与来源契约 |
+| 六个 Skill 与 HEAD 的局部比较 | frontmatter 至 Method 前内容，以及 Method 后原有章节完全一致；仅 Method 变化 |
+| `bun run build:vnext-runtime` | 通过；重建 Runtime 及既有依赖产物 |
+| `bun run build:vibe-governance-distribution` | 补齐锁文件版本后通过，候选 `0.24.18` |
+| 定向分发测试 | 4 pass，0 fail，28 filtered out，178 个断言；新安装、版本一致性、受管文件漂移及正文修改保护 |
+| `git diff --check` | 通过，无空白错误 |
+
+定向分发命令：
+
+```powershell
+bun test test/vibe-governance-distribution.test.ts --test-name-pattern 'fresh Node install promotes complete software|same-version install is a read-back no-op|template ending drift never admits body edits|release builder enforces Distribution'
+```
+
+实施自检核对了触发条件、有效约定偏离、失败/未知保留及各入口职责；未登记新的正式审查，不称为独立审查。未运行 `test:workflow-all`，也未把其他产品模块加入验收矩阵。
+
+## 不同内容、不同版本的真实升级
+
+基线提交可恢复。在模板和版本修改前，使用现有构建器将基线源码包输出到临时独立目录，候选构建没有覆盖它；这是本次方便复用的准备时机，不是新增修改前置条件。
+
+| 包 | 来源与身份 |
+| --- | --- |
+| 基线 `0.24.17` | 基线源码构建包，非已发布发行包；bundle `bundle-1bb11623b2d9725bbe86a854`；manifest SHA-256 `548b4f3e8af9919c734ff83c343d4e29fb334304cad541a25945eb3de96258f0` |
+| 候选 `0.24.18` | 本次工作树本地构建；bundle `bundle-2e5e0d92d42a1edd5e2c4967`；manifest SHA-256 `c166f464db2f79fb43f88f18ae9243ab283a5a162d7967996cecacb947a1e8a8` |
+
+临时材料目录：`C:/Users/kongx/AppData/Local/Temp/vnext-minimal-e8a1bbbe8a384057b54d4c1fd56febb9`。
+其中 `verify-upgrade.ts` 是本次一次性检查，`upgrade-report.json` 保存逐文件旧/新摘要与实际结果，不是新增运行时组件或长期测试框架。
+
+实际检查使用基线包自己的 `dist/cli.js install` 和候选包的 `dist/cli.js upgrade`，均由 Node 执行。基线 CLI 通过临时目录中的 node_modules junction 使用本仓库现有依赖；这不是从注册表重新下载旧发行包的验收。
+
+升级前确认真实安装状态为 `0.24.17`，且下列八个文件与基线包字节一致、与候选源码不同。升级返回 `upgraded`、`read_back_verified=true`，状态为 `0.24.18`，八个文件逐一回读与候选源码完全一致：
+
+- `.workflow-system/WORKFLOW_PROTOCOL.md`
+- `docs/workflow/test-admission-policy.md`
+- `.agents/skills/prepare-task/SKILL.md`
+- `.agents/skills/review-draft/SKILL.md`
+- `.agents/skills/execute-step/SKILL.md`
+- `.agents/skills/debug-task/SKILL.md`
+- `.agents/skills/review-change/SKILL.md`
+- `.agents/skills/validate-change/SKILL.md`
+
+另一个基线目标人为加入 execute-step 本地正文修改后，候选升级返回 `rejected`，冲突码 `MANAGED_TARGET_CONFLICT` 指向该 Skill。八个文件及安装状态均与尝试前完全一致。本次没有通过手改状态版本号模拟旧包。
+
+## 保留的失败与修正
+
+1. 首次候选分发构建失败：Runtime package-lock 的两处版本仍是 `0.24.17`，报 `invalid Runtime lockfile identity`。只同步这两处版本为 `0.24.18` 后构建通过，没有改变依赖或校验逻辑。
+2. 首次一次性升级检查用当前源码安装器安装基线包，因安装器内置版本与旧包身份不同而被拒绝；未完成旧包安装。后改为分别调用两包自己的 CLI，保留真实版本身份，不放宽产品校验。
+3. 下一次检查中的干净升级已成功，但漂移断言错误地预期 `MANAGED_TARGET_DRIFT`；实际返回 `MANAGED_TARGET_CONFLICT`。核对实际响应后修正临时脚本，再次完整执行成功，并验证拒绝前后文件和状态不变。未修改安装器错误码。
+
+## 行为观察与能力边界
+
+本次真实实施过程可观察到：复用已有测试并扩展同一用例、没有逐分支论证或追加审批、保留失败并修正必要元数据/临时检查，而没有借机改 Runtime。输入为修订方案和当前用户授权；入口为本会话直接实施请求，没有额外显式调用已安装的 Skill 或 finish/review 模式。
+
+可见宿主为 Codex，本次精确模型标识/内部版本未取得，记为未知。工具记录可确认读取基线规则、变更 diff，以及安装文件字节核对；不能据此声称新安装的指引被另一个模型加载、理解或持续遵守。上述过程观察仅说明本次实际选择，**不计作新版指引改变模型行为的实验结论**。
+
+本轮未启动独立模型会话、方案矩阵样例或多模型实验；相应行为证据仍未验证。文件摘要和可见读取记录仅用于定位来源，不建立日常调用回执、宿主遥测或强制评测。静态/分发检查通过不替代该缺口，也不证明目标业务验收。
+
+## 管理状态与交付界限
+
+沿既有 assistance API 准备并采用 TASK-024（`task-cad254834e60232ee6635ff741e7694b`），执行位置为 S1。计划关联和当前任务回读成功；原有 `LEGACY_ASSOCIATION_REQUIRED` 与 `CURRENT_TASK_DRIFT` 保留，事实写入不等于展示发布成功。未覆盖旧展示、清理旧任务或维修管理系统。
+
+本次交付为源码、必要版本/生成产物、本记录与任务执行事实。未自动进行正式 review、finish、close、Git 提交、推送、发布或业务项目安装升级。
+
+## 后续独立审查与收尾授权
+
+上述实施阶段事实保留。随后用户明确要求“独立审查”，由未参与实施的独立 Agent `/root/independent_review` 完成只读审查；审查上下文独立提供，不继承实施会话结论。独立性指独立 Agent，不是外部人工审查。
+
+审查结论：没有发现需要修正的实现缺陷。完整核对了基线与未提交 tracked diff，覆盖共享协议、测试政策、六个 Skill、版本元数据、生成 CLI 和分发测试；规范与分发部分落实方案，未发现超出 Skill 能力的保证、职责扩权、额外 gate、命令、schema、必填表、遥测或固定审查轮次。
+
+审查代理只读核对临时升级脚本、报告和磁盘文件：八个文件的当前源码、已升级目标及基线包摘要均与报告匹配；脚本分别调用两包自己的 CLI，检查真实内容替换及漂移拒绝后的文件/状态保留。`git diff --check` 通过。没有重跑构建、安装、升级或写入型测试；历史升级执行结果仍属于既有实施证据。
+
+新版指引的独立模型行为实验仍未执行，不能宣称已证明解决模型过度工程。该已披露验证缺口不被改写为 PASS，也不属于本次实现 finding。
+
+用户随后明确授权：“将独立审查结果记录下来，完成本次任务收尾，并提交本次相关变更。”据此登记该独立审查、结束 S1 并关闭 TASK-024，保留模型行为未验证以及既存展示漂移/旧资料关联缺口；按本次相关文件范围提交，不推送。实际处置以 assistance 任务记录与回读为准，实际提交以 Git 历史为准，不另写记录提交自身 SHA 的递归记录。

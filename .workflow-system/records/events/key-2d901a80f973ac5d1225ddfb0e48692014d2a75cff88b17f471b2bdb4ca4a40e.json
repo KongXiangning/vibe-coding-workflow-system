@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "workflow-observation",
+  "recorded_at": "2026-10-21T15:29:32.549Z",
+  "payload_sha256": "98befbb84ffdfb75a2b29b783d2076c51303c8fcb1d7e54b544db8c84e68dc3d",
+  "assurance": "caller-reported",
+  "payload": {
+    "kind": "task-event",
+    "idempotency_key": "task:minimal-sufficient-close",
+    "request": {
+      "task_id": "task-cad254834e60232ee6635ff741e7694b",
+      "decision_source": "当前用户消息（独立审查结果及模型行为验证限制披露之后）",
+      "decision_text": "将独立审查结果记录下来，完成本次任务收尾，并提交本次相关变更。",
+      "action": "close",
+      "review_ref": ".workflow-system/records/events/key-9f921c56c75e352b7213ed7964b0548f981b194ed8bb17b10918deb153868252.json",
+      "remaining_work": [
+        "Git 提交将在本次关闭回读后执行；提交事实以 Git 历史为准"
+      ],
+      "gaps": [
+        "新版指引的独立模型行为效果未验证",
+        "既存 CURRENT_TASK_DRIFT 与 LEGACY_ASSOCIATION_REQUIRED 保留，未覆盖用户展示或声称修复"
+      ],
+      "idempotency_key": "minimal-sufficient-close"
+    },
+    "task_event": {
+      "version": 1,
+      "action": "close",
+      "task_id": "task-cad254834e60232ee6635ff741e7694b",
+      "parents": [
+        ".workflow-system/records/events/key-52d8dc8585ac0056292911231b1ba284cedd9d1a688fa150e82a4f2ce6b68b89.json"
+      ],
+      "data": {
+        "decision_source": "当前用户消息（独立审查结果及模型行为验证限制披露之后）",
+        "decision_text": "将独立审查结果记录下来，完成本次任务收尾，并提交本次相关变更。",
+        "review_ref": ".workflow-system/records/events/key-9f921c56c75e352b7213ed7964b0548f981b194ed8bb17b10918deb153868252.json",
+        "remaining_work": [
+          "Git 提交将在本次关闭回读后执行；提交事实以 Git 历史为准"
+        ],
+        "gaps": [
+          "新版指引的独立模型行为效果未验证",
+          "既存 CURRENT_TASK_DRIFT 与 LEGACY_ASSOCIATION_REQUIRED 保留，未覆盖用户展示或声称修复"
+        ]
+      }
+    }
+  },
+  "issues": []
+}

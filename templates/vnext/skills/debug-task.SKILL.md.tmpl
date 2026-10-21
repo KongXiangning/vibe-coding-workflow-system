@@ -92,6 +92,13 @@ Record hypotheses separately from confirmed causes; keep contradictory/failed
 observations. Use existing tests/evidence first. No attempt quota, legacy state or
 missing plan metadata requires repair of the Runtime before investigation.
 
+Apply the shared minimum-sufficient engineering principle to distinguish a root-cause
+correction from broad hardening, including direct debug/repair without prior planning.
+Temporary probes do not automatically become permanent tests. When proposing regression
+coverage or choosing validation, read `docs/workflow/test-admission-policy.md` and check
+concrete detection value against existing coverage. Investigation remains investigation;
+only authorized resolve work may implement the correction.
+
 Investigate-only returns diagnosis/evidence without product mutations. In resolve,
 carry out only corrections already authorized by the user, using execution methods
 for implementation and truthful result recording. An unresolved external dependency

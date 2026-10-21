@@ -85,6 +85,12 @@ files have changed. State which version the review covers and which claims remai
 unobserved; selected test PASS is not proof of unrelated business behavior.
 
 Report concrete correctness, security, data, compatibility and evidence problems.
+Apply the shared minimum-sufficient engineering principle to both excessive and
+insufficient implementation. Read `docs/workflow/test-admission-policy.md` when reviewing
+test necessity or validation choices; check over-testing as well as missing protection.
+Explain the concrete consequence, triggering/dependency conditions and proportionate
+correction. Style preference or speculative generality alone is not a required fix;
+do not invent a finding type, demand zero suggestions or require fixed review rounds.
 Preserve existing findings and failures. `recheck-completed-step` means reassess the
 requested historical/updated target, not enforce a narrow Runtime recheck window.
 Store a new review linked to the original; never rewrite the old verdict.

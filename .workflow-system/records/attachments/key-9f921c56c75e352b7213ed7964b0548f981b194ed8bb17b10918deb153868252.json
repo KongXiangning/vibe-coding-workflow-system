@@ -1,0 +1,17 @@
+{
+  "event_ref": ".workflow-system/records/events/key-9f921c56c75e352b7213ed7964b0548f981b194ed8bb17b10918deb153868252.json",
+  "captured_at": "2026-10-21T15:29:11.392Z",
+  "attachments": [
+    {
+      "runtime_role": "assistance",
+      "development_gate": false,
+      "qualification": "not-evaluated",
+      "status": "saved",
+      "ref": ".workflow-system/records/evidence-objects/fcb15c728faa564260d27ee06607ed42f14529944feba7034cc463eb9f61f6e7.blob",
+      "sha256": "fcb15c728faa564260d27ee06607ed42f14529944feba7034cc463eb9f61f6e7",
+      "size": 9366,
+      "source_path": "docs/ops/vnext-minimum-sufficient-validation.md",
+      "issues": []
+    }
+  ]
+}

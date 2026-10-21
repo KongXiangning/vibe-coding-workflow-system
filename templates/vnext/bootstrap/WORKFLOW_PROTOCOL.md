@@ -185,6 +185,37 @@ when no public Skill is justified. Complete stages already authorized by the
 user before choosing the route. The route is advice, never an exclusive permitted
 next action or authorization to perform it.
 
+## Minimum-sufficient engineering
+
+When making, changing or reviewing implementation/validation decisions within the
+authorized scope, choose a sufficient solution with proportionate overall cost:
+implementation, model context, review, operation, diagnosis and future maintenance.
+Extra defenses, compatibility, recovery, abstraction and long-term tests need concrete
+protective value, not just an imaginable exception. First assess whether the behavior
+is needed; distinguish current evidence, lasting regression protection and which checks
+must run for this version. Reuse applicable implementations, tests and evidence.
+
+Use confirmed behavior, support commitments, real input/resource boundaries, known
+defects or explainable failure mechanisms; an incident need not have happened already.
+Preserve security, critical data integrity and agreed acceptance. Missing environment
+documentation does not mean unsupported; type declarations do not establish validated
+runtime boundaries. Check consequential unknowns using available sources, without a
+mandatory environment questionnaire. Reuse established boundary guarantees internally,
+but account for new trust boundaries, mutable state and public callers.
+
+Do not hide failure or fabricate success. Propagation, bounded retries, degradation or
+isolation must serve the concrete contract and side-effect constraints; neither elaborate
+recovery nor global failure is always correct. Prefer direct designs unless real reuse
+or isolation value warrants abstraction. Assess both excessive and insufficient protection.
+
+These judgments add no approval, score, per-branch justification or mandatory review round.
+Recording, querying, applying an existing disposition, summarizing, committing or running
+already selected unchanged checks does not restart necessity review; retain their existing
+evidence-applicability and open-finding checks. Authorized fixes restoring the agreed error
+contract need no extra confirmation merely because faulty behavior changes. Apply the
+one-time rule only to a material departure from a still-effective commitment without an
+applicable informed user choice. Preserve failures, gaps and history.
+
 ## Evidence and tests
 
 Keep actual command output, selectors, source version and failed/not-run outcomes.
