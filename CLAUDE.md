@@ -4,6 +4,14 @@
 
 This repository is the standalone source for the Vibe Coding workflow-system. Use historical comparison material only when the task explicitly asks for migration or methodology comparison.
 
+Current vNext policy:
+
+- Read `docs/product/vnext-assistance-runtime.md`, `docs/product/vnext-task-management.md`, and `templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md` for the assistance-first workflow. They supersede historical task-kernel admission and recovery instructions.
+- Query current task state through `runtime/vnext/support/assistance.mjs task-status` or `context.management`, computed from the retained journal. `CURRENT_TASK.md` is a generated display, not a second task authority.
+- The retained kernel `validate` command is a historical interface, not the default task check. Use `validate-contract` for installed software; do not convert a `vnext-task-view` display to satisfy the old parser.
+- Complete the stages already authorized by the user. Record actual results and gaps without requiring legacy preflight, waiver, review receipts, or another invocation for the same authorization.
+- Select validation proportional to the change; do not automatically run `test:workflow-all`. See `docs/ops/vnext-assistance-validation.md` for verification and delivery limits.
+
 Authoritative workflow-system sources:
 
 - `.workflow-system/WORKFLOW_PROTOCOL.md`
@@ -26,7 +34,11 @@ Source repo governance boundaries:
 - This source repo may self-sync host skills with `workflow:sync --root . --host <host> --write`, but must not self-install with `workflow:install --root .`; source parent / ancestor roots and roots sharing the same `.git` anchor as the source repo are also forbidden install targets.
 - Project-level validation slots owned by `target-project` stay unbound in this source repo; source repo quality checks use the commands below.
 
-CURRENT_TASK lifecycle boundaries:
+Historical task-kernel lifecycle boundaries:
+
+The following tuple and suspended-package rules apply to the optional historical
+transaction interfaces only. They do not define the current journal task view or
+require restoring an active `vnext-current-task` file.
 
 - `CURRENT_TASK.md` lifecycle work is contract-first: stabilize protocol/schema/template/resolver/validator behavior before adding runtime lifecycle skills.
 - Active ownership is derived from `当前状态` plus `生命周期状态`; do not collapse lifecycle semantics back into `当前状态` or infer ownership from suspended package presence.

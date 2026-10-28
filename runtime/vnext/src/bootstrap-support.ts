@@ -763,8 +763,8 @@ function renderWorkflowGuide(project: { name: string; slug: string }): string {
   return [
     '# vNext Workflow Guide', '', `Project: ${project.name} (${project.slug})`, '',
     '## Administrative entry', '', '- `bootstrap-project`: design, greenfield, inventory, adopt, or realign.', '',
-    '## Daily entries', '', '- Public-entry progression is caller-driven: each arrow below means a later independent caller invocation.', '- An explicit Skill invocation authorizes its own intent and routine internal recovery; correct recoverable Runtime rejections before returning a terminal result.', '- Every public Skill returns its terminal result to the caller; a next route is recommendation-only and never an automatic public-entry handoff.', '- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.', '- `task-lifecycle` owns pause, interrupt, resume, and supersede transitions.', '- `capture-work-item` remains record-only.', '',
-    '## Authoritative state', '', '- Runtime state is read from canonical `CURRENT_TASK.md`.', '- Contracts, Decisions, Status, and host guidance are changed through typed Runtime proposals.', '- Bootstrap completion requires Distribution prerequisite validation, scope admission, governance-only promotion, and read-back.', '',
+    '## Daily entries', '', '- Read the selected `.agents/skills/<entry>/SKILL.md` and `.workflow-system/WORKFLOW_PROTOCOL.md` for the requested work.', '- Complete all stages already authorized by the user; a recommended next route does not require another invocation or authorize additional work.', '- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.', '- `task-lifecycle` records pause, interrupt, resume, and supersede choices through assistance.', '- `capture-work-item` remains record-only.', '',
+    '## Current task state', '', '- Task facts are retained in `.workflow-system/records/events`; query `node .workflow-system/runtime/support/assistance.mjs task-status --root .` or `context.management`.', '- `CURRENT_TASK.md` is a generated human-readable display; `records/task-view.json` is a rebuildable cache. Neither is a separate authority or an execution grant.', '- `node .workflow-system/runtime/dist/cli.js validate-contract --root .` checks the installed software contract. Legacy `validate` does not validate a journal-derived display and must not trigger its conversion.', '- Preserve project-owned Contracts, Decisions, Status, host guidance, business constraints, and historical evidence when recording actual changes.', '- Bootstrap completion requires Distribution prerequisite validation, scope admission, governance-only promotion, and read-back.', '',
   ].join('\n');
 }
 
@@ -778,7 +778,7 @@ function renderContracts(project: { name: string; slug: string }, facts: Bootstr
   const recordsSection = preservedSectionBody(preservedRecordsSection, '- Normal close-task Contract admissions are appended here through the typed Runtime operation; this section is not edited directly by a Skill.');
   return [
     '# vNext Contracts', '', `Project: ${project.name} (${project.slug})`, '', `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`, '',
-    '- Bootstrap writes only the admitted workflow asset set.', '- Task state remains in canonical `CURRENT_TASK.md`.',
+    '- Bootstrap writes only the admitted workflow asset set.', '- Current task state is computed from the retained journal through assistance task-status/context; `CURRENT_TASK.md` is its generated display.',
     ...confirmed.map(fact => `- ${fact.key}: ${fact.value} (source: ${fact.source})`), '',
     '## Candidate status', '', '- These entries are the confirmed bootstrap baseline; unconfirmed facts remain outside the locked Contract.', '',
     '## vNext Contract Records', '', recordsSection, '',

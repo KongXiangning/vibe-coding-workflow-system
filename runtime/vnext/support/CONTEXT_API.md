@@ -1,6 +1,27 @@
-# Runtime source context (0.20.8)
+# Historical transaction context (0.20.8)
 
-Use the installed Node CLI at `.workflow-system/runtime/dist/cli.js`. Pass `--root <project>` and JSON on stdin. These context commands do not write task state, admit tests, run checks, or certify evidence. For normal task inspection, use `validate --summary`; plain `validate` retains its full diagnostic output, including stored baselines.
+This document describes the retained task-kernel interfaces and their
+`vnext-current-task` aggregate, not the current assistance task model. Its
+admission, recovery and completion requirements apply only to those specialized
+historical calls. They are not daily development prerequisites.
+
+For current task state, use assistance `task-status` or `context.management`:
+
+```sh
+node .workflow-system/runtime/support/assistance.mjs task-status --root <project>
+```
+
+See [ASSISTANCE_API.md](ASSISTANCE_API.md) and [TASK_MANAGEMENT_API.md](TASK_MANAGEMENT_API.md).
+`CURRENT_TASK.md` with `kind: vnext-task-view` is a generated display of journal
+facts. Do not convert it to the historical aggregate or run a Migration Pack to
+satisfy `validate`. Check software separately with `validate-contract`.
+
+The commands below use `.workflow-system/runtime/dist/cli.js`, `--root <project>`
+and JSON on stdin. Within the historical interface, `validate --summary` checks
+the old aggregate and plain `validate` includes its stored baselines. Ordinary
+`task-context` now reads assistance; use `task-context --legacy` only when
+explicitly inspecting the old interface. Context reads do not admit tests, run
+checks, or certify evidence.
 
 ## Current view, state, and history
 

@@ -87,6 +87,8 @@ function recoveryRoute(code, result) {
     return executableRoute(result.recovery_route);
   if (result?.policy_route)
     return executableRoute({ command: result.policy_route.command, action: result.policy_route.effect ?? "bind-existing-decision" });
+  if (code === "TASK_VIEW_NOT_LEGACY_INPUT")
+    return { command: "task-context", action: "read-current-journal-state" };
   if (code === "CLOSURE_CONFIRMATION_REQUIRED" || code === "CLOSURE_EXCEPTION_STALE")
     return { command: "closure-decision-context", action: "refresh-consequences-and-confirm-only-material-change" };
   if (code === "STEP_DISPOSITION_CONFIRMATION_REQUIRED")
@@ -6555,7 +6557,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.24.19";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.24.20";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -14150,6 +14152,9 @@ function validateCurrentTaskStoreBinding(value, documentId, location2) {
 function parseCanonicalCurrentTaskContent(raw, filePath, relativePath3, prepared) {
   const { expandedContent } = expandTaskProjection(raw, filePath, relativePath3, prepared);
   const { frontmatter, body } = parseYamlFrontmatter(expandedContent, relativePath3);
+  if (frontmatter.kind === "vnext-task-view") {
+    fail3("TASK_VIEW_NOT_LEGACY_INPUT", `${relativePath3} is a journal-derived task display; this legacy task-kernel operation is not applicable. Query node .workflow-system/runtime/support/assistance.mjs task-status --root <project> for current task state, or use validate-contract for the software installation. Keep the display and journal unchanged; do not convert them to the legacy task format.`);
+  }
   if (frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) {
     fail3("MIGRATION_REQUIRED", `${relativePath3} is not a pure vNext CURRENT_TASK document; run the Migration Pack.`);
   }
@@ -28312,17 +28317,18 @@ function renderWorkflowGuide(project) {
     "",
     "## Daily entries",
     "",
-    "- Public-entry progression is caller-driven: each arrow below means a later independent caller invocation.",
-    "- An explicit Skill invocation authorizes its own intent and routine internal recovery; correct recoverable Runtime rejections before returning a terminal result.",
-    "- Every public Skill returns its terminal result to the caller; a next route is recommendation-only and never an automatic public-entry handoff.",
+    "- Read the selected `.agents/skills/<entry>/SKILL.md` and `.workflow-system/WORKFLOW_PROTOCOL.md` for the requested work.",
+    "- Complete all stages already authorized by the user; a recommended next route does not require another invocation or authorize additional work.",
     "- `prepare-task` → `execute-step` → optional `review-change` / `debug-task` → `close-task`.",
-    "- `task-lifecycle` owns pause, interrupt, resume, and supersede transitions.",
+    "- `task-lifecycle` records pause, interrupt, resume, and supersede choices through assistance.",
     "- `capture-work-item` remains record-only.",
     "",
-    "## Authoritative state",
+    "## Current task state",
     "",
-    "- Runtime state is read from canonical `CURRENT_TASK.md`.",
-    "- Contracts, Decisions, Status, and host guidance are changed through typed Runtime proposals.",
+    "- Task facts are retained in `.workflow-system/records/events`; query `node .workflow-system/runtime/support/assistance.mjs task-status --root .` or `context.management`.",
+    "- `CURRENT_TASK.md` is a generated human-readable display; `records/task-view.json` is a rebuildable cache. Neither is a separate authority or an execution grant.",
+    "- `node .workflow-system/runtime/dist/cli.js validate-contract --root .` checks the installed software contract. Legacy `validate` does not validate a journal-derived display and must not trigger its conversion.",
+    "- Preserve project-owned Contracts, Decisions, Status, host guidance, business constraints, and historical evidence when recording actual changes.",
     "- Bootstrap completion requires Distribution prerequisite validation, scope admission, governance-only promotion, and read-back.",
     ""
   ].join(`
@@ -28344,7 +28350,7 @@ function renderContracts(project, facts = [], preservedRecordsSection = null) {
     `## ${BOOTSTRAP_GOVERNANCE_SECTIONS.contractsFacts}`,
     "",
     "- Bootstrap writes only the admitted workflow asset set.",
-    "- Task state remains in canonical `CURRENT_TASK.md`.",
+    "- Current task state is computed from the retained journal through assistance task-status/context; `CURRENT_TASK.md` is its generated display.",
     ...confirmed.map((fact) => `- ${fact.key}: ${fact.value} (source: ${fact.source})`),
     "",
     "## Candidate status",

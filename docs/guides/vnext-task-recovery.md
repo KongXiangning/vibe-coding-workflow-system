@@ -1,5 +1,12 @@
 # vNext 0.20.12：任务纠错、执行恢复与有界上下文
 
+> 历史接口指南：下文描述 0.20.12 任务内核的专用恢复能力及旧聚合格式，
+> 不作为当前 assistance 工作流的前置条件。当前状态使用 `task-status` /
+> `context.management`；普通 `task-context` 已转到该视图，只有 `--legacy` 才选择旧接口。
+> 不为运行旧 `validate` 或恢复命令而改写 `vnext-task-view` 展示。现行操作见
+> [任务管理设计](../product/vnext-task-management.md)与
+> [assistance API](../../runtime/vnext/support/ASSISTANCE_API.md)。
+
 ## 适用范围
 
 在原任务的目标、验收义务和总写权限内恢复。Task ID、document ID、原始请求、已执行步骤定义及日志保持历史身份；用户决定只追加。目标、验收或总权限变化返回用户决定或不支持结果。归档关闭任务不原地重开。

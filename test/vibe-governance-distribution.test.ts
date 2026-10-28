@@ -804,6 +804,52 @@ syncBuiltinESMExports();
     expect(upgradeDistribution({ targetRoot: target, packageRoot }).status).toBe('no-op');
   });
 
+  test('journal task display rejects legacy validation without migration and survives upgrade unchanged', { timeout: 60000 }, () => {
+    const target = makeActiveVNextTarget();
+    const runtimeCli = targetPath(target, '.workflow-system/runtime/dist/cli.js');
+    const assistanceCli = targetPath(target, '.workflow-system/runtime/support/assistance.mjs');
+    const historical = spawnSync('node', [runtimeCli, 'validate', '--root', target, '--summary'], { encoding: 'utf8' });
+    expect(historical.status, historical.stderr).toBe(0);
+    expect(JSON.parse(historical.stdout).status).toBe('success');
+    const prepare = spawnSync('node', [assistanceCli, 'task', '--root', target], {
+      input: JSON.stringify({ action: 'prepare', plan: { title: 'Journal upgrade fixture', steps: [{ id: 'S1', title: 'Retain the current task' }] } }), encoding: 'utf8',
+    });
+    expect(prepare.status, prepare.stderr).toBe(0);
+    const prepared = JSON.parse(prepare.stdout);
+    const adopt = spawnSync('node', [assistanceCli, 'task', '--root', target], {
+      input: JSON.stringify({ action: 'adopt', task_id: prepared.task_id, plan_ref: prepared.ref, focus: true, decision_source: 'test-fixture', decision_text: 'Adopt the isolated fixture plan' }), encoding: 'utf8',
+    });
+    expect(adopt.status, adopt.stderr).toBe(0);
+    expect(JSON.parse(adopt.stdout).association).toBe('applied');
+    const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
+    const display = fs.readFileSync(currentTaskPath);
+    expect(display.toString()).toContain('schema_version: 2\nkind: vnext-task-view');
+    const records = targetPath(target, '.workflow-system/records');
+    const recordPaths = fs.readdirSync(records, { recursive: true }).map(String).filter(ref => fs.statSync(path.join(records, ref)).isFile()).sort();
+    const recordBytes = recordPaths.map(ref => fs.readFileSync(path.join(records, ref)));
+    for (const args of [[], ['--summary']]) {
+      const legacy = spawnSync('node', [runtimeCli, 'validate', '--root', target, ...args], { encoding: 'utf8' });
+      expect(legacy.status).toBe(1);
+      expect(legacy.stdout).toBe('');
+      expect(legacy.stderr).toContain('TASK_VIEW_NOT_LEGACY_INPUT');
+      expect(legacy.stderr).not.toContain('MIGRATION_REQUIRED');
+      expect(legacy.stderr).not.toContain('Migration Pack');
+      const recovery = JSON.parse(legacy.stderr.trim().split('\n').at(-1)!);
+      expect(recovery.entry_recovery.recovery_route).toMatchObject({ command: 'task-context', action: 'read-current-journal-state' });
+    }
+    const upgrade = upgradeDistribution({ targetRoot: target, packageRoot });
+    expect(upgrade.status, JSON.stringify(upgrade.blockers)).toBe('upgraded');
+    expect(upgrade.read_back_verified).toBe(true);
+    const query = spawnSync('node', [runtimeCli, 'task-status', '--root', target], { input: JSON.stringify({ task_ref: prepared.task_id }), encoding: 'utf8' });
+    expect(query.status, query.stderr).toBe(0);
+    expect(JSON.parse(query.stdout)).toMatchObject({ kind: 'task-query/v1', current_task_id: prepared.task_id, projection: { display: 'current', display_format: 'v2' } });
+    const contract = spawnSync('node', [runtimeCli, 'validate-contract', '--root', target], { encoding: 'utf8' });
+    expect(contract.status, contract.stderr).toBe(0);
+    expect(fs.readFileSync(currentTaskPath)).toEqual(display);
+    expect(fs.readdirSync(records, { recursive: true }).map(String).filter(ref => fs.statSync(path.join(records, ref)).isFile()).sort()).toEqual(recordPaths);
+    for (let index = 0; index < recordPaths.length; index++) expect(fs.readFileSync(path.join(records, recordPaths[index]!))).toEqual(recordBytes[index]);
+  });
+
   test('vNext upgrade preserves a confirmed active task byte-for-byte', { timeout: 60000 }, () => {
     const target = makeActiveVNextTarget();
     const currentTaskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');

@@ -139,7 +139,7 @@ export const VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = '.workflow-system/ru
 export const VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = '.workflow-system/runtime/package-lock.json';
 export const VNEXT_RUNTIME_PACKAGE_NAME = 'vibe-coding-vnext-runtime';
 export const VNEXT_RUNTIME_NODE_MIN_VERSION = '>=20.0.0';
-export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.24.19';
+export const VNEXT_RUNTIME_PACKAGE_VERSION = '0.24.20';
 
 export const RUNTIME_OPERATION_KINDS = [
   'task-state-transaction',
@@ -10000,6 +10000,9 @@ function validateCurrentTaskStoreBinding(value: unknown, documentId: string, loc
 function parseCanonicalCurrentTaskContent(raw: string, filePath: string, relativePath: string, prepared?: PreparedTaskContent): CanonicalCurrentTask {
   const { expandedContent } = expandTaskProjection(raw, filePath, relativePath, prepared);
   const { frontmatter, body } = parseYamlFrontmatter(expandedContent, relativePath);
+  if (frontmatter.kind === 'vnext-task-view') {
+    fail('TASK_VIEW_NOT_LEGACY_INPUT', `${relativePath} is a journal-derived task display; this legacy task-kernel operation is not applicable. Query node .workflow-system/runtime/support/assistance.mjs task-status --root <project> for current task state, or use validate-contract for the software installation. Keep the display and journal unchanged; do not convert them to the legacy task format.`);
+  }
   if (frontmatter.kind !== VNEXT_CURRENT_TASK_KIND) {
     fail('MIGRATION_REQUIRED', `${relativePath} is not a pure vNext CURRENT_TASK document; run the Migration Pack.`);
   }

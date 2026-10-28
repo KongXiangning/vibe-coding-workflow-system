@@ -1,5 +1,32 @@
 # vNext 辅助型 Runtime：交付与有限验证
 
+## 0.24.20：当前展示与历史校验接口的边界（2026-10-28）
+
+保留 journal 为任务事实源，`CURRENT_TASK.md` 为生成展示。历史内核遇到
+`kind: vnext-task-view` 时返回非成功的 `TASK_VIEW_NOT_LEGACY_INPUT`，指向
+assistance 当前状态读取，不再要求 Migration Pack 或把展示改为旧任务格式。
+旧 `vnext-current-task` 聚合继续按原接口校验；状态查询和软件契约检查均不认证业务 PASS。
+
+修正 README、源码 CLAUDE 指引、CONTEXT_API、FILE_SCHEMAS 的适用边界，历史指南增加
+现行入口说明。Bootstrap 的指南与契约不再把展示作为任务事实源，也不强制对已经授权的
+阶段再次调用。迁移对齐只生成软件契约检查，移除精确识别的旧工作流任务校验槽，保留
+项目自有验证及运行事实。安装升级不自动修改目标项目的画像、指南或任务记录。
+
+实际验证：
+
+- 修复工作树定向验证：Bootstrap 3/3、Migration Pack v3 对齐 1/1、迁移配置 2/2、
+  分发/升级 7/7 通过。覆盖旧规范格式仍可读、业务验证配置保持原样、宿主指引的冻结与
+  回滚，以及草稿、不可读任务和 journal 展示在升级中保留。
+- 最终 `0.24.20`：迁移配置、宿主指引与 source contract 测试 24/24 通过；重建分发后，
+  journal 展示/旧校验/真实状态查询/软件契约/升级保留的组合回归 1/1、38 个断言通过。
+  它用真实 assistance prepare/adopt 生成展示，逐字节核对全部现存 records 文件与展示。
+- Runtime 和分发构建、vNext source/Runtime contract、协议验证、生成 freshness、
+  workflow health 均通过。生成文件由 `gen:all` 重建。
+
+分发升级回归使用隔离项目和模拟旧版 Distribution State，不冒充真实历史发行包或
+TermLink 升级验收。未运行 `test:workflow-all`、全量历史 Runtime 测试、模型行为实验或
+业务项目测试；未升级或修改 TermLink，也未执行 npm 发布。
+
 ## 目标 AGENTS.md 指引对齐（基线 72ba701a）
 
 bootstrap、迁移和安装升级共用 `runtime/vnext/src/host-guidance.ts`。

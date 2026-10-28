@@ -18,6 +18,10 @@ const obsoleteScripts = new Set(['gen:workflow-docs', 'gen:workflow-skills', 'ge
   'validate:protocol', 'validate:all', 'validate:freshness', 'workflow:health', 'workflow:manifest',
   'workflow:sync', 'workflow:pack', 'workflow:install']);
 const oldScriptPath = /scripts\/(?:gen-workflow-docs|gen-workflow-skills|gen-registry|run-validation|check-freshness|workflow-runtime)\.ts/;
+const oldTaskValidationCommands = new Set([
+  'node .workflow-system/runtime/dist/cli.js validate --summary --root .',
+  'node .workflow-system/runtime/dist/cli.js validate --root . --summary',
+]);
 const oldOwnedPath = /^(?:templates\/(?:docs|skills)(?:\/|$)|docs\/workflow\/(?:generated(?:\/|$)|SKILL_REGISTRY\.md$)|scripts\/(?:workflow-core|repo-path-patterns|workflow-doc-contracts|task-identity|bootstrap-project-governance|validation-model|run-validation|check-freshness|gen-workflow-skills|gen-workflow-docs|gen-registry|workflow-runtime)\.ts$)/;
 
 function profile(content: string, context: AlignmentContext): string {
@@ -43,6 +47,7 @@ function profile(content: string, context: AlignmentContext): string {
   }
   if (Array.isArray(value.validation?.matrix)) value.validation.matrix = value.validation.matrix.filter((slot: any) => {
     if (slot.owner !== 'workflow-system') return true;
+    if (slot.name === 'vnext-current-task' && slot.layer === 'protocol' && oldTaskValidationCommands.has(slot.command)) return false;
     return !/^bun run (?:gen:workflow-(?:docs|skills)|gen:registry) --dry-run$/.test(slot.command ?? '');
   });
   for (const slot of value.validation?.matrix ?? []) {
@@ -51,10 +56,8 @@ function profile(content: string, context: AlignmentContext): string {
   // Existing business slots and facts are kept; these checks only verify software.
   value.validation ??= {};
   value.validation.matrix ??= [];
-  for (const [name, command] of [['vnext-contract', 'validate-contract'], ['vnext-current-task', 'validate --summary']]) {
-    if (value.validation.matrix.some((slot: any) => slot.name === name)) throw new Error(`Conflicting validation slot: ${name}`);
-    value.validation.matrix.push({ name, layer: 'protocol', command: `node .workflow-system/runtime/dist/cli.js ${command} --root .`, blocker_level: 'blocks-merge', description: 'Validate installed vNext software/canonical state; not business acceptance.', phase: 'P9', owner: 'workflow-system' });
-  }
+  if (value.validation.matrix.some((slot: any) => slot.name === 'vnext-contract')) throw new Error('Conflicting validation slot: vnext-contract');
+  value.validation.matrix.push({ name: 'vnext-contract', layer: 'protocol', command: 'node .workflow-system/runtime/dist/cli.js validate-contract --root .', blocker_level: 'blocks-merge', description: 'Validate the installed vNext software contract; not task state or business acceptance.', phase: 'P9', owner: 'workflow-system' });
   return stringify(value);
 }
 
@@ -85,9 +88,10 @@ export function alignLegacyText(p: string, content: string, context: AlignmentCo
   if (p === 'docs/workflow/WORKFLOW_GUIDE.md') return '# vNext workflow 使用指南\n\n' +
     '在本仓库根目录读取 `.workflow-system/PROJECT_PROFILE.yaml`、当前协议与对应 `.agents/skills/<entry>/SKILL.md`。\n\n' +
     VNEXT_ENTRIES.map(entry => `- \`${entry}\`：以已安装技能的入口契约为准。`).join('\n') +
-    '\n\n普通任务先 prepare，再显式 confirm；执行、review、验证和关闭按计划要求进行，不默认强制 Red。\n' +
+    '\n\n使用 assistance task 动作准备和采纳计划，记录执行、测试、审查与处置。完成用户已授权的阶段；下一入口建议不要求重复调用或审批。\n' +
+    '当前任务以 assistance.mjs task-status / context.management 从 journal 计算的结果为准；CURRENT_TASK.md 是生成展示。旧 validate 不适用于该展示，不为它转换任务格式。\n' +
     '不要运行源仓库生成器或旧 workflow-system 技能。业务验证使用项目画像中的 target-project 槽。\n' +
-    '旧暂停包只作原文材料，须另行明确请求、读取业务现状，再通过 prepare/confirm 建立计划；不可直接 resume。\n' +
+    '旧暂停包保留原文和未完成义务；按实际用户请求核对现状并采用计划，不把旧包当作已恢复的新任务。\n' +
     `\n迁移前指南原文：\`${backup}\`（历史证据，不是当前操作指引）。\n`;
   if (p === 'docs/workflow/DOCUMENT_CATALOG.md') return '# 当前 workflow 文档目录\n\n' +
     '本目录在迁移时按实际文档生成快照；后续通过当前 vNext 文档维护更新，不调用旧生成器。\n\n' +
@@ -95,7 +99,8 @@ export function alignLegacyText(p: string, content: string, context: AlignmentCo
     '\n\n技能入口：`.agents/skills/`；Runtime：`.workflow-system/runtime/dist/cli.js`。\n' +
     `\n迁移前目录：\`${backup}\`。历史 TASK 与暂停材料在 TASKS/，不自动视为当前任务。\n`;
   if (p === 'docs/workflow/STATUS.md') return '# STATUS\n\n## 当前 workflow 状态\n\n' +
-    '- 当前任务以 CURRENT_TASK.md 为准：迁移安装 vNext bootstrap baseline（closed / archived）。\n' +
+    '- 当前任务通过 assistance.mjs task-status / context.management 查询；CURRENT_TASK.md 是生成展示。\n' +
+    '- 本次迁移创建非执行的 bootstrap baseline（closed / archived），只记录迁移当时的初始化结果。\n' +
     '- 该基线只表示软件迁移，不表示所有业务工作完成。旧暂停包和未完成义务仍待单独处理。\n\n' +
     '## 迁移前状态快照\n\n以下全部为迁移前历史描述；其中“当前任务”、active、closeout 等不代表新的 CURRENT_TASK。业务事实与未完成工作保留，后续按真实业务状态对账。\n\n<details>\n<summary>展开迁移前原文</summary>\n\n' + content + '\n</details>\n';
   return content;

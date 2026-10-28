@@ -1,5 +1,11 @@
 # vNext 任务上下文与受管聚合存储量化报告
 
+> 历史报告：下文记录 0.19.5 的旧任务内核和当时测量结果，不是当前日常读取或迁移指引。
+> 当前任务从 assistance 的 journal 通过 `task-status` / `context.management` 计算，
+> `CURRENT_TASK.md` 是生成展示。不要按本报告将展示改为旧聚合；见
+> [现行任务管理设计](../product/vnext-task-management.md)与
+> [assistance API](../../runtime/vnext/support/ASSISTANCE_API.md)。
+
 版本：0.19.5（源码与隔离分发验证）
 审查基线：`4a8c36bdce57c9300170f8f999fc935ce065b460`
 测量日期：2026-09-16

@@ -17,6 +17,7 @@ function recoveryRoute(code: string, result?: RecoveryResult) {
   if (result?.committed === true) return { command: 'task-context', action: 'read-back-committed-operation' };
   if (result?.recovery_route) return executableRoute(result.recovery_route);
   if (result?.policy_route) return executableRoute({ command: result.policy_route.command, action: result.policy_route.effect ?? 'bind-existing-decision' });
+  if (code === 'TASK_VIEW_NOT_LEGACY_INPUT') return { command: 'task-context', action: 'read-current-journal-state' };
   if (code === 'CLOSURE_CONFIRMATION_REQUIRED' || code === 'CLOSURE_EXCEPTION_STALE') return { command: 'closure-decision-context', action: 'refresh-consequences-and-confirm-only-material-change' };
   if (code === 'STEP_DISPOSITION_CONFIRMATION_REQUIRED') return { command: 'step-decision-context', action: 'show-consequences-before-explicit-advancement' };
   if (code === 'RETRY_SCOPE_BLOCKED') return { command: 'preflight-step', action: 'cover-diagnosed-repair-paths' };

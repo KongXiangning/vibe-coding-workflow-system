@@ -18,10 +18,36 @@ The canonical project surface contains the following governed documents:
 - `docs/workflow/LESSONS.md`
 - `docs/workflow/ROADMAP.md`
 
-`CURRENT_TASK.md` carries its vNext YAML envelope and runtime state. Its body
-contains the task identity, acceptance, the v1 scope compatibility buckets or
-the v2 mutation-authority projection, implementation steps, test strategy, and
-execution evidence.
+## Current task management
+
+Current task facts are retained in `.workflow-system/records/events`. Assistance
+`task-status` / `context.management` recompute task state from those facts;
+`.workflow-system/records/task-view.json` is a rebuildable cache, not another
+authority. See `.workflow-system/runtime/support/TASK_MANAGEMENT_API.md` and
+`ASSISTANCE_API.md` for the current task operations and query shapes.
+
+`CURRENT_TASK.md` is the generated display, with `schema_version: 2`,
+`kind: vnext-task-view`, `display_revision` and the `vnext-task-view/v2` marker.
+It shows the current work, tasks, reviews and remaining obligations. It does not
+carry the historical kernel's execution state or grant permission. A display
+revision identifies its displayed content, not the current journal revision.
+
+The historical `vnext-current-task` document uses its own `schema_version: 1`;
+version numbers belong to their respective kinds. This is not a downgrade path.
+Do not rewrite a current display or its journal to make legacy `validate` pass.
+
+## Historical transaction schemas and shared document formats
+
+The task definition, authority, qualification and task-store sections below
+describe the optional historical transaction interfaces. They do not impose
+admission gates on assistance operations. Shared Contract, Decision, Lesson and
+other document formats remain available under their stated contracts.
+
+A historical `vnext-current-task` aggregate carries a YAML envelope and runtime
+state, including identity, acceptance, mutation scope, implementation steps,
+test strategy and evidence. The non-executable Bootstrap baseline may retain
+that representation. Old Task Store and task-history remain historical sources;
+the old kernel is not a reader or writer of the generated current display.
 
 ## Mutation Authority v2
 

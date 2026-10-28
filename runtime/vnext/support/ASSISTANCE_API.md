@@ -374,6 +374,13 @@ unified view after the software is rebuilt; --legacy explicitly opts into the ol
 reader, which may not parse the new CURRENT_TASK display. Do not use it for current status or
 send accepted user choices back through old complete/replan/close gates.
 
+The retained kernel `validate` / `validate --summary` commands also require the
+historical `vnext-current-task` aggregate. A journal-derived `vnext-task-view`
+display returns `TASK_VIEW_NOT_LEGACY_INPUT`, not a migration instruction or a
+successful validation. Keep the display and journal; query `task-status` for
+current management state and `validate-contract` for software installation.
+Neither read certifies business tests or review.
+
 ## Git checkpoint: one git-commit invocation
 
 The **Git checkpoint policy** in WORKFLOW_PROTOCOL makes an ordinary authorized task/stage

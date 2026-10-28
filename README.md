@@ -72,18 +72,27 @@ npx vibe-governance@latest upgrade
 `install` handles an uninstalled target, `migrate` invokes the independent
 idle-only Migration Pack for a legacy target, and `upgrade` handles an older
 vNext Distribution. They never perform one another's transition implicitly.
-Daily Skills invoke the fixed project-local Runtime, for example:
+Daily Skills use the project-local assistance service. Query current task state with:
 
 ```bash
-node .workflow-system/runtime/dist/cli.js validate --root .
+node .workflow-system/runtime/support/assistance.mjs task-status --root .
 ```
 
-Before invoking the `bootstrap-project` Agent Skill, that command returns
-`BOOTSTRAP_REQUIRED` rather than guessing project governance state.
+Task facts are retained in `.workflow-system/records/events`; `CURRENT_TASK.md`
+is their generated display. A successful query does not certify execution, review,
+or business acceptance. Check the software installation separately with:
+
+```bash
+node .workflow-system/runtime/dist/cli.js validate-contract --root .
+```
+
+The retained `validate` command belongs to the historical task kernel. It does
+not validate a `vnext-task-view` display; its refusal is not a request to convert
+the display or run the Migration Pack. See [the assistance API](runtime/vnext/support/ASSISTANCE_API.md).
 
 ## Project goals and requirements maintenance
 
-Current source version `0.24.19` includes `maintain-project` for goals, requirements,
+Current source version `0.24.20` includes `maintain-project` for goals, requirements,
 designs, Implementation Roadmaps, task bindings, discussions, and scoped delivery
 reconciliation. Start with [the usage guide](docs/guides/maintain-project.md):
 
