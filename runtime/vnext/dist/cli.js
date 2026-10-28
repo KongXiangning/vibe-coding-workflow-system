@@ -6555,7 +6555,7 @@ var VNEXT_RUNTIME_PACKAGE_MANIFEST_RELATIVE_PATH = ".workflow-system/runtime/pac
 var VNEXT_RUNTIME_LOCKFILE_RELATIVE_PATH = ".workflow-system/runtime/package-lock.json";
 var VNEXT_RUNTIME_PACKAGE_NAME = "vibe-coding-vnext-runtime";
 var VNEXT_RUNTIME_NODE_MIN_VERSION = ">=20.0.0";
-var VNEXT_RUNTIME_PACKAGE_VERSION = "0.24.18";
+var VNEXT_RUNTIME_PACKAGE_VERSION = "0.24.19";
 var RUNTIME_OPERATION_KINDS = [
   "task-state-transaction",
   "finding-queue-transaction",
@@ -27059,6 +27059,18 @@ function renderAssistanceGuidance() {
     "- After confirmation, perform the chosen action and all already authorized stages. Do not require another Skill invocation or send the decision back through old complete/advance/close gates. A next_route is advice, not permission or a forced stop.",
     "- Record the actual decision and outcome separately using assistance records and links. Step/task dispositions retain failures, findings and unverified work; a saved decision or closed disposition is not PASS, clean or verified completion. Self-review remains self-review.",
     "- Respect the actual user scope and exclusions. A workflow decision does not authorize unrelated file changes, deletion, Git operations or deployment. Recording failure does not revoke a decision still available in the conversation.",
+    "",
+    "## Minimum-sufficient engineering",
+    "",
+    "Default to a sufficient implementation without unnecessary defenses,",
+    "abstraction or error handling.",
+    "",
+    "Before making implementation, validation-design or code-review decisions,",
+    'read the "Minimum-sufficient engineering" section of',
+    "`.workflow-system/WORKFLOW_PROTOCOL.md` unless its current text is already",
+    "available in context. Apply it with or without a workflow Skill, including",
+    "when working on Runtime code. This does not require creating a task or",
+    "obtaining Runtime approval.",
     END
   ].join(`
 `);
