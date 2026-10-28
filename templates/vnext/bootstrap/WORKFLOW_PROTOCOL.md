@@ -190,23 +190,33 @@ next action or authorization to perform it.
 When making, changing or reviewing implementation/validation decisions within the
 authorized scope, choose a sufficient solution with proportionate overall cost:
 implementation, model context, review, operation, diagnosis and future maintenance.
-Extra defenses, compatibility, recovery, abstraction and long-term tests need concrete
-protective value, not just an imaginable exception. First assess whether the behavior
-is needed; distinguish current evidence, lasting regression protection and which checks
-must run for this version. Reuse applicable implementations, tests and evidence.
+These are judgments for agents/developers implementing or reviewing code, including
+Runtime code; they are not Runtime checks of whether complexity is worthwhile.
 
-Use confirmed behavior, support commitments, real input/resource boundaries, known
-defects or explainable failure mechanisms; an incident need not have happened already.
+- **Defenses:** Without concrete protective value, default to no extra defenses,
+  compatibility or recovery behavior. Ground failure mechanisms in current contracts,
+  support commitments, real input/resource boundaries or reachable call paths; known
+  defects can inform this judgment, but an incident need not have happened already.
+  Mere theoretical possibility is insufficient and does not itself require asking the user.
+- **Structure:** Keep simple single-use logic at the call site. Extract helpers for
+  actual reuse, a genuinely complex boundary, or a clear independent concept that
+  improves the caller; do not split straightforward logic merely for surface tidiness.
+- **Errors:** Do not add `try`/`catch` without a concrete recovery, error-translation or
+  failure-isolation responsibility. Otherwise let errors propagate under the agreed
+  contract. Preserve necessary resource cleanup and truthful failure reporting. Retries,
+  degradation and isolation must fit the contract and side effects; neither elaborate
+  recovery nor global failure is always correct. Never hide failure or fabricate success.
+
 Preserve security, critical data integrity and agreed acceptance. Missing environment
 documentation does not mean unsupported; type declarations do not establish validated
 runtime boundaries. Check consequential unknowns using available sources, without a
 mandatory environment questionnaire. Reuse established boundary guarantees internally,
 but account for new trust boundaries, mutable state and public callers.
+Assess both excessive and insufficient protection.
 
-Do not hide failure or fabricate success. Propagation, bounded retries, degradation or
-isolation must serve the concrete contract and side-effect constraints; neither elaborate
-recovery nor global failure is always correct. Prefer direct designs unless real reuse
-or isolation value warrants abstraction. Assess both excessive and insufficient protection.
+First assess whether behavior is needed; distinguish current evidence, lasting regression
+protection and which checks must run for this version. Long-term tests need concrete
+protective value. Reuse applicable implementations, tests and evidence.
 
 These judgments add no approval, score, per-branch justification or mandatory review round.
 Recording, querying, applying an existing disposition, summarizing, committing or running
