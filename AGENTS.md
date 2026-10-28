@@ -26,6 +26,18 @@ bun run workflow:health --root .
 - Task state comes from `assistance.mjs task-status/context`, not an old CURRENT_TASK tuple or a first search page. Use the task actions for identity, adoption, execution, review, disposition, Git and closure; verify persistence and view results separately. Design and recovery: `docs/product/vnext-task-management.md`.
 - Validation scope and delivery limits: `docs/ops/vnext-assistance-validation.md`. Do not automatically run `test:workflow-all`; source changes are not deployment proof.
 
+## Minimum-sufficient engineering
+
+Default to a sufficient implementation without unnecessary defenses,
+abstraction or error handling.
+
+Before making implementation, validation-design or code-review decisions,
+read the "Minimum-sufficient engineering" section of
+`templates/vnext/bootstrap/WORKFLOW_PROTOCOL.md` unless its current text is already
+available in context. Apply it with or without a workflow Skill, including
+when working on Runtime code. This does not require creating a task or
+obtaining Runtime approval.
+
 ## Key Conventions
 
 - Workflow skills are generated from `templates/skills/*.SKILL.md.tmpl`.
