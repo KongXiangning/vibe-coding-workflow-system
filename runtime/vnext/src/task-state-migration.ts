@@ -247,9 +247,9 @@ export function planMigration(rootInput: string) {
     const removals = recordFiles.filter(ref => oldProcess(ref) && !preserved.has(ref) && !['.gitignore', '.gitattributes'].includes(path.posix.basename(ref)));
     guard(root, [...removals, ...policy.edits.map((e: Value) => e.path), `${home}/CURRENT_TASK.md`]);
     const numbers = tasks.map((t: Value) => Number(/^TASK-(\d+)$/.exec(t.display_id ?? '')?.[1] ?? 0));
-    const project = { kind: 'vnext-task-project-state', schema_version: 1, revision: 1, current_task_id: view.focus?.conflict ? null : view.focus?.task_id ?? null,
+    const project = { kind: 'vnext-task-project-state', schema_version: 1, revision: 1, current_task_id: view.current_task_id ?? null,
       next_display_number: Math.max(0, ...numbers) + 1, focus_revision: 1,
-      migration: { kind: 'journal-to-task-state/v1', preserved_sources: pins, issues, history: 'external-verified-backup' } };
+      migration: { kind: 'journal-to-task-state/v1', previous_focus: view.focus ?? null, preserved_sources: pins, issues, history: 'external-verified-backup' } };
     validateProject(project);
     let displayVerified = false;
     if (fs.existsSync(local(root, `${home}/CURRENT_TASK.md`))) displayVerified = readTaskDisplay(root, `${home}/CURRENT_TASK.md`, { local, readFile: storeReadFile }).verified;

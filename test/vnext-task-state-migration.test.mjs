@@ -235,3 +235,18 @@ test('restoration writes whole chunks when a single low-level write may be parti
   finally { fsMutable.writeSync = original; syncBuiltinESMExports(); }
   for (const entry of plan.inputs) assert.equal(sha(fs.readFileSync(path.join(restored, entry.path))), entry.sha256, entry.path);
 });
+
+test('a closed legacy focus remains historical and does not become the current Task', async t => {
+  const { root, base, prepared } = fixture(t);
+  task(root, { action: 'close', task_ref: prepared.task_id, decision_text: '完成并关闭', remaining_work: [] });
+  const before = queryStatus(root, { detail: 'full' });
+  assert.equal(before.current_task_id, null);
+  assert.equal(before.focus.task_id, prepared.task_id);
+  const plan = planMigration(root);
+  assert.equal(plan.project.current_task_id, null);
+  assert.equal(plan.project.migration.previous_focus.task_id, prepared.task_id);
+  await applyMigration(root, plan, path.join(base, 'closed-focus.tar.gz'));
+  const after = queryStatus(root);
+  assert.equal(after.current_task_id, null);
+  assert(!after.issues.some(issue => issue.code === 'FOCUS_UNRESOLVED'));
+});
