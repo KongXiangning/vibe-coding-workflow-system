@@ -8,7 +8,8 @@ import * as os from 'node:os';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { planMigration, applyMigration, restoreMigration, verifyMigrationBackup, convertLegacyTask } from '../runtime/vnext/dist/task-state-migration.js';
+import { planMigration, applyMigration, restoreMigration, verifyMigration, verifyMigrationBackup, convertLegacyTask } from '../runtime/vnext/dist/task-state-migration.js';
+import { parse, stringify } from 'yaml';
 import { task, queryStatus, archive, gitCheckpoint, record } from '../runtime/vnext/support/assistance.mjs';
 import { storeReadFile } from '../runtime/vnext/support/record-storage.mjs';
 
@@ -39,6 +40,79 @@ function fixture(t) {
   put(root, 'docs/product/PROJECT.md', `---\n${JSON.stringify(meta)}\n---\n## [GOAL-A] 连接\n### 目标说明\n同一会话继续\n### 范围边界\n本次连接\n`);
   return { base, root, prepared, source };
 }
+
+test('migration registers only cited original paths and verifies their reader scope as well as bytes', async t => {
+  const { base, root, prepared, source } = fixture(t);
+  const manifestPath = path.join(root, '.workflow-system/PRODUCT.yaml');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.source_paths = ['docs/product/sources/**'];
+  const originalManifest = '# 项目自有读取范围\n' + stringify(manifest);
+  fs.writeFileSync(manifestPath, originalManifest);
+  const before = files(root), plan = planMigration(root);
+  assert.deepEqual(files(root), before, 'planning must not register or delete anything');
+  assert.deepEqual(plan.readable_sources.map(source => source.path), [prepared.ref]);
+  const edit = plan.policy_edits.find(edit => edit.path === '.workflow-system/PRODUCT.yaml');
+  assert(edit, 'a retained citation outside the old reader scope needs an explicit planned edit');
+  assert.equal(edit.before_sha256, sha(originalManifest));
+  assert.deepEqual(parse(edit.content), { ...manifest, source_paths: [...manifest.source_paths, prepared.ref] });
+  assert(edit.content.includes('# 项目自有读取范围'));
+  const backup = path.join(base, 'scope.tar.gz');
+  await applyMigration(root, plan, backup);
+  assert.deepEqual(fs.readFileSync(path.join(root, prepared.ref)), source);
+  assert.equal(verifyMigration(root, plan).readable_sources, 1);
+  const final = files(root);
+  assert.equal((await applyMigration(root, plan, backup)).status, 'already-migrated');
+  assert.deepEqual(files(root), final, 'retries must not duplicate source registrations');
+  const editedPlan = { ...plan, readable_sources: [] };
+  assert.throws(() => verifyMigration(root, editedPlan), { code: 'MIGRATION_PLAN_INVALID' });
+  const restored = path.join(base, 'scope-restored');
+  await restoreMigration(backup, restored);
+  assert.equal(fs.readFileSync(path.join(restored, '.workflow-system/PRODUCT.yaml'), 'utf8'), originalManifest);
+  fs.writeFileSync(manifestPath, originalManifest);
+  assert.throws(() => verifyMigration(root, plan), { code: 'MIGRATION_SOURCE_SCOPE_UNREADABLE' },
+    'unchanged file bytes do not prove that a reader is allowed to open the source');
+});
+
+test('migration respects existing reader scopes, exclusions and frozen manifests', async t => {
+  const { base, root, prepared } = fixture(t);
+  const manifestPath = path.join(root, '.workflow-system/PRODUCT.yaml');
+  const original = fs.readFileSync(manifestPath, 'utf8'), manifest = JSON.parse(original);
+  assert(!planMigration(root).policy_edits.some(edit => edit.path === '.workflow-system/PRODUCT.yaml'));
+  fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, exclude_paths: [prepared.ref] }));
+  const excluded = files(root);
+  assert.throws(() => planMigration(root), { code: 'MIGRATION_SOURCE_EXCLUDED' });
+  assert.deepEqual(files(root), excluded);
+  fs.writeFileSync(manifestPath, '# @frozen\n' + stringify({ ...manifest, source_paths: [] }));
+  assert.throws(() => planMigration(root), { code: 'FILE_FROZEN' });
+  fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, source_paths: [] }));
+  const plan = planMigration(root);
+  fs.writeFileSync(manifestPath, original);
+  await assert.rejects(applyMigration(root, plan, path.join(base, 'changed-scope.tar.gz')), { code: 'MIGRATION_SOURCE_CHANGED' });
+  assert(!fs.existsSync(path.join(root, '.workflow-system/tasks')));
+});
+
+test('a reader-policy write failure keeps old sources and resumes the same migration safely', async t => {
+  const { base, root, prepared } = fixture(t);
+  const manifestPath = path.join(root, '.workflow-system/PRODUCT.yaml');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  fs.writeFileSync(manifestPath, stringify({ ...manifest, source_paths: [] }));
+  const plan = planMigration(root), backup = path.join(base, 'policy-retry.tar.gz');
+  const write = fsMutable.writeFileSync;
+  fsMutable.writeFileSync = (file, ...args) => {
+    if (file === manifestPath) throw Object.assign(Error('simulated policy write failure'), { code: 'EACCES' });
+    return write(file, ...args);
+  };
+  syncBuiltinESMExports();
+  try { await assert.rejects(applyMigration(root, plan, backup), error => error.code === 'EACCES' && error.migration_published); }
+  finally { fsMutable.writeFileSync = write; syncBuiltinESMExports(); }
+  assert(fs.existsSync(path.join(root, prepared.ref)));
+  for (const ref of plan.remove) assert(fs.existsSync(path.join(root, ref)), 'scope failure must precede reclamation');
+  put(root, 'FREEZE_REGISTRY.md', '`' + '.workflow-system/PRODUCT.yaml' + '`\n');
+  await assert.rejects(applyMigration(root, plan, backup), { code: 'FREEZE_REVIEW_REQUIRED' });
+  fs.unlinkSync(path.join(root, 'FREEZE_REGISTRY.md'));
+  assert.equal((await applyMigration(root, plan, backup)).status, 'migrated');
+  assert.equal(verifyMigration(root, plan).readable_sources, 1);
+});
 
 test('archived journal migrates exact identities, scope, separate failures and fixed citations; backup restores old bytes', async t => {
   const { base, root, prepared, source } = fixture(t);

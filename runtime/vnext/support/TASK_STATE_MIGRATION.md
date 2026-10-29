@@ -33,13 +33,22 @@ node <project>/.workflow-system/runtime/support/task-state-migration.js restore 
 - 检查 PRODUCT 受管文档及 Task 文本中的实际引用，source_paths 注册不代表全量保留。
   业务文档和 Task Markdown 不改写；被引用旧文件保留原路径、原字节与 SHA。
   引用包／索引时保留完整归档容器，避免半个归档无法读取。
+- 对现有 PRODUCT 中尚未登记的保留引用，plan 会列出精确的 source_paths 补登，
+  apply 将其与其他策略修改一起写入；不添加整个 records 通配范围，也不因保留完整
+  归档容器而登记其全部内部文件。已有有效范围不重写，显式 exclude_paths 或冻结
+  冲突在切换、删除前报告。原 PRODUCT.yaml 同样纳入项目外备份。
+- verify 除检查 Task、文件和 SHA，还按 PRODUCT 的有效范围检查 readable_sources，
+  通过原生 read 分页读取并验证完整原文字节。读取登记写入或回读失败时，不回收旧过程
+  文件；已发布的新 Task 仍是事实源，同一计划和已验证备份可重试继续。
+  旧计划没有 readable_sources 时返回 source_readability: not-recorded-in-plan，
+  不把历史文件校验冒充新增的读取验证。
 - 旧来源是固定字节的引用依据。Git checkpoint 验证摘要，不要求恢复全部旧因果父记录。
   新任务查询直接读取当前记录，不重放归档事件。
 - 在项目外流式生成 tar.gz，逐文件验证路径、大小和 SHA 后才切换。备份包括原过程
   数据、Task 文档、受管业务文档、被引用的现存来源、画像和读取软件等迁移输入，
   不包含完整工程或 Git 对象库。
 - 在暂存目录写完全部 Task 与 state.json，整体发布目录后才删除清单内旧过程文件。
-  未识别的用户文件及业务文件不清理。只合并 Git 策略，不改变 index、提交或推送。
+  未识别的用户文件及业务文件不清理。只合并 Git 策略及上述精确来源登记，不改变 index、提交或推送。
   原来已跟踪的旧过程文件需按清单另行审阅并显式提交删除。
 
 ## 失败与恢复
@@ -58,3 +67,17 @@ PRODUCT 受管范围无法完整读取、固定引用指向会被替换的缓存
 
 restore 只写入全新的检查目录，拒绝覆盖已有项目。它提供旧历史阅读材料，不覆盖迁移后
 的新工作，也不运行业务。提交对象和完整代码仍从原工程 Git／工程备份取得。
+
+## TraceLens 跨消费者验证
+
+在源码仓库执行以下命令，参数指向已有生产构建的 TraceLens 源码检出：
+
+```powershell
+bun run test:task-state-migration:tracelens --tracelens-root <TraceLens-checkout>
+```
+
+验证脚本只在系统临时目录创建合成 journal 项目及独立登记，不读取用户项目登记，
+不安装／迁移任何真实目标项目，也不构建或修改 TraceLens。它通过 TraceLens 的真实
+HTTP 路由验证：未登记的保留来源、归档后恢复原路径的来源、已登记来源，迁移后均可
+以实时和快照两种模式打开；比较完整原文和 SHA，覆盖超过 64 KiB 的 UTF-8 分页。
+同时核对 Task 身份、关闭状态、业务文档字节及绑定范围。

@@ -92,7 +92,7 @@ the display or run the Migration Pack. See [the assistance API](runtime/vnext/su
 
 ## Project goals and requirements maintenance
 
-Current source version `0.24.20` includes `maintain-project` for goals, requirements,
+Current source version `0.24.22` includes `maintain-project` for goals, requirements,
 designs, Implementation Roadmaps, task bindings, discussions, and scoped delivery
 reconciliation. Start with [the usage guide](docs/guides/maintain-project.md):
 

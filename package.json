@@ -1,6 +1,6 @@
 {
   "name": "vibe-coding-workflow-system",
-  "version": "0.24.21",
+  "version": "0.24.22",
   "type": "module",
   "private": true,
   "description": "Portable workflow-system for Vibe Coding project governance.",
@@ -33,6 +33,7 @@
     "test:product-maintenance:install": "bun run build:vnext-runtime && bun run build:vibe-governance-distribution && bun test test/product-maintenance-install.test.ts",
     "build:task-state-migration": "bun run scripts/build-task-state-migration.ts",
     "test:task-state-migration": "bun run build:task-state-migration && node --test test/vnext-task-state-migration.test.mjs",
+    "test:task-state-migration:tracelens": "bun run build:task-state-migration && node scripts/check-task-state-migration-tracelens.mjs",
     "cleanup:legacy-task-data": "bun run scripts/cleanup-legacy-task-data.ts",
     "test:legacy-task-cleanup": "bun test --timeout 30000 test/legacy-task-cleanup.test.ts",
     "build:vnext-runtime": "bun run check:toolchain && bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js && bun run build:product-maintenance && bun run build:task-state-migration",

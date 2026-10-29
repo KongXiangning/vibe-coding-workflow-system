@@ -10262,31 +10262,6 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { createGzip, createGunzip } from "node:zlib";
 
-// runtime/vnext/src/product-maintenance/catalog.ts
-import * as fs3 from "node:fs";
-import * as path4 from "node:path";
-
-// runtime/vnext/src/product-maintenance/model.ts
-var PRODUCT_DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6];
-var ROADMAP_DOCUMENT_VERSIONS = [4, 5, 6];
-var sectionsByType = {
-  project: ["项目定位", "盘点范围与未核对项"],
-  goal: ["目标说明", "范围边界"],
-  module: ["业务能力", "范围边界"],
-  requirement: ["需求内容", "范围边界", "验收要求"],
-  design: ["设计方案", "约束与取舍", "实际实现与差异"],
-  change: ["变更说明", "影响与未同步项"],
-  assessment: ["覆盖范围", "交付与验证依据", "剩余与待核对"],
-  discussion: ["整理摘要", "议题与未决问题"],
-  plan: ["实施策略", "阶段与工作项说明", "调整与未决事项"]
-};
-function diagnostic(code, path, message, extras = {}) {
-  return { code, path, message, severity: "warning", ...extras };
-}
-
-// runtime/vnext/src/product-maintenance/parser.ts
-import { createHash } from "node:crypto";
-
 // runtime/vnext/node_modules/yaml/dist/index.js
 var composer = require_composer();
 var Document = require_Document();
@@ -10332,6 +10307,31 @@ var $parseDocument = publicApi.parseDocument;
 var $stringify = publicApi.stringify;
 var $visit = visit.visit;
 var $visitAsync = visit.visitAsync;
+
+// runtime/vnext/src/product-maintenance/catalog.ts
+import * as fs3 from "node:fs";
+import * as path4 from "node:path";
+
+// runtime/vnext/src/product-maintenance/model.ts
+var PRODUCT_DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6];
+var ROADMAP_DOCUMENT_VERSIONS = [4, 5, 6];
+var sectionsByType = {
+  project: ["项目定位", "盘点范围与未核对项"],
+  goal: ["目标说明", "范围边界"],
+  module: ["业务能力", "范围边界"],
+  requirement: ["需求内容", "范围边界", "验收要求"],
+  design: ["设计方案", "约束与取舍", "实际实现与差异"],
+  change: ["变更说明", "影响与未同步项"],
+  assessment: ["覆盖范围", "交付与验证依据", "剩余与待核对"],
+  discussion: ["整理摘要", "议题与未决问题"],
+  plan: ["实施策略", "阶段与工作项说明", "调整与未决事项"]
+};
+function diagnostic(code, path, message, extras = {}) {
+  return { code, path, message, severity: "warning", ...extras };
+}
+
+// runtime/vnext/src/product-maintenance/parser.ts
+import { createHash } from "node:crypto";
 
 // node_modules/bail/index.js
 function bail(error) {
@@ -23165,7 +23165,7 @@ function readCatalog(rootInput, input = {}) {
 
 // runtime/vnext/src/task-state-migration.ts
 var native = (name) => import(new URL(`../support/${name}.mjs`, import.meta.url).href);
-var { queryStatus, task: taskAction } = await native("assistance");
+var { queryStatus, task: taskAction, read: readSource2 } = await native("assistance");
 var { causalRelations, viewLock, readTaskDisplay } = await native("task-management");
 var { validateProject, validateTask, taskGitPolicyDefinitions, gitPolicyEdits } = await native("task-state");
 var { decodeObservation } = await native("task-event-codec");
@@ -23463,6 +23463,20 @@ function planMigration(rootInput) {
           pin(resolved, ref2);
       }
     }
+    const readableSources = catalog2.manifest ? [...preserved.values()].sort((a, b) => a.path.localeCompare(b.path)) : [];
+    const registrations = readableSources.filter((source2) => {
+      if (matches(source2.path, catalog2.manifest.exclude_paths))
+        fail("MIGRATION_SOURCE_EXCLUDED", `A retained source is explicitly excluded; resolve its reading policy before migration: ${source2.path}`);
+      return !allowed(catalog2.manifest, source2.path, "source");
+    });
+    const sourceEdits = [];
+    if (registrations.length) {
+      const original = fs4.readFileSync(local2(root2, catalog2.manifest_path));
+      const document4 = $parseDocument(original.toString("utf8"), { uniqueKeys: true });
+      for (const source2 of registrations)
+        document4.addIn(["source_paths"], source2.path);
+      sourceEdits.push({ path: catalog2.manifest_path, before_sha256: sha(original), content: document4.toString({ lineWidth: 0 }) });
+    }
     const citedArchives = new Set([...preserved.keys()].map((ref2) => new RegExp(`^${RECORDS.replaceAll(".", "\\.")}/archives/([a-f0-9]{64})/`).exec(ref2)?.[1]).filter(Boolean));
     for (const id2 of citedArchives)
       for (const ref2 of walk(root2, `${RECORDS}/archives/${id2}`))
@@ -23502,6 +23516,7 @@ function planMigration(rootInput) {
     const policy = gitPolicyEdits(root2, taskGitPolicyDefinitions(home, true), local2);
     if (policy.issues.length)
       fail("GIT_POLICY_RECONCILIATION_REQUIRED", JSON.stringify(policy.issues));
+    const policyEdits = [...policy.edits, ...sourceEdits];
     const inputs = [...new Set([
       ...recordFiles,
       ...documents,
@@ -23517,7 +23532,7 @@ function planMigration(rootInput) {
       if (preserved.has(ref2))
         fail("MIGRATION_MUTABLE_SOURCE_CITED", `Preserve/rebind this fixed-byte citation explicitly before replacing the local cache: ${ref2}`);
     const removals = recordFiles.filter((ref2) => oldProcess(ref2) && !preserved.has(ref2) && ![".gitignore", ".gitattributes"].includes(path5.posix.basename(ref2)));
-    guard(root2, [...removals, ...policy.edits.map((e) => e.path), `${home}/CURRENT_TASK.md`]);
+    guard(root2, [...removals, ...policyEdits.map((e) => e.path), `${home}/CURRENT_TASK.md`]);
     const numbers = tasks.map((t) => Number(/^TASK-(\d+)$/.exec(t.display_id ?? "")?.[1] ?? 0));
     const project = {
       kind: "vnext-task-project-state",
@@ -23540,8 +23555,9 @@ function planMigration(rootInput) {
       tasks,
       project,
       preserved_sources: pins,
+      readable_sources: readableSources,
       remove: removals,
-      policy_edits: policy.edits,
+      policy_edits: policyEdits,
       display_verified: displayVerified,
       legacy_view_sha256: sha(view),
       issues,
@@ -23553,7 +23569,8 @@ function planMigration(rootInput) {
         removed_files: removals.length,
         task_bytes: tasks.reduce((n, t) => n + json(t).length, 0),
         product_documents: catalog2.documents.length,
-        product_bindings: tasks.reduce((n, t) => n + t.product_refs.length, 0)
+        product_bindings: tasks.reduce((n, t) => n + t.product_refs.length, 0),
+        source_registrations: registrations.length
       }
     };
     return { ...plan, fingerprint: sha(plan) };
@@ -23653,7 +23670,10 @@ async function restoreMigration(archive, destination) {
   await readBackup(archive, root2);
   return { status: "restored", root: root2, ...verified, note: "Old inspection copy only; no overwrite of an active project or replay of business actions." };
 }
-function verifyMigration(rootInput, plan) {
+function verifyMigrationState(rootInput, plan) {
+  const { fingerprint, ...body } = plan;
+  if (sha(body) !== fingerprint)
+    fail("MIGRATION_PLAN_INVALID", "Use the unchanged migration plan; do not edit policy or source registrations after planning.");
   const root2 = fs4.realpathSync(rootInput), project = JSON.parse(fs4.readFileSync(local2(root2, `${TASKS}/state.json`), "utf8"));
   if (project.migration?.fingerprint !== plan.fingerprint)
     fail("MIGRATION_IDENTITY_MISMATCH", "This state belongs to a different migration.");
@@ -23664,8 +23684,43 @@ function verifyMigration(rootInput, plan) {
     fail("MIGRATION_VERIFICATION_FAILED", JSON.stringify({ changedTasks, changedSources, kind: view.kind, tasks: view.task_count, focus: view.current_task_id }));
   return { status: "verified", tasks: plan.tasks.length, preserved_sources: plan.preserved_sources.length, kind: view.kind, current_task_id: view.current_task_id };
 }
+function verifyMigration(rootInput, plan) {
+  const root2 = fs4.realpathSync(rootInput), state2 = verifyMigrationState(root2, plan);
+  const sources2 = plan.readable_sources ?? [];
+  if (sources2.length) {
+    const catalog2 = readCatalog(root2);
+    for (const source2 of sources2) {
+      if (catalog2.status !== "available" || !catalog2.manifest || !allowed(catalog2.manifest, source2.path, "source"))
+        fail("MIGRATION_SOURCE_SCOPE_UNREADABLE", `Retained bytes are not sufficient; the product reader must be allowed to open: ${source2.path}`);
+      const hash2 = createHash3("sha256");
+      let offset = 0;
+      for (;; ) {
+        const page = readSource2(root2, { ref: source2.path, offset, max_bytes: 65536 });
+        const bytes = Buffer.from(page.data, "base64");
+        hash2.update(bytes);
+        offset += bytes.length;
+        if (page.next_offset === null)
+          break;
+      }
+      if (offset !== source2.size || hash2.digest("hex") !== source2.sha256)
+        fail("MIGRATION_SOURCE_READ_FAILED", `The retained source could not be read back byte-exactly: ${source2.path}`);
+    }
+  }
+  return { ...state2, readable_sources: sources2.length, source_readability: plan.readable_sources ? "verified" : "not-recorded-in-plan" };
+}
 function finishMigration(root2, plan, archive) {
   const removed = viewLock(root2, { local: local2 }, () => withRecordStoreLock(root2, () => {
+    verifyMigrationState(root2, plan);
+    guard(root2, [...plan.remove, ...plan.policy_edits.map((edit) => edit.path), `${plan.workflow_home}/CURRENT_TASK.md`]);
+    for (const edit of plan.policy_edits) {
+      const file = local2(root2, edit.path), current = fs4.existsSync(file) ? fs4.readFileSync(file) : null;
+      if (current?.equals(Buffer.from(edit.content)))
+        continue;
+      if ((current === null ? null : sha(current)) !== edit.before_sha256)
+        fail("MIGRATION_POLICY_CHANGED", `Kept edited policy: ${edit.path}`);
+      fs4.mkdirSync(path5.dirname(file), { recursive: true });
+      fs4.writeFileSync(file, edit.content);
+    }
     verifyMigration(root2, plan);
     let removed2 = 0;
     for (const ref2 of plan.remove) {
@@ -23684,15 +23739,6 @@ function finishMigration(root2, plan, archive) {
     for (const ref2 of [...oldDirectories].sort((a, b) => b.length - a.length))
       if (fs4.existsSync(local2(root2, ref2)) && fs4.readdirSync(local2(root2, ref2)).length === 0)
         fs4.rmdirSync(local2(root2, ref2));
-    for (const edit of plan.policy_edits) {
-      const file = local2(root2, edit.path), current = fs4.existsSync(file) ? fs4.readFileSync(file) : null;
-      if (current?.equals(Buffer.from(edit.content)))
-        continue;
-      if ((current === null ? null : sha(current)) !== edit.before_sha256)
-        fail("MIGRATION_POLICY_CHANGED", `Kept edited Git policy: ${edit.path}`);
-      fs4.mkdirSync(path5.dirname(file), { recursive: true });
-      fs4.writeFileSync(file, edit.content);
-    }
     if (plan.display_verified) {
       const display = local2(root2, `${plan.workflow_home}/CURRENT_TASK.md`);
       const original = plan.inputs.find((e) => e.path === `${plan.workflow_home}/CURRENT_TASK.md`);
@@ -23728,10 +23774,10 @@ async function applyMigration(rootInput, plan, backupFile) {
   const root2 = fs4.realpathSync(rootInput);
   if (fs4.existsSync(local2(root2, `${TASKS}/state.json`))) {
     try {
-      const result = verifyMigration(root2, plan);
+      verifyMigrationState(root2, plan);
       const project = JSON.parse(fs4.readFileSync(local2(root2, `${TASKS}/state.json`), "utf8"));
       if (project.migration.cleanup_complete)
-        return { ...result, status: "already-migrated" };
+        return { ...verifyMigration(root2, plan), status: "already-migrated" };
       const archive2 = project.migration.backup;
       await verifyMigrationBackup(archive2.path, plan.inputs);
       if (fileHash(archive2.path) !== archive2.sha256)

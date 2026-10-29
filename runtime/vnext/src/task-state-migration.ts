@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { createGzip, createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
+import { parseDocument } from 'yaml';
 import { readCatalog } from './product-maintenance/catalog';
+import { allowed, matches } from './product-maintenance/paths';
 
 // Keep the paired native reader outside the admin bundle. Inlining a CLI module
 // changes import.meta.url and would accidentally run its command-line entry point.
 const native = (name: string) => import(new URL(`../support/${name}.mjs`, import.meta.url).href);
-const { queryStatus, task: taskAction } = await native('assistance');
+const { queryStatus, task: taskAction, read: readSource } = await native('assistance');
 const { causalRelations, viewLock, readTaskDisplay } = await native('task-management');
 const { validateProject, validateTask, taskGitPolicyDefinitions, gitPolicyEdits } = await native('task-state');
 const { decodeObservation } = await native('task-event-codec');
@@ -206,6 +208,20 @@ export function planMigration(rootInput: string) {
         if (resolved.startsWith(`${RECORDS}/`)) pin(resolved, ref);
       }
     }
+    // Preserve the reader's access to explicit citations, not incidental archive backing.
+    const readableSources = catalog.manifest ? [...preserved.values()].sort((a, b) => a.path.localeCompare(b.path)) : [];
+    const registrations = readableSources.filter(source => {
+      if (matches(source.path, catalog.manifest!.exclude_paths))
+        fail('MIGRATION_SOURCE_EXCLUDED', `A retained source is explicitly excluded; resolve its reading policy before migration: ${source.path}`);
+      return !allowed(catalog.manifest!, source.path, 'source');
+    });
+    const sourceEdits: Value[] = [];
+    if (registrations.length) {
+      const original = fs.readFileSync(local(root, catalog.manifest_path));
+      const document = parseDocument(original.toString('utf8'), { uniqueKeys: true });
+      for (const source of registrations) document.addIn(['source_paths'], source.path);
+      sourceEdits.push({ path: catalog.manifest_path, before_sha256: sha(original), content: document.toString({ lineWidth: 0 }) });
+    }
     // A cited pack/index needs its complete immutable envelope. Leaving a partial
     // archive directory would make the existing logical reader report corruption.
     const citedArchives = new Set([...preserved.keys()].map(ref => new RegExp(`^${RECORDS.replaceAll('.', '\\.')}/archives/([a-f0-9]{64})/`).exec(ref)?.[1]).filter(Boolean));
@@ -237,6 +253,7 @@ export function planMigration(rootInput: string) {
     const recordFiles = walk(root, RECORDS).filter(ref => !transient(ref));
     const policy = gitPolicyEdits(root, taskGitPolicyDefinitions(home, true), local);
     if (policy.issues.length) fail('GIT_POLICY_RECONCILIATION_REQUIRED', JSON.stringify(policy.issues));
+    const policyEdits = [...policy.edits, ...sourceEdits];
     const inputs = [...new Set([...recordFiles, ...documents, ...externalSources.keys(), '.workflow-system/PROJECT_PROFILE.yaml', '.workflow-system/PRODUCT.yaml',
       `${home}/CURRENT_TASK.md`, ...policy.paths,
       ...walk(root, '.workflow-system/runtime/support').filter(ref => /\.(?:mjs|js|md)$/.test(ref) && !ref.includes('/.node-deps/'))])]
@@ -245,7 +262,7 @@ export function planMigration(rootInput: string) {
     for (const ref of [`${RECORDS}/task-view.json`, `${RECORDS}/task-view-baseline.json`, `${RECORDS}/task-view-recovery.md`])
       if (preserved.has(ref)) fail('MIGRATION_MUTABLE_SOURCE_CITED', `Preserve/rebind this fixed-byte citation explicitly before replacing the local cache: ${ref}`);
     const removals = recordFiles.filter(ref => oldProcess(ref) && !preserved.has(ref) && !['.gitignore', '.gitattributes'].includes(path.posix.basename(ref)));
-    guard(root, [...removals, ...policy.edits.map((e: Value) => e.path), `${home}/CURRENT_TASK.md`]);
+    guard(root, [...removals, ...policyEdits.map((e: Value) => e.path), `${home}/CURRENT_TASK.md`]);
     const numbers = tasks.map((t: Value) => Number(/^TASK-(\d+)$/.exec(t.display_id ?? '')?.[1] ?? 0));
     const project = { kind: 'vnext-task-project-state', schema_version: 1, revision: 1, current_task_id: view.current_task_id ?? null,
       next_display_number: Math.max(0, ...numbers) + 1, focus_revision: 1,
@@ -254,11 +271,12 @@ export function planMigration(rootInput: string) {
     let displayVerified = false;
     if (fs.existsSync(local(root, `${home}/CURRENT_TASK.md`))) displayVerified = readTaskDisplay(root, `${home}/CURRENT_TASK.md`, { local, readFile: storeReadFile }).verified;
     const plan: Value = { kind: 'task-state-migration-plan/v1', root, workflow_home: home, inputs, tasks, project,
-      preserved_sources: pins, remove: removals, policy_edits: policy.edits, display_verified: displayVerified,
+      preserved_sources: pins, readable_sources: readableSources, remove: removals, policy_edits: policyEdits, display_verified: displayVerified,
       legacy_view_sha256: sha(view), issues, summary: { tasks: tasks.length, lifecycle: Object.fromEntries(['draft', 'active', 'paused', 'closed', 'ambiguous'].map(l => [l, tasks.filter((t: Value) => t.lifecycle === l).length])),
         records_before: { files: recordFiles.length, bytes: inputs.filter(i => i.path.startsWith(`${RECORDS}/`)).reduce((n, i) => n + i.size, 0) },
         preserved_sources: { files: pins.length, bytes: pins.reduce((n, i) => n + i.size, 0) }, removed_files: removals.length,
-        task_bytes: tasks.reduce((n: number, t: Value) => n + json(t).length, 0), product_documents: catalog.documents.length, product_bindings: tasks.reduce((n: number, t: Value) => n + t.product_refs.length, 0) } };
+        task_bytes: tasks.reduce((n: number, t: Value) => n + json(t).length, 0), product_documents: catalog.documents.length, product_bindings: tasks.reduce((n: number, t: Value) => n + t.product_refs.length, 0),
+        source_registrations: registrations.length } };
     return { ...plan, fingerprint: sha(plan) };
   });
 }
@@ -334,7 +352,9 @@ export async function restoreMigration(archive: string, destination: string) {
   return { status: 'restored', root, ...verified, note: 'Old inspection copy only; no overwrite of an active project or replay of business actions.' };
 }
 
-export function verifyMigration(rootInput: string, plan: Value) {
+function verifyMigrationState(rootInput: string, plan: Value) {
+  const { fingerprint, ...body } = plan;
+  if (sha(body) !== fingerprint) fail('MIGRATION_PLAN_INVALID', 'Use the unchanged migration plan; do not edit policy or source registrations after planning.');
   const root = fs.realpathSync(rootInput), project = JSON.parse(fs.readFileSync(local(root, `${TASKS}/state.json`), 'utf8'));
   if (project.migration?.fingerprint !== plan.fingerprint) fail('MIGRATION_IDENTITY_MISMATCH', 'This state belongs to a different migration.');
   const changedTasks = plan.tasks.filter((t: Value) => fileHash(local(root, taskPath(t.task_id))) !== sha(json(t))).map((t: Value) => t.task_id);
@@ -345,8 +365,39 @@ export function verifyMigration(rootInput: string, plan: Value) {
   return { status: 'verified', tasks: plan.tasks.length, preserved_sources: plan.preserved_sources.length, kind: view.kind, current_task_id: view.current_task_id };
 }
 
+export function verifyMigration(rootInput: string, plan: Value) {
+  const root = fs.realpathSync(rootInput), state = verifyMigrationState(root, plan);
+  const sources = plan.readable_sources ?? [];
+  if (sources.length) {
+    const catalog = readCatalog(root);
+    for (const source of sources) {
+      if (catalog.status !== 'available' || !catalog.manifest || !allowed(catalog.manifest, source.path, 'source'))
+        fail('MIGRATION_SOURCE_SCOPE_UNREADABLE', `Retained bytes are not sufficient; the product reader must be allowed to open: ${source.path}`);
+      const hash = createHash('sha256');
+      let offset = 0;
+      for (;;) {
+        const page = readSource(root, { ref: source.path, offset, max_bytes: 65536 });
+        const bytes = Buffer.from(page.data, 'base64'); hash.update(bytes); offset += bytes.length;
+        if (page.next_offset === null) break;
+      }
+      if (offset !== source.size || hash.digest('hex') !== source.sha256)
+        fail('MIGRATION_SOURCE_READ_FAILED', `The retained source could not be read back byte-exactly: ${source.path}`);
+    }
+  }
+  return { ...state, readable_sources: sources.length, source_readability: plan.readable_sources ? 'verified' : 'not-recorded-in-plan' };
+}
+
 function finishMigration(root: string, plan: Value, archive: Value) {
   const removed = viewLock(root, { local }, () => withRecordStoreLock(root, () => {
+    verifyMigrationState(root, plan);
+    guard(root, [...plan.remove, ...plan.policy_edits.map((edit: Value) => edit.path), `${plan.workflow_home}/CURRENT_TASK.md`]);
+    // Publish scoped reading policy before reclaiming anything; retries keep editor changes.
+    for (const edit of plan.policy_edits) {
+      const file = local(root, edit.path), current = fs.existsSync(file) ? fs.readFileSync(file) : null;
+      if (current?.equals(Buffer.from(edit.content))) continue;
+      if ((current === null ? null : sha(current)) !== edit.before_sha256) fail('MIGRATION_POLICY_CHANGED', `Kept edited policy: ${edit.path}`);
+      fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, edit.content);
+    }
     verifyMigration(root, plan);
     // All removals were backed up and verified; no general repository scan/delete.
     let removed = 0;
@@ -360,12 +411,6 @@ function finishMigration(root: string, plan: Value, archive: Value) {
     for (const ref of plan.remove) for (let dir = path.posix.dirname(ref); dir.startsWith(`${RECORDS}/`); dir = path.posix.dirname(dir)) oldDirectories.add(dir);
     for (const ref of [...oldDirectories].sort((a, b) => b.length - a.length))
       if (fs.existsSync(local(root, ref)) && fs.readdirSync(local(root, ref)).length === 0) fs.rmdirSync(local(root, ref));
-    for (const edit of plan.policy_edits) {
-      const file = local(root, edit.path), current = fs.existsSync(file) ? fs.readFileSync(file) : null;
-      if (current?.equals(Buffer.from(edit.content))) continue;
-      if ((current === null ? null : sha(current)) !== edit.before_sha256) fail('MIGRATION_POLICY_CHANGED', `Kept edited Git policy: ${edit.path}`);
-      fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, edit.content);
-    }
     if (plan.display_verified) {
       const display = local(root, `${plan.workflow_home}/CURRENT_TASK.md`);
       const original = plan.inputs.find((e: Value) => e.path === `${plan.workflow_home}/CURRENT_TASK.md`);
@@ -389,9 +434,9 @@ export async function applyMigration(rootInput: string, plan: Value, backupFile:
   const root = fs.realpathSync(rootInput);
   if (fs.existsSync(local(root, `${TASKS}/state.json`))) {
     try {
-      const result = verifyMigration(root, plan);
+      verifyMigrationState(root, plan);
       const project = JSON.parse(fs.readFileSync(local(root, `${TASKS}/state.json`), 'utf8'));
-      if (project.migration.cleanup_complete) return { ...result, status: 'already-migrated' };
+      if (project.migration.cleanup_complete) return { ...verifyMigration(root, plan), status: 'already-migrated' };
       const archive = project.migration.backup;
       await verifyMigrationBackup(archive.path, plan.inputs);
       if (fileHash(archive.path) !== archive.sha256) fail('BACKUP_INVALID', 'The original backup bytes changed.');
