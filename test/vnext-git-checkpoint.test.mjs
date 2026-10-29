@@ -293,10 +293,11 @@ test('edited displays, custom policy blocks, missing persistent files and unsafe
 
 test('unborn SHA-256 repository and installed native CLI use the same byte and scope verification', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-checkpoint-sha256-')); t.after(() => fs.rmSync(root, { force: true, recursive: true }));
+  fs.mkdirSync(path.join(root, '.workflow-system/records/events'), { recursive: true }); // Existing journal protocol.
   git(root, ['init', '-q', '--object-format=sha256']); git(root, ['config', 'user.name', 'test']); git(root, ['config', 'user.email', 'test@example.invalid']);
   record(root, { body: 'first report' });
   const dest = path.join(root, '.workflow-system/runtime/support'); fs.mkdirSync(dest, { recursive: true });
-  for (const name of ['assistance.mjs', 'task-management.mjs', 'task-event-codec.mjs', 'record-storage.mjs']) fs.copyFileSync(path.join(runtime, name), path.join(dest, name));
+  for (const name of ['assistance.mjs', 'task-management.mjs', 'task-state.mjs', 'task-event-codec.mjs', 'record-storage.mjs']) fs.copyFileSync(path.join(runtime, name), path.join(dest, name));
   const run = payload => {
     const r = spawnSync(process.execPath, [path.join(dest, 'assistance.mjs'), 'git-checkpoint', '--root', root], { input: JSON.stringify(payload), encoding: 'utf8' });
     assert.equal(r.status, 0, r.stdout + r.stderr); return JSON.parse(r.stdout);

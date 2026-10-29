@@ -31,7 +31,9 @@
     "build:product-maintenance": "bun run scripts/build-product-maintenance.ts",
     "test:product-maintenance": "bun run build:product-maintenance && bun test --timeout 30000 test/product-maintenance-context.test.ts test/product-maintenance.test.ts test/product-maintenance-v3.test.ts test/product-maintenance-roadmap.test.ts test/product-maintenance-v5.test.ts test/product-maintenance-reconciliation.test.ts test/product-maintenance-dispositions.test.ts test/product-maintenance-points.test.ts",
     "test:product-maintenance:install": "bun run build:vnext-runtime && bun run build:vibe-governance-distribution && bun test test/product-maintenance-install.test.ts",
-    "build:vnext-runtime": "bun run check:toolchain && bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js && bun run build:product-maintenance",
+    "build:task-state-migration": "bun run scripts/build-task-state-migration.ts",
+    "test:task-state-migration": "bun run build:task-state-migration && node --test test/vnext-task-state-migration.test.mjs",
+    "build:vnext-runtime": "bun run check:toolchain && bun build runtime/vnext/src/cli.ts --target=node --outfile runtime/vnext/dist/cli.js --external yaml && bun build runtime/vnext/src/install-tools-cli.ts --target=node --outfile runtime/vnext/dist/install-tools.js && bun run build:product-maintenance && bun run build:task-state-migration",
     "build:vibe-governance-distribution": "bun run scripts/build-vibe-governance-distribution.ts",
     "validate:vnext-runtime": "bun run build:vnext-runtime && bun run scripts/vnext-runtime.ts validate-contract --root .",
     "vnext:runtime": "bun run scripts/vnext-runtime.ts",
@@ -44,7 +46,7 @@
     "test:workflow-vnext-knowledge": "bun test test/vnext-knowledge-promotion.test.ts",
     "test:workflow-vnext-migration": "bun test test/vnext-migration-pack.test.ts",
     "test:workflow-vnext-bootstrap": "bun run build:vnext-runtime && bun test test/vnext-bootstrap-project.test.ts test/vnext-host-guidance.test.ts",
-    "test:workflow-distribution": "bun run build:vnext-runtime && bun run build:vibe-governance-distribution && bun test test/vibe-governance-distribution.test.ts",
+    "test:workflow-distribution": "bun run build:vnext-runtime && bun run build:vibe-governance-distribution && bun test test/vibe-governance-distribution.test.ts test/vnext-task-state-install.test.ts test/vnext-generation-install.test.ts",
     "test:fixflow-dogfood-cleanup": "bun test test/fixflow-dogfood-cleanup.test.ts",
     "test:fixflow-dogfood-upgrade": "bun test test/fixflow-dogfood-upgrade.test.ts",
     "test:workflow-skills": "bun run gen:workflow-skills --dry-run && bun test test/gen-workflow-skills.test.ts && bun run test:workflow-capabilities",
@@ -58,7 +60,7 @@
     "test:workflow-all": "bun run check:toolchain && bun run test:workflow-skills && bun run test:workflow-vnext-source && bun run test:workflow-vnext-expert && bun run test:workflow-vnext-runtime && bun run test:workflow-vnext-system-e2e && bun run test:workflow-vnext-knowledge && bun run test:workflow-vnext-migration && bun run test:workflow-vnext-bootstrap && bun run test:workflow-distribution && bun run test:fixflow-dogfood-cleanup && bun run test:fixflow-dogfood-upgrade && bun run test:workflow-docs && bun run test:registry && bun test test/bootstrap-project-governance.test.ts test/task-identity.test.ts test/validation-model.test.ts test/run-validation.test.ts test/workflow-core.test.ts test/workflow-runtime.test.ts",
     "test": "bun run test:workflow-all",
     "assist": "node runtime/vnext/support/assistance.mjs",
-    "test:workflow-assistance": "node --test test/vnext-assistance.test.mjs test/vnext-task-management.test.mjs test/vnext-git-checkpoint.test.mjs test/vnext-record-storage.test.mjs test/vnext-record-storage-portability.test.mjs test/vnext-record-read-context.test.mjs test/vnext-assistance-archive.test.mjs test/vnext-git-checkpoint-archive.test.mjs test/vnext-task-display.test.mjs test/vnext-task-event-codec.test.mjs test/vnext-fixed-evidence.test.mjs test/vnext-generation-checkpoint.test.mjs"
+    "test:workflow-assistance": "node --test test/vnext-assistance.test.mjs test/vnext-task-management.test.mjs test/vnext-task-state.test.mjs test/vnext-task-state-checkpoint.test.mjs test/vnext-git-checkpoint.test.mjs test/vnext-record-storage.test.mjs test/vnext-record-storage-portability.test.mjs test/vnext-record-read-context.test.mjs test/vnext-assistance-archive.test.mjs test/vnext-git-checkpoint-archive.test.mjs test/vnext-task-display.test.mjs test/vnext-task-event-codec.test.mjs test/vnext-fixed-evidence.test.mjs test/vnext-generation-checkpoint.test.mjs"
   },
   "dependencies": {
     "diff": "9.0.0",

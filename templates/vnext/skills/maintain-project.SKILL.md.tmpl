@@ -30,6 +30,10 @@ runtime_role: assistance/v1
 
 ## Route the request first
 
+For task-query/v2, the per-Task cleanup at the end of close-task uses task cleanup
+for that closed Task. Do not route it through the journal archive service or expand
+it into project-wide maintenance. Explicit historical archive work remains separate.
+
 Requests such as “检查记录占用”, “归档历史记录”, “归档并回收重复散文件”, or
 “恢复归档” concern record storage. Read the installed
 `.workflow-system/runtime/support/product-maintenance/references/record-storage.md`

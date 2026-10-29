@@ -6,9 +6,11 @@ import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { taskCommand, taskStatus as buildTaskStatus, synchronizeTasks, readTaskDisplay } from './task-management.mjs';
+import { taskCommand, taskStatus as buildTaskStatus, synchronizeTasks, readTaskDisplay, removeTemporaryFile } from './task-management.mjs';
 import { decodeObservation, MAX_LOGICAL_TASK_EVENT_BYTES } from './task-event-codec.mjs';
 import { storeRead, storeReadFile, storeStat, storeExists, storeList, storeReserve, storePublishFile, archiveCommand, archiveInventory, withStoreReadContext } from './record-storage.mjs';
+import { taskStateMode, stateTask, stateQuery, stateContext, stateRecord, stateSnapshot, stateFindRoots,
+  taskStateReferences, taskGitPolicyDefinitions, gitPolicyEdits, migrationSources } from './task-state.mjs';
 
 export const COMMANDS = ['context', 'record', 'snapshot', 'read', 'find', 'task', 'task-status', 'git-checkpoint', 'archive'];
 const STORE = '.workflow-system/records';
@@ -129,6 +131,7 @@ function fixedEvidenceReference(root, spec, requestedHome) {
     current_applicability: 'not-evaluated', issues };
 }
 export function snapshot(root, input) {
+  if (taskStateMode(root, input, taskIO()) !== 'journal') return stateSnapshot(root, input, taskIO());
   const { home, issues } = workflowHome(root, input.workflow_home);
   if (input.sha256) {
     try { const ref = preserved(root, input.sha256, home); return { ...base(), status: 'found', ref, sha256: input.sha256, issues }; }
@@ -164,7 +167,7 @@ export function snapshot(root, input) {
     return { ...base(), status: 'saved', ref, sha256: digest, size, source_path: input.path, issues };
   } finally {
     if (fd !== undefined) fs.closeSync(fd); if (out !== undefined) fs.closeSync(out);
-    fs.rmSync(temp, { force: true });
+    removeTemporaryFile(temp);
   }
 }
 function recordObservation(root, input) {
@@ -231,10 +234,14 @@ function recordObservation(root, input) {
   }
 }
 // The raw store stays permissive. Management updates are a separately reported result.
-const taskIO = readContext => ({ local, workflowHome, publish, record: recordObservation, snapshot,
+const taskIO = readContext => ({ local, workflowHome, publish, record: recordObservation, snapshot, reference: fixedEvidenceReference,
   readFile: (root, ref) => storeReadFile(root, ref, { readContext }),
   list: (root, ref) => storeList(root, ref, { readContext }) });
 export function task(root, input = {}) {
+  if (taskStateMode(root, input, taskIO()) !== 'journal') {
+    if ((input?.action ?? 'status') === 'status') return stateQuery(root, input, taskIO());
+    return stateTask(root, input, taskIO());
+  }
   if ((input?.action ?? 'status') === 'status') return taskStatus(root, input);
   try { return taskCommand(root, input, taskIO()); }
   catch (error) {
@@ -247,9 +254,11 @@ export function task(root, input = {}) {
   }
 }
 export function taskStatus(root, input = {}) {
+  if (taskStateMode(root, input, taskIO()) !== 'journal') return stateQuery(root, input, taskIO());
   return withStoreReadContext(root, readContext => buildTaskStatus(root, input, taskIO(readContext)));
 }
 export function record(root, input) {
+  if (taskStateMode(root, input, taskIO()) !== 'journal') return stateRecord(root, input, taskIO());
   const saved = recordObservation(root, input);
   try {
     const projection = synchronizeTasks(root, input && typeof input === 'object' ? input : {}, taskIO());
@@ -283,7 +292,8 @@ export function read(root, input) {
   let ref = input.path ?? input.ref, result;
   const offset = Number.isSafeInteger(input.offset) && input.offset >= 0 ? input.offset : 0;
   const options = { offset, length: clamp(input.max_bytes, 8192, 65536), expectedSha256: input.sha256 };
-  if (input.sha256) {
+  const currentTaskSource = ref !== undefined && /^\.workflow-system\/(?:tasks|tmp\/tasks)\//.test(logicalRef(root, ref));
+  if (input.sha256 && !currentTaskSource) {
     // Resolve and read in one storage operation: a cold page's metrics must not
     // hide extra full-object hashing or duplicate index scans in a preflight.
     for (const candidate of evidenceObjectPaths(input.sha256, home)) {
@@ -306,6 +316,8 @@ export function read(root, input) {
 }
 export function archive(root, input = {}) { return { ...base(), ...archiveCommand(root, input) }; }
 export function find(root, input) {
+  if (input.roots === undefined && taskStateMode(root, input, taskIO()) !== 'journal')
+    input = { ...input, roots: stateFindRoots(root, input, taskIO()) };
   return withStoreReadContext(root, readContext => findRecords(root, input, readContext));
 }
 function findRecords(root, input, readContext) {
@@ -376,6 +388,7 @@ function findRecords(root, input, readContext) {
     note: 'Literal search over stored bytes, without active-task validation. Pagination is not a failure. Concurrent additions may require a fresh search.' };
 }
 export function context(root, input) {
+  if (taskStateMode(root, input, taskIO()) !== 'journal') return stateContext(root, input, taskIO());
   return withStoreReadContext(root, readContext => readContextView(root, input, readContext));
 }
 function readContextView(root, input, readContext) {
@@ -507,10 +520,12 @@ function presentStatus(view, input, options) {
 }
 /** Agent-facing read APIs. The low-level taskStatus/context exports stay full for existing callers. */
 export function queryStatus(root, input = {}) {
+  if (taskStateMode(root, input, taskIO()) !== 'journal') return stateQuery(root, input, taskIO());
   const options = queryOptions(input);
   return presentStatus(taskStatus(root, input), input, options);
 }
 export function queryContext(root, input = {}) {
+  if (taskStateMode(root, input, taskIO()) !== 'journal') return stateContext(root, input, taskIO());
   const options = queryOptions(input), result = context(root, input);
   const management = presentStatus(result.management, input, options);
   if (options.detail === 'full') return result;
@@ -543,7 +558,7 @@ function checkpointBlob(root, oid, inspect) {
     return inspect(file);
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
-    fs.rmSync(file, { force: true });
+    removeTemporaryFile(file);
     fs.rmdirSync(directory);
   }
 }
@@ -609,6 +624,11 @@ function checkpointBusinessFile(root, ref, algorithm, entry, symlinks) {
 }
 function checkpointRole(ref, display) {
   if (ref === display) return 'display';
+  if (/^\.workflow-system\/tasks\/(?:state|[a-f0-9]{64})\.json$/.test(ref)) return 'task-state';
+  if (/^\.workflow-system\/tasks\/retained\/[a-f0-9]{64}\/[a-f0-9]{64}\.[a-zA-Z0-9]{1,10}$/.test(ref)) return 'retained';
+  if (ref === '.workflow-system/.gitignore' || ref === '.workflow-system/.gitattributes') return 'configuration';
+  if (ref.startsWith('.workflow-system/tmp/tasks/')) return 'temporary';
+  if (ref.startsWith('.workflow-system/tasks/') && ref.endsWith('.tmp')) return 'temporary';
   if (ref === `${STORE}/.gitignore` || ref === `${STORE}/.gitattributes`) return 'configuration';
   if (new RegExp(`^${STORE.replaceAll('.', '\\.')}\/(events|attachments|task-labels)\/[^/]+\\.json$`).test(ref)
     || new RegExp(`^${STORE.replaceAll('.', '\\.')}\/evidence-objects\/[a-f0-9]{64}\\.blob$`).test(ref)
@@ -616,7 +636,8 @@ function checkpointRole(ref, display) {
   if (new RegExp(`^${STORE.replaceAll('.', '\\.')}\/legacy\/display-(?:[a-f0-9]{64}|capture-[a-f0-9-]+)\\.md$`).test(ref)) return 'recovery';
   if (new RegExp(`^${STORE.replaceAll('.', '\\.')}\/archives\/[a-f0-9]{64}\/(?:manifest\\.json|index-[0-9]{6}\\.json|pack-[0-9]{6}\\.bin)$`).test(ref)) return 'archive';
   if (['.archive-staging', 'archive-quarantine', '.record-store-locks'].some(name => ref === `${STORE}/${name}` || ref.startsWith(`${STORE}/${name}/`))) return 'temporary';
-  if (ref === `${STORE}/task-view.json` || ref.startsWith(`${STORE}/task-views/`)) return 'derived';
+  if ([`${STORE}/task-view.json`, `${STORE}/task-view-baseline.json`, `${STORE}/task-view-recovery.md`].includes(ref)
+    || ref.startsWith(`${STORE}/task-views/`)) return 'derived';
   if (ref.startsWith(`${STORE}/`) && (ref.endsWith('.tmp') || /^task-view.*\.lock$/.test(path.posix.basename(ref)))) return 'temporary';
   return 'unclassified';
 }
@@ -638,8 +659,12 @@ function checkpointVisitReferences(value, visit) {
   }
 }
 const checkpointFixedRecord = ref => /^\.workflow-system\/records\/(?:events\/[^/]+\.json|attachments\/[^/]+\.json|legacy\/current-[a-f0-9]{64}\.md)$/.test(ref);
+function checkpointMigrationSources(root, read = ref => storeReadFile(root, ref)) {
+  try { return new Map(migrationSources(read('.workflow-system/tasks/state.json')).map(source => [source.path, source])); }
+  catch (error) { if (['ENOENT', 'REFERENCE_MISSING'].includes(error.code)) return new Map(); throw error; }
+}
 function checkpointInventory(root, display, business = []) {
-  const files = new Map(), issues = [], pending = [STORE];
+  const files = new Map(), issues = [], pending = [STORE, '.workflow-system/tasks'];
   while (pending.length) {
     const ref = pending.pop();
     try {
@@ -669,7 +694,9 @@ function checkpointInventory(root, display, business = []) {
       files.set(target, 'fact'); logicalFiles.set(target, 'fact');
     } catch (error) { if (error.code !== 'ENOENT') referenceIssues.push({ ...issue(error), from, path: ref }); }
   }
+  const migratedSources = checkpointMigrationSources(root);
   for (const [ref, role] of logicalFiles) {
+    if (migratedSources.has(ref) || migratedSources.has(`${STORE}/archives/${archived.get(ref)?.archiveId}/manifest.json`)) continue;
     if (role !== 'fact' || !ref.endsWith('.json')) continue;
     try {
       const value = JSON.parse(storeReadFile(root, ref).toString('utf8'));
@@ -699,7 +726,8 @@ function checkpointScopedInventory(root, display, refs) {
   for (const ref of refs) {
     const object = checkpointObjectPath(root, ref), role = checkpointRole(ref, display);
     if (object) objects.add(ref);
-    if (object || ref.startsWith(`${STORE}/`) || role === 'display') files.set(ref, object ? 'fact' : role);
+    if (object || ref.startsWith(`${STORE}/`) || ref.startsWith('.workflow-system/tasks/')
+      || ['display', 'configuration', 'temporary'].includes(role)) files.set(ref, object ? 'fact' : role);
   }
   return { files, logicalFiles: files, archived: new Map(), archives: [], quarantined: [],
     issues: [], evidence_objects: objects, reference_issues: [] };
@@ -714,48 +742,22 @@ function checkpointAttributes(root, refs, cached = false) {
   }
   return result;
 }
-function checkpointPolicy(root, home, generatedDisplay, recordPaths = [], incremental = false) {
+function planGitPolicy(root, { home, generatedDisplay = false, recordPaths = [], incremental = true, currentRecords = false }) {
   const legacyDirectories = [...new Set(recordPaths.filter(ref => !ref.startsWith(`${STORE}/`) && checkpointObjectPath(root, ref))
     .map(ref => path.posix.dirname(ref)))].sort();
   const oldIgnore = '/task-view.json\n/task-views/\n/task-view*.lock\n**/*.tmp\n';
   const definitions = [];
+  if (currentRecords) definitions.push(...taskGitPolicyDefinitions(home));
   if (!incremental) definitions.push([`${STORE}/.gitignore`, `${oldIgnore}/.archive-staging/\n/archive-quarantine/\n/.record-store-locks/\n`]);
   if (!incremental || recordPaths.some(ref => ref.startsWith(`${STORE}/`)))
     definitions.push([`${STORE}/.gitattributes`, '** -text -filter -ident -working-tree-encoding\n']);
   for (const directory of legacyDirectories)
     definitions.push([`${directory}/.gitattributes`, '*.blob -text -filter -ident -working-tree-encoding\n']);
   if (generatedDisplay) definitions.push([`${home}/.gitignore`, '/CURRENT_TASK.md\n']);
-  const edits = [], paths = [], issues = [];
-  for (const [ref, body] of definitions) {
-    paths.push(ref);
-    const begin = '# BEGIN vNext checkpoint Git policy', end = '# END vNext checkpoint Git policy';
-    let bytes = null;
-    try { bytes = fs.readFileSync(local(root, ref)); } catch (error) { if (error.code !== 'ENOENT') { issues.push({ ...issue(error), path: ref }); continue; } }
-    let text;
-    try { text = bytes === null ? '' : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-    catch { issues.push({ code: 'POLICY_ENCODING_UNSUPPORTED', path: ref }); continue; }
-    const newline = text.includes('\r\n') ? '\r\n' : '\n';
-    const block = `${begin}\n${body}${end}\n`.replaceAll('\n', newline);
-    if (text.includes(begin) || text.includes(end)) {
-      const prior = `${begin}\n${oldIgnore}${end}\n`.replaceAll('\n', newline);
-      if (ref === `${STORE}/.gitignore` && text.includes(prior) && text.split(begin).length === 2 && text.split(end).length === 2
-        && !/@frozen|DO NOT MODIFY/i.test(text)) {
-        edits.push({ path: ref, before_sha256: sha(bytes), content: text.replace(prior, block),
-          existing_content_retained: true, project_policy_review: true });
-        continue;
-      }
-      if (!text.includes(block) || text.split(begin).length !== 2 || text.split(end).length !== 2)
-        issues.push({ code: 'POLICY_BLOCK_EDITED', path: ref, message: 'Keep project customizations; reconcile the policy explicitly, do not overwrite it.' });
-      continue;
-    }
-    if (/@frozen|DO NOT MODIFY/i.test(text)) { issues.push({ code: 'POLICY_FILE_FROZEN', path: ref }); continue; }
-    edits.push({ path: ref, before_sha256: bytes === null ? null : sha(bytes),
-      content: text + (text && !text.endsWith('\n') ? newline : '') + block,
-      existing_content_retained: true, project_policy_review: bytes !== null });
-  }
-  return { edits, paths, issues };
+  return gitPolicyEdits(root, definitions, local);
 }
 function checkpointReferences(root, inventory, selected, read = ref => storeReadFile(root, ref)) {
+  const migratedSources = checkpointMigrationSources(root, read);
   const issues = [...inventory.reference_issues], check = (ref, from, attachment = false, taskData = false, fixed = false) => {
     if (typeof ref !== 'string') return;
     if (!attachment && !ref.startsWith(`${STORE}/`)
@@ -775,6 +777,31 @@ function checkpointReferences(root, inventory, selected, read = ref => storeRead
     } catch (error) { issues.push({ ...issue(error), from, path: ref }); }
   };
   for (const [ref, role] of inventory.inspectedFiles ?? inventory.logicalFiles ?? inventory.files) {
+    if (migratedSources.has(ref)) {
+      const expected = migratedSources.get(ref), actual = selected.get(ref);
+      if (actual && (actual.sha256 !== expected.sha256 || actual.size !== expected.size))
+        issues.push({ code: 'MIGRATION_SOURCE_BYTES_DIFFER', path: ref });
+      continue;
+    }
+    if (migratedSources.has(`${STORE}/archives/${inventory.archived?.get(ref)?.archiveId}/manifest.json`)) continue;
+    if (role === 'task-state') {
+      try {
+        for (const dependency of taskStateReferences(ref, read(ref))) {
+          const target = checkpointPath(root, dependency.path);
+          if (!(inventory.logicalFiles ?? inventory.files).has(target)) issues.push({ code: 'REFERENCE_MISSING', from: ref, path: target });
+          else if (!selected.has(target)) issues.push({ code: 'REFERENCE_NOT_SELECTED', from: ref, path: target });
+          const metadata = selected.has(target) ? selected.get(target) : null;
+          if (metadata && dependency.sha256 && (metadata.sha256 !== dependency.sha256 || metadata.size !== dependency.size))
+            issues.push({ code: 'RETAINED_ARTIFACT_BYTES_DIFFER', from: ref, path: target });
+        }
+      } catch (error) { issues.push({ code: error.code ?? 'TASK_STATE_UNREADABLE', path: ref, message: error.message }); }
+      continue;
+    }
+    if (role === 'retained') {
+      const named = /\/([a-f0-9]{64})\.[^.]+$/.exec(ref)?.[1];
+      if (selected.has(ref) && selected.get(ref)?.sha256 !== named) issues.push({ code: 'PRESERVED_DIGEST_MISMATCH', path: ref });
+      continue;
+    }
     if (role !== 'fact') continue;
     try {
       if (!ref.endsWith('.json')) {
@@ -904,7 +931,7 @@ function checkpointStoredReferences(root, plan, target, isCommit) {
       metadata(ref);
       return checkpointBlob(root, entry.oid, blob => fs.readFileSync(blob));
     };
-    issues.push(...checkpointReferences(root, { files: logicalFiles, logicalFiles, reference_issues: [] }, selected, read));
+    issues.push(...checkpointReferences(root, { files: logicalFiles, logicalFiles, archived, reference_issues: [] }, selected, read));
     if (!isCommit) for (const [ref, row] of checkpointAttributes(root,
       [...new Set([...archivePaths, ...objects.keys()].filter(ref => checkpointRole(ref, '') === 'archive' || checkpointObjectPath(root, ref)))], true)) {
       if (row.text !== 'unset' || ['filter', 'ident', 'working-tree-encoding'].some(k => !['unset', 'unspecified'].includes(row[k])))
@@ -934,15 +961,17 @@ export function gitCheckpoint(root, input = {}) {
   };
   const business = exactPaths(input.business_paths ?? []), records = exactPaths(input.record_paths ?? []);
   const requested = [...new Set([...business, ...records])], exclusions = exactPaths(input.exclude_paths ?? []);
-  for (const ref of records) if (!['fact', 'recovery', 'archive', 'configuration'].includes(checkpointRole(ref, '')) && !checkpointObjectPath(root, ref))
+  for (const ref of records) if (!['fact', 'task-state', 'retained', 'recovery', 'archive', 'configuration'].includes(checkpointRole(ref, '')) && !checkpointObjectPath(root, ref))
     throw failure('INVALID_RECORD_PATH', `Select an exact persistent record, not a derived view or business file: ${ref}`);
   // A selected link's own value is supported; a linked ancestor must not turn a
   // worktree path into an alias for another scope. Index sources need no traversal.
   if (source === 'worktree') for (const ref of requested) local(root, path.posix.dirname(ref));
   const excluded = ref => exclusions.some(p => ref === p || ref.startsWith(`${p}/`));
   const { home, issues: homeIssues } = workflowHome(root, input.workflow_home), display = `${home}/CURRENT_TASK.md`;
+  const currentRecords = requested.some(ref => ['task-state', 'retained'].includes(checkpointRole(ref, display)))
+    || (mode === 'checkpoint' && fs.existsSync(local(root, '.workflow-system/tasks/state.json')));
   let generatedDisplay = false, displayHasMarker = false;
-  if (mode === 'checkpoint') {
+  if (mode === 'checkpoint' || currentRecords || requested.includes(display)) {
     try {
       const published = readTaskDisplay(root, display, { local });
       displayHasMarker = published.managed;
@@ -962,17 +991,24 @@ export function gitCheckpoint(root, input = {}) {
   const selected = new Set(requested.filter(ref => !excluded(ref) && !blockedArchivePaths.has(ref)));
   const files = [], deletions = [], archiveMigrations = [];
   const omitted = [], problems = [...homeIssues, ...inventory.issues], policy = mode !== 'paths'
-    ? checkpointPolicy(root, home, generatedDisplay, [...inventory.files.keys()].filter(ref => !excluded(ref)), mode === 'incremental')
+    ? planGitPolicy(root, { home, generatedDisplay, recordPaths: [...inventory.files.keys()].filter(ref => !excluded(ref)),
+      incremental: mode === 'incremental', currentRecords })
     : { edits: [], paths: [], issues: [] };
+  for (const ref of selected) {
+    const role = checkpointRole(ref, display);
+    if (['derived', 'temporary'].includes(role) || (role === 'display' && generatedDisplay)) {
+      selected.delete(ref); omitted.push({ path: ref, role, reason: 'local-generated' });
+    }
+  }
   if (mode === 'checkpoint') {
     for (const [ref, role] of inventory.files) {
-      if (['fact', 'recovery', 'archive', 'configuration'].includes(role) && !excluded(ref) && !blockedArchivePaths.has(ref)) selected.add(ref);
+      if (['fact', 'task-state', 'retained', 'recovery', 'archive', 'configuration'].includes(role) && !excluded(ref) && !blockedArchivePaths.has(ref)) selected.add(ref);
       else omitted.push({ path: ref, role, reason: excluded(ref) || blockedArchivePaths.has(ref) ? 'user-excluded' : ['derived', 'temporary'].includes(role) ? 'local-generated' : 'classification-required' });
     }
     const selectedArchives = new Set(inventory.archives.filter(archive => archive.physical_files.every(file => selected.has(file.ref))).map(archive => archive.id));
     for (const ref of new Set([...before.keys(), ...index.entries.keys()])) {
       const role = checkpointRole(ref, display);
-      if (!['fact', 'recovery', 'archive'].includes(role) || inventory.files.has(ref)) continue;
+      if (!['fact', 'task-state', 'retained', 'recovery', 'archive'].includes(role) || inventory.files.has(ref)) continue;
       const proof = quarantineByRef.get(ref), archived = inventory.archived.get(ref);
       const archive = archived && archivesById.get(archived.archiveId);
       if (role === 'fact' && proof && archived && archive && !excluded(ref)
@@ -1005,7 +1041,8 @@ export function gitCheckpoint(root, input = {}) {
     problems.push({ code: 'DISPLAY_DRIFT_RETAINED', path: display, message: 'No matching saved generated view. Keep the file and resolve/preserve its content; do not newly ignore or untrack it.' });
   for (const ref of [...selected].sort()) {
     const fileSource = source === 'index' && business.includes(ref) ? 'index' : 'worktree';
-    const object = checkpointObjectPath(root, ref), byteExact = ref.startsWith(`${STORE}/`) || !!object;
+    const object = checkpointObjectPath(root, ref), byteExact = ref.startsWith(`${STORE}/`)
+      || ['task-state', 'retained'].includes(checkpointRole(ref, display)) || !!object;
     let role = inventory.files.get(ref);
     if (!role) {
       if (object) role = 'fact';
@@ -1027,7 +1064,8 @@ export function gitCheckpoint(root, input = {}) {
       files.push({ path: ref, role, source: fileSource, byte_exact: byteExact, ...metadata });
     } catch (error) {
       if (error.code === 'ENOENT' && requested.includes(ref) && before.has(ref) && mode === 'paths') deletions.push(ref);
-      else if (error.code === 'ENOENT' && business.includes(ref) && before.has(ref) && !ref.startsWith(`${STORE}/`)) deletions.push(ref);
+      else if (error.code === 'ENOENT' && business.includes(ref) && before.has(ref)
+        && !['fact', 'task-state', 'retained', 'recovery', 'archive'].includes(role)) deletions.push(ref);
       else problems.push({ ...issue(error), path: ref });
     }
   }
@@ -1037,6 +1075,17 @@ export function gitCheckpoint(root, input = {}) {
     if (!(['derived', 'temporary'].includes(role) || (role === 'display' && generatedDisplay)) || selected.has(ref) || excluded(ref)) continue;
     trackedDerived.push(ref);
     if (input.untrack_derived === true) {
+      if (ref === `${STORE}/task-view-recovery.md`) {
+        let verified = false;
+        try {
+          const baseline = JSON.parse(fs.readFileSync(local(root, `${STORE}/task-view-baseline.json`), 'utf8'));
+          verified = hashFile(local(root, ref)) === baseline.recovery_sha256;
+        } catch { /* An unavailable recovery baseline is not permission to untrack user bytes. */ }
+        if (!verified) {
+          problems.push({ code: 'RECOVERY_DRIFT_RETAINED', path: ref, message: 'The fixed recovery copy differs from its saved baseline; preserve its tracking and resolve the actual edits.' });
+          continue;
+        }
+      }
       if (!checkpointEqual(before.get(ref), index.entries.get(ref)) || index.unmerged.includes(ref)) {
         problems.push({ code: 'STAGED_DERIVED_CHANGE', path: ref, message: 'Retain staged work until the user selects its disposition.' });
       } else {
@@ -1056,7 +1105,7 @@ export function gitCheckpoint(root, input = {}) {
   const attrs = checkpointAttributes(root, worktreeFiles.filter(f => f.byte_exact).map(f => f.path));
   const indexAttrs = checkpointAttributes(root, files.filter(f => f.byte_exact && f.source === 'index').map(f => f.path), true);
   for (const f of files) {
-    if (['fact', 'archive'].includes(f.role) && before.has(f.path) && before.get(f.path).oid !== f.raw_git_oid)
+    if (['fact', 'retained', 'archive'].includes(f.role) && before.has(f.path) && before.get(f.path).oid !== f.raw_git_oid)
       problems.push({ code: 'TRACKED_FACT_CHANGED', path: f.path, message: 'Inspect the immutable-history change; do not silently overwrite it during a checkpoint.' });
     const attributes = (f.source === 'index' ? indexAttrs : attrs).get(f.path);
     if (f.byte_exact && Object.values(attributes ?? {}).some(v => !['unset', 'unspecified'].includes(v)))
@@ -1088,7 +1137,9 @@ export function gitCheckpoint(root, input = {}) {
     configuration, tracked_derived_retained: trackedDerived.filter(p => !untrack.includes(p)), omitted,
     issues: problems, reference_issues: referenceIssues };
   return { ...base(), status: 'planned', ...plan,
-    counts: { selected: files.length, facts: files.filter(f => f.role === 'fact').length, recovery: files.filter(f => f.role === 'recovery').length,
+    counts: { selected: files.length, facts: files.filter(f => f.role === 'fact').length,
+      task_states: files.filter(f => f.role === 'task-state').length, retained: files.filter(f => f.role === 'retained').length,
+      recovery: files.filter(f => f.role === 'recovery').length,
       archives: files.filter(f => f.role === 'archive').length, archived_records: [...selectedRecords.values()].filter(f => f.storage === 'archive').length,
       add: plan.add_paths.length, untrack: untrack.length, omitted: omitted.length },
     note: 'Only explicitly selected paths are candidates by default; mode=checkpoint explicitly inspects project-wide records and archives. Apply authorized configuration, re-plan and review the index. Reference gaps remain gaps; keep this plan in an OS temporary file.' };
@@ -1210,7 +1261,7 @@ function verifyCheckpoint(root, input, head, algorithm) {
   const saved = new Map(plan.files.map(f => [f.path, f]));
   const remaining = [...inventory.issues.map(i => ({ ...i, reason: 'unreadable' }))];
   for (const f of byteExactFiles) if (!inventory.files.has(f.path)) remaining.push({ path: f.path, role: f.role, reason: 'missing-from-worktree' });
-  for (const [ref, role] of inventory.files) if (['fact', 'archive', 'recovery', 'configuration', 'unclassified'].includes(role)) {
+  for (const [ref, role] of inventory.files) if (['fact', 'task-state', 'retained', 'archive', 'recovery', 'configuration', 'unclassified'].includes(role)) {
     try {
       const f = checkpointFile(root, ref, algorithm);
       if (target.get(ref)?.oid !== f.raw_git_oid) remaining.push({ path: ref, role,
@@ -1244,7 +1295,10 @@ export async function runAssistance(argv = process.argv.slice(2)) {
     const statusQuery = command === 'task' && (input?.action ?? 'status') === 'status';
     const result = statusQuery ? queryStatus(root, input)
       : { context: queryContext, record, snapshot, read, find, task, 'task-status': queryStatus, 'git-checkpoint': gitCheckpoint, archive }[command](root, input);
-    console.log(json(result)); return command === 'git-checkpoint' && result.status === 'mismatch' ? 1 : 0;
+    console.log(json(result));
+    return (command === 'git-checkpoint' && result.status === 'mismatch')
+      || (result.kind === 'task-write/v1' && result.status === 'failed')
+      || (result.kind === 'task-cleanup/v1' && result.status === 'partial') ? 1 : 0;
   } catch (error) {
     console.log(json({ ...base(), status: 'unavailable', recorded: false, command, ...issue(error),
       next_action: 'Report this service failure; retain output elsewhere when authorized. Do not turn it into a development stop, rerun business commands, or claim successful persistence.' }));

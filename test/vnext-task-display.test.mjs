@@ -27,6 +27,7 @@ function tree(root, relative = '') {
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-task-display-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, '.workflow-system/records/events'), { recursive: true }); // Existing journal fixture.
   fs.mkdirSync(local(root, 'docs/workflow'), { recursive: true });
   const prepared = task(root, { action: 'prepare', plan: { title: 'Display truth', steps: [{ id: 'S1', title: 'Preserve evidence' }] } });
   assert.equal(prepared.recorded, true);

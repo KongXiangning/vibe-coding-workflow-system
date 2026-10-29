@@ -26,7 +26,7 @@ function compact(root) {
 }
 async function instrument(t) {
   const root = fixture(t), source = new URL('../runtime/vnext/support/', import.meta.url);
-  for (const name of ['record-storage.mjs', 'assistance.mjs', 'task-management.mjs', 'task-event-codec.mjs'])
+  for (const name of ['record-storage.mjs', 'assistance.mjs', 'task-management.mjs', 'task-state.mjs', 'task-event-codec.mjs'])
     fs.copyFileSync(new URL(name, source), path.join(root, name));
   const file = path.join(root, 'record-storage.mjs');
   let text = fs.readFileSync(file, 'utf8');

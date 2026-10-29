@@ -19,6 +19,7 @@ const row = (root, ref) => JSON.parse(storeReadFile(root, ref));
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-task-codec-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, '.workflow-system/records/events'), { recursive: true }); // Existing journal fixture.
   fs.mkdirSync(path.join(root, 'docs/workflow'), { recursive: true });
   return root;
 }

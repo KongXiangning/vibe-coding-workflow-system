@@ -210,7 +210,7 @@ function gitObject(root, requested) {
 }
 
 /** Query-local direct-edge graph; never materializes a transitive closure per event. */
-function causalRelations(events) {
+export function causalRelations(events) {
   const direct = new Map([...events].map(([ref, e]) => [ref, e.parents]));
   for (const parents of direct.values()) for (const ref of parents) if (!direct.has(ref)) direct.set(ref, []);
   const removedAt = new Map(), observedAt = new Map();
@@ -739,6 +739,21 @@ export function readTaskDisplay(root, ref, io) {
     result.issue = diagnostic('CURRENT_TASK_DISPLAY_DIGEST_MISMATCH', ref, 'Current display content differs from its semantic display revision.');
     return result;
   }
+  // Current-record mode keeps one byte baseline, rather than per-revision snapshots.
+  const currentBaseline = `${STORE}/task-view-baseline.json`;
+  if (v2 && fs.existsSync(io.local(root, '.workflow-system/tasks/state.json'))) {
+    result.snapshot_ref = currentBaseline;
+    try {
+      const baseline = JSON.parse(readFile(root, currentBaseline, io));
+      result.verified = baseline.current_sha256 === digest(bytes);
+      if (!result.verified) result.issue = diagnostic('CURRENT_TASK_BASELINE_MISMATCH', ref,
+        'Current display differs from its published byte baseline.', { snapshot_ref: currentBaseline });
+    } catch (e) {
+      result.issue = diagnostic('CURRENT_TASK_BASELINE_UNAVAILABLE', ref, 'The current display byte baseline cannot be read.',
+        { snapshot_ref: currentBaseline, error: errorInfo(e) });
+    }
+    return result;
+  }
   result.snapshot_ref = `${STORE}/task-views/${result.revision}.md`;
   try {
     result.verified = readFile(root, result.snapshot_ref, io).equals(bytes);
@@ -752,14 +767,19 @@ export function readTaskDisplay(root, ref, io) {
 function sameDisplay(view, display) {
   return display.verified && display.bytes.equals(Buffer.from(render(view, display.format === 'v1' ? display : undefined)));
 }
-function atomicReplace(root, ref, bytes, io) {
+export function removeTemporaryFile(file) {
+  // Direct unlink also removes files under non-ASCII Windows paths; the native
+  // rmSync cleanup can silently leave those staging files behind.
+  try { fs.unlinkSync(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+}
+export function atomicReplace(root, ref, bytes, io) {
   const file = io.local(root, ref); fs.mkdirSync(path.dirname(file), { recursive: true });
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
     const fd = fs.openSync(temp, 'wx', 0o600);
     try { fs.writeFileSync(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.renameSync(temp, file);
-  } finally { fs.rmSync(temp, { force: true }); }
+  } finally { removeTemporaryFile(temp); }
 }
 function publishDisplay(root, ref, text, previous, io) {
   const file = io.local(root, ref), next = Buffer.from(text);
@@ -792,15 +812,15 @@ function publishDisplay(root, ref, text, previous, io) {
       // writes through an editor's already-open descriptor cannot disappear on cleanup.
       try { fs.linkSync(preserved, file); } catch (e) { if (e.code !== 'EEXIST') throw e; }
     }
-    fs.rmSync(candidate, { force: true });
+    removeTemporaryFile(candidate);
   }
 }
-function viewLock(root, io, fn) {
+export function viewLock(root, io, fn) {
   const ref = `${STORE}/task-view.lock`;
   let file = io.local(root, ref);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const owner = { pid: process.pid, host: hostname(), id: randomUUID() };
-  const busy = () => Object.assign(new Error('Task view is being published; facts are saved and live queries remain available.'), { code: 'VIEW_BUSY' });
+  const busy = () => Object.assign(new Error('Task management I/O is busy; inspect persistence results before retrying this management operation.'), { code: 'VIEW_BUSY' });
   // Link a completely written inode into place. A crash cannot leave a new empty lock.
   const temp = `${file}.${owner.id}.tmp`;
   const fd = fs.openSync(temp, 'wx', 0o600);
@@ -833,7 +853,7 @@ function viewLock(root, io, fn) {
     return fn();
   } finally {
     try { if (JSON.parse(fs.readFileSync(file, 'utf8')).id === owner.id) fs.unlinkSync(file); } catch { /* Do not remove another writer's lock. */ }
-    fs.rmSync(temp, { force: true });
+    removeTemporaryFile(temp);
   }
 }
 /** View publication is secondary; every failure is returned separately from fact persistence. */

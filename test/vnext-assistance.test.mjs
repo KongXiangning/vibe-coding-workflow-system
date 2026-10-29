@@ -113,6 +113,7 @@ test('the installed native entry works without kernel/dependencies; concurrent r
   const root = fixture(t), installed = path.join(root, '.workflow-system/runtime/support/assistance.mjs');
   fs.mkdirSync(path.dirname(installed), { recursive: true }); fs.copyFileSync(runtime, installed);
   fs.copyFileSync(path.join(path.dirname(runtime), 'task-management.mjs'), path.join(path.dirname(installed), 'task-management.mjs'));
+  fs.copyFileSync(path.join(path.dirname(runtime), 'task-state.mjs'), path.join(path.dirname(installed), 'task-state.mjs'));
   fs.copyFileSync(path.join(path.dirname(runtime), 'record-storage.mjs'), path.join(path.dirname(installed), 'record-storage.mjs'));
   fs.copyFileSync(path.join(path.dirname(runtime), 'task-event-codec.mjs'), path.join(path.dirname(installed), 'task-event-codec.mjs'));
   const call = payload => new Promise((resolve, reject) => {
@@ -301,6 +302,7 @@ test('installed CLI defaults to compact queries, supports full compatibility and
   fs.mkdirSync(path.dirname(installed), { recursive: true });
   fs.copyFileSync(runtime, installed);
   fs.copyFileSync(path.join(path.dirname(runtime), 'task-management.mjs'), path.join(path.dirname(installed), 'task-management.mjs'));
+  fs.copyFileSync(path.join(path.dirname(runtime), 'task-state.mjs'), path.join(path.dirname(installed), 'task-state.mjs'));
   fs.copyFileSync(path.join(path.dirname(runtime), 'record-storage.mjs'), path.join(path.dirname(installed), 'record-storage.mjs'));
   fs.copyFileSync(path.join(path.dirname(runtime), 'task-event-codec.mjs'), path.join(path.dirname(installed), 'task-event-codec.mjs'));
   const call = (command, input = {}, status = 0) => {

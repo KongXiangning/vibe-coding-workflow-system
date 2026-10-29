@@ -62,14 +62,22 @@ Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
 Use `task-status` (or the `context.management` view) to identify the task, adopted
-plan, step, review/disposition and actual commits. It reads the complete journal,
-not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
-For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
-`record` is for general observations, not a substitute for task registration.
+plan, step, review/disposition and actual commits. Honor the returned query kind:
+`task-query/v2` reads each Task's current JSON; `task-query/v1` reads the retained
+journal. Neither a find page nor the old CURRENT_TASK tuple is current state.
+`find`/`read` remain evidence tools. For task changes use the documented `task` actions.
+In v2, use task_ref, the current expected_revision and, when focus changes,
+expected_project_revision. Supply a stable idempotency_key for a write and reuse it
+only for the same request; read back after a conflict instead of replaying business work.
+Logical plan/execution/review refs are identities, not paths; source_ref is the actual
+Task file. `record` in v2 requires task_ref/report_key and saves a temporary report
+slot, not permanent history or task state. `snapshot` also requires task_ref. Put new
+raw logs/screenshots under that Task's temporary directory so closure can remove
+both originals and captured blobs. Retain only explicitly selected lasting material.
 Normal management updates are part of the requested task operation, not optional
 future reconciliation. Check `recorded`, `association` and `projection` separately.
 If an association/view update fails, retain facts, try a bounded deterministic rebuild
-when appropriate, and present concrete link/correct/resolve/defer choices. Honor the
+when appropriate, and present supported correction/resolve/defer choices (link in v1). Honor the
 chosen recovery without repeating business actions or asking again for existing consent.
 A read-only request uses live task-status without writing a cache. Never declare
 full task-management completion merely because a generic record was saved.
@@ -113,13 +121,21 @@ parent focus, or report why it cannot. Read back both the child's closure and ac
 task/step. Use the returned next_task_id/next_step_id/next_route, not the closed child's null
 route or an earlier suggestion. Returning does not finish or execute the parent step.
 
+For task-query/v2, before closing, use task retain for explicitly selected lasting
+attachments and save the final delivery, constraints, decisions and remaining_work.
+Keep actual owner_id/point_id and plan_ref/step_id, implementation and verification
+separately; tests and their rerunnable commands stay in normal code. Select lasting
+materials by the agreed producer/use rules, without classifying every temporary file.
+After close, read the final source_ref/source_sha256 for any fixed-source assessment.
+
 Use `task` action `close` with the stable task_id, actual decision, remaining_work,
 evidence limits and plan/review/result references. Then read task-status: the task
 must show closed and must no longer be the active work focus. This is disposition,
 not verified completion, and does not authorize rollback, commit, push or deployment.
 
-The service updates the unified view and CURRENT_TASK display while preserving the
-old file as a historical snapshot. Report persistence, association and view results
+The service updates the unified view and CURRENT_TASK display. In v2, views and
+normal recovery copies use fixed slots; v1 retains its historical snapshots.
+Report persistence, association and view results
 separately. If view publication failed, the saved close remains real; use live status
 and offer rebuild/correction/defer rather than claiming every management update finished.
 Retain useful lessons as observations; legacy archive mirrors are not the current view.
@@ -154,6 +170,32 @@ Missing classification or a binding save failure never delays or reverses the cl
 Retain any actual parent continuation and selected focus during this local
 evaluation; advice or a maintenance failure never replaces or blocks that return.
 
+### v2 final materials and local cleanup
+
+Apply this section only to task-query/v2. The final Task and selected lasting material
+above are the durable basis for local accounting; do not ask a model to classify every temporary file
+or expand this into project-wide maintenance.
+
+After the close is saved/read back and the authorized local accounting above is saved,
+reused or explicitly pending, call task action cleanup with the **closed task_ref** and
+its latest expected_revision. Do not select the returned parent focus for cleanup.
+The existing close-task instruction includes this mechanical per-Task cleanup; no
+extra confirmation, timer or background service is needed. Runtime removes only that
+Task's temporary directory, not business documents, tests, formal Task JSON or retained
+attachments. It returns statistics without a permanent cleanup receipt or Task rewrite.
+
+If a pending assessment still depends on a temporary-only source, retain that selected
+source before cleanup. Late retention changes Task bytes: read back the final source
+and recheck affected report applicability before claiming accounting complete; do not
+replace a saved digest to conceal that change. If required retention or final fact
+persistence fails, leave cleanup pending with exact refs and reason; preserve the saved close. Missing optional
+assessment data alone does not force all temporary logs to remain. A stale revision,
+resume race or partial deletion is not successful cleanup: inspect actual state,
+report what remains and retry only after the concrete cause is resolved. Do not reopen
+the Task, replay implementation/tests, clear findings or generate follow-up work just
+to make cleanup succeed. Do not run this v2 cleanup on journal/v1 projects; legacy
+archive/migration remains an explicit separate operation.
+
 Apply the shared rule to all closure deviations, not only missing approval. Gather
 unfinished steps, failed/not-run checks and open findings into one consequence summary.
 Once the user confirms the chosen disposition, close through the task management action without
@@ -164,6 +206,9 @@ first making those gaps disappear; preserve them explicitly in the closure repor
 Report closure persistence/association/view separately from product reconciliation:
 the assessed requirement/functional-point coverage, applicable report and readback
 conclusion, and any pending/deferred/unsaved scope with its locator and reason.
+For v2, also report temporary cleanup as clean/partial/pending with actual counts or
+remaining refs, separately from closure and delivery. Clean temporary storage does
+not change a failed check, unresolved issue, adopted scope or parent continuation.
 When a scope or assessment is missing, say **task closed; delivery reconciliation
 pending** for that scope, not that the management loop is complete. Follow the
 shared reference for durable pending entries; if none can be saved, return their

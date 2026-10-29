@@ -51,14 +51,22 @@ Follow `.workflow-system/WORKFLOW_PROTOCOL.md` and the management API in
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
 Use `task-status` (or the `context.management` view) to identify the task, adopted
-plan, step, review/disposition and actual commits. It reads the complete journal,
-not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
-For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
-`record` is for general observations, not a substitute for task registration.
+plan, step, review/disposition and actual commits. Honor the returned query kind:
+`task-query/v2` reads each Task's current JSON; `task-query/v1` reads the retained
+journal. Neither a find page nor the old CURRENT_TASK tuple is current state.
+`find`/`read` remain evidence tools. For task changes use the documented `task` actions.
+In v2, use task_ref, the current expected_revision and, when focus changes,
+expected_project_revision. Supply a stable idempotency_key for a write and reuse it
+only for the same request; read back after a conflict instead of replaying business work.
+Logical plan/execution/review refs are identities, not paths; source_ref is the actual
+Task file. `record` in v2 requires task_ref/report_key and saves a temporary report
+slot, not permanent history or task state. `snapshot` also requires task_ref. Put new
+raw logs/screenshots under that Task's temporary directory so closure can remove
+both originals and captured blobs. Retain only explicitly selected lasting material.
 Normal management updates are part of the requested task operation, not optional
 future reconciliation. Check `recorded`, `association` and `projection` separately.
 If an association/view update fails, retain facts, try a bounded deterministic rebuild
-when appropriate, and present concrete link/correct/resolve/defer choices. Honor the
+when appropriate, and present supported correction/resolve/defer choices (link in v1). Honor the
 chosen recovery without repeating business actions or asking again for existing consent.
 A read-only request uses live task-status without writing a cache. Never declare
 full task-management completion merely because a generic record was saved.
@@ -147,7 +155,7 @@ because it was recommended or widen validation or external effects without autho
 
 terminal_boundary: public-entry-terminal/v1
 
-When retaining evidence, apply WORKFLOW_PROTOCOL's **Fixed evidence references and new
-captures** convention: reuse verified immutable material with `evidence_refs`, retain
+For journal/v1 and explicitly retained immutable evidence, apply WORKFLOW_PROTOCOL's
+**Fixed evidence references and new captures** convention: reuse verified immutable material with `evidence_refs`, retain
 this run's necessary output with `files`, and never omit distinct runs, failures, user
 choices or before/after states because they look similar.

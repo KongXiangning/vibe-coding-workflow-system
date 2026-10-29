@@ -78,7 +78,7 @@ After confirmation, carry out exactly the chosen action, including any authorize
 remaining stages, without requiring another Skill invocation, a waiver receipt,
 clean review, legacy state repair or another approval for the same disclosed gap.
 Record the actual outcome, not just the decision. For step/task disposition use the
-assistance journal; do not send the choice back through an incompatible legacy
+selected assistance Task store; do not send the choice back through an incompatible legacy
 complete/advance/close gate. Completion of work and verification remain separate.
 Confirmation never turns failed/not-run/unknown into PASS or self-review into independent
 review. It authorizes only the chosen work; file changes, deletion, commit or deployment
@@ -91,12 +91,16 @@ not invalidate it. Ask again only about material new consequences, a changed tar
 action, or a revised/revoked instruction; show what changed. A prior one-step decision
 is not blanket permission for later work. Do not invent earlier consent if unavailable.
 
-Keep the user's actual source/text separate from the agent's summary. Use existing
-`record` with kind `decision`, plus links from the later outcome; include the target,
-choice, disclosed gaps and scope as available. These are recording conventions, not
-required token fields or Runtime authorization. A recording failure does not revoke
-a choice still available in the conversation: report it and use another authorized
-recording method. Never claim the journal or legacy projection was updated when not.
+Keep the user's actual source/text separate from the agent's summary. Include the
+target, choice, disclosed gaps and scope as available. In v2, save decision_source
+and decision_text with the relevant actual Task action (or its supported decision
+object); temporary record slots are not permanent decision storage. With no related
+Task, use an existing authorized business/governance document rather than creating
+a Task just to record consent. Journal/v1 may use record with kind decision and links
+from the later outcome. These are recording conventions, not required token fields or
+Runtime authorization. A recording failure does not revoke a choice still available
+in the conversation: report it and use another authorized recording method. Never
+claim the Task store or a management view was updated when not.
 
 ## Derived prerequisite tasks
 
@@ -147,11 +151,12 @@ Git verification and reporting its SHA; it does not require a journal entry or v
 an automatic post-commit step. Missing journal commit entries alone justify neither
 another commit nor recovery work. Never create a chain of commits recording their own SHA.
 
-Every state question uses `task-status` / `context.management`. They recompute from
-the complete retained journal. A generic find page or old CURRENT_TASK is not current
-state. Report partial associations instead of concluding an unlinked plan never existed.
-CURRENT_TASK is the generated human-readable view; its previous bytes and old task
-store remain historical sources. The old task kernel is not a writer of this display.
+Every state question uses `task-status` / `context.management`. In task-query/v2 they
+read one current Task JSON and project tasks/state.json; existing journal projects
+continue on task-query/v1 until explicit migration. A find page or old CURRENT_TASK
+tuple is not current state. Report incomplete coverage and unresolved associations.
+CURRENT_TASK is generated; v2 uses fixed cache/baseline/recovery slots without a
+per-update display history. The old task kernel is not a writer of this display.
 
 Normal view maintenance belongs to each task operation. Check fact persistence,
 association and projection separately; a saved note is not full task-management
@@ -247,10 +252,14 @@ that historical objects or unrelated records are unavailable.
 
 Existing Task Store, task-data, task-history, evidence blobs, test reports,
 knowledge records and document lookup remain available; no task reset or forced
-rebootstrap is required. The new append-only journal extends retained management
-facts. A preserved old baseline and generated current view replace the obsolete active
-display without rewriting old evidence. The journal, labels and views are project data,
-never distribution-owned artifacts.
+rebootstrap is required. Existing journal projects retain their facts until explicit
+migration. Fresh v2 projects store each Task's current state, current environment
+checks, scoped delivery, decisions and remaining work without permanent per-call
+events. Reports/blobs/raw logs belong to .workflow-system/tmp/tasks/<task_key> and
+are cleaned at the end of close-task after required retention and local accounting.
+No background maintenance or model-based per-file classification is required.
+Formal Task records and state.json, old journals, labels and views remain project
+data, never distribution-owned artifacts. Software installation does not migrate them.
 
 The capability and runtime_operations lists in existing entry metadata and
 SOURCE_CONTRACT/RUNTIME_CONTRACT enumerate compatible tools. They are not a list
@@ -280,8 +289,16 @@ Only that full mode inventories all persistent facts, validates archives and ret
 legacy display/capture recovery material. Do not infer it from a plain commit,
 task closure or maintenance completion. It never deletes original recovery files
 or protects future writes through open handles. Storage cleanup remains separate.
-Incremental commits exclude rebuildable projections, locks and temporary files,
-and propose no ignore changes or automatic untracking. In a full checkpoint,
+Incremental commits exclude rebuildable projections, locks and temporary files.
+For v2, scoped setup may merge the known ignore/byte-preservation policy blocks,
+without owning whole project configuration files or automatically untracking data.
+Include changed formal Task JSON, the related project state when changed, and
+explicitly retained attachments; current Task JSON may replace its prior Git bytes.
+Logical plan/execution/review IDs and temporary blob references are not file dependencies.
+Installation/upgrade uses the same additive blocks, honors workflow_home and preserves
+custom rules, frozen files and existing tasks/history. Tracked old blobs remain a
+separate explicit migration; ignoring them does not remove their existing Git entries.
+In a full checkpoint,
 untracking a verified generated view retains its local file and must be explicit
 in the plan. An edited/unrecognized CURRENT_TASK is not silently hidden.
 
@@ -297,6 +314,13 @@ After the commit, only read Git and report residual/new/excluded records. Do not
 write or recursively commit an event recording the checkpoint's own SHA.
 
 ## Fixed evidence references and new captures
+
+For v2, use the returned temporary_directory for original logs and disposable output,
+task_ref/report_key for a report slot, and task actions for current scoped results.
+Repeated runs replace a check_id/environment_id or report_key; other environments,
+failed/not-run checks and unresolved findings remain. Keep formal Task text and
+explicitly retained originals; do not retain a permanent event/full report per call.
+The rules below govern journal/v1 and explicitly retained immutable evidence.
 
 Reuse already retained material through its immutable ref and SHA256. `evidence_refs`
 keeps the material's role in the current observation while verifying its preserved bytes;
@@ -319,6 +343,8 @@ This assistance subflow is independent of PRODUCT documents and task lifecycle.
 Default inspection is read-only; creating packs retains originals. Reclamation
 needs actual authority, verified recoverable backing and the scoped Runtime
 operations. Existing explicit authority covers the requested sequence without
-per-command reconfirmation. No install, upgrade, close or commit automatically
-starts storage cleanup. Fixed evidence references above govern new captures;
+per-command reconfirmation. No install, upgrade or commit starts historical storage
+cleanup. close-task only runs the agreed v2 per-Task temporary cleanup after final
+retention and accounting; it does not archive/reclaim old journals or unrelated Tasks.
+Fixed evidence references above govern new captures;
 they do not authorize historical archive maintenance or evidence pruning.

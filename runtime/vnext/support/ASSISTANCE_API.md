@@ -6,11 +6,50 @@ node .workflow-system/runtime/support/assistance.mjs <command> --root <project>
 
 Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 Input is JSON on stdin. Commands: context, task-status, task, record, snapshot, read, find, git-checkpoint.
-Native modules assistance.mjs and task-management.mjs use Node built-ins, not the old
-transaction/qualification kernel. The service never executes product commands or tests.
+Native support modules use Node built-ins, not the old transaction/qualification kernel.
+The service never executes product commands or tests.
 `task git` reads local commit objects but writes the requested association and management
 views. It is optional, for explicitly requested persistent associations; ordinary commits
 are verified and reported directly from Git without calling it. It does not commit or push.
+
+## Current Task records: task-query/v2 (Runtime source implementation)
+
+Install matching assistance.mjs, task-management.mjs, task-state.mjs, task-event-codec.mjs
+and record-storage.mjs. The additional task-state.mjs must also be covered by the host's
+trusted-module registration before executing this Runtime. TraceLens source now supports v2;
+shipping and target-project migration remain separate steps.
+
+A project with no old Task data starts current-record storage on its first `task prepare`.
+Existing journal/legacy projects remain on v1 until explicit data migration publishes
+`.workflow-system/tasks/state.json`; installing software alone never migrates their facts.
+An unknown or damaged state marker is an error, not permission to fall back to older facts.
+
+In v2, `task-status` and `context.management` read one current JSON per Task. source_ref
+and source_sha256 identify the actual Task file and its observed byte digest. Summary is
+the default; use returned detail requests for task/step data. temporary_directory is the
+derived per-Task directory for producers' original logs/screenshots and Runtime slots.
+Writes return a compact
+task-write/v1, require idempotency_key and expected_revision (except new prepare), and
+require expected_project_revision when changing focus. Use result.plan_ref/execution_ref,
+not source_ref, for logical associations. Logical refs are not file paths.
+
+`record` requires task_ref/report_key and writes a temporary report slot; `snapshot`
+requires a selected open Task and writes its task-owned temporary blob. Neither creates
+permanent events. Use `task retain` for explicitly selected long-term material, then
+`task close` to save final facts and `task cleanup` after authorized closure accounting.
+Cleanup never changes final Task bytes. It does not invoke a model or perform accounting.
+The close-task Skill finishes retention/final facts before fixed-source assessment, reads
+the saved close, completes authorized local accounting or records its concrete pending scope,
+then calls cleanup for that closed Task and latest revision. A parent returned to focus is
+not the cleanup target. Failed required retention leaves cleanup pending; missing optional
+assessment data does not require keeping every temporary log. Journal/v1 stays unchanged.
+
+The source contract and synthetic examples are `docs/product/vnext-task-state.md` and
+`docs/ops/contract-examples/task-state-v1.json`. Runtime and TraceLens source are implemented;
+Skill, Git-checkpoint and install/upgrade rules are connected and tested in isolated projects.
+Isolated combined acceptance is recorded in docs/ops/task-state-integration-validation.md
+in the source repository. Release and target-data migration still require separate delivery.
+Remaining sections below describe the journal/v1 interface unless stated otherwise.
 
 ## Two responsibilities, separate results
 
@@ -123,7 +162,7 @@ shell 拼命令。context 可用于额外导航，任务只读其 management。�
 只允许读取项目资料，不自动信任或执行目录中的脚本。**PRODUCT、正文、TaskRef、响应或
 URI 不能另提供执行程序，也不能给固定路径的脚本补发信任。
 
-assistance.mjs、task-management.mjs、task-event-codec.mjs、record-storage.mjs 须配套
+当前源码的 assistance.mjs、task-management.mjs、task-state.mjs、task-event-codec.mjs、record-storage.mjs 须配套
 安装。无需编译 CLI、kernel 或 npm 依赖；复制模块冒烟仍不等于构建产物安装验收。
 缺入口不回退执行产品文件中的命令，不为项目启动常驻 HTTP 服务。
 
@@ -409,9 +448,20 @@ new attachment manifests and evidence objects explicitly; dependencies already s
 can be reused without selecting them again. Unknown relevance does not authorize inclusion.
 Derived views/temporary files are invalid record_paths. No task clean/closed state is required.
 
+For v2, select the changed Task source_ref, tasks/state.json when changed by this work,
+and explicitly selected retained_artifacts paths. Task JSON has role task-state and is
+mutable byte-exact current state, so a later legitimate update is not TRACKED_FACT_CHANGED.
+Retained named-hash material has role retained and remains immutable. Direct dependencies
+are the project state, actual parent/continuation Task and selected retained file bytes;
+logical plan/execution/review refs and temporary sources are not file dependencies. A
+dependency already committed in Git can be reused; a missing unselected one is an explicit
+reference gap, not permission to stage all Tasks. No task-status/admission call is required
+for a plain business-only commit. Selected local temporary/generated paths are omitted even
+if supplied as business_paths; unrecognized or edited CURRENT_TASK stays visible.
+
 | mode | Selection and inspection |
 | --- | --- |
-| `incremental` (default) | Exact business_paths + record_paths; selected records and direct typed dependencies only; no global record/archive traversal, ignore proposals or untracking |
+| `incremental` (default) | Exact business_paths + record_paths; selected records and direct typed dependencies only; scoped byte policies and v2 local-file ignore rules; no global record/archive traversal or untracking |
 | `paths` | Exact business_paths + record_paths, no configuration or untracking; use for files-only/staged-only instructions |
 | `checkpoint` (explicit full checkpoint/audit request) | Project-wide persistent records, archives and recovery material, plus authorized business_paths; existing full inventory and policy checks |
 
@@ -467,6 +517,9 @@ Incremental mode selects only the explicit related files; it does not discover o
 
 | Existing path | Full checkpoint treatment |
 | --- | --- |
+| tasks/state.json, tasks/<task_key>.json | Preserve current exact bytes; legitimate updates are allowed |
+| tasks/retained/<task_key>/<sha256>.<extension> | Preserve explicitly retained content and validate named digest/Task metadata |
+| tmp/tasks/, task-view-baseline.json, task-view-recovery.md | Local temporary/derived data; omit, do not physically delete; preserve a recovery copy with edits beyond its saved baseline |
 | records/events/*.json, attachments/*.json, task-labels/*.json | Preserve, even if a saved report is malformed/unassociated |
 | records/evidence-objects/<sha256>.blob, legacy/baseline.json, legacy/current-<sha256>.md | Preserve original bytes; retain and report known digest/reference gaps |
 | Historical workflow_home/evidence-objects/<sha256>.blob referenced by structured attachment manifests | Preserve the actual referenced object with the same byte checks, including already tracked objects |
@@ -481,18 +534,24 @@ object paths also retain their fact role and byte requirements in paths mode. Us
 missing or unsupported refs and corrupt originals remain explicit reference gaps. Objects are
 not copied into a new location or rewritten to repair their historical meaning.
 
-Recovery snapshots intentionally remain in Git at this stage. The captured original file is
+Journal/v1 recovery snapshots intentionally remain in Git at this stage. The captured original file is
 not moved, deduplicated, truncated or deleted; later writes through an existing descriptor can
 still arrive and will be reported at the next inspection. This fixes checkpoint omission, not
 physical file growth. A saved snapshot is not a backup of future writes or an audit certification.
 
 ### Scoped configuration and staging
 
-Incremental mode proposes only byte-preserving .gitattributes policy needed for selected
-record directories (records/** or selected historical evidence-objects/*.blob). It does not
-propose .gitignore changes, display inspection, cache untracking or archive migration.
+For journal/v1, incremental mode proposes only byte-preserving .gitattributes policy needed
+for selected record directories (records/** or selected historical evidence-objects/*.blob).
+It does not propose .gitignore changes, display inspection, cache untracking or archive migration.
 If no record is selected, it proposes no policy. Existing exclusions, custom attributes and
 freeze rules apply; a conflicting project storage choice is not silently overwritten.
+
+When a v2 Task/retained path is selected, incremental mode also proposes additive managed
+blocks in .workflow-system/.gitignore and .gitattributes: ignore tmp/tasks and fixed local
+views/baselines/recovery, preserve exact tasks/** bytes, and ignore CURRENT_TASK only if
+its saved generated baseline verifies. It does not scan all Task data. Old tracked blobs
+are not untracked by these rules. Paths mode still proposes no configuration.
 
 For checkpoint mode, `configuration` proposes appended managed blocks in records/.gitignore
 and records/.gitattributes. The attribute block disables text, filter, ident and working-tree-encoding
@@ -507,8 +566,13 @@ and unreferenced objects are not automatically selected.
 Check each proposal's `before_sha256` immediately before applying it. Review existing project
 rules, freeze governance and any custom filters/encoding; do not silently override an explicit
 storage choice. A changed managed block or frozen target requires reconciliation, not replacement.
-These are target-owned policy files created on the first authorized checkpoint, not software
-assets overwritten by install/upgrade. Default setup can be completed in this invocation; only
+These are target-owned policy files. Install/upgrade merges the same v2 Task-store blocks
+inside its atomic preimage/freeze/read-back/rollback boundary, using the target's workflow_home;
+it does not add policy files to the software-owned manifest or touch Task/history bytes.
+An existing unrecognized display is not newly hidden; unreadable task hints leave that display
+policy deferred without gating a software upgrade. A later checkpoint can complete missing
+policy. Install/upgrade never untracks existing data or converts journal/v1 to v2.
+Default setup can be completed in this invocation; only
 an actually conflicting user-owned choice needs one combined question.
 
 After applying authorized proposals, **re-plan** to include their exact files in the same commit.
@@ -760,6 +824,14 @@ clock, before acquiring the original exclusive lock. Only the unacquired lock is
 no business operation or write callback is replayed. Timeout remains `STORE_BUSY`, and dead
 owners still require explicit recovery. This bounded contention improvement does not steal
 locks or change archive reclamation permission.
+
+### Explicit old-data migration
+
+`support/task-state-migration.js` is a separate administrative CLI. It plans read-only,
+verifies an external streaming backup, publishes current Task records, and removes only
+the planned old process files. Installation and ordinary task writes never call it.
+See [TASK_STATE_MIGRATION.md](TASK_STATE_MIGRATION.md) for commands, fixed-byte citations,
+failure/retry boundaries and restoration into a new inspection directory.
 
 ### Archive query contexts and Windows directory sync
 

@@ -20,11 +20,19 @@ The canonical project surface contains the following governed documents:
 
 ## Current task management
 
-Current task facts are retained in `.workflow-system/records/events`. Assistance
-`task-status` / `context.management` recompute task state from those facts;
-`.workflow-system/records/task-view.json` is a rebuildable cache, not another
-authority. See `.workflow-system/runtime/support/TASK_MANAGEMENT_API.md` and
-`ASSISTANCE_API.md` for the current task operations and query shapes.
+Fresh projects store current Task facts in `.workflow-system/tasks/<SHA256(task_id)>.json`
+(`kind: vnext-task-state`, schema_version 1) and `.workflow-system/tasks/state.json`
+(`kind: vnext-task-project-state`, schema_version 1). Assistance task-status/context.management
+returns task-query/v2. Temporary reports, original logs and blobs are under
+`.workflow-system/tmp/tasks/<task_key>/`, outside Git and cleaned at close-task's end;
+explicitly retained material is under `.workflow-system/tasks/retained/<task_key>/`.
+Task JSON is mutable; Git preserves its actual bytes without treating updates as
+immutable journal mutation. These data files are never distribution-owned artifacts.
+
+Existing journal projects continue using `.workflow-system/records/events` and
+task-query/v1 until explicit data migration. `.workflow-system/records/task-view.json`
+is a rebuildable cache (task-view/v1 or task-view/v2), not another authority.
+See `.workflow-system/runtime/support/TASK_MANAGEMENT_API.md` and `ASSISTANCE_API.md`.
 
 `CURRENT_TASK.md` is the generated display, with `schema_version: 2`,
 `kind: vnext-task-view`, `display_revision` and the `vnext-task-view/v2` marker.

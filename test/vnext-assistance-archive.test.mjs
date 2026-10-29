@@ -12,6 +12,7 @@ const prefix = '.workflow-system/records';
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-assistance-archive-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, '.workflow-system/records/events'), { recursive: true }); // Existing journal fixture.
   fs.mkdirSync(path.join(root, 'docs/workflow'), { recursive: true });
   return root;
 }

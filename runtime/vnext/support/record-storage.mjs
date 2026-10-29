@@ -210,6 +210,9 @@ function signaturesMatch(root, signatures) {
   }
   return true;
 }
+/** Explicit administrative publication shares the ordinary record writer lock. */
+export function withRecordStoreLock(root, fn) { return withLock(root, fn); }
+
 export function withStoreReadContext(root, fn) {
   const base = path.resolve(root), context = Object.freeze({}), state = { root: base, cached: null };
   readContexts.set(context, state);

@@ -152,11 +152,15 @@ function bundleArtifactSpecs(sourceRoot: string): Array<{ source_path: string; t
   const runtimeSources = ['project-documents.ts', 'file-context.ts', 'file-context-cli.ts', 'rg-tool.ts', 'install-tools.ts', 'install-tools-cli.ts', 'cli.ts', 'current-task.ts', 'task-context.ts', 'task-store.ts', 'task-state-transaction.ts', 'finding-queue-transaction.ts', 'kernel.ts', 'execution-admission.ts', 'status-schema.ts', 'runtime-io.ts', 'task-identity.ts', 'bootstrap.ts', 'bootstrap-support.ts', 'host-guidance.ts', 'migration-provenance.ts', 'migration-preservation.ts', 'scoped-tree-hash.ts', 'mutation-scope.ts', 'task-steps.ts'];
   return [
     { source_path: 'runtime/vnext/dist/product-maintenance.js', target_path: '.workflow-system/runtime/support/product-maintenance.js', category: 'runtime' },
+    { source_path: 'runtime/vnext/dist/task-state-migration.js', target_path: '.workflow-system/runtime/support/task-state-migration.js', category: 'runtime' },
+    { source_path: 'runtime/vnext/support/TASK_STATE_MIGRATION.md', target_path: '.workflow-system/runtime/support/TASK_STATE_MIGRATION.md', category: 'runtime' },
+    { source_path: 'runtime/vnext/src/task-state-migration.ts', target_path: '.workflow-system/runtime/src/task-state-migration.ts', category: 'runtime' },
     ...productSupportFiles(sourceRoot).map(file => ({ source_path: file, target_path: file.replace('runtime/vnext/support/', '.workflow-system/runtime/support/'), category: 'runtime' as const })),
     { source_path: 'runtime/vnext/dist/install-tools.js', target_path: RG_INSTALL_ENTRY, category: 'runtime' },
     { source_path: 'runtime/vnext/support/CONTEXT_API.md', target_path: '.workflow-system/runtime/support/CONTEXT_API.md', category: 'runtime' },
     { source_path: 'runtime/vnext/support/TASK_MANAGEMENT_API.md', target_path: '.workflow-system/runtime/support/TASK_MANAGEMENT_API.md', category: 'runtime' },
     { source_path: 'runtime/vnext/support/task-management.mjs', target_path: '.workflow-system/runtime/support/task-management.mjs', category: 'runtime' },
+    { source_path: 'runtime/vnext/support/task-state.mjs', target_path: '.workflow-system/runtime/support/task-state.mjs', category: 'runtime' },
     { source_path: 'runtime/vnext/support/task-event-codec.mjs', target_path: '.workflow-system/runtime/support/task-event-codec.mjs', category: 'runtime' },
     { source_path: 'runtime/vnext/support/record-storage.mjs', target_path: '.workflow-system/runtime/support/record-storage.mjs', category: 'runtime' },
     { source_path: 'runtime/vnext/support/assistance.mjs', target_path: '.workflow-system/runtime/support/assistance.mjs', category: 'runtime' },
@@ -196,9 +200,12 @@ function copyMigrationSource(sourceRoot: string, targetRoot: string): void {
   for (const relativePath of [
     'runtime/vnext/dist/install-tools.js',
     'runtime/vnext/dist/product-maintenance.js',
+    'runtime/vnext/dist/task-state-migration.js',
+    'runtime/vnext/support/TASK_STATE_MIGRATION.md',
     'runtime/vnext/support/CONTEXT_API.md',
     'runtime/vnext/support/assistance.mjs',
     'runtime/vnext/support/task-management.mjs',
+    'runtime/vnext/support/task-state.mjs',
     'runtime/vnext/support/task-event-codec.mjs',
     'runtime/vnext/support/record-storage.mjs',
     'runtime/vnext/support/TASK_MANAGEMENT_API.md',
@@ -290,9 +297,13 @@ export function buildVibeGovernanceDistribution(options: BuildDistributionOption
 if (import.meta.main) {
   try {
     const argv = process.argv.slice(2);
-    const outputIndex = argv.indexOf('--out');
-    const outputRoot = outputIndex >= 0 ? argv[outputIndex + 1] : undefined;
-    if (outputIndex >= 0 && !outputRoot) throw new Error('--out requires a package output directory.');
+    if (argv.includes('--help') || argv.includes('-h')) {
+      console.log('Usage: bun run scripts/build-vibe-governance-distribution.ts [--out <package-directory>]');
+      process.exit(0);
+    }
+    if (argv.length !== 0 && (argv.length !== 2 || argv[0] !== '--out' || !argv[1] || argv[1].startsWith('-')))
+      throw new Error('Use --out <package-directory>, or --help; unknown arguments do not start a build.');
+    const outputRoot = argv.length === 2 ? argv[1] : undefined;
     const result = buildVibeGovernanceDistribution({ outputRoot });
     console.log(JSON.stringify({ package_root: result.packageRoot, manifest_digest: result.manifest.manifest_digest, distribution_version: result.manifest.distribution_version, bundle_id: result.bundle.bundle_id }, null, 2));
   } catch (error) {

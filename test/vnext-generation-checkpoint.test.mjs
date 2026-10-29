@@ -23,6 +23,7 @@ function git(root, args, input) {
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-generation-checkpoint-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, '.workflow-system/records/events'), { recursive: true }); // Existing journal fixture.
   git(root, ['init', '-q']); git(root, ['config', 'user.name', 'fixture']); git(root, ['config', 'user.email', 'fixture@example.invalid']);
   git(root, ['config', 'core.autocrlf', 'false']);
   write(root, 'app.txt', 'unchanged business\n'); git(root, ['add', '--', 'app.txt']); git(root, ['commit', '-qm', 'fixture base']);

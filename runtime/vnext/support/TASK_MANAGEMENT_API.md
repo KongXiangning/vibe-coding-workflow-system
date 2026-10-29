@@ -3,10 +3,45 @@
 Use the same installed entry: `node .workflow-system/runtime/support/assistance.mjs task --root <project>`.
 Pass JSON on stdin. `task-status` is read-only; `context.management` uses the same live view.
 The source-repository entry is `node runtime/vnext/support/assistance.mjs`.
-Both assistance.mjs and task-management.mjs must be installed together. No task kernel or npm
+Install matching assistance.mjs, task-management.mjs, task-state.mjs, task-event-codec.mjs
+and record-storage.mjs together. No task kernel or npm
 package is imported. The service never performs execution, tests, commits, push or deployment.
 For git observations its Git-object check is read-only; the task action itself writes
-the journal and management views.
+the selected Task store and management views.
+
+## Current-record mode (v2 source implementation)
+
+Fresh projects use `.workflow-system/tasks/<SHA256(task_id)>.json` and one state.json.
+Existing projects keep their journal until explicit migration. Unknown state formats
+never fall back to a different authority. Queries return task-query/v2 and writes
+task-write/v1. Normal updates replace current fields, without appending event files.
+
+Write actions require idempotency_key and expected_revision, except a new prepare;
+focus changes also require expected_project_revision. Read result.plan_ref and
+result.execution_ref from successful writes. Task source_ref is the actual JSON file;
+source_sha256 is the exact Task file byte digest observed in this query, not view_revision.
+Queries also return temporary_directory for producers to place original logs/screenshots
+inside that Task's temporary scope. It is derived query metadata, not another saved fact.
+Use stable check_id/environment_id to replace one verification result. New execution
+does not inherit old test/review success, and open findings survive until explicitly handled.
+
+record and snapshot use the selected Task's ignored temporary directory. close saves
+final facts; cleanup requires its closed Task revision and leaves the Task bytes unchanged.
+Explicit retain copies chosen bytes to retained material before final source hashes are used.
+The close-task Skill retains needed inputs, saves/reads closure, performs authorized local
+product accounting, then calls cleanup on the closed Task with its latest revision. A
+returned parent focus is not the cleanup target. Retention/persistence failures leave cleanup
+pending; partial deletion or stale revision is reported without reopening/replaying the Task.
+Journal/v1 is not cleaned or converted by that flow.
+
+Git checkpoints save changed Task/state.json bytes and explicitly selected retained material.
+Task JSON is mutable; retained content-addressed bytes remain immutable. Temporary slots and
+verified generated views are omitted. Install/upgrade merges project-owned ignore/byte-policy
+blocks transactionally without claiming Task data or migrating the store. See ASSISTANCE_API.md
+for exact Git scope, dependency checks and configuration rules.
+The full current-record contract is `docs/product/vnext-task-state.md` in the source repository.
+The following action/history/recovery reference describes journal/v1 mode; do not send
+v1 event_ref recovery requests or expect permanent raw observations in v2 mode.
 
 ## Normal task actions
 

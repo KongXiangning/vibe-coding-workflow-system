@@ -46,6 +46,8 @@ import { validateMigrationDecisions, legacyCurrentTaskBackup } from '../runtime/
 import { isAlignedPath, originalBackupPath } from './migration-alignment';
 import { RG_INSTALL_ENTRY, RG_TOOLS_PATH, resolveRg, assertRgDirectory } from '../runtime/vnext/src/rg-tool';
 import { updateHostGuidance } from '../runtime/vnext/src/host-guidance';
+import { readTaskDisplay } from '../runtime/vnext/support/task-management.mjs';
+import { taskGitPolicyDefinitions, gitPolicyEdits } from '../runtime/vnext/support/task-state.mjs';
 
 export const VIBE_GOVERNANCE_PRODUCT = 'Vibe Governance' as const;
 export const VIBE_GOVERNANCE_PACKAGE_NAME = 'vibe-governance' as const;
@@ -895,13 +897,56 @@ function pruneCreatedEmptyDirectories(targetRoot: string, relativePaths: readonl
 
 // AGENTS.md belongs to the project, not the software manifest. Merge its known
 // workflow text in the same rollback transaction without owning the whole file.
-function planHostGuidance(targetRoot: string): Array<{ path: string; content: string; previous: string }> {
+function planHostGuidance(targetRoot: string): Array<{ path: string; content: string; previous: string | null }> {
   const file = path.join(targetRoot, 'AGENTS.md');
   if (!fs.existsSync(file)) return [];
   if (fs.lstatSync(file).isSymbolicLink() || !fs.statSync(file).isFile()) throw new Error('AGENTS.md must be a regular file for guidance alignment.');
   const previous = fs.readFileSync(file, 'utf8');
   const content = updateHostGuidance(previous);
   return content === previous ? [] : [{ path: 'AGENTS.md', content, previous }];
+}
+
+// Git files remain project-owned. Merge only known policy blocks and use the same
+// atomic preimage/rollback boundary as host guidance; never own Task data in the manifest.
+function planProjectGitPolicy(targetRoot: string, warnings: DistributionIssue[] = []): ReturnType<typeof planHostGuidance> {
+  const localFile = (root: string, ref: string): string => {
+    const file = resolveRepoPath(root, ref, 'Git policy path');
+    let current = path.resolve(root);
+    for (const part of path.relative(current, file).split(path.sep)) {
+      current = path.join(current, part);
+      try { if (fs.lstatSync(current).isSymbolicLink()) throw new Error(`Git policy path is symbolic: ${ref}`); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    return file;
+  };
+  let home = 'docs/workflow';
+  let generatedDisplay = false;
+  try {
+    const profile = localFile(targetRoot, '.workflow-system/PROJECT_PROFILE.yaml');
+    if (fileExists(profile)) {
+      const document = parseDocument(fs.readFileSync(profile, 'utf8'));
+      if (document.errors.length) throw new Error('Project Profile is unreadable; workflow_home Git policy was not inferred.');
+      const declared = document.getIn(['paths', 'workflow_home']) ?? document.get('workflow_home');
+      if (declared !== undefined) {
+        if (typeof declared !== 'string') throw new Error('Project Profile workflow_home must be a relative directory.');
+        home = normalizeRepoPath(declared, 'Project Profile workflow_home');
+        if (home.split('/').some(part => part.toLowerCase() === '.git') || /[*?\[\]{}]/.test(home)) throw new Error('Project Profile workflow_home is not a project document directory.');
+      }
+    }
+    const display = `${home}/CURRENT_TASK.md`, file = localFile(targetRoot, display);
+    generatedDisplay = !fileExists(file) || readTaskDisplay(targetRoot, display, { local: localFile }).verified;
+  } catch (error) {
+    // Task data/hints need not be readable to upgrade software. Keep uncertain
+    // display files visible; only the fixed Task-store rules can be installed.
+    warnings.push(distributionIssue('GIT_DISPLAY_POLICY_DEFERRED', String(error)));
+  }
+  const policy = gitPolicyEdits(targetRoot, taskGitPolicyDefinitions(home, generatedDisplay), localFile);
+  if (policy.issues.length) throw new Error('Git policy requires review: ' + policy.issues.map((issue: { code: string; path: string }) => `${issue.code}: ${issue.path}`).join(', '));
+  return policy.edits.map((edit: { path: string; content: string; before_sha256: string | null }) => {
+    const file = localFile(targetRoot, edit.path), previous = fileExists(file) ? fs.readFileSync(file) : null;
+    if ((previous === null ? null : sha256(previous)) !== edit.before_sha256) throw new Error(`Git policy changed during planning: ${edit.path}`);
+    return { path: edit.path, content: edit.content, previous: previous?.toString('utf8') ?? null };
+  });
 }
 
 function planFreshOrUpgrade(targetRoot: string, payload: LoadedPayload, operation: 'install' | 'upgrade', oldState: DistributionState | null, guidance: ReturnType<typeof planHostGuidance>): { writes: Array<{ path: string; content: string }>; deletes: string[]; directories: Array<{ path: string; sourcePath: string }>; stagingRoot?: string; state: DistributionState } {
@@ -937,9 +982,9 @@ function runTransactionalPromotion(
     }
   }
   let guidance: ReturnType<typeof planHostGuidance>;
-  try { guidance = planHostGuidance(targetRoot); }
+  try { guidance = [...planHostGuidance(targetRoot), ...planProjectGitPolicy(targetRoot, result.warnings)]; }
   catch (error) {
-    result.blockers.push(distributionIssue('HOST_GUIDANCE_UNAVAILABLE', error instanceof Error ? error.message : String(error), 'AGENTS.md'));
+    result.blockers.push(distributionIssue('PROJECT_CONFIGURATION_UNAVAILABLE', error instanceof Error ? error.message : String(error)));
     return result;
   }
   const plannedWrites = payload.manifest.artifacts.map(artifact => artifact.target_path).concat(payload.manifest.state.path, guidance.map(item => item.path)).sort();
@@ -980,7 +1025,8 @@ function runTransactionalPromotion(
   let preimageTreeHash: string;
   try {
     for (const item of guidance) {
-      if (fs.readFileSync(path.join(targetRoot, item.path), 'utf8') !== item.previous) throw new Error('AGENTS.md changed during staging; retry against the current file.');
+      const file = path.join(targetRoot, item.path);
+      if ((fileExists(file) ? fs.readFileSync(file, 'utf8') : null) !== item.previous) throw new Error(`Project configuration changed during staging: ${item.path}`);
     }
     const stagedConflicts = validateDestinations(targetRoot, payload.manifest, operation, oldState);
     if (operation === 'upgrade') stagedConflicts.push(...verifyOldManagedFiles(targetRoot, oldState));
@@ -1032,7 +1078,7 @@ function runTransactionalPromotion(
       () => {
         verifyDistributionInstallation(targetRoot, payload);
         for (const item of guidance) {
-          if (fs.readFileSync(path.join(targetRoot, item.path), 'utf8') !== item.content) throw new Error('AGENTS.md guidance read-back mismatch.');
+          if (fs.readFileSync(path.join(targetRoot, item.path), 'utf8') !== item.content) throw new Error(`Project configuration read-back mismatch: ${item.path}`);
         }
         testHooks?.afterPromotion?.();
       },
@@ -1085,9 +1131,9 @@ function runDryRunPromotion(
   }
   const oldManaged = admittedOldManagedMap(targetRoot, oldState);
   let guidance: ReturnType<typeof planHostGuidance>;
-  try { guidance = planHostGuidance(targetRoot); }
+  try { guidance = [...planHostGuidance(targetRoot), ...planProjectGitPolicy(targetRoot, result.warnings)]; }
   catch (error) {
-    result.blockers.push(distributionIssue('HOST_GUIDANCE_UNAVAILABLE', error instanceof Error ? error.message : String(error), 'AGENTS.md'));
+    result.blockers.push(distributionIssue('PROJECT_CONFIGURATION_UNAVAILABLE', error instanceof Error ? error.message : String(error)));
     return result;
   }
   result.planned_writes = payload.manifest.artifacts.map(artifact => artifact.target_path)
@@ -1182,7 +1228,7 @@ function runUpgrade(options: DistributionOperationOptions, payload: LoadedPayloa
   if (comparison === 0 && fileExists(statePath(targetRoot, payload.manifest))) {
     try {
       verifyDistributionInstallation(targetRoot, payload);
-      if (planHostGuidance(targetRoot).length === 0) {
+      if (planHostGuidance(targetRoot).length === 0 && planProjectGitPolicy(targetRoot, result.warnings).length === 0) {
         result.status = 'no-op';
         result.read_back_verified = true;
         return result;

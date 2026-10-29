@@ -300,6 +300,15 @@ Read and retain the actual parent continuation/focus first. Product evaluation
 and next-business advice do not focus a new task, replace that continuation or
 block its already authorized remaining step when maintenance fails.
 
+For task-query/v2, use the closed Task's actual source_ref/source_sha256 after its
+final facts and selected lasting attachments are saved. Temporary report/blob refs
+are not lasting assessment inputs. If a selected source must support a pending
+assessment, retain it before close-task cleans that Task's temporary directory.
+Late retention changes Task bytes: reread the source and check any affected report's
+applicability; do not silently replace a fixed digest. The close-task Skill performs
+cleanup after this subflow returns saved/reused/pending; the product helper neither
+deletes temporary files nor rewrites Task facts.
+
 Read those definitions, relevant declared relationships, existing applicable
 reports and available delivery/verification evidence. Take scope_id/coverage from
 the selected goal.assessment_scopes, never from an old report or a guessed range;

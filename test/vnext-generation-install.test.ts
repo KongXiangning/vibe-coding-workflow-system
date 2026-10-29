@@ -4,13 +4,30 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { task, record } from '../runtime/vnext/support/assistance.mjs';
-import { archiveCommand, storeReadFile } from '../runtime/vnext/support/record-storage.mjs';
 import { installDistribution, upgradeDistribution } from '../scripts/vibe-governance-distribution';
+import { buildVibeGovernanceDistribution } from '../scripts/build-vibe-governance-distribution';
 
-const ROOT = path.resolve(import.meta.dir, '..'), packageRoot = path.join(ROOT, 'packages/vibe-governance');
+const ROOT = path.resolve(import.meta.dir, '..');
 const STORE = '.workflow-system/records', roots: string[] = [];
 const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
+// Generate and consume journal bytes with the actual Node Runtime, not Bun's fs flags.
+function sourceCall(root: string, command: string, input: unknown) {
+  return JSON.parse(execFileSync('node', [path.join(ROOT, 'runtime/vnext/support/assistance.mjs'), command, '--root', root],
+    { encoding: 'utf8', input: JSON.stringify(input), windowsHide: true }));
+}
+const task = (root: string, input: unknown) => sourceCall(root, 'task', input);
+const record = (root: string, input: unknown) => sourceCall(root, 'record', input);
+const archiveCommand = (root: string, input: unknown) => sourceCall(root, 'archive', input);
+function storeReadFile(root: string, ref: string): Buffer {
+  const parts: Buffer[] = [];
+  let offset = 0;
+  for (;;) {
+    const result = sourceCall(root, 'read', { ref, offset, max_bytes: 65536 });
+    parts.push(Buffer.from(result.data, 'base64'));
+    if (result.next_offset === null) return Buffer.concat(parts);
+    offset = result.next_offset;
+  }
+}
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 function put(root: string, ref: string, content: string | Buffer) {
   const file = path.join(root, ref); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content);
@@ -27,7 +44,10 @@ function records(root: string) {
 }
 
 test('distribution installs codec and native readers preserve old/new records through install and upgrade', { timeout: 45000 }, () => {
+  const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-generation-package-')); roots.push(packageRoot);
+  buildVibeGovernanceDistribution({ sourceRoot: ROOT, outputRoot: packageRoot });
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vnext-generation-install-')); roots.push(root);
+  fs.mkdirSync(path.join(root, STORE, 'events'), { recursive: true }); // Existing journal fixture; fresh projects use v2.
   put(root, 'package.json', '{"name":"generation-install-fixture","private":true}\n');
   const prepare = task(root, { action: 'prepare', plan: { title: 'Installed complete report', steps: [{ id: 'S1' }] } });
   task(root, { action: 'adopt', task_id: prepare.task_id, plan_ref: prepare.ref });
@@ -47,7 +67,7 @@ test('distribution installs codec and native readers preserve old/new records th
   expect(installed.status, JSON.stringify(installed.blockers)).toBe('installed');
   expect(records(root)).toEqual(before);
   expect(fs.readFileSync(path.join(root, 'docs/workflow/CURRENT_TASK.md'))).toEqual(display);
-  for (const name of ['assistance.mjs', 'task-management.mjs', 'task-event-codec.mjs', 'record-storage.mjs']) {
+  for (const name of ['assistance.mjs', 'task-management.mjs', 'task-state.mjs', 'task-event-codec.mjs', 'record-storage.mjs']) {
     const source = fs.readFileSync(path.join(ROOT, 'runtime/vnext/support', name));
     expect(sha(fs.readFileSync(path.join(root, '.workflow-system/runtime/support', name))), `Rebuild distribution for ${name}`).toBe(sha(source));
     expect(sha(fs.readFileSync(path.join(packageRoot, 'payload/migration-source/runtime/vnext/support', name)))).toBe(sha(source));

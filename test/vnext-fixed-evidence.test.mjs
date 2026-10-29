@@ -8,7 +8,7 @@ import { record, snapshot, task, taskStatus, read, archive } from '../runtime/vn
 import { storeReadFile, storeList } from '../runtime/vnext/support/record-storage.mjs';
 const STORE = '.workflow-system/records';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
-function fixture(t) { const root=fs.mkdtempSync(path.join(os.tmpdir(),'vnext-fixed-evidence-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));fs.mkdirSync(path.join(root,'docs/workflow'),{recursive:true});return root; }
+function fixture(t) { const root=fs.mkdtempSync(path.join(os.tmpdir(),'vnext-fixed-evidence-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));fs.mkdirSync(path.join(root,'docs/workflow'),{recursive:true});fs.mkdirSync(path.join(root, '.workflow-system/records/events'), { recursive: true });return root; }
 const write=(root,ref,bytes)=>fs.writeFileSync(path.join(root,ref),bytes);
 const rows=(root)=>storeList(root,`${STORE}/evidence-objects`);
 const manifest=(root,result)=>JSON.parse(storeReadFile(root,result.attachments_ref));

@@ -1,0 +1,382 @@
+{
+  "kind": "task-state-contract-examples/v1",
+  "provenance": "synthetic-design-only",
+  "implementation_status": "synthetic-example-not-runtime-result",
+  "contract": "docs/product/vnext-task-state.md",
+  "notes": [
+    "所有任务、时间、代码版本及测试结果均为合成资料，不是真实任务或验证记录。",
+    "query_examples 和 write_examples 展示接口字段；未列出的当前业务正文按契约组合，不执行这些请求。",
+    "write_examples 是独立场景，不表示在 task_record 之后依次执行。",
+    "task_file 是 task_id 的 UTF-8 SHA256 路径；last_write 的摘要按 close 请求递归排序键计算。",
+    "查询 source_sha256 按 task_record 的 JSON.stringify(record, null, 2) 加 LF 计算，不是视图摘要。"
+  ],
+  "task_file": ".workflow-system/tasks/1c569a69eb227cf5ab85234ceb296ac549ecf9e742212c4713fb43d4781076c9.json",
+  "temporary_directory": ".workflow-system/tmp/tasks/1c569a69eb227cf5ab85234ceb296ac549ecf9e742212c4713fb43d4781076c9/",
+  "project_state": {
+    "kind": "vnext-task-project-state",
+    "schema_version": 1,
+    "revision": 6,
+    "current_task_id": null,
+    "next_display_number": 2
+  },
+  "task_record": {
+    "kind": "vnext-task-state",
+    "schema_version": 1,
+    "task_id": "task-example-reconnect",
+    "display_id": "TASK-001",
+    "title": "增加断线重连",
+    "revision": 12,
+    "created_at": "2026-10-29T01:00:00.000Z",
+    "closed_at": "2026-10-29T02:00:00.000Z",
+    "lifecycle": "closed",
+    "creation_key": "example-create-1",
+    "last_write": {
+      "key": "example-close-1",
+      "request_sha256": "e7991a82a7859d0c1b0d194f3b2b094b2ca5f2dd2f885dd83c415dfd46c51e30"
+    },
+    "adopted_plan_ref": "plan-example-reconnect-v1",
+    "candidate_plan_ref": null,
+    "work_position": {
+      "plan_ref": "plan-example-reconnect-v1",
+      "step_id": "S1"
+    },
+    "plans": [
+      {
+        "ref": "plan-example-reconnect-v1",
+        "title": "增加断线重连",
+        "goal": "网络恢复后重新建立连接，保留真机场景的实际缺口。",
+        "scope": ["前台断线检测与重新连接"],
+        "exclusions": ["后台自动恢复"],
+        "acceptance": ["断网恢复时只建立一条连接", "指定真机验证"],
+        "steps": [
+          {
+            "id": "S1",
+            "title": "实现并验证前台重连",
+            "state": "executed",
+            "execution": {
+              "ref": "execution-example-r2",
+              "summary": "已实现前台重连并修复单元测试中的重试计数问题。",
+              "source_revision": "fixture-code-r2",
+              "commands": ["node --test test/reconnect.test.mjs"],
+              "recorded_at": "2026-10-29T01:30:00.000Z"
+            },
+            "checks": [
+              {
+                "check_id": "reconnect-single-connection",
+                "environment_id": "local-unit",
+                "title": "恢复网络后只建立一条连接",
+                "command": "node --test test/reconnect.test.mjs",
+                "selector": null,
+                "result": "passed",
+                "summary": "当前单元测试通过；不代表真机场景通过。",
+                "execution_ref": "execution-example-r2",
+                "subject": {"revision": "fixture-code-r2", "dirty": true},
+                "observed_at": "2026-10-29T01:35:00.000Z"
+              },
+              {
+                "check_id": "reconnect-single-connection",
+                "environment_id": "android-device-example",
+                "title": "恢复网络后只建立一条连接",
+                "command": "真机关闭网络后恢复，检查连接数",
+                "selector": "前台重连",
+                "result": "failed",
+                "summary": "真机恢复网络后仍观察到重复连接。",
+                "execution_ref": "execution-example-r2",
+                "subject": {"revision": "fixture-code-r2", "dirty": true},
+                "observed_at": "2026-10-29T01:40:00.000Z"
+              }
+            ],
+            "review": {
+              "ref": "review-example-r2",
+              "execution_ref": "execution-example-r2",
+              "verdict": "findings",
+              "coverage": "前台重连及单元测试；真机缺口未消除。",
+              "provenance": "self-review",
+              "recorded_at": "2026-10-29T01:45:00.000Z"
+            },
+            "review_decision": {
+              "review_ref": "review-example-r2",
+              "choice": "defer",
+              "decision_id": "decision-close-with-gaps"
+            },
+            "findings": [
+              {
+                "finding_id": "finding-device-duplicate",
+                "summary": "真机网络恢复后存在重复连接，当前未解决。",
+                "execution_ref": "execution-example-r2"
+              }
+            ],
+            "disposition": null
+          }
+        ]
+      }
+    ],
+    "product_refs": [
+      {
+        "owner_id": "REQ-EXAMPLE-RECONNECT",
+        "binding_id": "BIND-EXAMPLE-RECONNECT",
+        "source": {
+          "kind": "file",
+          "path": "docs/product/REQUIREMENTS.md",
+          "item_id": "REQ-EXAMPLE-RECONNECT"
+        }
+      }
+    ],
+    "constraints": [
+      {"id": "constraint-foreground", "text": "当前实施范围仅包含前台重连。"}
+    ],
+    "decisions": [
+      {
+        "id": "decision-close-with-gaps",
+        "plan_ref": "plan-example-reconnect-v1",
+        "step_id": "S1",
+        "choice": "close-with-gaps",
+        "text": "明确结束本 Task，保留真机失败和后台未验证，后续按当前代码排查。",
+        "source": {
+          "kind": "text",
+          "label": "合成用户决定",
+          "text": "先结束本任务，真机重复连接问题保持未解决。"
+        }
+      }
+    ],
+    "remaining_work": ["真机断网恢复仍出现重复连接；后台场景未验证。"],
+    "delivery": {
+      "summary": "前台重连代码已实施，单元通过、真机失败；未宣称需求满足。",
+      "items": [
+        {
+          "owner_id": "REQ-EXAMPLE-RECONNECT",
+          "point_id": "FP-EXAMPLE-RECONNECT",
+          "coverage": "前台断线后重新连接",
+          "plan_ref": "plan-example-reconnect-v1",
+          "step_id": "S1",
+          "implementation": "implemented",
+          "verification": "failed"
+        },
+        {
+          "owner_id": "REQ-EXAMPLE-RECONNECT",
+          "point_id": "FP-EXAMPLE-BACKGROUND",
+          "coverage": "后台自动恢复，不在本次实施范围",
+          "plan_ref": "plan-example-reconnect-v1",
+          "step_id": null,
+          "implementation": "not-implemented",
+          "verification": "not-run"
+        }
+      ]
+    },
+    "relations": {
+      "origin": null,
+      "dependency": {"state": "not-applicable", "summary": null},
+      "return_entry": null,
+      "return_result": null,
+      "continuation": null
+    },
+    "retained_artifacts": []
+  },
+  "product_binding": {
+    "id": "BIND-EXAMPLE-RECONNECT",
+    "task": {
+      "task_id": "task-example-reconnect",
+      "source": {
+        "kind": "file",
+        "path": ".workflow-system/tasks/1c569a69eb227cf5ab85234ceb296ac549ecf9e742212c4713fb43d4781076c9.json"
+      },
+      "label": "TASK-001",
+      "plan_ref": "plan-example-reconnect-v1",
+      "step_id": "S1"
+    },
+    "role": "implementation",
+    "contribution": "direct",
+    "coverage": "前台断线后重新连接，保留真机失败。",
+    "origin": "declared",
+    "state": "active",
+    "reason": "本 Task 直接实施该功能范围，关闭不代表需求满足。",
+    "sources": [
+      {
+        "kind": "file",
+        "path": ".workflow-system/tasks/1c569a69eb227cf5ab85234ceb296ac549ecf9e742212c4713fb43d4781076c9.json"
+      }
+    ]
+  },
+  "write_examples": {
+    "close": {
+      "request": {
+        "action": "close",
+        "task_ref": "task-example-reconnect",
+        "expected_revision": 11,
+        "expected_project_revision": 5,
+        "idempotency_key": "example-close-1",
+        "remaining_work": ["真机断网恢复仍出现重复连接；后台场景未验证。"],
+        "decision_id": "decision-close-with-gaps"
+      },
+      "response": {
+        "kind": "task-write/v1",
+        "status": "applied",
+        "recorded": true,
+        "task_id": "task-example-reconnect",
+        "revision": 12,
+        "project_revision": 6,
+        "source_ref": ".workflow-system/tasks/1c569a69eb227cf5ab85234ceb296ac549ecf9e742212c4713fb43d4781076c9.json",
+        "association": "applied",
+        "projection": {"cache": "current", "display": "current", "focus": "cleared"},
+        "issues": [],
+        "result": {"lifecycle": "closed"},
+        "detail_request": {"detail": "task", "task_ref": "task-example-reconnect", "workflow_home": "docs/workflow", "expected_view_revision": "fixture-view-12"}
+      }
+    },
+    "replace_check": {
+      "request": {
+        "action": "test",
+        "task_ref": "task-example-reconnect",
+        "expected_revision": 8,
+        "idempotency_key": "example-unit-retest-1",
+        "plan_ref": "plan-example-reconnect-v1",
+        "step_id": "S1",
+        "check_id": "reconnect-single-connection",
+        "environment_id": "local-unit",
+        "execution_ref": "execution-example-r2",
+        "command": "node --test test/reconnect.test.mjs",
+        "selector": null,
+        "result": "passed",
+        "summary": "当前单元测试通过；不代表真机场景通过。",
+        "subject": {"revision": "fixture-code-r2", "dirty": true}
+      },
+      "expected_effect": {
+        "updated_check": ["plan-example-reconnect-v1", "S1", "reconnect-single-connection", "local-unit"],
+        "preserved_environment": "android-device-example",
+        "permanent_event_files_added": 0,
+        "permanent_task_files_added": 0,
+        "historical_results_appended": 0
+      }
+    },
+    "replay_latest_close": {
+      "request_example": "close",
+      "expected_status": "already-applied",
+      "expected_revision": 12,
+      "recorded": false,
+      "business_commands_run": 0
+    },
+    "reject_older_write": {
+      "request": {"action": "pause", "task_ref": "task-example-reconnect", "expected_revision": 10, "idempotency_key": "example-stale-pause"},
+      "expected_code": "REVISION_CONFLICT",
+      "recorded": false,
+      "task_revision_after": 12
+    },
+    "reject_execution_after_close": {
+      "request": {"action": "execution", "task_ref": "task-example-reconnect", "expected_revision": 12, "idempotency_key": "example-late-execution", "plan_ref": "plan-example-reconnect-v1", "step_id": "S1", "summary": "迟到的普通实施报告"},
+      "expected_code": "TASK_CLOSED",
+      "recorded": false
+    }
+  },
+  "query_examples": {
+    "summary": {
+      "request": {"detail": "summary", "task_ref": "task-example-reconnect"},
+      "response": {
+        "kind": "task-query/v2",
+        "status": "available",
+        "detail": "summary",
+        "workflow_home": "docs/workflow",
+        "view_revision": "fixture-view-12",
+        "project_revision": 6,
+        "current_task_id": null,
+        "selection": {"requested_task_ref": "task-example-reconnect", "task_id": "task-example-reconnect", "status": "resolved"},
+        "task_count": 1,
+        "lifecycle_counts": {"closed": 1},
+        "coverage": {"storage": "task-state", "history": "not-retained", "complete": true},
+        "issues": [],
+        "tasks": [
+          {
+            "task_id": "task-example-reconnect",
+            "display_id": "TASK-001",
+            "title": "增加断线重连",
+            "revision": 12,
+            "lifecycle": "closed",
+            "created_at": "2026-10-29T01:00:00.000Z",
+            "closed_at": "2026-10-29T02:00:00.000Z",
+            "adopted_plan_ref": "plan-example-reconnect-v1",
+            "current_step_id": null,
+            "current_step": null,
+            "source_ref": ".workflow-system/tasks/1c569a69eb227cf5ab85234ceb296ac549ecf9e742212c4713fb43d4781076c9.json",
+            "source_sha256": "3a25937fc79cae1d63284ccac479117370c9b34e7c8cc8f273b91bf2cf7f5b67",
+            "remaining_work": ["真机断网恢复仍出现重复连接；后台场景未验证。"],
+            "detail_request": {"detail": "task", "task_ref": "task-example-reconnect", "workflow_home": "docs/workflow", "expected_view_revision": "fixture-view-12"}
+          }
+        ],
+        "pagination": {"total": 1, "offset": 0, "limit": 20, "next_offset": null, "view_revision": "fixture-view-12", "next_request": null}
+      }
+    },
+    "task_detail": {
+      "request": {"detail": "task", "task_ref": "task-example-reconnect", "workflow_home": "docs/workflow", "expected_view_revision": "fixture-view-12"},
+      "expected_projection": {
+        "kind": "task-query/v2",
+        "task_id": "task-example-reconnect",
+        "lifecycle": "closed",
+        "adopted_plan_ref": "plan-example-reconnect-v1",
+        "plan_source": "task_record.plans 中 ref 等于 adopted_plan_ref 的对象",
+        "source_ref": ".workflow-system/tasks/1c569a69eb227cf5ab85234ceb296ac549ecf9e742212c4713fb43d4781076c9.json",
+        "source_sha256": "3a25937fc79cae1d63284ccac479117370c9b34e7c8cc8f273b91bf2cf7f5b67",
+        "steps_source": "采用计划的 steps，补 execution_ref／review_ref 和当前 tests 展示",
+        "current_step_id": null,
+        "creation_key_returned": false,
+        "last_write_returned": false,
+        "full_execution_history_returned": false,
+        "temporary_blob_body_returned": false
+      }
+    },
+    "step_detail": {
+      "request": {"detail": "step", "task_ref": "task-example-reconnect", "step_id": "S1", "workflow_home": "docs/workflow", "expected_view_revision": "fixture-view-12"},
+      "expected_projection": {
+        "task_id": "task-example-reconnect",
+        "plan_ref": "plan-example-reconnect-v1",
+        "step_id": "S1",
+        "source_ref": ".workflow-system/tasks/1c569a69eb227cf5ab85234ceb296ac549ecf9e742212c4713fb43d4781076c9.json",
+        "source_sha256": "3a25937fc79cae1d63284ccac479117370c9b34e7c8cc8f273b91bf2cf7f5b67",
+        "state": "executed",
+        "execution_ref": "execution-example-r2",
+        "review_ref": "review-example-r2",
+        "review_status": "findings",
+        "review_choice": "defer",
+        "disposition_ref": null,
+        "current_test_count": 2,
+        "tests_apply_to_current_execution": true,
+        "open_finding_ids": ["finding-device-duplicate"]
+      }
+    }
+  },
+  "temporary_examples": {
+    "snapshot_request": {"task_ref": "task-example-reconnect", "path": "logs/reconnect-test.log"},
+    "snapshot_rule": "独立的 active Task 场景；只返回本 Task 临时 ref、size、sha256，不返回正文。",
+    "record_request": {"task_ref": "task-example-reconnect", "report_key": "latest-device-reconnect", "body": "当前真机观察：恢复网络后重复连接。"},
+    "record_rule": "同一 report_key 更新同一临时报告，不更新任务状态，不生成永久 event。",
+    "retain_request_fields": ["action=retain", "task_ref", "expected_revision", "idempotency_key", "ref", "purpose"],
+    "retain_rule": "只转存明确选择的本 Task 临时原件，返回实际正式路径和字节摘要。",
+    "cleanup_request": {"action": "cleanup", "task_ref": "task-example-reconnect", "expected_revision": 12},
+    "cleanup_response": {
+      "kind": "task-cleanup/v1",
+      "status": "clean",
+      "task_id": "task-example-reconnect",
+      "revision": 12,
+      "removed_files": 20,
+      "removed_bytes": 1048576,
+      "remaining_refs": [],
+      "issues": []
+    },
+    "cleanup_effect": {"task_record_bytes_changed": false, "task_revision_after": 12, "permanent_receipts_added": 0, "temporary_files_after": 0}
+  },
+  "acceptance_cases": [
+    {"id": "repeated-updates", "scenario": "同一 Task 和范围更新 100 次", "expected": "一份永久任务文件；零新增永久 event；无 100 次历史全文数组"},
+    {"id": "different-environments", "scenario": "单元测试通过，真机失败", "expected": "两个独立结果；关闭后真机失败和未解决问题仍可见"},
+    {"id": "new-execution", "scenario": "同一步骤产生新的实际代码实施", "expected": "旧 execution 的验证与审查不认证新 execution，未解决 finding 保留"},
+    {"id": "revision-conflict", "scenario": "两个 Agent 基于同一旧 revision 更新", "expected": "旧写入明确冲突，不覆盖已保存结果，不重跑业务"},
+    {"id": "stable-identity", "scenario": "调整显示名称或迁移旧格式", "expected": "真实 task_id 保持原值，绑定不按标题或编号猜测"},
+    {"id": "scope-revision", "scenario": "采用新范围后，旧范围仍有正式绑定", "expected": "保留必要旧范围，旧结果不套用到新计划"},
+    {"id": "cleanup-isolation", "scenario": "关闭 A，B 仍实施", "expected": "只清 A 的临时材料，B 的文件保持"},
+    {"id": "late-capture", "scenario": "snapshot 尚未发布时任务关闭并开始清理", "expected": "迟到捕获不能重新留下 blob；未完成清理如实报告"},
+    {"id": "resume-race", "scenario": "旧 cleanup 与任务 resume 竞争", "expected": "旧修订的清理不能删除新恢复工作产生的材料"},
+    {"id": "source-stability", "scenario": "保存正式评估后仅执行 cleanup", "expected": "正式任务字节和摘要不变，报告来源不会因清理统计失效"},
+    {"id": "offline-clone", "scenario": "只克隆 Git，临时 blob 不存在", "expected": "TraceLens 仍能展示任务身份、范围、结果和遗留问题"},
+    {"id": "version-handoff", "scenario": "旧 TraceLens 收到 task-query/v2", "expected": "显示不支持或合法旧快照，不按完整历史 v1 解析"},
+    {"id": "derived-return", "scenario": "派生任务关闭但 prerequisite 未满足", "expected": "不推导满足或自动 finish 父步骤；实际续接上下文保留"},
+    {"id": "readonly", "scenario": "查询／刷新／打开来源", "expected": "不写任务、event、blob、时间戳或回执"},
+    {"id": "migration-gap", "scenario": "旧来源缺失或关联歧义", "expected": "保留具体缺口，不伪造摘要、通过或完整迁移"}
+  ]
+}

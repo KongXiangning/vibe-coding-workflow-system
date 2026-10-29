@@ -318,6 +318,9 @@ describe('Vibe Governance Distribution / Installer', () => {
     expect(fs.existsSync(assistanceCli)).toBe(true);
     expect(managedFiles.some((file: { path: string }) => file.path === '.workflow-system/runtime/support/assistance.mjs')).toBe(true);
     expect(managedFiles.some((file: { path: string }) => file.path.startsWith('.workflow-system/records/'))).toBe(false);
+    // This assertion exercises the existing journal interface; empty projects now
+    // use current Task records, tested by vnext-task-state-install.test.ts.
+    fs.mkdirSync(targetPath(target, '.workflow-system/records/events'), { recursive: true });
     const retained = spawnSync('node', [assistanceCli, 'record', '--root', target], {
       encoding: 'utf8', input: JSON.stringify({ kind: 'test-run', task_ref: 'unbound-old-task', source_revision: 'old', body: { result: 'failed' } }),
     });
@@ -359,13 +362,16 @@ describe('Vibe Governance Distribution / Installer', () => {
     const runtimeCli = targetPath(target, '.workflow-system/runtime/dist/cli.js');
     expect(() => execFileSync('node', [runtimeCli, 'validate-contract', '--root', target], { encoding: 'utf8' })).not.toThrow();
     expect(() => execFileSync('node', [runtimeCli, 'validate', '--root', target], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })).toThrow(/BOOTSTRAP_REQUIRED/u);
-    const taskPath = targetPath(target, 'docs/workflow/CURRENT_TASK.md');
-    const taskBytes = Buffer.from('task: checked-in\n', 'utf8');
-    fs.writeFileSync(taskPath, taskBytes);
-    execFileSync('git', ['-c', 'core.autocrlf=true', 'add', '.gitattributes', 'docs/workflow/.gitattributes', 'docs/workflow/CURRENT_TASK.md'], { cwd: target });
-    fs.unlinkSync(taskPath);
-    execFileSync('git', ['-c', 'core.autocrlf=true', 'checkout-index', '--', 'docs/workflow/CURRENT_TASK.md'], { cwd: target });
-    expect(fs.readFileSync(taskPath)).toEqual(taskBytes);
+    expect(execFileSync('git', ['check-ignore', '--', 'docs/workflow/CURRENT_TASK.md'], { cwd: target, encoding: 'utf8' }).trim()).toBe('docs/workflow/CURRENT_TASK.md');
+    // Generated CURRENT_TASK is local-only. Existing document-store attributes
+    // still preserve their actual Git bytes when autocrlf is enabled.
+    const objectRef = 'docs/workflow/task-data/doc-1/objects/object.json';
+    const objectPath = targetPath(target, objectRef), objectBytes = Buffer.from('{"text":"checked-in"}\n', 'utf8');
+    fs.mkdirSync(path.dirname(objectPath), { recursive: true }); fs.writeFileSync(objectPath, objectBytes);
+    execFileSync('git', ['-c', 'core.autocrlf=true', 'add', '.gitattributes', 'docs/workflow/.gitattributes', objectRef], { cwd: target });
+    fs.unlinkSync(objectPath);
+    execFileSync('git', ['-c', 'core.autocrlf=true', 'checkout-index', '--', objectRef], { cwd: target });
+    expect(fs.readFileSync(objectPath)).toEqual(objectBytes);
   });
 
   test('journal cleanup completes fresh install and upgrade under a non-ASCII path', { timeout: 60000 }, () => {

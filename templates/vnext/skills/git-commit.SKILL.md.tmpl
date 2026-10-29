@@ -42,15 +42,16 @@ Source-repository equivalent: `node runtime/vnext/support/assistance.mjs`.
 
 When task identity or routing needs clarification, use `task-status` (or the
 `context.management` view) to identify the task, adopted plan, step and disposition.
-An ordinary commit needs no task-state audit. The query reads the complete journal,
-not one search page or the old CURRENT_TASK tuple. `find`/`read` remain evidence tools.
+An ordinary commit needs no task-state audit. The query reads the selected current
+Task store (v2 records or v1 journal), not one search page or the old CURRENT_TASK tuple.
+`find`/`read` remain evidence tools.
 For task lifecycle changes use `task` actions documented in ASSISTANCE_API; raw
 `record` is for general observations, not a substitute for task registration.
 Git itself records a commit. A commit request alone requires no task-management write.
 For explicitly requested task-management writes, check `recorded`, `association`
 and `projection` separately.
 If an association/view update fails, retain facts, try a bounded deterministic rebuild
-when appropriate, and present concrete link/correct/resolve/defer choices. Honor the
+when appropriate, and present supported correction/resolve/defer choices (link in v1). Honor the
 chosen recovery without repeating business actions or asking again for existing consent.
 A read-only request uses live task-status without writing a cache. Never declare
 full task-management completion merely because a generic record was saved.
@@ -84,6 +85,16 @@ record refs, not every dirty record or merely the active task. Include necessary
 new attachment manifests and evidence objects for those records; reuse already
 committed dependencies. Do not collect unrelated tasks, old recovery captures or
 archives, repair historical references, or run a project-wide audit by default.
+For task-query/v2, select the changed formal Task source_ref and the project
+tasks/state.json when this work changed it; include explicitly retained attachments
+needed by those records. Current Task JSON is mutable and can legitimately replace
+its previous committed bytes. Logical plan/execution/review IDs are not file paths,
+and temporary reports/blobs are not Git dependencies. Exclude .workflow-system/tmp/tasks,
+task-view caches/baselines/normal recovery copies and the verified generated display.
+Keep project ignore/attribute customizations while merging the scoped policy block;
+new policy setup does not migrate tracked old blobs or rewrite history. Report any
+already tracked temporary files as a separate migration gap instead of force-staging
+or silently untracking them in an ordinary commit.
 An unresolved record's relevance is a scope choice, not permission to stage it.
 Within this invocation, run plan -> necessary authorized byte-policy setup/staging
 -> verify-index -> Git commit -> verify-commit. Follow ASSISTANCE_API for exact
